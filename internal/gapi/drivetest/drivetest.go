@@ -74,10 +74,16 @@ type Server struct {
 	Revisions map[string][]*gdrive.Revision
 	// RevisionContent is each revision's bytes.
 	RevisionContent map[string]string
-	// Permissions are the grants on a file or shared drive id.
+	// Permissions are the grants on a file or shared drive id. An item
+	// inside a shared drive also inherits the drive's, which the fake
+	// adds when the list is read rather than storing twice.
 	Permissions map[string][]*gdrive.Permission
 	// Drives are the shared drives the account can see.
 	Drives map[string]*gdrive.Drive
+	// Changes is the changes feed, in the order things happened. A page
+	// token is an offset into it, which is enough to exercise what the
+	// client has to get right about an opaque token.
+	Changes []*gdrive.Change
 	// About is what about.get answers.
 	About *gdrive.About
 
@@ -99,6 +105,9 @@ type Server struct {
 
 	// sessions are the resumable uploads in progress.
 	sessions map[string]*uploadSession
+	// driveRequests maps a drives.create requestId to the drive it made,
+	// so a repeat is collapsed into the first as Drive collapses it.
+	driveRequests map[string]string
 
 	// nextID numbers generated ids.
 	nextID int
@@ -117,6 +126,7 @@ func New() *Server {
 		Permissions:     map[string][]*gdrive.Permission{},
 		Drives:          map[string]*gdrive.Drive{},
 		sessions:        map[string]*uploadSession{},
+		driveRequests:   map[string]string{},
 		now:             time.Now,
 	}
 	s.About = &gdrive.About{
@@ -279,8 +289,11 @@ func (s *Server) AddDrive(id, name string) *gdrive.Drive {
 	d := &gdrive.Drive{
 		ID: id, Name: name, CreatedTime: s.now().UTC().Format(time.RFC3339),
 		Capabilities: &gdrive.DriveCapabilities{
-			CanListChildren: true, CanAddChildren: true, CanEdit: true,
-			CanManageMembers: true, CanShare: true, CanRenameDrive: true,
+			CanListChildren: true, CanAddChildren: true, CanEdit: true, CanComment: true,
+			CanCopy: true, CanDownload: true, CanReadRevisions: true, CanTrashChildren: true,
+			CanManageMembers: true, CanShare: true, CanRenameDrive: true, CanDeleteDrive: true,
+			CanChangeDriveMembersOnly: true, CanChangeDomainUsersOnly: true,
+			CanChangeCopyRequiresWriter: true,
 		},
 		Restrictions: &gdrive.DriveRestrictions{},
 	}

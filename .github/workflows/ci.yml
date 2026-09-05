@@ -68,6 +68,10 @@ jobs:
       # a live run against a real Drive can drag in: addresses, file ids,
       # and links carrying one.
       - run: go run ./scripts/gates leaks
+      # The tool a release action installs is a separate version from the
+      # action's own SHA, and a range there has floated twice (see §18 of
+      # docs/architecture.md). A comment could not hold it shut.
+      - run: go run ./scripts/gates pins
 
   smoke:
     runs-on: ubuntu-latest

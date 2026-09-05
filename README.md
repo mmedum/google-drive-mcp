@@ -12,11 +12,14 @@ Single binary, stdio, one Google account per profile. You run it against
 a Google Cloud project you own, so nothing about this repository is tied
 to any particular organisation or account.
 
-**Status: v0.1.0, phase 1 of the plan in
-[docs/architecture.md](docs/architecture.md).** The sixteen tools below
-work, and every one of them is verified against a real Google Workspace
-account as well as against the in-memory Drive the tests use. Sharing
-and history arrive in v0.2.0, collaboration in v0.3.0.
+**Status: v0.2.0, phase 2 of the plan in
+[docs/architecture.md](docs/architecture.md).** The tools below work, and
+every one of them is verified against a real Google Workspace account as
+well as against the in-memory Drive the tests use. Two paths are not:
+handing over ownership of a file, and a share an organisation's policy
+refuses — both need a second account or an administrator to exercise, and
+[docs/architecture.md](docs/architecture.md) §17a says what stands in for
+them. Comments, access requests and resources arrive in v0.3.0.
 
 ## What it does today
 
@@ -38,8 +41,20 @@ and history arrive in v0.2.0, collaboration in v0.3.0.
 | `create_shortcut` | A pointer to one item from another folder |
 | `trash_file` | Move an item to the trash, which is reversible |
 | `restore_file` | Take an item out of the trash, and say where it went |
+| `list_permissions` | Who can see an item, with the role, the expiry, and where each grant came from |
+| `share_file` | Grant or change access, with who can see it before and after |
+| `unshare_file` | Take access away, or kill the link that let anybody open it |
+| `list_drives` | The shared drives this account can see, with what it may do in each |
+| `manage_drive` | Create, rename, hide, unhide or restrict a shared drive |
+| `list_revisions` | A file's version history, with Google's own caveat about what it leaves out |
+| `manage_revision` | Pin a version so Drive keeps it, or unpin it again |
+| `list_changes` | What has changed since a point in time, with the token for next time |
 
-Four things it does differently from the alternatives:
+Four more are registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and
+each of those also needs `confirm: true` on the call itself:
+`delete_file`, `empty_trash`, `delete_drive` and `delete_revision`.
+
+Five things it does differently from the alternatives:
 
 - **Shared drives work from the first call.** Every request carries
   `supportsAllDrives`, listings include items from all drives, and an
@@ -52,6 +67,12 @@ Four things it does differently from the alternatives:
 - **Files go one place only.** Downloads land in `GDRIVE_LOCAL_DIR` and
   uploads are read from it; unset, there is no file transfer at all. A
   path outside it is refused, symlinks included.
+- **Sharing shows its work.** Every grant or revocation reports who could
+  see the file before and who can see it after. A public link needs
+  `allow_anyone: true` and an ownership transfer needs
+  `transfer_ownership: true`, on the call itself. No notification mail
+  goes out unless you ask for it, which is the opposite of the API's own
+  default.
 
 ## Install
 
@@ -156,7 +177,7 @@ the server will do at all:
 | `GDRIVE_LOCAL_DIR` | unset | The one directory downloads are written to and uploads are read from. **Unset means no file transfer at all.** |
 | `GDRIVE_READ_ONLY` | `false` | Register only read tools, and ask for read-only scopes at login. |
 | `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered. |
-| `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back. |
+| `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back. Each still needs `confirm: true` per call. |
 
 ## What it will not do
 
@@ -170,8 +191,11 @@ the server will do at all:
   every call.
 - Destroy anything without a way back, by default. Trash and restore are
   the default surface; permanent deletion is gated behind
-  `GDRIVE_ENABLE_DESTRUCTIVE=true`. There is no bulk delete and no bulk
-  share: one item per call, so every removal is a visible approval.
+  `GDRIVE_ENABLE_DESTRUCTIVE=true` **and** needs `confirm: true` on the
+  call, because a registered tool is one a model will reach for
+  eventually. There is no bulk delete and no bulk share: one item per
+  call, so every removal is a visible approval. Deleting the top of a
+  drive is refused outright.
 - Talk to anything but Google. Every URL is checked against an allowlist
   of Google's own hosts before credentials are attached. No telemetry, no
   update checks.

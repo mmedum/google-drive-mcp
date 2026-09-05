@@ -211,7 +211,7 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput) (query, descr
 		if strings.TrimSpace(t.value) == "" {
 			continue
 		}
-		stamp, err := parseWhen(t.value)
+		stamp, err := parseSearchDate(t.value)
 		if err != nil {
 			return "", "", Errorf(ClassInvalid, "%s: %v", t.words, err)
 		}
@@ -234,17 +234,29 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput) (query, descr
 	return strings.Join(clauses, " and "), "search: " + strings.Join(described, ", "), nil
 }
 
-// parseWhen accepts an RFC 3339 timestamp, a plain date, or a duration
-// ago like 7d, and returns the RFC 3339 form Drive wants.
-func parseWhen(v string) (string, error) {
-	v = strings.TrimSpace(v)
-	if t, err := time.Parse(time.RFC3339, v); err == nil {
-		return t.UTC().Format(time.RFC3339), nil
-	}
-	if t, err := time.Parse("2006-01-02", v); err == nil {
+// parseSearchDate accepts an RFC 3339 timestamp or a plain date and
+// returns the RFC 3339 form Drive wants. A relative form is deliberately
+// not accepted here: "7d" reads as the past in a search filter and as
+// the future in an expiry, and one spelling meaning opposite things is
+// worse than not having it.
+func parseSearchDate(v string) (string, error) {
+	if t, ok := parseInstant(v); ok {
 		return t.UTC().Format(time.RFC3339), nil
 	}
 	return "", fmt.Errorf("%q is not a date; write 2026-03-04 or 2026-03-04T09:00:00Z", v)
+}
+
+// parseInstant reads the absolute date forms this server accepts
+// wherever a caller writes a time. It is shared so that a date accepted
+// by a search is a date accepted by an expiry.
+func parseInstant(v string) (time.Time, bool) {
+	v = strings.TrimSpace(v)
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, v); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }
 
 // decorate turns wire files into model files with their locations filled
