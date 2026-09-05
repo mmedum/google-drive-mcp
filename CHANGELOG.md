@@ -174,6 +174,14 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added (tooling)
 
+- Spike F in the live driver now **reads the transfer back**. It records
+  the owner before, transfers, then reads the file again and compares:
+  a call that answers 200 and leaves the owner where it was looks
+  identical to one that worked, from the result alone. It reports three
+  outcomes — the owner changed, the owner did not change, or the file
+  could not be read back at all — because "unknown" and "it worked" must
+  not print the same. The owner is compared, never printed.
+
 - Both leak modes now fail rather than passing quietly when they find
   nothing to scan. "I found nothing" and "I had nowhere to look" printed
   the same sentence, so a gate run from the wrong directory would have

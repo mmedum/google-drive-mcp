@@ -180,3 +180,22 @@ func TestANumericPermissionIDIsRedacted(t *testing.T) {
 		t.Errorf("an ordinary number was redacted:\n%s", out)
 	}
 }
+
+func TestOwnerIsReadFromACardForComparison(t *testing.T) {
+	// Spike F compares the owner before and after a transfer, because a
+	// call that answers 200 and leaves the owner where it was looks
+	// identical to one that worked. The value is only ever compared,
+	// never printed, so it is read before redaction.
+	card := "created: ownership transfer probe — text file\n" +
+		"id: id-transfer-probe-fixture\n" +
+		"owner: Someone Else <someone@example.com>\n" +
+		"you can: edit, comment\n"
+	if got := ownerFromResult(card); got != "Someone Else <someone@example.com>" {
+		t.Errorf("owner = %q", got)
+	}
+	// A card with no owner line means the file could not be read back,
+	// which spike F reports as "unknown" rather than as success.
+	if got := ownerFromResult("id: id-transfer-probe-fixture\n"); got != "" {
+		t.Errorf("owner = %q, want empty when there is no owner line", got)
+	}
+}

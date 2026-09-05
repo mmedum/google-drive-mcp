@@ -132,22 +132,69 @@ func (w *writeRun) access(m made) {
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "principal": w.share})
 
-	// Spike F. The transfer is on a copy, not on a file the rest of the
-	// run still needs: after it this account is a writer and no longer
-	// the owner, and on a consumer account it waits to be accepted.
+	w.spikeF()
+}
+
+// spikeF is the ownership transfer, and the only call in this run whose
+// effect cannot be undone from this account.
+//
+// It runs on a file created for it, never on one the rest of the run
+// needs. Afterwards this account is a writer rather than the owner, and
+// Drive moves the file to the new owner's root — so it leaves the
+// scratch folder, and trashing that folder will not take it.
+//
+// The transfer is READ BACK. Two earlier runs of this driver reported
+// "all calls behaved as expected" while three results were wrong,
+// because a call succeeding and a call telling the truth are different
+// questions. For a transfer the second question is the only one that
+// matters, and the answer is in the owner line, not the status.
+func (w *writeRun) spikeF() {
 	transfer := w.createAndKeepID("create_file", map[string]any{
 		"name": "ownership transfer probe", "parent": w.scratchID,
-		"content": "spike F\n", "mime_type": "text/plain",
+		"content": "spike F: this file is about to change hands\n", "mime_type": "text/plain",
 	})
 	if transfer == "" {
+		fmt.Println("\n=== spike F: skipped, the file it needs was never created ===")
 		return
 	}
+	before := ownerFromResult(w.call(call{tool: "get_file", args: map[string]any{"file": transfer}}))
+
+	fmt.Println("\n!! the next call hands this file to " + w.share + " for good.")
 	w.needing("share_file", transfer, map[string]any{
 		"file": transfer, "principal": w.share, "role": "owner", "transfer_ownership": true,
 	})
-	w.needing("list_permissions", transfer, map[string]any{"file": transfer})
-	fmt.Println("\n!! the file above was handed to " + w.share + ". Trashing the scratch folder does not " +
-		"take it back: only its new owner can. Deal with it by hand.")
+
+	// The proof. A transfer that answers 200 and leaves the owner where
+	// it was would look identical to one that worked, from the result
+	// alone.
+	after := ownerFromResult(w.call(call{tool: "get_file", args: map[string]any{"file": transfer}}))
+	w.call(call{tool: "list_permissions", args: map[string]any{"file": transfer}})
+
+	switch after {
+	case "":
+		w.problem("the file could not be read back after the transfer, so whether ownership actually "+
+			"moved is unknown. Open it in Drive and look", errors.New("no owner line in the result"))
+	case before:
+		w.problem("share_file reported an ownership transfer and the owner DID NOT CHANGE. That is the "+
+			"failure reading it back exists to catch", errors.New("the owner is the same as before"))
+	default:
+		fmt.Println("\n(spike F: the owner changed, so the transfer really happened. " +
+			"This account is a writer on it now.)")
+	}
+	fmt.Println("!! that file now belongs to " + w.share + " and has moved to their Drive. Trashing the " +
+		"scratch folder does not take it back: only its new owner can remove it.")
+}
+
+// ownerFromResult reads the "owner:" line of a file card, before
+// redaction, so a transfer can be compared with what came before it. The
+// value is never printed: only whether it changed.
+func ownerFromResult(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "owner: "); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
 }
 
 // history exercises the version history and the changes feed. The feed
