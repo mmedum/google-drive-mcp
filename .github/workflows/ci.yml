@@ -86,6 +86,10 @@ jobs:
       # action's own SHA, and a range there has floated twice (see §18 of
       # docs/architecture.md). A comment could not hold it shut.
       - run: go run ./scripts/gates pins
+      # A class is what a model branches on, and until this ran nothing
+      # held the code to the list: one could be invented at a call site,
+      # or listed and never emitted, and both read as silence.
+      - run: go run ./scripts/gates classes
 
   smoke:
     runs-on: ubuntu-latest
