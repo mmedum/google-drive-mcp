@@ -9,6 +9,88 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/model"
 )
 
+// cardHead is how any result introduces the file it is about: what it
+// is, whether a shortcut was followed to reach it, its id and where it
+// lives. Every renderer starts this way, so it is written once.
+func cardHead(b *buf, f *model.File, action Action, dryRun bool, followedShortcut string) {
+	switch {
+	case action != "" && dryRun:
+		// The lead line is the one part of a result that is always read.
+		// A dry run that leads with "moved" has already misinformed
+		// whoever stopped there.
+		b.linef("would have %s: %s — %s", action, f.Name, f.Kind)
+	case action != "":
+		b.linef("%s: %s — %s", action, f.Name, f.Kind)
+	default:
+		b.linef("%s — %s", f.Name, f.Kind)
+	}
+	if followedShortcut != "" {
+		b.linef("(followed the shortcut %s to get here)", followedShortcut)
+	}
+	b.field("id", f.ID)
+	b.field("location", f.Location.String())
+}
+
+// cardState is the part of a card that says what has happened to the
+// file rather than what it is: starred, in the trash, or locked.
+func cardState(b *buf, f *model.File, now time.Time) {
+	if f.Starred {
+		b.field("starred", "yes")
+	}
+	if f.Trashed {
+		trashed := "yes"
+		// My Drive records neither; only a shared drive says who and when.
+		if f.TrashedBy != "" {
+			trashed += ", by " + f.TrashedBy
+			if !f.TrashedAt.IsZero() {
+				trashed += " on " + model.HumanTime(f.TrashedAt, now)
+			}
+		}
+		b.field("trashed", trashed+" — it is in the trash, not deleted, and Drive empties the trash 30 days after an item goes in")
+	}
+	if f.ContentLocked {
+		reason := f.ContentLockedReason
+		if reason == "" {
+			reason = "no reason given"
+		}
+		b.field("content locked", reason+" — edits will be refused until the restriction is removed")
+	}
+}
+
+// cardTags renders the custom properties and Workspace labels, both
+// sorted so a card of one file always reads the same way.
+func cardTags(b *buf, f *model.File) {
+	if len(f.Properties) > 0 {
+		keys := make([]string, 0, len(f.Properties))
+		for k := range f.Properties {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		pairs := make([]string, 0, len(keys))
+		for _, k := range keys {
+			pairs = append(pairs, k+"="+f.Properties[k])
+		}
+		b.field("properties", strings.Join(pairs, ", "))
+	}
+	if len(f.Labels) > 0 {
+		names := make([]string, 0, len(f.Labels))
+		for _, l := range f.Labels {
+			names = append(names, l.ID)
+		}
+		sort.Strings(names)
+		b.field("labels", strings.Join(names, ", "))
+	}
+}
+
+// orEmpty renders a value that was not set, so a before-and-after line
+// never reads as though a field went from nothing to nothing.
+func orEmpty(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "(empty)"
+	}
+	return v
+}
+
 // FileCardOptions tune a file card.
 type FileCardOptions struct {
 	// Now anchors the relative times; the zero value drops them.
@@ -18,6 +100,15 @@ type FileCardOptions struct {
 	FollowedShortcut string
 	// Note is an extra line at the end, e.g. what a write changed.
 	Note string
+	// Action names what a write just did, so the card leads with the
+	// change rather than with the state. Empty for a plain read.
+	Action Action
+	// DryRun marks a card that describes what would have happened. It is
+	// said once, here, rather than in whatever sentence each caller
+	// happened to write.
+	DryRun bool
+	// Changes are the fields a write altered, before and after.
+	Changes []Change
 }
 
 // FileCard renders everything known about one file. It is what get_file
@@ -28,12 +119,7 @@ func FileCard(f *model.File, o FileCardOptions) string {
 		return "(no file)\n"
 	}
 	var b buf
-	b.linef("%s — %s", f.Name, f.Kind)
-	if o.FollowedShortcut != "" {
-		b.linef("(followed the shortcut %s to get here)", o.FollowedShortcut)
-	}
-	b.field("id", f.ID)
-	b.field("location", f.Location.String())
+	cardHead(&b, f, o.Action, o.DryRun, o.FollowedShortcut)
 	b.field("link", f.Link)
 	if f.IsShortcut && f.ShortcutTargetID != "" {
 		target := f.ShortcutTargetID
@@ -59,60 +145,30 @@ func FileCard(f *model.File, o FileCardOptions) string {
 	b.field("owner", f.Owner)
 	b.field("sharing", f.Sharing.Summary())
 	b.field("you can", joinOr(f.Can, ""))
-	if f.Starred {
-		b.field("starred", "yes")
-	}
-	if f.Trashed {
-		trashed := "yes"
-		// My Drive records neither; only a shared drive says who and when.
-		if f.TrashedBy != "" {
-			trashed += ", by " + f.TrashedBy
-			if !f.TrashedAt.IsZero() {
-				trashed += " on " + model.HumanTime(f.TrashedAt, o.Now)
-			}
-		}
-		b.field("trashed", trashed+" — it is in the trash, not deleted, and Drive empties the trash 30 days after an item goes in")
-	}
-	if f.ContentLocked {
-		reason := f.ContentLockedReason
-		if reason == "" {
-			reason = "no reason given"
-		}
-		b.field("content locked", reason+" — edits will be refused until the restriction is removed")
-	}
+	cardState(&b, f, o.Now)
 	b.field("description", f.Description)
 	b.field("head revision", f.HeadRevisionID)
 	if len(f.ExportFormats) > 0 {
 		b.field("export formats", strings.Join(f.ExportFormats, ", "))
 	}
-	if len(f.Properties) > 0 {
-		keys := make([]string, 0, len(f.Properties))
-		for k := range f.Properties {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		pairs := make([]string, 0, len(keys))
-		for _, k := range keys {
-			pairs = append(pairs, k+"="+f.Properties[k])
-		}
-		b.field("properties", strings.Join(pairs, ", "))
-	}
-	if len(f.Labels) > 0 {
-		names := make([]string, 0, len(f.Labels))
-		for _, l := range f.Labels {
-			names = append(names, l.ID)
-		}
-		sort.Strings(names)
-		b.field("labels", strings.Join(names, ", "))
-	}
+	cardTags(&b, f)
 	if f.CopyRequiresWriterPermission {
 		b.line("note: viewers and commenters cannot copy, print or download this file")
 	}
 	if f.BoundaryNote != "" {
 		b.line("note: " + f.BoundaryNote)
 	}
+	if o.DryRun {
+		b.line("NOTHING WAS CHANGED: this was a dry run. Call it again without dry_run to do it.")
+	}
+	if len(o.Changes) > 0 {
+		b.line("changed:")
+		for _, c := range o.Changes {
+			b.linef("  %s: %s → %s", c.Field, orEmpty(c.From), orEmpty(c.To))
+		}
+	}
 	if o.Note != "" {
-		b.line(o.Note)
+		b.line("note: " + o.Note)
 	}
 	return b.String()
 }

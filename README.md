@@ -12,11 +12,11 @@ Single binary, stdio, one Google account per profile. You run it against
 a Google Cloud project you own, so nothing about this repository is tied
 to any particular organisation or account.
 
-**Status: v0.0.1, phase 0 of the plan in
-[docs/architecture.md](docs/architecture.md).** The four read tools below
-work, and are verified against a real account as well as against the
-in-memory Drive the tests use. Content and organising arrive in v0.1.0,
-sharing and history in v0.2.0, collaboration in v0.3.0.
+**Status: v0.1.0, phase 1 of the plan in
+[docs/architecture.md](docs/architecture.md).** The sixteen tools below
+work, and every one of them is verified against a real Google Workspace
+account as well as against the in-memory Drive the tests use. Sharing
+and history arrive in v0.2.0, collaboration in v0.3.0.
 
 ## What it does today
 
@@ -26,8 +26,20 @@ sharing and history in v0.2.0, collaboration in v0.3.0.
 | `get_file` | Everything about one file: kind, location, link, size, owner, who can see it, and what you may do with it |
 | `list_folder` | One page of a folder's contents, or a budgeted tree of everything below it |
 | `search_files` | Find files across My Drive, files shared with you, and every shared drive |
+| `read_file` | The text of a file: a Doc as markdown, a Sheet as csv, a log or source file as itself, windowed with a continuation |
+| `download_file` | Write a file to the local directory, converting a Google document on the way out, checksum-verified |
+| `create_file` | A new empty Google file, or one written from text you have here, with optional conversion |
+| `upload_file` | Send a local file, in one request or in chunks that survive a dropped connection |
+| `update_content` | Replace what is inside a file, keeping its id, its place and everything that points at it |
+| `create_folder` | A new folder, refusing a duplicate name unless you allow it |
+| `update_file` | Rename, describe, star, colour, set properties, or turn off copying and re-sharing |
+| `move_file` | Move an item to another folder or shared drive, with a dry run |
+| `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan |
+| `create_shortcut` | A pointer to one item from another folder |
+| `trash_file` | Move an item to the trash, which is reversible |
+| `restore_file` | Take an item out of the trash, and say where it went |
 
-Three things it does differently from the alternatives:
+Four things it does differently from the alternatives:
 
 - **Shared drives work from the first call.** Every request carries
   `supportsAllDrives`, listings include items from all drives, and an
@@ -37,6 +49,9 @@ Three things it does differently from the alternatives:
   the first match.
 - **Location is always shown.** Names are not unique in Drive, so every
   result says which folder, and which drive, a file sits in.
+- **Files go one place only.** Downloads land in `GDRIVE_LOCAL_DIR` and
+  uploads are read from it; unset, there is no file transfer at all. A
+  path outside it is refused, symlinks included.
 
 ## Install
 

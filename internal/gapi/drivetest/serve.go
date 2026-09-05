@@ -3,7 +3,9 @@ package drivetest
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,24 +32,101 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if upload, ok := strings.CutPrefix(r.URL.Path, "/upload/drive/v3"); ok {
+		s.serveUpload(w, r, upload)
+		return
+	}
+	if rev, ok := strings.CutPrefix(r.URL.Path, "/export/"); ok && r.Method == http.MethodGet {
+		s.handleRevisionExport(w, r, rev)
+		return
+	}
+
 	path := strings.TrimPrefix(r.URL.Path, "/drive/v3")
 	switch {
 	case path == "/about" && r.Method == http.MethodGet:
 		s.handleAbout(w)
+	case path == "/drives" && r.Method == http.MethodGet:
+		s.handleListDrives(w, r)
+	case path == "/files" || strings.HasPrefix(path, "/files/"):
+		s.serveFiles(w, r, path)
+	default:
+		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+path)
+	}
+}
+
+// serveFiles routes everything under /files, which is most of the API.
+func (s *Server) serveFiles(w http.ResponseWriter, r *http.Request, path string) {
+	media := r.URL.Query().Get("alt") == "media"
+	rest := strings.TrimPrefix(path, "/files/")
+	switch {
 	case path == "/files/generateIds" && r.Method == http.MethodGet:
 		s.handleGenerateIDs(w, r)
 	case path == "/files" && r.Method == http.MethodGet:
 		s.handleList(w, r)
-	case strings.HasPrefix(path, "/files/") && strings.HasSuffix(path, "/permissions") && r.Method == http.MethodGet:
-		id := strings.TrimSuffix(strings.TrimPrefix(path, "/files/"), "/permissions")
-		s.handleListPermissions(w, id)
-	case strings.HasPrefix(path, "/files/") && r.Method == http.MethodGet:
-		s.handleGet(w, r, strings.TrimPrefix(path, "/files/"))
-	case path == "/drives" && r.Method == http.MethodGet:
-		s.handleListDrives(w, r)
+	case path == "/files" && r.Method == http.MethodPost:
+		s.handleCreate(w, r)
+	case strings.HasSuffix(path, "/permissions") && r.Method == http.MethodGet:
+		s.handleListPermissions(w, strings.TrimSuffix(rest, "/permissions"))
+	case strings.HasSuffix(path, "/export") && r.Method == http.MethodGet:
+		s.handleExport(w, r, strings.TrimSuffix(rest, "/export"))
+	case strings.HasSuffix(path, "/copy") && r.Method == http.MethodPost:
+		s.handleCopy(w, r, strings.TrimSuffix(rest, "/copy"))
+	case revisionPath.MatchString(path):
+		m := revisionPath.FindStringSubmatch(path)
+		if media {
+			s.handleDownload(w, r, m[1], m[2])
+			return
+		}
+		s.handleRevision(w, r, m[1], m[2])
+	case r.Method == http.MethodGet && media:
+		s.handleDownload(w, r, rest, "")
+	case r.Method == http.MethodGet:
+		s.handleGet(w, r, rest)
+	case r.Method == http.MethodPatch:
+		s.handleUpdate(w, r, rest)
 	default:
 		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+path)
 	}
+}
+
+// revisionPath matches /files/{fileId}/revisions/{revisionId}.
+var revisionPath = regexp.MustCompile(`^/files/([^/]+)/revisions/([^/]+)$`)
+
+// serveUpload routes the media-upload endpoints, which Drive serves
+// under /upload with the same version path.
+func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request, path string) {
+	switch {
+	case path == "/files" && r.Method == http.MethodPost:
+		s.handleUpload(w, r, "")
+	case strings.HasPrefix(path, "/files/") && r.Method == http.MethodPatch:
+		s.handleUpload(w, r, strings.TrimPrefix(path, "/files/"))
+	case strings.HasPrefix(path, "/sessions/") && r.Method == http.MethodPut:
+		s.handleSession(w, r, strings.TrimPrefix(path, "/sessions/"))
+	default:
+		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+path)
+	}
+}
+
+// decodeJSON reads a JSON request body, bounded, and answers the 400
+// itself so that the size limit and the shape of a malformed-body reply
+// live in one place rather than in every handler.
+func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBytes)).Decode(v); err != nil {
+		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid request body: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// fileLocked returns a file by id, resolving the "root" alias Drive
+// accepts everywhere. Every handler needs it, and one that forgets it
+// answers 404 for `root` with nothing to say why. The caller holds the
+// lock.
+func (s *Server) fileLocked(id string) *gdrive.File {
+	if id == "root" {
+		return s.Files[s.RootID]
+	}
+	return s.Files[id]
 }
 
 func (s *Server) injectFailure(w http.ResponseWriter, f *Failure) {
@@ -150,10 +229,7 @@ func (s *Server) handleGenerateIDs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, id string) {
 	s.mu.Lock()
-	f := s.Files[id]
-	if id == "root" {
-		f = s.Files[s.RootID]
-	}
+	f := s.fileLocked(id)
 	s.mu.Unlock()
 	if f == nil {
 		s.errorJSON(w, http.StatusNotFound, "notFound", "File not found: "+id+".")
@@ -295,7 +371,7 @@ func sortFiles(files []*gdrive.File, orderBy string) {
 }
 
 func sizeOf(f *gdrive.File) int64 {
-	n, _ := strconv.ParseInt(f.Size, 10, 64)
+	n, _ := f.SizeBytes()
 	return n
 }
 

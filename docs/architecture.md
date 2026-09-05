@@ -1,18 +1,22 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 0 complete (2026-09-05), released as v0.0.1. In: the
-scaffolding and every gate, `login/logout/status/doctor`, `config`,
-`credentials`, `userconfig`, `auth`, the `gapi` core with `about.get`,
-`files.get`, `files.list`, `drives.list`, `permissions.list` and
-`generateIds`, the `drivetest` fake beneath it, `ref`, `model`, `render`,
-and the four read tools `get_account`, `get_file`, `search_files` and
-`list_folder`. Verified live against a Workspace account: `login`,
-`doctor`, the live driver, and spike A, which refuted three claims this
-document made (§18). Spikes B-F moved to the phase that builds the code
-they test (§16). Phase 1 begins on an explicit go. §16 has the phase
-plan, §17 the decisions that are not to be reopened, §17a the deferred
-cleanups, §17b where this repository differs from the shared standard,
-and §18 the evidence log.
+**Status:** phase 1 complete (2026-09-05), released as v0.1.0. Sixteen
+tools: phase 0's four reads plus `read_file`, `download_file`,
+`create_file`, `upload_file`, `update_content`, `create_folder`,
+`update_file`, `move_file`, `copy_file`, `create_shortcut`, `trash_file`
+and `restore_file`, with local-directory confinement, the duplicate-name
+guard, and the transfer half of `gapi` — ranged streaming downloads,
+exports, and resumable uploads that recover through the protocol.
+Verified live against a Workspace account: 67 calls covering every tool,
+including a 6 MiB upload through the resumable path returning
+byte-identical, and ten refusals. That run is spike C, and with a shared
+drive named it is the write half of spike E as well: a file moved in and
+back out, and the folder-move refusal seen for real. The live runs
+refuted five things this document asserted, two of them making a tool
+fail outright (§18). Phase 2 begins on an explicit go. §16 has the
+phase plan, §17 the decisions that are not to be reopened, §17a the
+deferred cleanups, §17b where this repository differs from the shared
+standard, and §18 the evidence log.
 
 This document is the plan. It is written so that whoever picks the work
 up can start from the repository alone: read the status line above, §16
@@ -107,7 +111,7 @@ Verified against the Drive API v3 reference and guides on 2026-09-05.
 | **Resource keys**: link-shared files under the 2021 security update need `X-Goog-Drive-Resource-Keys: id/key,…`. Keys arrive in `resourceKey`, `shortcutDetails.targetResourceKey` and the `resourcekey` URL parameter. | The reference parser keeps keys from URLs; the client remembers keys from every response and sends them on later calls for that id. |
 | **Scopes**: `drive` and `drive.readonly` are *restricted*; `drive.file` is non-sensitive but reaches only files the app created or the user opened with it through the Picker, which a CLI has no way to show. `drive.metadata` is restricted too. An External OAuth app in Testing gets 7-day refresh tokens; an Internal (Workspace) consent screen does not. | Full mode asks for `drive`; read-only asks for `drive.readonly`; labels add `drive.labels` (§10). Fine for a per-user app each deployer owns. The README covers Internal vs Testing. |
 | **Shared drives** exist only on Workspace editions; consumer accounts cannot create one (`about.canCreateDrives`). `drives.create` requires a `requestId` so a retry cannot create two. `drives.delete` needs an empty drive and an organizer. Members are permissions on the drive id. | `manage_drive` sends a fresh UUID as `requestId` and keeps it for the retry; `delete_drive` is gated; membership goes through `share_file` with the drive as the target. |
-| `files.generateIds` returns ids that `files.create` and `files.copy` accept in the body, making them **idempotent**. | Every create, upload and copy carries a pre-generated id; a retry after an ambiguous failure cannot produce two files. |
+| `files.generateIds` returns ids that `files.create` and `files.copy` accept in the body, making them **idempotent** — **except for the Docs Editors formats, which refuse one** (§18, live). | Every create, upload and copy carries a pre-generated id where Drive takes one; a new Doc, Sheet, Slides deck, Drawing or Form cannot, and is therefore never retried. |
 | **Labels** are Workspace metadata; definitions live in the separate Drive Labels API (`drivelabels.googleapis.com`, scopes `drive.labels`, `drive.labels.readonly`); the Drive API applies them with `files.modifyLabels` and reads them with `includeLabels`. **Approvals** are a new resource on files (`approvals.start/approve/decline/cancel/comment/reassign/get/list`). **Access proposals** cannot be created through the API, only listed and resolved by approvers (`accessproposals.list/get/resolve`). | Labels and approvals are Phase 4 (Workspace); access requests are Phase 3. |
 | Listings return at most 1 000 per page; `nextPageToken` stays valid for hours. `orderBy` keys: `createdTime`, `folder`, `modifiedByMeTime`, `modifiedTime`, `name`, `name_natural`, `quotaBytesUsed`, `recency`, `sharedWithMeTime`, `starred`, `viewedByMeTime`. | Pages are capped well under 1 000; `list_folder` sorts `folder,name_natural`; `search_files` defaults to `modifiedTime desc`. |
 | Claude Code truncates tool results above 25 000 tokens and warns at 10 000. | Reads and listings are budgeted with continuation. |
@@ -348,10 +352,12 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   and that any other sheet or range is a Sheets API read this server
   does not offer), Slides as plain text, Apps Script as JSON, and
   text-like blobs (`text/*`, JSON, XML, YAML, CSV, Markdown, source code
-  by extension, up to 20 MB) through `alt=media` with a `Range` header
+  by extension, any size) through `alt=media` with a `Range` header
   covering only the window shown (`offset`, `max_chars`, default 20 000
   characters, maximum 400 000), so the head of a 200 MB log is one small
-  request. PDFs, Office files and images are `[unsupported]` with the two
+  request. There is deliberately **no size limit** on this path: the
+  range bounds the transfer, and a limit here would refuse a file the
+  tool can in fact read (§18). PDFs, Office files and images are `[unsupported]` with the two
   ways forward: `download_file`, or `copy_file` with `convert_to: doc`
   (Google's import, which OCRs PDFs and images) and then `read_file` on
   the copy. The header comment carries name, kind, size, head revision,
@@ -376,8 +382,10 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   Workspace file, or `content` (inline text) with `mime_type` (default
   `text/plain`) and optional `convert_to` (`doc`, `sheet`, `slides`)
   through Google's import. Plus `description`, `starred`. Multipart
-  upload with a pre-generated id. Refuses content above 5 MB (use
-  `upload_file`).
+  upload with a pre-generated id **where Drive takes one**: the Docs
+  Editors formats refuse it (§18), so those creates are the ones that
+  are not idempotent, and the duplicate-name guard is what catches a
+  double. Refuses content above 5 MB (use `upload_file`).
 - `upload_file`: `local_path` (inside `GDRIVE_LOCAL_DIR` after symlinks
   are resolved), `name` (default the file name), `parent`, `mime_type`
   (default: by extension, then by sniffing), `convert_to`, `ocr_language`,
@@ -413,10 +421,11 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   old path and new path.
 - `copy_file`: `file`, `name` (default "Copy of …", as Drive does), `to`
   (default the source's folder, as Drive does), `convert_to` (import
-  conversion, OCR for PDFs and images, `ocr_language`), `copy_comments`,
+  conversion, OCR for PDFs and images, `ocr_language`),
   `keep_revision_forever`. Uses a pre-generated id. Folders are refused
   in Phase 1 with the reason; Phase 3 adds `recursive: true` with an item
-  budget.
+  budget. (`copy_comments` was in this list until Phase 1 checked: v3's
+  `files.copy` has no such parameter — §18.)
 - `create_shortcut`: `target`, `parent`, `name` (default the target's).
 - `trash_file` and `restore_file`: the result names the item, says
   "folder with its contents" when it is one, reminds that the trash
@@ -673,7 +682,30 @@ before and after summaries.
   same way: they are idempotent. Creates, uploads and copies retry
   because they carry a pre-generated id; a duplicate-id answer after an
   ambiguous failure is confirmed with a `files.get` and reported as
-  success. `permissions.create` is not idempotent, so after a network
+  success. **A create that cannot carry one is not retried at all**:
+  Drive refuses a generated id for the Docs Editors formats, so a 500
+  arriving after a new Doc was made would otherwise produce a second
+  one. The request carries the exception rather than the rule naming the
+  kind. It is derived from the method: GET, PATCH, PUT and DELETE mean
+  the same thing applied twice, so they may be repeated, and a POST may
+  not unless whoever built it said why — so a write added in a later
+  phase and given no thought fails closed rather than open. An earlier
+  version of this rule read a flag whose zero value meant "safe to
+  repeat", which had the same defect one level down. The one request that is neither
+  a plain read nor a write is `files.generateIds`, which allocates: it
+  is `kindRead` and repeating it is safe, because an unused id costs
+  nothing and becomes a file only when a create carries it. That is
+  written at the call site, because `kindRead` now grants a retry.
+- **Sharing, in phase 2, does not retry at all** (decided here so that
+  phase 2 does not have to rediscover it). `permissions.create` is not
+  idempotent, and the failure that matters is not a duplicate grant —
+  granting the same person the same role twice is the same grant. It is
+  that a share applied after the caller believed the call failed is
+  exposure nobody is watching, which is the one direction §9 exists to
+  prevent. So a sharing write that fails, transiently or otherwise, is
+  reported as `[ambiguous_outcome]` with `list_permissions` named as the
+  way to find out, rather than repeated. `request.unsafeToRepeat` is
+  where that is expressed. `permissions.create` is not idempotent, so after a network
   failure the server lists permissions and checks before it retries.
   Resumable uploads recover through the protocol itself.
 - **Limiters.** Reads and listings 10/s, burst 20. Writes 5/s, burst 10.
@@ -869,13 +901,23 @@ spike that gets skipped and then forgotten. So:
 - **B (Google's Drive MCP)** needs a Cloud project in the Developer
   Preview Programme. Nothing depends on it.
 
-**Phase 1 — content and organisation (v0.1.0).** `read_file`,
+**Phase 1 — content and organisation (v0.1.0). Done 2026-09-05.**
+`read_file`,
 `download_file`, `create_file`, `upload_file`, `update_content`,
 `create_folder`, `update_file`, `move_file`, `copy_file`,
 `create_shortcut`, `trash_file`, `restore_file`; local-dir confinement;
 `drivetest` grows uploads, downloads, trash and revisions; the live
 driver covers every tool; `docs/configuration.md` and the README tool
 table match the code (the staleness gate enforces it).
+
+The live driver grew a `-write` mode for this: it makes one scratch
+folder, exercises every tool inside it, and trashes it again, so a run
+touches nothing else. Seven runs closed the phase; the last four found
+the four refutations in §18, including two tools that had never worked
+at all. With `-drive NAME_OR_ID` it also runs the write half of spike E: one
+file into a shared drive and back out, and the folder-move refusal. That
+part says loudly if the move back fails, because it is the only thing
+trashing the scratch folder cannot clean up.
 
 **Phase 2 — access, shared drives, history (v0.2.0).** `list_permissions`,
 `share_file`, `unshare_file` with the policy; `list_drives`,
@@ -959,20 +1001,46 @@ difference is a decision rather than a drift.
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
 
-- The six phase-0 spikes (§16 A-F) are unrun. Nothing in the code depends
-  on their outcome, but A (search semantics) and C (resumable upload)
-  should land before phase 1 designs `upload_file` against assumptions.
+- Spike A ran (§18). C (resumable upload), the write half of E (shared
+  drives) and F (ownership transfer) are still unrun: the code they test
+  exists as of phase 1 and behaves against `drivetest`, including a
+  forced interruption and a session that stores part of a chunk, but no
+  fake can prove Drive agrees. They run with the live driver's `-write`
+  mode against a scratch folder.
 - `internal/gapi/drivetest` implements the semantics of `name contains`
   from the reference. Spike A is what confirms the fake and Drive agree.
-- **One MIME registry.** Three tables carry MIME knowledge in three
+- **Two places know a file's text form.** `service.readPlan` maps a
+  Google kind onto an export MIME type; `service.defaultExport` maps the
+  same kinds onto a download format. They answer different questions and
+  agree by hand. They belong with the one MIME registry below.
+- **One MIME registry.** Five tables now carry MIME knowledge in three
   layers: `model.googleKinds`/`blobKinds` (mime to display name),
   `service.kindMimes` (kind name to query clause, which retypes the six
-  Office types), and `gapi.exportMimeToName` (export mime to short name).
-  Adding a kind is three edits in three packages and a typo shows up as a
-  search that silently matches nothing. One registry keyed by MIME,
-  carrying display name, kind group and export name, would remove that;
-  it is a phase-3 job, once phases 1 and 2 have shown which of the three
-  shapes the registry actually needs.
+  Office types), `gapi.exportMimeToName` (export mime to short name), and
+  phase 1 added `service.readPlan`'s export choice and
+  `service.defaultExport` (Google kind to download format). The short
+  names are a user-facing vocabulary living in `gapi`, which is supposed
+  to speak only wire types, and the list of them is retyped by hand into
+  `download_file`'s schema tag. Adding a kind is now four edits in three
+  packages, and a typo shows up as a search that silently matches
+  nothing. One registry keyed by MIME — display name, kind group, export
+  name, the format a read takes and the format a download defaults to —
+  would remove that, and the tool description would be generated from it
+  rather than written out. It stays a phase-3 job: phase 2 adds no MIME
+  knowledge, so the shape is already as clear as it will get, but the
+  change touches every layer and is not worth doing twice.
+- **A pre-generated id costs a round trip per create.** Every
+  `create_file`, `upload_file`, `create_folder`, `copy_file` and
+  `create_shortcut` blocks on a `files.generateIds` call for exactly one
+  id, between resolving the parent and writing. `GenerateIDs` already
+  takes a count, so a small pool would take that round trip off nine
+  creates in ten, and the call is independent of both the parent
+  resolution and the duplicate check, so it could also simply run
+  alongside them. Unused ids are believed harmless — Drive documents no
+  cost to leaving one unused — but "believed" is the word: this belongs
+  with the phase-3 benchmarks (§11), where the saving can be measured
+  and the belief checked live, rather than being added on the strength of
+  a reading.
 - **Schema descriptions from one source.** A Go struct tag cannot be
   composed from a constant, so the paragraph describing what a `file`
   argument accepts is written out per tool, and so are the kind and order
@@ -1028,6 +1096,13 @@ was checked rather than assumed.
 | Link-shared files open by id alone | Refuted: resource keys, `X-Goog-Drive-Resource-Keys` | §6; spike D |
 | `drive.file` is enough for a per-user CLI | Refuted: it reaches only files the app created or the user opened through the Picker | Full mode uses `drive` |
 | `files.create` cannot be made idempotent | Refuted: `files.generateIds` ids go in the body of `create` and `copy` | §11; retries are safe |
+| A pre-generated id works for every create (§11 and §7.2 as written, and what phase 1 shipped) | **Refuted live, 2026-09-05, twice, with two different messages.** First: `403 Generated IDs are not supported for Docs Editors formats`, on `create_file kind: doc`. Fixed by excluding the Docs Editors set — and the next run refuted *that*: `create_shortcut` answered `400 The provided file ID is not usable`. A folder takes one and so does anything with bytes, both confirmed in the same runs | The rule now names what is **known to work** — a folder, or a type that is not Drive's own — so the Google-native types nobody has tried (Sites, Maps, Vids, Jamboards, Apps Script) fall on the safe side by default. Withholding an id costs idempotency, which the duplicate-name guard catches; sending one where Drive refuses it costs the whole call, as it did twice. `drivetest` refuses both, each with Google's own message and status, and a table test covers all five cases |
+| Enumerating the refusals is as safe as enumerating what works (my fix to the first refutation) | Refuted by the second one, eight minutes later. The first list was drawn from Google's "Docs Editors" vocabulary, which is a real category — and shortcuts are not in it, so a correct-looking list still had a hole. A list of what is forbidden fails open; a list of what is permitted fails closed | The same reasoning as the host allowlist earlier in this phase: where a check will be wrong, it should be wrong in the direction that refuses |
+| A write may be retried on a 5xx because writes carry pre-generated ids (phase 0's `retryable`, which named the request kind) | Refuted by the finding above, and by a sibling project hitting the same shape from the other end: a rule stated for "writes" and tested through one kind of write silently stops covering a second kind added later. Here the second kind was a create that *cannot* carry an id | `retryable` no longer reads the kind. A test asserts that a create without an id is attempted once and one with an id twice, and it fails against the old rule |
+| Naming the exception is enough (my first fix to the row above) | Refined after a second reader pointed at the default: the flag was `unsafeToRepeat`, whose zero value is false, so a POST added later and given no flag would retry — the same failure by omission, one level down. Marking the *safe* writes instead has the mirror defect, since someone still has to remember | Repeatability is derived from the HTTP method, where the answer is already defined: GET, PATCH, PUT and DELETE are repeatable, a POST only when it says why. Nobody has to remember, and the unconsidered case is the safe one |
+| Every transient failure is equally ambiguous, so one rule covers them all (the first cut of the rule above) | Refuted in review: a 429 or one of Google's rate-limit reasons is a refusal to *begin* the work, so nothing was applied and repeating it is as safe as repeating a read. Only a 5xx is genuinely ambiguous. Treating them alike made every create that cannot carry an id — every Docs-format create — fail on the first rate limit instead of backing off, which is the one thing Google's own guide asks a client to do | `transientError` records which kind it is; a refusal is always repeatable, and only the ambiguous answers consult the request |
+| Opening a resumable upload session is a create, and inherits a create's caution (the same cut) | Refuted in review: `uploadType=resumable` allocates a session URI and nothing else — a file appears only when chunks are committed, so a second attempt abandons the first session and creates nothing. The caution cost an entire large upload on a 503 before a byte was sent | The session-opening POST is marked idempotent, with the reason at the call site |
+| Adding a name to a location produces a path (`Location.Child`, written for a move destination) | Refuted in review: three of the forms a location takes are not paths, and `Child` cleared `Orphaned`, so a folder whose parent this account cannot see was listed at the root of My Drive. The tree's header and its own first line — built by different routes — then disagreed with each other | `Child` turns "no visible parent" into `Above`, so the gap is shown where it is (`My Drive/…/Orphan`), and the tree's first line is built the same way as its header |
 | Shared-drive creation can be retried freely | Refined: `requestId` is required and makes it idempotent | `manage_drive create` keeps the id for the retry |
 | Shared drives are available to every account | Refuted: Workspace editions only; `about.canCreateDrives` | `get_account` and `doctor` report it; tests skip on consumer accounts |
 | Labels are a Drive API feature | Refined: applied through the Drive API, defined through the separate Drive Labels API with its own scopes | Phase 4 with `GDRIVE_LABELS` |
@@ -1059,6 +1134,21 @@ was checked rather than assumed.
 | Rate limiting only has to gate the first attempt of a call | Refuted in the phase-0 review: retries are triggered by 429 and by Google's three rate-limit reasons, so exempting them pushes hardest exactly when Drive has asked for less. Four of five attempts bypassed the limiter | The limiter is taken inside the retry loop, once per attempt |
 | An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
 | Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
+| `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference: `files.copy` takes `ignoreDefaultVisibility`, `includeLabels`, `includePermissionsForView`, `keepRevisionForever`, `ocrLanguage` and `supportsAllDrives`, and nothing about comments. The parameter existed in v2 | `copy_comments` dropped from `copy_file` and from §7.3 |
+| An old revision of a Docs editors file is fetched with `files.download` (§18, from the revisions guide) | Refined in phase 1: `files.download` is a long-running operation that hands back an `Operation` to poll, while the `Revision` resource itself carries `exportLinks` for exactly this — a direct URL per format, on a Google host the allowlist already permits. The simpler documented route was taken | `download_file revision:` reads the revision, then fetches its export link. `files.download` stays for Vids in phase 4. To be confirmed by the live run |
+| Drive's structural refusals arrive with their own status | Refuted by the fake once it answered with Google's real reason: `teamDrivesFolderMoveInNotSupported` comes back as **403**, and the error mapping tested the status before the reason, so "this cannot be done" was reported as "you may not". A model told `[forbidden]` goes looking for permissions to change; there are none | The reason is matched before the generic 403, and the folder-move refusal is `[unsupported]` with the way round it. Phase 0's own tests had never seen the real reason: the fake refused the move without one |
+| "Flat schemas" means every argument is a scalar (convention, phase 0) | Refined in phase 1: `update_file` has to tell "leave this alone" from "set it to false", which is a nullable boolean (`type: ["null", "boolean"]`), and Drive's custom properties are a map. Both are still one level deep — a model fills them in without building a structure | The rule is now "no nested objects and no arrays of objects"; the schema test checks scalars, nullable scalars, and maps of scalars, and nothing else |
+| A resumable upload's chunk is either stored whole or not at all (implied by the protocol) | Refuted by the protocol itself: the `308` carries a `Range` naming what the session actually holds, which may be less than the chunk just sent. A client that assumes the whole chunk landed skips those bytes and uploads a corrupt file | The upload keeps the current chunk in memory and resends from wherever the session says it got to; `drivetest` has a `ChunkLimit` that makes it store part of a chunk, so the path is tested rather than assumed |
+| A download can be bounded by the per-attempt timeout, like every other call | Refuted: `GDRIVE_HTTP_TIMEOUT` is 60 s by default and a large file cannot arrive inside it, so the deadline that protects a metadata call would abort every real download | The deadline covers the response headers; the body is guarded by a stall timer that runs only while a read is outstanding, so a connection that stops sending is cut and one that is merely slow is not |
+| A file too large to hold in memory is too large to read (the "up to 20 MB" in §7.1 as written) | Refuted in the phase-1 review: `read_file` fetches a byte range, so the file's size never reaches the process. The guard refused a 200 MB log and advised retrying with `max_chars` and `offset`, which the guard ignored — a refusal whose own advice leads back to itself. The tool description, written from the design's other half, had promised the opposite | The limit is gone; a range request is bounded by the window, not by the file |
+| A create cannot invalidate a cached path (my reasoning when narrowing the cache flush) | Refuted in the phase-1 review, and it was the more dangerous half: a create *makes* a path ambiguous. A second `notes.txt` beside the first leaves the cached `(folder, name)` entry answering with the older file's id, which is exactly what §4.1 exists to prevent, and for the full 60 s of the path cache | A write evicts the entry for its own `(parent, name)` whatever it did; only a rename, move or trash also evicts by value. The cache key is built in one function so an eviction cannot spell it differently from a lookup |
+| A resumable upload makes progress or fails (implied by the protocol) | Refuted in the phase-1 review: a `308` whose `Range` header is absent reads as "nothing stored", which is also what a proxy that strips the header produces. Neither the backwards guard nor the too-far guard fires, so the same chunk is sent for as long as the deadline allows | A no-progress counter, tested against a fake session that answers 308 and stores nothing |
+| A file moved into a shared drive keeps its own sharing (never stated, and what the summary implied) | **Confirmed refuted live, spike E's write half, 2026-09-05**: a file with no grants of its own arrived in a shared drive reporting four editors, all inherited, and lost its `owner` line — the drive owns it now, not a person. Moving it back restored both. This is phase 0's shared-drive row proven rather than reasoned | The card was right about the exposure and clumsy about saying it: "shared with 4 people: 4 can edit … 4 inherited from the shared drive" invites the arithmetic 4 + 4, and named the drive twice. Where the grants come from is now part of the same clause |
+| A My Drive folder cannot move into a shared drive (§18, from the reference) | **Confirmed live in the same run**, and with it the `[unsupported]` mapping made earlier in this phase: Drive answers 403 `teamDrivesFolderMoveInNotSupported`, and the tool says what to do instead | Spike E's write half is done. Its read half was already covered by `list_drives` in phase 0's live run |
+| A Google-native document's `size` is worth showing | Refuted live: a new, empty Google Doc reports `size: 1 B`, and so does a long one — the field is the metadata Drive keeps, not the size of anything a person can get. The card said "size: 1 B" beside "export formats: docx, epub, …", inviting a reading the number cannot support | `model` fills in a size only for a file with bytes of its own. The export formats line already says what can actually be had |
+| The coverage floor covers the packages that matter (phase 0's hand-written list) | Refuted when the list was replaced by `go list ./internal/...`: `internal/userconfig` — the profile file that records the account, the token location and the scopes — had never been under the floor at all, at 70%. A list maintained by hand omits a package silently, and the omission looks exactly like a package that does not exist | The list is derived, with three packages exempt by name and reason (wire types, a version string, the test fake). A package added in a later phase is under the floor from the day it exists. The gap it exposed was closed with tests for the paths a person has to trust: where a profile's files live, that a save replaces the file whole at `0600`, and that every path reports a machine with no config directory rather than returning an empty one |
+| Pinning `goreleaser-action` by SHA pins the release (phase 0's release workflow) | Refuted, and by this repository's own earlier finding: the action was pinned by commit and then handed `version: "~> v2"`, so the binary that decides what the artifacts are floated across a whole major version. The `cosign`/`syft` sweep after the v0.0.1 signing failure pinned the tools those actions install and did not come back for this one | `version: "~> v2.18.0"`, beside the SHA, with a comment saying which half of the pin matters. A step that installs a tool has two versions, and this is the third time that has cost something |
+| A host allowlist may strip the port before matching (phase 0's `googleHost`) | Refined in phase 1, prompted by a sibling project's opposite reading: stripping means `https://www.googleapis.com:8443` is allowed. Google's endpoints carry no port, and phase 1 added a path that fetches a URL taken out of a **response body** (a revision's export link), which makes this check load-bearing rather than a formality | A host with a port is refused. Where a check that decides whether an access token leaves the machine is going to be wrong, it should be wrong in the direction of refusing |
 | Pinning an action to a full commit SHA pins what that step does | Refuted live: the first `v0.0.1` release failed because `cosign-installer` was pinned by SHA while the cosign it installs was not, and cosign 3 had moved from `--output-signature`/`--output-certificate` to a single `--bundle`. The action was immutable; its effect was not | `cosign-release` and `syft-version` are named alongside the action SHAs. A step that installs a tool has two versions, and pinning one of them is the more dangerous half of the job, because it looks done |
 | A release workflow that has never run can be trusted because its parts are pinned | Refuted by the same failure. It had been validated with `goreleaser check` and a full local `goreleaser build`, and still failed at the signing step, which only runs with an OIDC token in CI | The first tag of a project is a test of the release path as much as of the code; `docs/development.md` says to verify the published artifacts from outside rather than trust the workflow's own green tick |
 | Direct pushes to `main` by the maintainer are fine for a one-person project | Rejected: `main` is released code, and a rule with an exception for the person who releases is not a rule; Scorecard's Branch-Protection asks for pull requests gated by a passing check, and its two-reviewer tier cannot apply to a single maintainer | Pull requests required with CI green on three platforms as the gate; the review count does not apply; tags pushed directly, one at a time |

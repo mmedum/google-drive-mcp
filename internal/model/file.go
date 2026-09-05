@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +30,26 @@ type Location struct {
 	SharedWithMe bool
 	// Orphaned means the file has no parent this account can see.
 	Orphaned bool
+}
+
+// Child is the location of something inside this one. A destination is
+// built here rather than by appending a name to a rendered path: three
+// of the forms String produces are not paths at all, and a name glued
+// onto "Shared with me" reads like a folder that does not exist.
+//
+// A folder whose own parent is invisible does not make its contents
+// orphaned — they have a folder, and it is this one — but everything
+// above it is still unknown. That is what Above is for, and putting the
+// gap where it belongs is the point: "My Drive/Orphan" would assert a
+// parent nobody has seen, which is the one claim this type exists to
+// avoid making.
+func (l Location) Child(name string) Location {
+	out := l
+	if l.Orphaned || l.SharedWithMe {
+		out.Orphaned, out.SharedWithMe, out.Above = false, false, true
+	}
+	out.Folders = append(append([]string(nil), l.Folders...), name)
+	return out
 }
 
 // String renders the location the way results show it.
@@ -175,10 +194,13 @@ func New(f *gdrive.File, o Options) *File {
 			m.ShortcutTargetKind = KindName(t)
 		}
 	}
-	if f.Size != "" {
-		if n, err := strconv.ParseInt(f.Size, 10, 64); err == nil {
-			m.Size, m.HasSize = n, true
-		}
+	// A Google-native document's "size" is the metadata Drive keeps for
+	// it, not the size of anything a person can get: a new, empty Doc
+	// reports one byte, and so does a long one. Showing it invites a
+	// reading it cannot support, and the export formats line already says
+	// what can actually be had.
+	if !f.IsWorkspaceDoc() {
+		m.Size, m.HasSize = f.SizeBytes()
 	}
 	m.Created = parseTime(f.CreatedTime)
 	m.Modified = parseTime(f.ModifiedTime)

@@ -1,0 +1,7 @@
+saved: Budget.xlsx — Excel spreadsheet
+id: id-budget-fixture
+location: My Drive/Projects/2026
+to: /home/person/drive/Budget-id-bud.xlsx
+bytes: 4096 (4.0 KiB)
+format: xlsx
+checksum: verified against Drive's md5

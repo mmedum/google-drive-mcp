@@ -224,6 +224,26 @@ func TestSharingPublicAndInherited(t *testing.T) {
 			t.Error("the inherited grant lost its source")
 		}
 	}
+	// A file living in a shared drive, where every grant is the drive's:
+	// the shape a live move into one produces. Counting the people and
+	// then counting the inherited grants separately read as two sets —
+	// "shared with 4 people ... 4 inherited from the shared drive"
+	// invites the arithmetic 4 + 4.
+	inDrive := NewSharing(true, []*gdrive.Permission{
+		{Type: "user", Role: "writer", EmailAddress: "a@example.com",
+			Details: []*gdrive.PermissionDetails{{Inherited: true, InheritedFrom: "id-drive-marketing"}}},
+		{Type: "user", Role: "writer", EmailAddress: "b@example.com",
+			Details: []*gdrive.PermissionDetails{{Inherited: true, InheritedFrom: "id-drive-marketing"}}},
+	}, true)
+	inDrive.SharedDrive = "Marketing"
+	got := inDrive.Summary()
+	if strings.Count(got, "Marketing") != 1 {
+		t.Errorf("the drive is named %d times in %q", strings.Count(got, "Marketing"), got)
+	}
+	if !strings.Contains(got, "all of them through the shared drive Marketing") {
+		t.Errorf("summary = %q, want it to say where the grants come from", got)
+	}
+
 	if NewSharing(true, []*gdrive.Permission{}, true).Public() {
 		t.Error("no grants is not public")
 	}
@@ -389,5 +409,82 @@ func TestSharedDriveItemIsNeverCalledPrivate(t *testing.T) {
 	my := &gdrive.File{ID: "id-z-fixture", Name: "Notes", Permissions: []*gdrive.Permission{}}
 	if got := New(my, Options{}).Sharing.Summary(); got != "private to you" {
 		t.Errorf("My Drive summary = %q", got)
+	}
+}
+
+func TestAGoogleDocumentReportsNoSize(t *testing.T) {
+	// Drive reports one byte for a new, empty Doc and for a long one:
+	// the number is the metadata it keeps, not the size of anything a
+	// person can get. Showing it invites a reading it cannot support.
+	doc := New(&gdrive.File{
+		ID: "id-notes-fixture", Name: "Notes", MimeType: gdrive.MimeDocument, Size: "1",
+	}, Options{})
+	if doc.HasSize {
+		t.Errorf("a Google Doc reported a size of %d bytes", doc.Size)
+	}
+
+	blob := New(&gdrive.File{
+		ID: "id-log-fixture", Name: "server.log", MimeType: "text/plain", Size: "4096",
+	}, Options{})
+	if !blob.HasSize || blob.Size != 4096 {
+		t.Errorf("a file with bytes reported size %d (known: %v)", blob.Size, blob.HasSize)
+	}
+
+	// A folder and a shortcut are Google types but not documents, and
+	// neither claims a size of its own anyway.
+	for _, mime := range []string{gdrive.MimeFolder, gdrive.MimeShortcut} {
+		if got := New(&gdrive.File{MimeType: mime}, Options{}); got.HasSize {
+			t.Errorf("%s reported a size", mime)
+		}
+	}
+}
+
+func TestKindWithArticle(t *testing.T) {
+	cases := map[string]string{
+		gdrive.MimeDocument: "a Google Doc",
+		gdrive.MimeFolder:   "a folder",
+		"application/pdf":   "a PDF",
+		"image/svg+xml":     "an SVG image",
+	}
+	for mime, want := range cases {
+		if got := KindWithArticle(&gdrive.File{MimeType: mime}); got != want {
+			t.Errorf("KindWithArticle(%s) = %q, want %q", mime, got, want)
+		}
+	}
+}
+
+func TestChildKeepsWhatIsUnknownUnknown(t *testing.T) {
+	// The three forms that are not paths must not become paths by having
+	// a name added to them: a folder inside an orphaned one has a folder,
+	// but what is above it is still nobody's guess.
+	cases := map[string]struct {
+		from Location
+		want string
+	}{
+		"an orphaned parent": {
+			Location{Drive: "My Drive", Orphaned: true}, "My Drive/…/Reports",
+		},
+		"a shared-with-me parent": {
+			Location{Drive: "My Drive", SharedWithMe: true}, "My Drive/…/Reports",
+		},
+		"a known path": {
+			Location{Drive: "My Drive", Folders: []string{"Projects"}}, "My Drive/Projects/Reports",
+		},
+		"a drive root": {
+			Location{Drive: "Marketing", SharedDrive: true}, "Marketing (shared drive)/Reports",
+		},
+	}
+	for name, c := range cases {
+		if got := c.from.Child("Reports").String(); got != c.want {
+			t.Errorf("%s: Child = %q, want %q", name, got, c.want)
+		}
+	}
+
+	// The parent is left alone: two siblings built from one location must
+	// not share a backing array.
+	parent := Location{Drive: "My Drive", Folders: []string{"Projects"}}
+	a, b := parent.Child("A"), parent.Child("B")
+	if len(parent.Folders) != 1 || a.Folders[1] != "A" || b.Folders[1] != "B" {
+		t.Errorf("Child aliased its parent: parent=%v a=%v b=%v", parent.Folders, a.Folders, b.Folders)
 	}
 }

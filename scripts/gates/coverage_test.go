@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,8 +86,12 @@ func TestReadProfileRejectsRubbish(t *testing.T) {
 }
 
 func TestCoverageFailsBelowTheFloor(t *testing.T) {
-	lines := make([]string, 0, len(corePackages))
-	for _, pkg := range corePackages {
+	packages, err := corePackages()
+	if err != nil {
+		t.Fatalf("corePackages: %v", err)
+	}
+	lines := make([]string, 0, len(packages))
+	for _, pkg := range packages {
 		lines = append(lines, modulePath+"/"+pkg+"/a.go:1.1,2.2 10 1")
 	}
 	var out strings.Builder
@@ -94,24 +99,57 @@ func TestCoverageFailsBelowTheFloor(t *testing.T) {
 		t.Fatalf("fully covered packages should pass: %v", err)
 	}
 	// One package at 50% has to fail even though the rest are perfect.
-	lines[0] = modulePath + "/" + corePackages[0] + "/a.go:1.1,2.2 10 0"
-	lines = append(lines, modulePath+"/"+corePackages[0]+"/b.go:1.1,2.2 10 1")
+	lines[0] = modulePath + "/" + packages[0] + "/a.go:1.1,2.2 10 0"
+	lines = append(lines, modulePath+"/"+packages[0]+"/b.go:1.1,2.2 10 1")
 	out.Reset()
-	err := coverage(&out, []string{writeProfile(t, lines...), "80"})
+	err = coverage(&out, []string{writeProfile(t, lines...), "80"})
 	if err == nil {
 		t.Fatal("a package below the floor should fail the gate")
 	}
-	if !strings.Contains(err.Error(), corePackages[0]) {
+	if !strings.Contains(err.Error(), packages[0]) {
 		t.Errorf("the failure should name the package: %v", err)
 	}
 }
 
-func TestEveryCorePackageExists(t *testing.T) {
-	// A package renamed or removed without updating this list would
-	// silently stop being measured.
-	for _, pkg := range corePackages {
+func TestEveryPackageUnderInternalIsMeasuredOrExemptOnPurpose(t *testing.T) {
+	// The list of what is measured is derived, so the thing worth
+	// asserting is the other half: that every exemption still names a
+	// package that exists, and that nothing under internal/ is missing
+	// from both lists.
+	packages, err := corePackages()
+	if err != nil {
+		t.Fatalf("corePackages: %v", err)
+	}
+	measured := make(map[string]bool, len(packages))
+	for _, pkg := range packages {
+		measured[pkg] = true
 		if _, err := os.Stat(filepath.Join("..", "..", pkg)); err != nil {
-			t.Errorf("core package %s is listed but not present: %v", pkg, err)
+			t.Errorf("measured package %s is not present: %v", pkg, err)
 		}
+	}
+	for pkg, why := range exemptPackages {
+		if why == "" {
+			t.Errorf("%s is exempt with no reason given", pkg)
+		}
+		if _, err := os.Stat(filepath.Join("..", "..", pkg)); err != nil {
+			t.Errorf("exempt package %s no longer exists, so the exemption is stale: %v", pkg, err)
+		}
+		if measured[pkg] {
+			t.Errorf("%s is both measured and exempt", pkg)
+		}
+	}
+	// The one that matters: a package under internal/ that nobody has
+	// decided about. It would otherwise be unmeasured and look exactly
+	// like a package that does not exist.
+	out, err := exec.Command("go", "list", modulePath+"/internal/...").Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		pkg := strings.TrimPrefix(strings.TrimSpace(line), modulePath+"/")
+		if pkg == "" || measured[pkg] || exemptPackages[pkg] != "" {
+			continue
+		}
+		t.Errorf("%s is neither measured nor exempt", pkg)
 	}
 }

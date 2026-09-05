@@ -128,6 +128,15 @@ func Article(phrase string) string {
 	return "a"
 }
 
+// KindWithArticle names what a file is, ready to drop into a sentence:
+// "Notes is a Google Doc", not "Notes is Google Doc". Every message that
+// says what something is goes through it, because the article depends on
+// the kind and no caller should have to work that out.
+func KindWithArticle(f *gdrive.File) string {
+	kind := Kind(f)
+	return Article(kind) + " " + kind
+}
+
 // BoundaryNote says, for a Google-native document, where its content is
 // actually edited. This server stops at the file boundary, and a result
 // that reads a Doc without saying so invites an edit that cannot happen.
@@ -143,14 +152,32 @@ func BoundaryNote(mime string) string {
 	return ""
 }
 
+// ReadNote is what a read of a Google-native document has to say about
+// the text it just returned: which part of the file it is, and what the
+// text cannot be used for. It sits beside BoundaryNote because the two
+// answer the same question at different moments — one describes a file,
+// the other describes a read of it — and a result that carried both
+// would say the same thing twice.
+func ReadNote(mime string) string {
+	switch mime {
+	case gdrive.MimeSheet:
+		return "this is the FIRST SHEET, as csv. Another sheet, or one range of cells, is a Sheets API read, " +
+			"which this server does not offer; download_file writes the whole workbook as xlsx."
+	case gdrive.MimeSlides:
+		return "the text of the slides, without their layout. Slides are edited through the Slides API, " +
+			"which this server does not offer."
+	case gdrive.MimeDocument:
+		return "Google's own markdown export of the document. Its content is edited through the Docs API, " +
+			"which this server does not offer; update_content cannot replace it."
+	}
+	return ""
+}
+
 // IsTextLike reports whether a blob's bytes are text this server will
 // return inline. Google's own kinds are not text-like: they have no
 // bytes until they are exported.
 func IsTextLike(mime string) bool {
-	mime = strings.TrimSpace(strings.ToLower(mime))
-	if i := strings.IndexByte(mime, ';'); i > 0 {
-		mime = strings.TrimSpace(mime[:i])
-	}
+	mime = strings.ToLower(gdrive.MimeOnly(mime))
 	if strings.HasPrefix(mime, "text/") {
 		return true
 	}

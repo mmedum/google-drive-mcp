@@ -42,7 +42,12 @@ jobs:
           syft-version: v1.51.1
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: "~> v2"
+          # The action is pinned by SHA and the tool it installs is
+          # pinned beside it, the same way cosign and syft are above.
+          # "~> v2" floated the binary that decides what the artifacts
+          # are across a whole major version, which is the half of the
+          # pin that matters (see the evidence log in docs/architecture.md).
+          version: "~> v2.18.0"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
