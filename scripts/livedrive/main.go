@@ -3,8 +3,10 @@
 // behave against Drive itself.
 //
 // Every result is printed with ids, links and addresses replaced by
-// stable placeholders, so a transcript can go into an issue or a commit
-// message without leaking anything.
+// stable placeholders. What it cannot replace is the names of files,
+// folders and shared drives: nothing distinguishes one from prose. Read
+// a transcript before sharing it — the summary at the end says the same
+// thing, every run.
 //
 //	go run ./scripts/livedrive -bin ./google-drive-mcp
 //	go run ./scripts/livedrive -bin ./google-drive-mcp -file /Projects

@@ -315,6 +315,15 @@ type WriteOptions struct {
 	ResourceIDs []string
 }
 
+// createsWithoutID reports whether this call makes a new file and
+// carries nothing that would collapse a second attempt into the first. A
+// patch is idempotent whatever it holds; a create is idempotent only
+// through its pre-generated id, and Drive refuses one for the Docs
+// Editors formats.
+func createsWithoutID(method string, meta *gdrive.FileMeta) bool {
+	return method == http.MethodPost && (meta == nil || meta.ID == "")
+}
+
 // withFile puts the file being written at the head of the ids whose
 // resource keys ride along on the call.
 func (o WriteOptions) withFile(id string) []string {
@@ -356,7 +365,7 @@ func (c *Client) writeFile(ctx context.Context, method, u string, meta *gdrive.F
 		return nil, err
 	}
 	body, err := c.do(ctx, request{kind: kindWrite, method: method, url: u,
-		body: payload, resourceIDs: ids})
+		body: payload, resourceIDs: ids, unsafeToRepeat: createsWithoutID(method, meta)})
 	if err != nil {
 		return nil, err
 	}
@@ -425,4 +434,30 @@ func ExportFormatNames() []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+// docsEditorFormats are the Google-native formats that refuse a
+// pre-generated id: "Generated IDs are not supported for Docs Editors
+// formats", observed live on 2026-09-05. Folders take one — also
+// observed — and so, structurally, does everything with bytes of its
+// own. The list is the Docs Editors set from Google's own vocabulary,
+// not a guess about which of them were tried.
+var docsEditorFormats = map[string]bool{
+	gdrive.MimeDocument: true,
+	gdrive.MimeSheet:    true,
+	gdrive.MimeSlides:   true,
+	gdrive.MimeDrawing:  true,
+	gdrive.MimeForm:     true,
+	gdrive.MimeScript:   true,
+	gdrive.MimeSite:     true,
+	gdrive.MimeJam:      true,
+	gdrive.MimeVid:      true,
+}
+
+// AcceptsGeneratedID reports whether a file of this type may be created
+// with an id from files.generateIds. A create that cannot carry one is
+// not idempotent: a retry after an ambiguous failure can make a second
+// file, which is why the duplicate-name guard exists.
+func AcceptsGeneratedID(mime string) bool {
+	return !docsEditorFormats[strings.TrimSpace(mime)]
 }

@@ -400,3 +400,31 @@ func TestUploadResumableGivesUpWhenNothingIsStored(t *testing.T) {
 		t.Errorf("err = %v, want it to say the session made no progress", err)
 	}
 }
+
+func TestACreateThatCannotCarryAnIDIsNeverRepeated(t *testing.T) {
+	t.Parallel()
+	// A 500 proves Google answered, not that it did nothing: it can
+	// arrive after the file was made. A create is safe to repeat only
+	// because of the pre-generated id that collapses the second attempt
+	// into the first, and Drive refuses that id for the Docs Editors
+	// formats. Repeating one of those makes two documents.
+	for _, c := range []struct {
+		name    string
+		meta    *gdrive.FileMeta
+		wantMax int
+	}{
+		{"without an id", &gdrive.FileMeta{Name: "Plan", MimeType: gdrive.MimeDocument}, 1},
+		{"with one", &gdrive.FileMeta{ID: "id-planned-fixture", Name: "rows.csv", MimeType: "text/csv"}, 2},
+	} {
+		s := drivetest.New()
+		s.Fail = drivetest.FailTimes(1, "/files", drivetest.Failure{
+			Status: http.StatusInternalServerError, Reason: "internalError", Message: "try again",
+		})
+		c2 := drivetest.Client(t, s)
+		_, _ = c2.CreateFile(t.Context(), c.meta, gapi.WriteOptions{})
+		if got := s.Count("POST"); got > c.wantMax {
+			t.Errorf("a create %s was attempted %d times, want at most %d", c.name, got, c.wantMax)
+		}
+		s.Close()
+	}
+}

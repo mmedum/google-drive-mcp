@@ -112,9 +112,6 @@ func (s *Service) CreateFile(ctx context.Context, in CreateFileInput) (*Result, 
 	if in.Starred {
 		meta.Starred = gdrive.Bool(true)
 	}
-	if meta.ID, err = s.newID(ctx); err != nil {
-		return nil, err
-	}
 
 	var f *gdrive.File
 	if kind != "" {
@@ -123,6 +120,9 @@ func (s *Service) CreateFile(ctx context.Context, in CreateFileInput) (*Result, 
 			return nil, Errorf(ClassInvalid, "kind %q is not one of %s", in.Kind, strings.Join(NewKinds(), ", "))
 		}
 		meta.MimeType = target
+		if err := s.assignID(ctx, meta); err != nil {
+			return nil, err
+		}
 		f, err = s.api.CreateFile(ctx, meta, gapi.WriteOptions{ResourceIDs: []string{parent.ID}})
 	} else {
 		contentType := strings.TrimSpace(in.MimeType)
@@ -130,6 +130,9 @@ func (s *Service) CreateFile(ctx context.Context, in CreateFileInput) (*Result, 
 			contentType = "text/plain"
 		}
 		if meta.MimeType, err = convertTarget(in.ConvertTo); err != nil {
+			return nil, err
+		}
+		if err := s.assignID(ctx, meta); err != nil {
 			return nil, err
 		}
 		f, err = s.api.UploadMultipart(ctx, gapi.UploadRequest{
@@ -192,7 +195,7 @@ func (s *Service) UploadFile(ctx context.Context, in UploadFileInput) (*Result, 
 	if meta.MimeType, err = convertTarget(in.ConvertTo); err != nil {
 		return nil, err
 	}
-	if meta.ID, err = s.newID(ctx); err != nil {
+	if err := s.assignID(ctx, meta); err != nil {
 		return nil, err
 	}
 
@@ -369,15 +372,31 @@ func sniffType(path string, f io.ReadSeeker) string {
 	return gdrive.MimeOnly(http.DetectContentType(head[:n]))
 }
 
-// newID takes an id from Drive so a create can be retried. Without one a
-// retry after an ambiguous failure makes a second file; with one, Drive
-// refuses the duplicate and the first file stands.
-func (s *Service) newID(ctx context.Context) (string, error) {
+// assignID gives a create an id from Drive, so that a retry after an
+// ambiguous failure cannot leave two files behind: Drive refuses the
+// duplicate id and the first file stands.
+//
+// Drive refuses a generated id for the Docs Editors formats, so a new
+// Doc, Sheet, Slides deck, Drawing or Form is created without one and is
+// not idempotent. Nothing can be done about that from here; what catches
+// the duplicate is the same-name guard on the next call.
+func (s *Service) assignID(ctx context.Context, meta *gdrive.FileMeta) error {
+	return s.assignIDFor(ctx, meta, meta.MimeType)
+}
+
+// assignIDFor is assignID where the file's type is not the one in the
+// request body: a copy carries no mimeType unless it is converting, and
+// what it becomes is the source's type.
+func (s *Service) assignIDFor(ctx context.Context, meta *gdrive.FileMeta, becomes string) error {
+	if !gapi.AcceptsGeneratedID(becomes) {
+		return nil
+	}
 	ids, err := s.api.GenerateIDs(ctx, 1)
 	if err != nil {
-		return "", wrap(err, "asking Drive for a file id")
+		return wrap(err, "asking Drive for a file id")
 	}
-	return ids[0], nil
+	meta.ID = ids[0]
+	return nil
 }
 
 // parentFolder resolves the folder a new file goes into, defaulting to

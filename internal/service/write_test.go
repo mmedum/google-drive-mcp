@@ -96,13 +96,41 @@ func TestCreateRefusesADuplicateNameUnlessAsked(t *testing.T) {
 	}
 }
 
-func TestCreateFileCarriesAPreGeneratedID(t *testing.T) {
+func TestCreateFileCarriesAPreGeneratedIDWhereDriveTakesOne(t *testing.T) {
+	// A pre-generated id is what makes a create idempotent. Drive refuses
+	// one for the Docs Editors formats — "Generated IDs are not supported
+	// for Docs Editors formats", observed live on 2026-09-05 — so a new
+	// Doc is created without one, and everything else carries one.
 	svc, fake := setup(t, service.Options{})
-	if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{Name: "Plan", Kind: "doc"}); err != nil {
+
+	if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "rows.csv", Content: "a,b\n", MimeType: "text/csv",
+	}); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
 	if fake.Count("/files/generateIds") == 0 {
-		t.Error("the create did not ask for an id, so a retry could make a second file")
+		t.Error("a blob create asked for no id, so a retry could make a second file")
+	}
+	fake.Requested()
+
+	if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{Name: "Plan", Kind: "doc"}); err != nil {
+		t.Fatalf("CreateFile of a doc: %v", err)
+	}
+	if fake.Count("/files/generateIds") != 0 {
+		t.Error("a Docs Editors create asked Drive for an id it will refuse to accept")
+	}
+}
+
+func TestCreateFileOfEveryGoogleKindIsAccepted(t *testing.T) {
+	// The whole Docs Editors set, because the refusal is per format and
+	// a table that names four of five is a bug nobody sees.
+	svc, _ := setup(t, service.Options{})
+	for _, kind := range service.NewKinds() {
+		if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+			Name: "New " + kind, Kind: kind,
+		}); err != nil {
+			t.Errorf("create_file kind=%s: %v", kind, err)
+		}
 	}
 }
 

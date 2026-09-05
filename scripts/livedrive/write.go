@@ -40,91 +40,89 @@ func runWrites(s *session, redact *Redactor, dir, parent string) (int, error) {
 	if parent != "" {
 		args["parent"] = parent
 	}
-	id, err := w.createAndKeepID("create_folder", args)
-	if err != nil {
-		return 0, err
+	w.scratchID = w.createAndKeepID("create_folder", args)
+	if w.scratchID == "" {
+		return w.failures, fmt.Errorf("the scratch folder could not be created, so nothing else can run safely")
 	}
-	w.scratchID = id
 	fmt.Println("\n(everything below happens inside that folder, and it is trashed at the end)")
 
-	if err := w.exercise(); err != nil {
-		// Even a failure has to clean up after itself.
-		w.trashScratch()
-		return w.failures, err
-	}
+	w.exercise()
 	w.trashScratch()
 	return w.failures, nil
 }
 
-func (w *writeRun) exercise() error {
-	folderID, err := w.createAndKeepID("create_folder", map[string]any{
+// exercise runs the whole write surface. A call that fails is counted
+// and the run carries on: a live run costs a person's attention and a
+// real account, so one of them should surface every problem there is,
+// not the first. Only the calls that need an id a failed create never
+// produced are skipped, and the skip says so.
+func (w *writeRun) exercise() {
+	folderID := w.createAndKeepID("create_folder", map[string]any{
 		"name": "Reports", "parent": w.scratchID, "description": "made by the live driver",
 	})
-	if err != nil {
-		return err
-	}
-
-	docID, err := w.createAndKeepID("create_file", map[string]any{
+	docID := w.createAndKeepID("create_file", map[string]any{
 		"name": "Notes", "kind": "doc", "parent": w.scratchID,
 	})
-	if err != nil {
-		return err
-	}
-
-	textID, err := w.createAndKeepID("create_file", map[string]any{
+	textID := w.createAndKeepID("create_file", map[string]any{
 		"name": "rows.csv", "parent": w.scratchID,
 		"content": "name,amount\nfirst,1\nsecond,2\n", "mime_type": "text/csv",
 	})
-	if err != nil {
-		return err
-	}
-
 	// The import path: markdown becomes a formatted Google Doc.
-	if _, err := w.createAndKeepID("create_file", map[string]any{
+	w.createAndKeepID("create_file", map[string]any{
 		"name": "Imported notes", "parent": w.scratchID,
 		"content": "# Heading\n\nA paragraph.\n", "mime_type": "text/markdown", "convert_to": "doc",
-	}); err != nil {
-		return err
+	})
+	// One of every Google kind, because the id rule is per format and a
+	// run that tries one of five proves one of five.
+	for _, kind := range []string{"sheet", "slides", "drawing", "form"} {
+		w.createAndKeepID("create_file", map[string]any{
+			"name": "New " + kind, "kind": kind, "parent": w.scratchID,
+		})
 	}
 
 	// A local file large enough to force the resumable path, which is
 	// the half of upload_file no fake can prove.
 	big := filepath.Join(w.dir, "livedrive-upload.bin")
 	if err := writeFiller(big, 6<<20); err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(big) }()
-	if _, err := w.createAndKeepID("upload_file", map[string]any{
-		"local_path": "livedrive-upload.bin", "parent": w.scratchID, "name": "large upload.bin",
-	}); err != nil {
-		return err
+		fmt.Println("!! could not write the file to upload:", err)
+		w.failures++
+	} else {
+		defer func() { _ = os.Remove(big) }()
+		w.createAndKeepID("upload_file", map[string]any{
+			"local_path": "livedrive-upload.bin", "parent": w.scratchID, "name": "large upload.bin",
+		})
 	}
 
-	w.call(call{tool: "read_file", args: map[string]any{"file": textID}})
-	w.call(call{tool: "read_file", args: map[string]any{"file": textID, "max_chars": 12}})
-	w.call(call{tool: "read_file", args: map[string]any{"file": docID}})
-	w.call(call{tool: "download_file", args: map[string]any{"file": textID}})
-	w.call(call{tool: "download_file", args: map[string]any{"file": docID, "format": "pdf"}})
+	w.needing("read_file", textID, map[string]any{"file": textID})
+	w.needing("read_file", textID, map[string]any{"file": textID, "max_chars": 12})
+	w.needing("read_file", docID, map[string]any{"file": docID})
+	w.needing("download_file", textID, map[string]any{"file": textID})
+	w.needing("download_file", docID, map[string]any{"file": docID, "format": "pdf"})
 
-	w.call(call{tool: "update_content", args: map[string]any{
+	w.needing("update_content", textID, map[string]any{
 		"file": textID, "content": "name,amount\nfirst,10\n", "keep_previous_revision": true,
-	}})
-	w.call(call{tool: "update_content", args: map[string]any{"file": docID, "content": "no"},
-		expectError: true, why: "a Google Doc's content belongs to the Docs API"})
+	})
+	w.expecting("update_content", docID, map[string]any{"file": docID, "content": "no"},
+		"a Google Doc's content belongs to the Docs API")
 
-	w.call(call{tool: "update_file", args: map[string]any{
+	w.needing("update_file", textID, map[string]any{
 		"file": textID, "name": "rows renamed.csv", "starred": true,
 		"properties": map[string]any{"livedrive": "yes"},
-	}})
-	w.call(call{tool: "update_file", args: map[string]any{"file": folderID, "color": "#4986e7"}})
+	})
+	w.needing("update_file", folderID, map[string]any{"file": folderID, "color": "#4986e7"})
 
-	w.call(call{tool: "move_file", args: map[string]any{"file": textID, "to": folderID, "dry_run": true}})
-	w.call(call{tool: "move_file", args: map[string]any{"file": textID, "to": folderID}})
+	if textID != "" && folderID != "" {
+		w.call(call{tool: "move_file", args: map[string]any{"file": textID, "to": folderID, "dry_run": true}})
+		w.call(call{tool: "move_file", args: map[string]any{"file": textID, "to": folderID}})
+	}
 
-	w.call(call{tool: "copy_file", args: map[string]any{"file": textID, "name": "rows copy.csv", "to": w.scratchID}})
-	w.call(call{tool: "create_shortcut", args: map[string]any{
+	w.needing("copy_file", textID, map[string]any{"file": textID, "name": "rows copy.csv", "to": w.scratchID})
+	// Copying a Google Doc is the case where the copy is a Doc too, and
+	// so cannot carry a generated id either.
+	w.needing("copy_file", docID, map[string]any{"file": docID, "name": "Notes copy", "to": w.scratchID})
+	w.needing("create_shortcut", textID, map[string]any{
 		"target": textID, "parent": w.scratchID, "name": "rows shortcut",
-	}})
+	})
 
 	w.call(call{tool: "create_folder", args: map[string]any{"name": "Reports", "parent": w.scratchID},
 		expectError: true, why: "a second folder of the same name needs allow_duplicate"})
@@ -133,10 +131,28 @@ func (w *writeRun) exercise() error {
 	w.call(call{tool: "read_file", args: map[string]any{"file": w.scratchID},
 		expectError: true, why: "a folder has no text"})
 
-	w.call(call{tool: "trash_file", args: map[string]any{"file": textID, "dry_run": true}})
-	w.call(call{tool: "trash_file", args: map[string]any{"file": textID}})
-	w.call(call{tool: "restore_file", args: map[string]any{"file": textID}})
-	return nil
+	w.needing("trash_file", textID, map[string]any{"file": textID, "dry_run": true})
+	w.needing("trash_file", textID, map[string]any{"file": textID})
+	w.needing("restore_file", textID, map[string]any{"file": textID})
+}
+
+// needing runs a call that depends on an id an earlier create produced,
+// and says so when it cannot.
+func (w *writeRun) needing(tool, id string, args map[string]any) {
+	if id == "" {
+		fmt.Printf("\n=== %s: skipped, the file it needs was never created ===\n", tool)
+		return
+	}
+	w.call(call{tool: tool, args: args})
+}
+
+// expecting is needing for a call that ought to be refused.
+func (w *writeRun) expecting(tool, id string, args map[string]any, why string) {
+	if id == "" {
+		fmt.Printf("\n=== %s: skipped, the file it needs was never created ===\n", tool)
+		return
+	}
+	w.call(call{tool: tool, args: args, expectError: true, why: why})
 }
 
 // trashScratch removes the folder and everything the run put in it.
@@ -173,15 +189,11 @@ func (w *writeRun) call(c call) string {
 }
 
 // createAndKeepID runs a create and pulls the new id out of the result,
-// because every later call needs it. The id is read before redaction and
-// never printed.
-func (w *writeRun) createAndKeepID(tool string, args map[string]any) (string, error) {
-	out := w.call(call{tool: tool, args: args})
-	id := idFromResult(out)
-	if id == "" {
-		return "", fmt.Errorf("%s returned no id, so the run cannot continue", tool)
-	}
-	return id, nil
+// because the calls after it need one. A create that failed returns "",
+// and the calls that needed it say they were skipped rather than the run
+// stopping there. The id is read before redaction and never printed.
+func (w *writeRun) createAndKeepID(tool string, args map[string]any) string {
+	return idFromResult(w.call(call{tool: tool, args: args}))
 }
 
 // idFromResult reads the "id:" line of a file card.

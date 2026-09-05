@@ -323,13 +323,14 @@ func (s *Server) Requested() []Recorded {
 	return out
 }
 
-// Count returns how many recorded requests hit a path substring.
-func (s *Server) Count(pathContains string) int {
+// Count returns how many recorded requests hit a path substring, or, for
+// an argument that names an HTTP method, used that method.
+func (s *Server) Count(pathOrMethod string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := 0
 	for _, r := range s.Requests {
-		if strings.Contains(r.Path, pathContains) {
+		if r.Method == pathOrMethod || strings.Contains(r.Path, pathOrMethod) {
 			n++
 		}
 	}
