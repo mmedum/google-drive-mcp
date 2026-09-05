@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -25,8 +26,14 @@ type session struct {
 	stderr []string
 }
 
-func start(binary string) (*session, error) {
+// start launches the server. env adds to the process environment, which
+// is how the local directory reaches it: an MCP client passes command,
+// args and env, and nothing else.
+func start(binary string, env ...string) (*session, error) {
 	cmd := exec.Command(binary)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

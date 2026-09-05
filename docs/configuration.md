@@ -52,6 +52,32 @@ Linux, Keychain on macOS, Credential Manager on Windows. If the keyring
 is unavailable — a headless machine with no session bus, say — it falls
 back to the `0600` file and warns on stderr every time it uses it.
 
+## File transfer
+
+`GDRIVE_LOCAL_DIR` is the only place this server reads local files from
+and writes them to. Unset, `download_file` and `upload_file` are still
+registered — a missing tool tells a model nothing — and both refuse with
+a message naming this setting. `get_account` says which of the two states
+you are in.
+
+- **Uploads** take a bare name in that directory or an absolute path
+  inside it. The path is resolved through its symlinks before it is
+  checked, so a link inside the directory pointing at something outside
+  is refused like any other outside path.
+- **Downloads** land on `<name>-<six characters of the id>.<extension>`,
+  so two files of one name sit beside each other rather than on each
+  other. Nothing is ever overwritten: a name already taken gains a
+  counter. A blob is checked against Drive's own md5 and the result says
+  whether it matched; an export has no checksum to compare against, and
+  the result says that instead.
+- `GDRIVE_MAX_DOWNLOAD` caps one download. It applies to a file's own
+  bytes; an export has no size until it arrives, and Google caps exports
+  at 10 MB of its own accord.
+
+Inline text needs none of this: `read_file` returns a file's text and
+`create_file` and `update_content` take text directly, so a server with
+no local directory can still read and write file contents.
+
 ## Scopes
 
 | Configuration | Scopes requested at login |
