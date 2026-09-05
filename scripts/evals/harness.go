@@ -70,6 +70,27 @@ func firstLine(s string) string {
 	return s
 }
 
+// placeholder matches the {name} a prompt substitutes a value into.
+var placeholder = regexp.MustCompile(`\{[a-z_]+\}`)
+
+// fill substitutes the recorded values into a prompt and REFUSES a
+// prompt that still has a placeholder in it. An unexpanded placeholder
+// is not a cosmetic problem: it changes what the agent was asked, and
+// the task then scores something nobody meant to test. This repository
+// has shipped one before — §17a records a struct tag that reached a
+// model as "${…}" — which is the argument for failing rather than
+// warning.
+func fill(prompt string, values map[string]string) (string, error) {
+	for key, value := range values {
+		prompt = strings.ReplaceAll(prompt, "{"+key+"}", value)
+	}
+	if left := placeholder.FindAllString(prompt, -1); len(left) > 0 {
+		return "", fmt.Errorf("the prompt still has %s in it, so the agent would be asked something "+
+			"other than the task; the setup records no value under that name", strings.Join(left, " and "))
+	}
+	return prompt, nil
+}
+
 // run drives every task and prints the score.
 func run(o options) error {
 	tasks := selected(o.only)
@@ -156,14 +177,21 @@ func run(o options) error {
 // goes through the agent.
 func (h *harness) score(o options, config string, t task) []string {
 	state := &taskState{harness: h}
+	// The scratch folder's id is a value like any other, and the first
+	// run of this harness proved why it has to be: it was not, so every
+	// prompt reached the agent with a literal "{folder}" in it. Both
+	// tasks still passed — one found the file by name anyway, the other
+	// wanted a refusal and got one for the wrong reason — which is the
+	// end-state-versus-trace problem happening inside the scorer.
+	state.set("folder", h.folder)
 	if t.setup != nil {
 		if err := t.setup(state); err != nil {
 			return []string{"setup failed: " + err.Error()}
 		}
 	}
-	prompt := t.prompt
-	for key, value := range state.values {
-		prompt = strings.ReplaceAll(prompt, "{"+key+"}", value)
+	prompt, err := fill(t.prompt, state.values)
+	if err != nil {
+		return []string{err.Error()}
 	}
 	fmt.Println("→ " + h.red.Do(prompt))
 
