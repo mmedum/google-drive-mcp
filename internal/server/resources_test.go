@@ -105,14 +105,15 @@ func TestTemplatesWithASharedPrefixDoNotShadowEachOther(t *testing.T) {
 // encoded, and one that does not is no resource at all rather than a
 // truncated one.
 func TestAPathReferenceIsPercentEncoded(t *testing.T) {
-	cs, _ := sessionAndFake(t, defaultConfig(), true)
+	cs, fake := sessionAndFake(t, defaultConfig(), true)
+	fake.SetContent("id-notes-fixture", "the text this path leads to\n")
 	res, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{
 		URI: "gdrive://" + "%2FProjects%2FMeeting%20notes",
 	})
 	if err != nil {
 		t.Fatalf("an encoded path was not read: %v", err)
 	}
-	if !strings.Contains(res.Contents[0].Text, "Meeting notes") {
+	if !strings.Contains(res.Contents[0].Text, "the text this path leads to") {
 		t.Errorf("the encoded path resolved to something else:\n%s", res.Contents[0].Text)
 	}
 	if _, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{
@@ -141,6 +142,39 @@ func TestResourceRefusalsCarryTheAdviceTheToolsGive(t *testing.T) {
 				t.Errorf("the refusal does not say %q: %v", tc.want, err)
 			}
 		})
+	}
+}
+
+// TestATextResourceIsTheContentAndNothingElse is the fix for a review
+// finding: the body used to be read_file's whole result, header and all,
+// while the media type said text/csv. A client that fed those bytes to a
+// csv parser got five lines of prose first.
+func TestATextResourceIsTheContentAndNothingElse(t *testing.T) {
+	cs, fake := sessionAndFake(t, defaultConfig(), true)
+	fake.AddFile("id-rows-fixture", "rows.csv", "text/csv", "id-projects-fixture")
+	fake.SetContent("id-rows-fixture", "name,amount\nfirst,1\n")
+
+	res, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "gdrive://id-rows-fixture"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	got := res.Contents[0]
+	if got.MIMEType != "text/csv" {
+		t.Errorf("mime = %q", got.MIMEType)
+	}
+	if got.Text != "name,amount\nfirst,1\n" {
+		t.Errorf("the body is not the file's bytes:\n%q", got.Text)
+	}
+	// The description the header used to carry is the other template's
+	// whole reason to exist, so it has to be there.
+	card, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "gdrive://id-rows-fixture/meta"})
+	if err != nil {
+		t.Fatalf("ReadResource meta: %v", err)
+	}
+	for _, want := range []string{"rows.csv", "location:"} {
+		if !strings.Contains(card.Contents[0].Text, want) {
+			t.Errorf("the card does not carry %q:\n%s", want, card.Contents[0].Text)
+		}
 	}
 }
 

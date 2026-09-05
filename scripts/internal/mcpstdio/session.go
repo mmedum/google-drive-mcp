@@ -115,7 +115,7 @@ func (s *Session) request(method string, params any) (map[string]any, error) {
 		}
 		if got, ok := reply["id"].(float64); ok && int(got) == id {
 			if e, ok := reply["error"]; ok {
-				return nil, fmt.Errorf("%s: %v", method, e)
+				return nil, &RPCError{Method: method, Detail: message(e)}
 			}
 			return reply, nil
 		}
@@ -137,6 +137,29 @@ func (s *Session) notify(method string) error {
 	}
 	_, err = s.stdin.Write(append(raw, '\n'))
 	return err
+}
+
+// RPCError is the server answering with an error object rather than a
+// result. It is worth telling apart from a transport failure: a tool
+// call reports a refusal inside its result, but a resource read reports
+// one as a JSON-RPC error, and a driver that could not tell the two
+// apart would count every expected refusal as a broken connection.
+type RPCError struct {
+	Method string
+	Detail string
+}
+
+func (e *RPCError) Error() string { return e.Method + ": " + e.Detail }
+
+// message pulls the human half out of a JSON-RPC error object, falling
+// back to the whole thing when it is not shaped as expected.
+func message(e any) string {
+	if m, ok := e.(map[string]any); ok {
+		if text, ok := m["message"].(string); ok && text != "" {
+			return text
+		}
+	}
+	return fmt.Sprint(e)
 }
 
 // Initialize completes the handshake and lists the tool surface.
@@ -190,6 +213,32 @@ func (s *Session) CallTool(name string, args map[string]any) (text string, isErr
 		}
 	}
 	return b.String(), isError, nil
+}
+
+// ReadResource reads one resource and returns its text and media type.
+// A refusal comes back as an *RPCError, which the caller judges; any
+// other error is the connection.
+func (s *Session) ReadResource(uri string) (text, mime string, err error) {
+	reply, err := s.request("resources/read", map[string]any{"uri": uri})
+	if err != nil {
+		return "", "", err
+	}
+	result, _ := reply["result"].(map[string]any)
+	contents, _ := result["contents"].([]any)
+	var b strings.Builder
+	for _, c := range contents {
+		m, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, ok := m["text"].(string); ok {
+			b.WriteString(t)
+		}
+		if mt, ok := m["mimeType"].(string); ok && mime == "" {
+			mime = mt
+		}
+	}
+	return b.String(), mime, nil
 }
 
 // Encode renders arguments for the transcript heading.

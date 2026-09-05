@@ -46,9 +46,12 @@ func registerResources(s *mcp.Server, d Deps) {
 		Name:        "file text",
 		Title:       "Drive file as text",
 		URITemplate: fileTemplate,
-		Description: "The text of a Drive file: a Google Doc as markdown, a Sheet as csv, and a text file " +
-			"as itself. The whole file up to one large budget, where read_file returns a window and can be " +
-			"asked for the next one. The {file} is a file id; a path or a URL has to be percent-encoded.",
+		Description: "The text of a Drive file and nothing else: a Google Doc as markdown, a Sheet as csv, " +
+			"and a text file as itself, with the media type saying which. The whole file up to one large " +
+			"budget, where read_file returns a window and can be asked for the next one — and where " +
+			"read_file puts a header above the text, this does not, so the bytes are what the media type " +
+			"says they are. gdrive://<id>/meta is the description. The {file} is a file id; a path or a URL " +
+			"has to be percent-encoded.",
 	}, resourceHandler(d, func(ctx context.Context, ref string) (*service.Resource, error) {
 		return d.Service.ResourceText(ctx, ref)
 	}))
@@ -95,9 +98,18 @@ func resourceHandler(d Deps, read func(context.Context, string) (*service.Resour
 		if err != nil {
 			return nil, resourceError(uri, err)
 		}
-		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{
-			URI: uri, MIMEType: out.MimeType, Text: out.Text,
-		}}}, nil
+		contents := &mcp.ResourceContents{URI: uri, MIMEType: out.MimeType, Text: out.Text}
+		if out.Truncated {
+			// Out of band, because the point of returning the content
+			// alone is that the bytes are what the media type says they
+			// are. read_file is where a caller asks for the next window.
+			contents.Meta = mcp.Meta{
+				"truncated":   true,
+				"bytes":       out.Bytes,
+				"total_bytes": out.Total,
+			}
+		}
+		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{contents}}, nil
 	}
 }
 
