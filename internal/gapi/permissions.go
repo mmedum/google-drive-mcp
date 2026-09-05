@@ -110,7 +110,7 @@ func (c *Client) CreatePermission(ctx context.Context, fileID string, meta *gdri
 		return nil, err
 	}
 	u := c.base + "/files/" + segment + "/permissions?" + o.values().Encode()
-	body, err := c.do(ctx, request{kind: kindSharing, method: http.MethodPost, url: u,
+	body, err := c.do(ctx, request{sharing: true, method: http.MethodPost, url: u,
 		body: payload, resourceIDs: append([]string{fileID}, o.ResourceIDs...)})
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func (c *Client) UpdatePermission(ctx context.Context, fileID, permissionID stri
 	}
 	u := c.base + "/files/" + segment + "/permissions/" + url.PathEscape(permissionID) +
 		"?" + o.values().Encode()
-	body, err := c.do(ctx, request{kind: kindSharing, method: http.MethodPatch, url: u,
+	body, err := c.do(ctx, request{sharing: true, method: http.MethodPatch, url: u,
 		body: payload, resourceIDs: append([]string{fileID}, o.ResourceIDs...)})
 	if err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (c *Client) DeletePermission(ctx context.Context, fileID, permissionID stri
 	v.Set("supportsAllDrives", "true")
 	u := c.base + "/files/" + segment + "/permissions/" + url.PathEscape(permissionID) +
 		"?" + v.Encode()
-	_, err = c.do(ctx, request{kind: kindSharing, method: http.MethodDelete, url: u,
+	_, err = c.do(ctx, request{sharing: true, method: http.MethodDelete, url: u,
 		resourceIDs: []string{fileID}})
 	return err
 }

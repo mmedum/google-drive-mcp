@@ -36,29 +36,43 @@ type ReadFileInput struct {
 // so the head of a large log costs one small request. Anything else says
 // what to do instead.
 func (s *Service) ReadFile(ctx context.Context, in ReadFileInput) (string, error) {
-	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: true})
-	if err != nil {
-		return "", err
-	}
-	f := res.File
-	if f.IsFolder() {
-		return "", Errorf(ClassInvalid, "%s is a folder. list_folder shows what is inside it.", f.Name)
-	}
-	budget := render.Budget(in.MaxChars)
-	if in.Offset < 0 {
-		return "", Errorf(ClassInvalid, "offset cannot be negative")
-	}
-
-	plan, err := s.readPlan(f, in.Format)
-	if err != nil {
-		return "", err
-	}
-
-	w, err := s.textWindow(ctx, res, plan, in, budget)
+	res, plan, w, err := s.readText(ctx, in)
 	if err != nil {
 		return "", err
 	}
 	return s.renderText(ctx, res, plan, in, w), nil
+}
+
+// readText is the whole read: resolve the reference, refuse what has no
+// text, decide how this kind becomes text, and fetch the window asked
+// for. Both callers are the same read with a different wrapping —
+// read_file lays the window out under a header, a resource hands back
+// the text alone — and the head of it is shared for the same reason the
+// tail is: a rule added to one of them has to reach the other.
+func (s *Service) readText(ctx context.Context, in ReadFileInput,
+) (*Resolved, readPlan, textWindow, error) {
+	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: true})
+	if err != nil {
+		return nil, readPlan{}, textWindow{}, err
+	}
+	f := res.File
+	if f.IsFolder() {
+		return nil, readPlan{}, textWindow{}, Errorf(ClassInvalid,
+			"%s is a folder. list_folder shows what is inside it, and %s is the same listing as a resource.",
+			f.Name, ResourceURI(f.ID, "children"))
+	}
+	if in.Offset < 0 {
+		return nil, readPlan{}, textWindow{}, Errorf(ClassInvalid, "offset cannot be negative")
+	}
+	plan, err := s.readPlan(f, in.Format)
+	if err != nil {
+		return nil, readPlan{}, textWindow{}, err
+	}
+	w, err := s.textWindow(ctx, res, plan, in, render.Budget(in.MaxChars))
+	if err != nil {
+		return nil, readPlan{}, textWindow{}, err
+	}
+	return res, plan, w, nil
 }
 
 // textWindow is one window of a file's text and what a header needs to
@@ -143,12 +157,30 @@ func (s *Service) exportWindow(ctx context.Context, res *Resolved, plan readPlan
 	if in.Offset >= total {
 		return textWindow{total: total}, nil
 	}
-	window, used, more, err := readWindow(strings.NewReader(text[in.Offset:]), budget)
-	if err != nil {
-		return textWindow{}, wrap(err, "reading "+f.Name)
-	}
+	// Sliced, not copied. The bytes are already a string in memory, and
+	// readWindow's job is to bound an io.Reader: putting one around this
+	// allocates the whole budget and memcpys into it, which on a resource
+	// read is 400 KB whatever the document's size — for a 200-byte Doc
+	// as much as for a long one.
+	window, used := stringWindow(text[in.Offset:], budget)
 	return textWindow{text: window, used: used, total: total,
-		more: more || in.Offset+used < total}, nil
+		more: in.Offset+used < total}, nil
+}
+
+// stringWindow returns at most budget bytes from the front of text,
+// ending on a rune boundary, and how many bytes it took. A slice of a
+// string shares the backing array, so nothing is copied.
+func stringWindow(text string, budget int) (string, int64) {
+	if len(text) <= budget {
+		return text, int64(len(text))
+	}
+	cut := budget
+	// Back up to a boundary, so a window never ends in half a character.
+	// utf8.UTFMax bounds how far that can be.
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut], int64(cut)
 }
 
 // MaxExport is Google's own ceiling on files.export.

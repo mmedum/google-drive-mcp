@@ -45,11 +45,11 @@ func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput)
 			"subfolder at a time.", in.MaxItems, MaxCopyItems)
 	}
 
-	plan, err := s.planCopy(ctx, source, items)
-	if err != nil {
-		return nil, err
-	}
-
+	// The destination is settled BEFORE the walk. A walk is one listing
+	// per folder at twenty units each, and a bad destination or a name
+	// already taken would throw all of it away; resolving the parent is
+	// one mostly-cached read and the duplicate check is one listing,
+	// whatever the tree turns out to be.
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		name = "Copy of " + source.Name
@@ -66,9 +66,15 @@ func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput)
 			return nil, err
 		}
 	}
+
+	plan, err := s.planCopy(ctx, source, items)
+	if err != nil {
+		return nil, err
+	}
 	// A folder copied into itself or into its own subtree would copy the
 	// copy. The walk has just named every folder under the source, so
-	// the check costs nothing and is exact.
+	// the check costs nothing and is exact — which is why this one waits
+	// for the plan while the two above do not.
 	if destination == source.ID || plan.folderIDs[destination] {
 		return nil, Errorf(ClassInvalid, "%s cannot be copied into itself or into a folder inside it; the "+
 			"copy would then be inside what is being copied. Pick a destination outside %s.",
@@ -202,10 +208,19 @@ func (s *Service) runCopy(ctx context.Context, source *gdrive.File, plan *treePl
 			copies[item.ID] = newID
 		}
 	}
-	s.forget(created, false)
+	// s.write forgets the created folder itself.
 	return s.write(ctx, created, outcome{Action: render.ActionCopied,
 		Note: copyNote(source, plan, destName, done, failed)})
 }
+
+// copiedItemFields is all a tree copy reads back per item. The default
+// is the whole file card — permissions, export links, capabilities,
+// properties — and this loop uses the id and nothing else, so on a
+// two-hundred-item tree the default is two hundred full metadata
+// documents on the wire and parsed into maps that are dropped on the
+// next line. The folder the copy lands in is read in full, once, because
+// the result renders a card from it.
+const copiedItemFields = "id"
 
 // copyOne writes one item of the tree and returns the new id. A folder
 // is created, a shortcut is made again, and everything else is copied.
@@ -217,7 +232,7 @@ func (s *Service) copyOne(ctx context.Context, item *gdrive.File, parent string,
 		made, err := s.api.CreateFile(ctx, &gdrive.FileMeta{
 			Name: item.Name, MimeType: gdrive.MimeFolder, Parents: []string{parent},
 			ID: ids.take(gdrive.MimeFolder),
-		}, gapi.WriteOptions{ResourceIDs: []string{parent}})
+		}, gapi.WriteOptions{Fields: copiedItemFields, ResourceIDs: []string{parent}})
 		if err != nil {
 			return "", err
 		}
@@ -239,7 +254,8 @@ func (s *Service) copyOne(ctx context.Context, item *gdrive.File, parent string,
 		if meta.ShortcutDetails.TargetID == "" {
 			return "", Errorf(ClassInvalid, "the shortcut %s names no target", item.Name)
 		}
-		made, err := s.api.CreateFile(ctx, meta, gapi.WriteOptions{ResourceIDs: []string{parent}})
+		made, err := s.api.CreateFile(ctx, meta, gapi.WriteOptions{
+			Fields: copiedItemFields, ResourceIDs: []string{parent}})
 		if err != nil {
 			return "", err
 		}
@@ -251,7 +267,8 @@ func (s *Service) copyOne(ctx context.Context, item *gdrive.File, parent string,
 		// between honouring an argument and accepting one.
 		made, err := s.api.CopyFile(ctx, item.ID, &gdrive.FileMeta{
 			Name: item.Name, Parents: []string{parent}, ID: ids.take(item.MimeType),
-		}, gapi.WriteOptions{ResourceIDs: []string{item.ID, parent}, KeepRevisionForever: keepRevision})
+		}, gapi.WriteOptions{Fields: copiedItemFields, ResourceIDs: []string{item.ID, parent},
+			KeepRevisionForever: keepRevision})
 		if err != nil {
 			return "", err
 		}
@@ -295,19 +312,15 @@ type idPool struct {
 
 func (s *Service) idPool(ctx context.Context, plan *treePlan) *idPool {
 	// The root folder, plus every item that will take an id.
+	// AcceptsGeneratedID already answers for a shortcut, which is a
+	// Google type and not a folder; asking again here would be a second
+	// place that knows which types refuse an id, and take() is meant to
+	// be the only one.
 	want := 1
 	for _, item := range plan.items {
-		if item.IsShortcut() {
-			// A shortcut refuses a generated id, with a message of its
-			// own; §18 records both refusals.
-			continue
-		}
 		if gapi.AcceptsGeneratedID(item.MimeType) {
 			want++
 		}
-	}
-	if want == 0 {
-		return &idPool{}
 	}
 	ids, err := s.api.GenerateIDs(ctx, want)
 	if err != nil {

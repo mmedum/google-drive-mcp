@@ -16,7 +16,14 @@ var testNow = time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
 
 // setup builds a service over a fake Drive holding the shared synthetic
 // tree (see drivetest.SmallTree).
-func setup(t *testing.T, o service.Options) (*service.Service, *drivetest.Server) {
+// setup is the fake, the synthetic tree and a service wired to them,
+// with the clock fixed so nothing depends on when a run happened.
+//
+// It takes a testing.TB rather than a *testing.T so the benchmarks use
+// the same wiring: a benchmark with its own copy of this is a second
+// fixture that drifts from the one every test uses, and drivetest.Client
+// was widened for the same reason.
+func setup(t testing.TB, o service.Options) (*service.Service, *drivetest.Server) {
 	t.Helper()
 	fake := drivetest.New()
 	t.Cleanup(fake.Close)

@@ -37,25 +37,12 @@ type Resource struct {
 // one budget, in the form read_file would give it — markdown for a Doc,
 // csv for a Sheet, the file's own type otherwise — and nothing else.
 func (s *Service) ResourceText(ctx context.Context, reference string) (*Resource, error) {
-	res, err := s.Resolve(ctx, reference, ResolveOptions{FollowShortcut: true})
-	if err != nil {
-		return nil, err
-	}
-	f := res.File
-	if f.IsFolder() {
-		return nil, Errorf(ClassInvalid, "%s is a folder; its listing is %s.", f.Name, ResourceURI(f.ID, "children"))
-	}
-	plan, err := s.readPlan(f, "")
-	if err != nil {
-		return nil, err
-	}
-	in := ReadFileInput{File: f.ID, MaxChars: render.MaxMaxChars}
-	w, err := s.textWindow(ctx, res, plan, in, render.MaxMaxChars)
+	res, plan, w, err := s.readText(ctx, ReadFileInput{File: reference, MaxChars: render.MaxMaxChars})
 	if err != nil {
 		return nil, err
 	}
 	return &Resource{
-		Text: w.text, MimeType: textMimeOf(f, plan),
+		Text: w.text, MimeType: textMimeOf(res.File, plan),
 		Truncated: w.more, Bytes: w.used, Total: w.total,
 	}, nil
 }
@@ -104,11 +91,17 @@ func (s *Service) ResourceChildren(ctx context.Context, reference string) (*Reso
 	return &Resource{Text: text, MimeType: "text/plain"}, nil
 }
 
+// Scheme is the URI scheme this server's resources live under. It is
+// here rather than in internal/server because the refusals that name a
+// resource are written here, and a scheme spelled in two packages is a
+// scheme that can stop matching the templates the SDK routes on.
+const Scheme = "gdrive://"
+
 // ResourceURI is the gdrive:// URI for a file id, which is what a
-// resource link in a tool result would carry.
+// refusal names and what a resource link in a tool result would carry.
 func ResourceURI(id, suffix string) string {
 	if suffix == "" {
-		return "gdrive://" + id
+		return Scheme + id
 	}
-	return fmt.Sprintf("gdrive://%s/%s", id, suffix)
+	return fmt.Sprintf("%s%s/%s", Scheme, id, suffix)
 }

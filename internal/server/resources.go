@@ -14,8 +14,9 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/service"
 )
 
-// Scheme is the URI scheme this server's resources live under.
-const Scheme = "gdrive://"
+// Scheme is the URI scheme this server's resources live under. It is the
+// service's, because the service writes the refusals that name one.
+const Scheme = service.Scheme
 
 // The three resource templates. A variable in an RFC 6570 simple
 // expansion excludes "/", and the SDK matches a template through an

@@ -4,6 +4,7 @@
 # Use `go run` instead; these are so a slip cannot be committed.
 /gates
 /livedrive
+/evals
 /dist/
 cov.out
 schemas.json
