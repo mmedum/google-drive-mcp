@@ -239,6 +239,12 @@ type request struct {
 	// nil means 2xx: a resumable upload's 308 is progress, not a failure,
 	// and it is the only caller that needs to say so.
 	accepted func(int) bool
+	// unsafeToRepeat marks a call that a second attempt could apply
+	// twice. It names the exception rather than the kind, because "a
+	// write is idempotent here" is true only for the reason each write
+	// gives, and a later write that cannot give it would otherwise
+	// inherit permission to retry without anyone deciding so.
+	unsafeToRepeat bool
 }
 
 // ok reports whether a response status is a success for this request.
@@ -303,7 +309,7 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 			return res, nil
 		}
 		lastErr = err
-		retry, after := retryable(r.kind, err)
+		retry, after := retryable(r, err)
 		c.log.DebugContext(ctx, event+" error", "method", r.method, "path", path,
 			"attempt", attempt, "class", Class(err), "reason", Reason(err), "retry", retry && attempt < c.retry.MaxAttempts)
 		if !retry || attempt == c.retry.MaxAttempts {
@@ -423,17 +429,22 @@ func isRateReason(reason string) bool {
 
 // retryable decides whether an attempt may be repeated.
 //
-// Reads retry on any transient failure. A write retries only when Google
-// answered, because an answer proves the request reached Drive and was
-// refused; a network failure on a write is reported as ambiguous instead,
-// unless the caller made the write idempotent with a pre-generated id.
-func retryable(k reqKind, err error) (bool, time.Duration) {
+// Reads retry on any transient failure. A write retries on one too, but
+// only because of what the caller put in it: a pre-generated id, or
+// patch semantics that make a second application a no-op. A 500 proves
+// Google answered, not that it did nothing — it can arrive after the
+// file was created — so a write that carries neither says so with
+// unsafeToRepeat and is reported rather than repeated.
+//
+// A network failure on a write is ambiguous in the other direction: the
+// request may never have arrived. Those are never repeated.
+func retryable(r request, err error) (bool, time.Duration) {
 	var te *transientError
 	if errors.As(err, &te) {
-		return true, te.after
+		return !r.unsafeToRepeat, te.after
 	}
 	if errors.Is(err, ErrNetwork) {
-		return k == kindRead, 0
+		return r.kind == kindRead, 0
 	}
 	return false, 0
 }

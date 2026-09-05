@@ -111,7 +111,7 @@ Verified against the Drive API v3 reference and guides on 2026-09-05.
 | **Resource keys**: link-shared files under the 2021 security update need `X-Goog-Drive-Resource-Keys: id/key,…`. Keys arrive in `resourceKey`, `shortcutDetails.targetResourceKey` and the `resourcekey` URL parameter. | The reference parser keeps keys from URLs; the client remembers keys from every response and sends them on later calls for that id. |
 | **Scopes**: `drive` and `drive.readonly` are *restricted*; `drive.file` is non-sensitive but reaches only files the app created or the user opened with it through the Picker, which a CLI has no way to show. `drive.metadata` is restricted too. An External OAuth app in Testing gets 7-day refresh tokens; an Internal (Workspace) consent screen does not. | Full mode asks for `drive`; read-only asks for `drive.readonly`; labels add `drive.labels` (§10). Fine for a per-user app each deployer owns. The README covers Internal vs Testing. |
 | **Shared drives** exist only on Workspace editions; consumer accounts cannot create one (`about.canCreateDrives`). `drives.create` requires a `requestId` so a retry cannot create two. `drives.delete` needs an empty drive and an organizer. Members are permissions on the drive id. | `manage_drive` sends a fresh UUID as `requestId` and keeps it for the retry; `delete_drive` is gated; membership goes through `share_file` with the drive as the target. |
-| `files.generateIds` returns ids that `files.create` and `files.copy` accept in the body, making them **idempotent**. | Every create, upload and copy carries a pre-generated id; a retry after an ambiguous failure cannot produce two files. |
+| `files.generateIds` returns ids that `files.create` and `files.copy` accept in the body, making them **idempotent** — **except for the Docs Editors formats, which refuse one** (§18, live). | Every create, upload and copy carries a pre-generated id where Drive takes one; a new Doc, Sheet, Slides deck, Drawing or Form cannot, and is therefore never retried. |
 | **Labels** are Workspace metadata; definitions live in the separate Drive Labels API (`drivelabels.googleapis.com`, scopes `drive.labels`, `drive.labels.readonly`); the Drive API applies them with `files.modifyLabels` and reads them with `includeLabels`. **Approvals** are a new resource on files (`approvals.start/approve/decline/cancel/comment/reassign/get/list`). **Access proposals** cannot be created through the API, only listed and resolved by approvers (`accessproposals.list/get/resolve`). | Labels and approvals are Phase 4 (Workspace); access requests are Phase 3. |
 | Listings return at most 1 000 per page; `nextPageToken` stays valid for hours. `orderBy` keys: `createdTime`, `folder`, `modifiedByMeTime`, `modifiedTime`, `name`, `name_natural`, `quotaBytesUsed`, `recency`, `sharedWithMeTime`, `starred`, `viewedByMeTime`. | Pages are capped well under 1 000; `list_folder` sorts `folder,name_natural`; `search_files` defaults to `modifiedTime desc`. |
 | Claude Code truncates tool results above 25 000 tokens and warns at 10 000. | Reads and listings are budgeted with continuation. |
@@ -382,8 +382,10 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   Workspace file, or `content` (inline text) with `mime_type` (default
   `text/plain`) and optional `convert_to` (`doc`, `sheet`, `slides`)
   through Google's import. Plus `description`, `starred`. Multipart
-  upload with a pre-generated id. Refuses content above 5 MB (use
-  `upload_file`).
+  upload with a pre-generated id **where Drive takes one**: the Docs
+  Editors formats refuse it (§18), so those creates are the ones that
+  are not idempotent, and the duplicate-name guard is what catches a
+  double. Refuses content above 5 MB (use `upload_file`).
 - `upload_file`: `local_path` (inside `GDRIVE_LOCAL_DIR` after symlinks
   are resolved), `name` (default the file name), `parent`, `mime_type`
   (default: by extension, then by sniffing), `convert_to`, `ocr_language`,
@@ -680,7 +682,12 @@ before and after summaries.
   same way: they are idempotent. Creates, uploads and copies retry
   because they carry a pre-generated id; a duplicate-id answer after an
   ambiguous failure is confirmed with a `files.get` and reported as
-  success. `permissions.create` is not idempotent, so after a network
+  success. **A create that cannot carry one is not retried at all**:
+  Drive refuses a generated id for the Docs Editors formats, so a 500
+  arriving after a new Doc was made would otherwise produce a second
+  one. The request carries the exception rather than the rule naming the
+  kind, so a write added later cannot inherit permission to retry
+  without someone deciding that it may. `permissions.create` is not idempotent, so after a network
   failure the server lists permissions and checks before it retries.
   Resumable uploads recover through the protocol itself.
 - **Limiters.** Reads and listings 10/s, burst 20. Writes 5/s, burst 10.
@@ -1074,6 +1081,8 @@ was checked rather than assumed.
 | Link-shared files open by id alone | Refuted: resource keys, `X-Goog-Drive-Resource-Keys` | §6; spike D |
 | `drive.file` is enough for a per-user CLI | Refuted: it reaches only files the app created or the user opened through the Picker | Full mode uses `drive` |
 | `files.create` cannot be made idempotent | Refuted: `files.generateIds` ids go in the body of `create` and `copy` | §11; retries are safe |
+| A pre-generated id works for every create (§11 and §7.2 as written, and what phase 1 shipped) | **Refuted live, 2026-09-05, on the first `create_file`**: `403 Generated IDs are not supported for Docs Editors formats.` A folder takes one — same run — so the refusal is per format, not per Google-native type | Ids are sent only where Drive takes them. A new Doc, Sheet, Slides deck, Drawing or Form is created without one, which makes it the one create that is *not* idempotent, so it is also never retried on a 5xx: a 500 can arrive after the file exists. `drivetest` now refuses the id with Google's own sentence, and a test drives all five formats |
+| A write may be retried on a 5xx because writes carry pre-generated ids (phase 0's `retryable`, which named the request kind) | Refuted by the finding above, and by a sibling project hitting the same shape from the other end: a rule stated for "writes" and tested through one kind of write silently stops covering a second kind added later. Here the second kind was a create that *cannot* carry an id | `retryable` reads a per-request `unsafeToRepeat` instead of the kind, set where the create is built. A test asserts that a create without an id is attempted once and one with an id twice, and it fails against the old rule |
 | Shared-drive creation can be retried freely | Refined: `requestId` is required and makes it idempotent | `manage_drive create` keeps the id for the retry |
 | Shared drives are available to every account | Refuted: Workspace editions only; `about.canCreateDrives` | `get_account` and `doctor` report it; tests skip on consumer accounts |
 | Labels are a Drive API feature | Refined: applied through the Drive API, defined through the separate Drive Labels API with its own scopes | Phase 4 with `GDRIVE_LABELS` |

@@ -119,6 +119,20 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   a later call on a link-shared file still sends them.
 - Reading past the end of a text file said so; reading past the end of a
   *blob* returned Google's bare `416`. Both now say the same thing.
+- **Creating a Google Doc, Sheet, Slides deck, Drawing or Form failed
+  outright.** Drive refuses a pre-generated id for those formats
+  ("Generated IDs are not supported for Docs Editors formats"), which
+  the design had assumed since phase 0 and no test could have caught: a
+  fake that accepts what Drive refuses agrees with the bug. Found on the
+  first live write. Ids are now sent only where Drive takes them, the
+  fake refuses one with Google's own sentence, and a test covers all
+  five formats.
+- A create that cannot carry a pre-generated id is no longer retried
+  after a 5xx. A 500 proves Google answered, not that it did nothing, so
+  repeating one of those creates could leave two files. The retry rule
+  now reads a flag set where the request is built rather than the
+  request's kind, so a write added later cannot inherit permission to
+  repeat without someone deciding that it may.
 
 ## [0.0.1] - 2026-09-05
 

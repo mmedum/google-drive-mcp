@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 )
 
@@ -86,6 +87,21 @@ func (s *Server) createFile(meta *gdrive.FileMeta, contentType string, content [
 		return nil, &apiFailure{http.StatusBadRequest, "invalid", "The specified parent is not a folder."}
 	}
 
+	mimeType := meta.MimeType
+	if mimeType == "" {
+		mimeType = contentType
+	}
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	// Drive's own words, observed live on 2026-09-05. A fake that
+	// accepts what Drive refuses lets the bug through; this one refused
+	// nothing until a real account said no.
+	if meta.ID != "" && !gapi.AcceptsGeneratedID(mimeType) {
+		return nil, &apiFailure{http.StatusForbidden, "insufficientFilePermissions",
+			"Generated IDs are not supported for Docs Editors formats."}
+	}
+
 	id := meta.ID
 	if id == "" {
 		s.nextID++
@@ -93,14 +109,6 @@ func (s *Server) createFile(meta *gdrive.FileMeta, contentType string, content [
 	}
 	if _, taken := s.Files[id]; taken {
 		return nil, &apiFailure{http.StatusConflict, "duplicate", "A file with that id already exists."}
-	}
-
-	mimeType := meta.MimeType
-	if mimeType == "" {
-		mimeType = contentType
-	}
-	if mimeType == "" {
-		mimeType = "application/octet-stream"
 	}
 	ts := s.now().UTC().Format(time.RFC3339)
 	f := &gdrive.File{

@@ -49,7 +49,7 @@ func (s *Service) CreateFolder(ctx context.Context, in CreateFolderInput) (*Resu
 	if colour != "" {
 		meta.FolderColorRgb = gdrive.String(colour)
 	}
-	if meta.ID, err = s.newID(ctx); err != nil {
+	if err := s.assignID(ctx, meta); err != nil {
 		return nil, err
 	}
 	f, err := s.api.CreateFile(ctx, meta, gapi.WriteOptions{ResourceIDs: []string{parent.ID}})
@@ -341,7 +341,14 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 	if parentID != "" {
 		meta.Parents = []string{parentID}
 	}
-	if meta.ID, err = s.newID(ctx); err != nil {
+	// A copy of a Google Doc is a Google Doc unless it is being
+	// converted, and what the copy becomes is what decides whether an id
+	// may be sent with it.
+	becomes := convert
+	if becomes == "" {
+		becomes = f.MimeType
+	}
+	if err := s.assignIDFor(ctx, meta, becomes); err != nil {
 		return nil, err
 	}
 	copied, err := s.api.CopyFile(ctx, f.ID, meta, gapi.WriteOptions{
@@ -393,7 +400,7 @@ func (s *Service) CreateShortcut(ctx context.Context, in CreateShortcutInput) (*
 		Name: name, MimeType: gdrive.MimeShortcut, Parents: []string{parent.ID},
 		ShortcutDetails: &gdrive.ShortcutDetails{TargetID: target.ID},
 	}
-	if meta.ID, err = s.newID(ctx); err != nil {
+	if err := s.assignID(ctx, meta); err != nil {
 		return nil, err
 	}
 	f, err := s.api.CreateFile(ctx, meta, gapi.WriteOptions{ResourceIDs: []string{target.ID, parent.ID}})
