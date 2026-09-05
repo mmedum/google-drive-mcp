@@ -78,13 +78,16 @@ type MoveFileInput struct {
 
 // CopyFileInput describes a copy.
 type CopyFileInput struct {
-	File                string `json:"file" jsonschema:"the file to copy: an id, a Drive URL, a path from My Drive, or a shared-drive path. Folders cannot be copied."`
+	File                string `json:"file" jsonschema:"the file or folder to copy: an id, a Drive URL, a path from My Drive, or a shared-drive path. A folder needs recursive: true."`
 	Name                string `json:"name,omitempty" jsonschema:"the copy's name, default \"Copy of <the original>\" as Drive itself does"`
 	To                  string `json:"to,omitempty" jsonschema:"the folder for the copy, default the folder the original is in"`
 	ConvertTo           string `json:"convert_to,omitempty" jsonschema:"ask Google to import the copy as one of its own kinds: doc, sheet, slides or drawing. This is how a PDF or a scanned image becomes a document with readable text, which read_file can then return."`
 	OCRLanguage         string `json:"ocr_language,omitempty" jsonschema:"an ISO 639-1 language code hinting what language the text in a scan is, for convert_to"`
 	KeepRevisionForever bool   `json:"keep_revision_forever,omitempty" jsonschema:"pin the copy's first revision so Drive keeps it"`
 	AllowDuplicate      bool   `json:"allow_duplicate,omitempty" jsonschema:"copy it even though the destination folder already holds something of that name"`
+	Recursive           bool   `json:"recursive,omitempty" jsonschema:"required to copy a folder: Drive has no call for it, so it is one listing per folder and one write per item inside"`
+	MaxItems            int    `json:"max_items,omitempty" jsonschema:"how many items a recursive copy may write, default 200, ceiling 2000. A tree larger than this is refused before anything is copied, rather than copied halfway."`
+	DryRun              bool   `json:"dry_run,omitempty" jsonschema:"report how big the tree is and what would be copied, and copy nothing"`
 }
 
 // CreateShortcutInput describes a shortcut to create.
@@ -195,13 +198,18 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		Name: "copy_file",
 		Description: "Copy one file, leaving the original alone. With convert_to, Google imports the copy as one " +
 			"of its own kinds, which is the way to get readable text out of a PDF or a scanned image: copy it " +
-			"with convert_to: doc, then read_file the copy. Folders cannot be copied.",
+			"with convert_to: doc, then read_file the copy. " +
+			"A folder needs recursive: true, because Drive has no call that copies one — it is a listing per " +
+			"folder and a write per item, so a large tree takes a while. A tree over max_items is refused " +
+			"before anything is written rather than copied halfway; dry_run says how big it is first. " +
+			"Shortcuts inside a tree are made again pointing where they point now, not at the copies.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CopyFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.CopyFile(ctx, service.CopyFileInput{
 			File: in.File, Name: in.Name, To: in.To, ConvertTo: in.ConvertTo,
 			OCRLanguage: in.OCRLanguage, KeepRevisionForever: in.KeepRevisionForever,
-			AllowDuplicate: in.AllowDuplicate,
+			AllowDuplicate: in.AllowDuplicate, Recursive: in.Recursive, MaxItems: in.MaxItems,
+			DryRun: in.DryRun,
 		}))
 	})
 
