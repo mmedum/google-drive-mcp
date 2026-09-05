@@ -39,6 +39,9 @@ func sessionAndFake(t *testing.T, cfg config.Config, withCredentials bool) (*mcp
 	fake.SetNow(func() time.Time { return time.Date(2026, 3, 4, 9, 0, 0, 0, time.UTC) })
 	fake.AddFolder("id-projects-fixture", "Projects", fake.RootID)
 	fake.AddFile("id-notes-fixture", "Meeting notes", gdrive.MimeDocument, "id-projects-fixture")
+	fake.AddComment("id-notes-fixture", "id-comment-fixture", "does this cover the second case?",
+		drivetest.WithReply("id-reply-fixture", "Someone Else", "not yet", ""))
+	fake.AddProposal("id-notes-fixture", "id-request-fixture", "alice@example.com", "writer")
 
 	api := drivetest.Client(t, fake)
 	if !withCredentials {
@@ -96,20 +99,22 @@ func TestToolsListed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	// The read tools, then the two that move content out, then the four
-	// listings phase 2 adds, then the tools that change Drive. The
-	// destructive four are not here: a default build does not register
+	// The read tools, then the two that move content out, then the
+	// listings phases 2 and 3 add, then the tools that change Drive. The
+	// destructive five are not here: a default build does not register
 	// them, and TestDestructiveToolsExistOnlyWhenAskedFor covers those.
 	readTools := map[string]bool{
 		"get_account": false, "get_file": false, "search_files": false, "list_folder": false,
 		"read_file": false, "download_file": false,
 		"list_permissions": false, "list_drives": false, "list_revisions": false, "list_changes": false,
+		"list_comments": false, "list_access_requests": false,
 	}
 	want := map[string]bool{
 		"create_file": false, "upload_file": false, "update_content": false, "create_folder": false,
 		"update_file": false, "move_file": false, "copy_file": false, "create_shortcut": false,
 		"trash_file": false, "restore_file": false,
 		"share_file": false, "unshare_file": false, "manage_drive": false, "manage_revision": false,
+		"add_comment": false, "reply_comment": false, "resolve_access_request": false,
 	}
 	for name := range readTools {
 		want[name] = false
@@ -355,7 +360,7 @@ func TestDumpSchemas(t *testing.T) {
 	if out.Server != server.Name || out.SDK != server.SDKVersion {
 		t.Errorf("dump header = %+v", out)
 	}
-	const registeredTools = 24
+	const registeredTools = 29
 	if len(out.Tools) != registeredTools {
 		t.Fatalf("dumped %d tools, want %d", len(out.Tools), registeredTools)
 	}
@@ -447,7 +452,7 @@ func TestGetAccountReportsTheToolsThatExist(t *testing.T) {
 	}
 	// Naming a tool a later phase will add would be a claim the server
 	// cannot honour today.
-	for _, absent := range []string{"list_comments", "add_comment", "delete_file", "list_labels"} {
+	for _, absent := range []string{"delete_file", "delete_comment", "list_labels"} {
 		if strings.Contains(out, absent) {
 			t.Errorf("get_account names %q, which is not registered:\n%s", absent, out)
 		}
@@ -458,10 +463,7 @@ func TestGetAccountReportsTheToolsThatExist(t *testing.T) {
 // not register. Nothing a model reads may name one: following the advice
 // would get "no such tool". As each phase lands its tools, its names come
 // off this list and may be used in output again.
-var notYetRegistered = []string{
-	"list_comments", "add_comment", "reply_comment", "delete_comment",
-	"list_access_requests", "resolve_access_request", "list_labels", "manage_labels",
-}
+var notYetRegistered = []string{"list_labels", "manage_labels"}
 
 // gatedByDefault are the tools a default build leaves out on purpose:
 // they destroy without a way back, and GDRIVE_ENABLE_DESTRUCTIVE has to
@@ -470,7 +472,7 @@ var notYetRegistered = []string{
 // nobody has written — so they are checked the same way, and separately,
 // because these do exist in some builds and the two reasons are not the
 // same reason.
-var gatedByDefault = []string{"delete_file", "empty_trash", "delete_drive", "delete_revision"}
+var gatedByDefault = []string{"delete_file", "empty_trash", "delete_drive", "delete_revision", "delete_comment"}
 
 func TestNothingAModelReadsNamesAToolThatDoesNotExist(t *testing.T) {
 	cs := session(t, defaultConfig(), true)
@@ -613,7 +615,7 @@ func TestReadOnlyModeRegistersNoWriteTools(t *testing.T) {
 			t.Errorf("read-only mode registered %q, which changes Drive", tool.Name)
 		}
 	}
-	const readOnlyTools = 10 // four reads, two content reads, and the four listings phase 2 adds
+	const readOnlyTools = 12 // four reads, two content reads, phase 2's four listings, and phase 3's two
 	if len(res.Tools) != readOnlyTools {
 		t.Errorf("read-only mode registered %d tools, want the %d that only read", len(res.Tools), readOnlyTools)
 	}
@@ -960,10 +962,30 @@ func toolArgs() map[string][]map[string]any {
 		"manage_revision": {{"file": "id-notes-fixture", "revision": "id-nothing", "action": "keep"}},
 		"list_changes":    {{}, {"page_token": "not-a-token"}},
 
+		"list_comments": {
+			{"file": "id-notes-fixture"},
+			{"file": "id-projects-fixture"},
+			{"file": "id-notes-fixture", "include_deleted": true, "since": "not-a-date"},
+		},
+		"add_comment": {{"file": "id-notes-fixture", "content": "one more case to cover"}},
+		"reply_comment": {
+			{"file": "id-notes-fixture", "comment": "id-comment-fixture", "content": "covered now"},
+			{"file": "id-notes-fixture", "comment": "id-comment-fixture", "action": "resolve"},
+			{"file": "id-notes-fixture", "comment": "id-nothing", "action": "reopen"},
+			{"file": "id-notes-fixture", "comment": "id-comment-fixture", "action": "not-an-action"},
+		},
+		"list_access_requests": {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"resolve_access_request": {
+			{"file": "id-notes-fixture", "request": "id-request-fixture", "action": "accept", "dry_run": true},
+			{"file": "id-notes-fixture", "request": "id-nothing", "action": "deny"},
+			{"file": "id-notes-fixture", "request": "id-request-fixture", "action": "maybe"},
+		},
+
 		"delete_file":     {{"file": "id-notes-fixture"}},
 		"empty_trash":     {{"dry_run": true}},
 		"delete_drive":    {{"drive": "nothing-of-that-name"}},
 		"delete_revision": {{"file": "id-notes-fixture", "revision": "id-nothing"}},
+		"delete_comment":  {{"file": "id-notes-fixture", "comment": "id-comment-fixture"}},
 	}
 }
 

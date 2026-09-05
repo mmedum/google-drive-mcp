@@ -1,0 +1,9 @@
+Budget.xlsx — spreadsheet: 2 pending access requests
+location: My Drive / Projects
+id-request-1  alice@example.com asked 2026-03-05 09:00Z (1 day ago)
+  wants: can edit
+  | I am picking this up while you are away
+
+id-request-2  bob@example.com asked 2026-03-06 08:00Z (4 hours ago)
+  for: team@example.com
+  wants: can view or can comment
