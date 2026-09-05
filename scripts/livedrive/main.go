@@ -32,6 +32,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
 )
 
 func main() {
@@ -73,7 +76,7 @@ type options struct {
 }
 
 func run(o options) error {
-	redact := NewRedactor(o.raw)
+	red := redact.NewRedactor(o.raw)
 	// The transfer tools need a local directory, and an MCP client passes
 	// one only through the environment.
 	dir, err := os.MkdirTemp("", "livedrive-")
@@ -82,14 +85,14 @@ func run(o options) error {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	session, err := start(o.binary, "GDRIVE_LOCAL_DIR="+dir)
+	sess, err := mcpstdio.Start(o.binary, "GDRIVE_LOCAL_DIR="+dir)
 	if err != nil {
 		return err
 	}
-	defer session.close()
+	defer sess.Close()
 	file := o.file
 
-	proto, tools, err := session.initialize()
+	proto, tools, err := sess.Initialize("livedrive")
 	if err != nil {
 		return err
 	}
@@ -116,15 +119,15 @@ func run(o options) error {
 
 	unexpected := 0
 	for _, c := range calls { //nolint:dupl // the read loop and the write loop print differently on purpose
-		fmt.Printf("\n=== %s %s ===\n", c.tool, encode(c.args))
+		fmt.Printf("\n=== %s %s ===\n", c.tool, mcpstdio.Encode(c.args))
 		if c.why != "" {
 			fmt.Printf("(expecting a refusal: %s)\n", c.why)
 		}
-		text, isError, err := session.callTool(c.tool, c.args)
+		text, isError, err := sess.CallTool(c.tool, c.args)
 		if err != nil {
 			return err
 		}
-		fmt.Println(strings.TrimRight(redact.Do(text), "\n"))
+		fmt.Println(strings.TrimRight(red.Do(text), "\n"))
 		if isError != c.expectError {
 			unexpected++
 			if c.expectError {
@@ -139,7 +142,7 @@ func run(o options) error {
 		fmt.Println("\n(pass -file REF to also exercise get_file and a recursive listing)")
 	}
 	if o.write {
-		failures, err := runWrites(session, redact, dir, o.parent, o.drive, o.share)
+		failures, err := runWrites(sess, red, dir, o.parent, o.drive, o.share)
 		unexpected += failures
 		if err != nil {
 			return err
@@ -147,13 +150,13 @@ func run(o options) error {
 	} else {
 		fmt.Println("(pass -write to exercise the tools that change Drive, in a scratch folder)")
 	}
-	if logs := session.stderrTail(20); len(logs) > 0 {
+	if logs := sess.StderrTail(20); len(logs) > 0 {
 		fmt.Println("\n=== stderr ===")
 		for _, line := range logs {
-			fmt.Println(redact.Do(line))
+			fmt.Println(red.Do(line))
 		}
 	}
-	fmt.Println("\n" + redact.Summary())
+	fmt.Println("\n" + red.Summary())
 	if unexpected > 0 {
 		return fmt.Errorf("%d call(s) did not behave as expected", unexpected)
 	}

@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
 )
 
 // writeRun exercises every tool that changes Drive, inside one scratch
@@ -17,8 +21,8 @@ import (
 // It is opt-in (-write) because it is the only part of this driver that
 // changes anything in a real account.
 type writeRun struct {
-	session *session
-	redact  *Redactor
+	sess *mcpstdio.Session
+	red  *redact.Redactor
 	// dir is the local directory the server was told to use, and the one
 	// place uploads come from and downloads land in.
 	dir string
@@ -40,8 +44,8 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 
 // runWrites drives the whole write surface and reports how many calls
 // behaved unexpectedly.
-func runWrites(s *session, redact *Redactor, dir, parent, drive, share string) (int, error) {
-	w := &writeRun{session: s, redact: redact, dir: dir, drive: drive, share: share}
+func runWrites(s *mcpstdio.Session, red *redact.Redactor, dir, parent, drive, share string) (int, error) {
+	w := &writeRun{sess: s, red: red, dir: dir, drive: drive, share: share}
 	name := fmt.Sprintf("%s %s", scratchPrefix, time.Now().UTC().Format("2006-01-02 15:04:05"))
 	args := map[string]any{"name": name}
 	if parent != "" {
@@ -69,9 +73,111 @@ func (w *writeRun) exercise() {
 	w.organise(ids)
 	w.access(ids)
 	w.history(ids)
+	w.collaboration(ids)
 	w.refusals(ids)
 	w.sharedDrive(ids)
 }
+
+// collaboration exercises what phase 3 added: comments, the access
+// requests nobody here can create, and a recursive copy.
+//
+// The comment surface is the one part of this driver that leaves marks
+// other people can see — everybody the file is shared with sees a
+// comment — but every file it touches is inside the scratch folder, and
+// the folder is trashed at the end.
+func (w *writeRun) collaboration(m made) {
+	// A thread on a blob and a thread on a Google document: Drive stores
+	// them the same way, and that is the claim worth checking live,
+	// because every other server puts comments in the Docs API.
+	for _, target := range []struct{ id, what string }{{m.text, "a csv"}, {m.doc, "a Google Doc"}} {
+		if target.id == "" {
+			continue
+		}
+		fmt.Printf("\n--- comments on %s ---\n", target.what)
+		w.needing("list_comments", target.id, map[string]any{"file": target.id})
+		id := commentFromResult(w.call(call{tool: "add_comment", args: map[string]any{
+			"file": target.id, "content": "is this row still right?",
+		}}))
+		if id == "" {
+			w.problem("no comment id came back from add_comment, so the rest of the thread cannot run",
+				errors.New("the result carried no comment id"))
+			continue
+		}
+		w.needing("reply_comment", target.id, map[string]any{
+			"file": target.id, "comment": id, "content": "checked, it is",
+		})
+		w.needing("reply_comment", target.id, map[string]any{
+			"file": target.id, "comment": id, "action": "resolve",
+		})
+		// The same resolve again: it must report that nothing changed
+		// rather than adding a second reply everybody can see.
+		w.needing("reply_comment", target.id, map[string]any{
+			"file": target.id, "comment": id, "action": "resolve",
+		})
+		w.needing("reply_comment", target.id, map[string]any{
+			"file": target.id, "comment": id, "action": "reopen",
+		})
+		w.needing("reply_comment", target.id, map[string]any{
+			"file": target.id, "comment": id, "action": "edit",
+			"content": "is this row still right? (edited)",
+		})
+		w.needing("list_comments", target.id, map[string]any{"file": target.id, "include_deleted": true})
+		w.expecting("reply_comment", target.id, map[string]any{
+			"file": target.id, "comment": id, "action": "close", "content": "x",
+		}, "an action nobody implemented")
+		w.expecting("reply_comment", target.id, map[string]any{
+			"file": target.id, "comment": "a-comment-that-was-never-made", "content": "x",
+		}, "a comment id that names nothing")
+	}
+	w.expecting("list_comments", w.scratchID, map[string]any{"file": w.scratchID},
+		"a folder, which Drive has no comments on")
+	w.expecting("add_comment", m.text, map[string]any{"file": m.text},
+		"a comment with nothing in it")
+
+	// Access requests: nobody here can make one, so what this checks is
+	// that the listing works, and that the account is told when it is
+	// not an approver.
+	w.needing("list_access_requests", m.text, map[string]any{"file": m.text})
+	w.expecting("resolve_access_request", m.text, map[string]any{
+		"file": m.text, "request": "a-request-nobody-made", "action": "accept",
+	}, "an access request that is not pending")
+
+	// The recursive copy, which is the write with the most steps: a dry
+	// run first, then the copy, then a read-back of what it made.
+	if m.folder == "" {
+		return
+	}
+	w.needing("copy_file", m.folder, map[string]any{
+		"file": m.folder, "to": w.scratchID, "name": "Reports copy", "recursive": true, "dry_run": true,
+	})
+	w.needing("copy_file", m.folder, map[string]any{
+		"file": m.folder, "to": w.scratchID, "name": "Reports copy", "recursive": true,
+	})
+	w.needing("list_folder", w.scratchID, map[string]any{
+		"folder": w.scratchID, "recursive": true, "max_depth": 4,
+	})
+	w.expecting("copy_file", m.folder, map[string]any{"file": m.folder, "to": w.scratchID},
+		"a folder copied without recursive")
+	w.expecting("copy_file", m.folder, map[string]any{
+		"file": m.folder, "to": m.folder, "recursive": true,
+	}, "a folder copied into itself")
+	w.expecting("copy_file", m.folder, map[string]any{
+		"file": m.folder, "to": w.scratchID, "recursive": true, "max_items": 9000,
+	}, "a budget above the ceiling")
+}
+
+// commentFromResult reads the comment id out of add_comment's note,
+// which says "comment <id> added to <file>". The id is read before
+// redaction and never printed.
+func commentFromResult(out string) string {
+	m := commentIDInNote.FindStringSubmatch(out)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+var commentIDInNote = regexp.MustCompile(`comment (\S+) added to `)
 
 // access exercises the sharing surface. Everything happens on files
 // inside the scratch folder, and every grant made here is removed again
@@ -271,7 +377,7 @@ func (w *writeRun) firstRevision(id string) string {
 	if id == "" {
 		return ""
 	}
-	out, isError, err := w.session.callTool("list_revisions", map[string]any{"file": id})
+	out, isError, err := w.sess.CallTool("list_revisions", map[string]any{"file": id})
 	if err != nil || isError {
 		return ""
 	}
@@ -584,17 +690,17 @@ func (w *writeRun) trashScratch() {
 
 // call runs one tool and prints the redacted result.
 func (w *writeRun) call(c call) string {
-	fmt.Printf("\n=== %s %s ===\n", c.tool, encode(c.args))
+	fmt.Printf("\n=== %s %s ===\n", c.tool, mcpstdio.Encode(c.args))
 	if c.why != "" {
 		fmt.Printf("(expecting a refusal: %s)\n", c.why)
 	}
-	out, isError, err := w.session.callTool(c.tool, c.args)
+	out, isError, err := w.sess.CallTool(c.tool, c.args)
 	if err != nil {
 		fmt.Println("!! transport failure:", err)
 		w.failures++
 		return ""
 	}
-	fmt.Println(strings.TrimRight(w.redact.Do(out), "\n"))
+	fmt.Println(strings.TrimRight(w.red.Do(out), "\n"))
 	if isError != c.expectError {
 		w.failures++
 		if c.expectError {
