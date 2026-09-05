@@ -436,3 +436,69 @@ func MimeOnly(v string) string {
 	}
 	return strings.TrimSpace(v)
 }
+
+// PermissionMeta is the body of permissions.create and
+// permissions.update. It is separate from Permission for the reason
+// FileMeta is separate from File: a patch means "change exactly the
+// fields present", and only a pointer can tell "clear the expiry" from
+// "leave it alone".
+type PermissionMeta struct {
+	// Type, Role and the principal are only sent on a create; an update
+	// takes Role and the two pointer fields.
+	Type         string `json:"type,omitempty"`
+	Role         string `json:"role,omitempty"`
+	EmailAddress string `json:"emailAddress,omitempty"`
+	Domain       string `json:"domain,omitempty"`
+
+	// AllowFileDiscovery decides whether a domain or anyone grant turns
+	// up in search rather than only opening by link. Drive's default is
+	// false, and so is this server's, but "leave it alone" on an update
+	// still has to be a different request from "set it to false".
+	AllowFileDiscovery *bool `json:"allowFileDiscovery,omitempty"`
+	// ExpirationTime is RFC 3339, and setting it is all this field does.
+	// Clearing one goes through permissions.update's own
+	// removeExpiration parameter, because Drive does not read an empty
+	// string here as "remove it".
+	ExpirationTime string `json:"expirationTime,omitempty"`
+	// PendingOwner marks a consumer-account transfer waiting to be
+	// accepted. Workspace transfers do not use it.
+	PendingOwner *bool `json:"pendingOwner,omitempty"`
+}
+
+// DriveMeta is the body of drives.create and drives.update.
+type DriveMeta struct {
+	Name         string             `json:"name,omitempty"`
+	ColorRgb     string             `json:"colorRgb,omitempty"`
+	Hidden       *bool              `json:"hidden,omitempty"`
+	Restrictions *DriveRestrictions `json:"restrictions,omitempty"`
+}
+
+// StartPageToken is the changes.getStartPageToken response: the point in
+// the changes feed that "from now on" means.
+type StartPageToken struct {
+	StartPageToken string `json:"startPageToken,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+}
+
+// Change is one entry in the changes feed. A change names either a file
+// or a shared drive, and Removed means the item left this account's
+// view — deleted, untrashed out of reach, or unshared — which is not the
+// same as trashed.
+type Change struct {
+	ChangeType string `json:"changeType,omitempty"`
+	Time       string `json:"time,omitempty"`
+	Removed    bool   `json:"removed,omitempty"`
+	FileID     string `json:"fileId,omitempty"`
+	DriveID    string `json:"driveId,omitempty"`
+	File       *File  `json:"file,omitempty"`
+	Drive      *Drive `json:"drive,omitempty"`
+}
+
+// ChangeList is one page of changes.list. NewStartPageToken appears only
+// on the last page, and it is what the next call should carry.
+type ChangeList struct {
+	Changes           []*Change `json:"changes"`
+	NextPageToken     string    `json:"nextPageToken,omitempty"`
+	NewStartPageToken string    `json:"newStartPageToken,omitempty"`
+	Kind              string    `json:"kind,omitempty"`
+}

@@ -45,8 +45,16 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/about" && r.Method == http.MethodGet:
 		s.handleAbout(w)
+	case path == "/changes/startPageToken" && r.Method == http.MethodGet:
+		s.handleStartPageToken(w, r)
+	case path == "/changes" && r.Method == http.MethodGet:
+		s.handleListChanges(w, r)
 	case path == "/drives" && r.Method == http.MethodGet:
 		s.handleListDrives(w, r)
+	case path == "/drives" && r.Method == http.MethodPost:
+		s.handleCreateDrive(w, r)
+	case strings.HasPrefix(path, "/drives/"):
+		s.serveDrives(w, r, strings.TrimPrefix(path, "/drives/"))
 	case path == "/files" || strings.HasPrefix(path, "/files/"):
 		s.serveFiles(w, r, path)
 	default:
@@ -54,7 +62,23 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// serveDrives routes the per-drive endpoints. Hiding has two of its own,
+// which is why they are matched before the drive id.
+func (s *Server) serveDrives(w http.ResponseWriter, r *http.Request, rest string) {
+	switch {
+	case strings.HasSuffix(rest, "/hide") && r.Method == http.MethodPost:
+		s.handleDriveVisibility(w, strings.TrimSuffix(rest, "/hide"), true)
+	case strings.HasSuffix(rest, "/unhide") && r.Method == http.MethodPost:
+		s.handleDriveVisibility(w, strings.TrimSuffix(rest, "/unhide"), false)
+	default:
+		s.handleDrive(w, r, rest)
+	}
+}
+
 // serveFiles routes everything under /files, which is most of the API.
+// The collection endpoints and the ones addressing a file as a whole are
+// here; a file's sub-resources are in serveFileChild, because one switch
+// covering both grew past the point where a reader could see either.
 func (s *Server) serveFiles(w http.ResponseWriter, r *http.Request, path string) {
 	media := r.URL.Query().Get("alt") == "media"
 	rest := strings.TrimPrefix(path, "/files/")
@@ -65,25 +89,49 @@ func (s *Server) serveFiles(w http.ResponseWriter, r *http.Request, path string)
 		s.handleList(w, r)
 	case path == "/files" && r.Method == http.MethodPost:
 		s.handleCreate(w, r)
-	case strings.HasSuffix(path, "/permissions") && r.Method == http.MethodGet:
-		s.handleListPermissions(w, strings.TrimSuffix(rest, "/permissions"))
-	case strings.HasSuffix(path, "/export") && r.Method == http.MethodGet:
-		s.handleExport(w, r, strings.TrimSuffix(rest, "/export"))
-	case strings.HasSuffix(path, "/copy") && r.Method == http.MethodPost:
-		s.handleCopy(w, r, strings.TrimSuffix(rest, "/copy"))
-	case revisionPath.MatchString(path):
-		m := revisionPath.FindStringSubmatch(path)
-		if media {
-			s.handleDownload(w, r, m[1], m[2])
-			return
-		}
-		s.handleRevision(w, r, m[1], m[2])
+	case path == "/files/trash" && r.Method == http.MethodDelete:
+		s.handleEmptyTrash(w, r)
+	case strings.Contains(rest, "/"):
+		s.serveFileChild(w, r, path, rest, media)
 	case r.Method == http.MethodGet && media:
 		s.handleDownload(w, r, rest, "")
 	case r.Method == http.MethodGet:
 		s.handleGet(w, r, rest)
 	case r.Method == http.MethodPatch:
 		s.handleUpdate(w, r, rest)
+	case r.Method == http.MethodDelete:
+		s.handleDeleteFile(w, rest)
+	default:
+		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+path)
+	}
+}
+
+// serveFileChild routes the sub-resources of one file: its permissions,
+// its revisions, its export and its copy.
+func (s *Server) serveFileChild(w http.ResponseWriter, r *http.Request, path, rest string, media bool) {
+	switch {
+	case strings.HasSuffix(path, "/permissions") && r.Method == http.MethodGet:
+		s.handleListPermissions(w, strings.TrimSuffix(rest, "/permissions"))
+	case strings.HasSuffix(path, "/permissions") && r.Method == http.MethodPost:
+		s.handleCreatePermission(w, r, strings.TrimSuffix(rest, "/permissions"))
+	case permissionPath.MatchString(path):
+		s.servePermission(w, r, permissionPath.FindStringSubmatch(path))
+	case strings.HasSuffix(path, "/revisions") && r.Method == http.MethodGet:
+		s.handleListRevisions(w, strings.TrimSuffix(rest, "/revisions"))
+	case strings.HasSuffix(path, "/export") && r.Method == http.MethodGet:
+		s.handleExport(w, r, strings.TrimSuffix(rest, "/export"))
+	case strings.HasSuffix(path, "/copy") && r.Method == http.MethodPost:
+		s.handleCopy(w, r, strings.TrimSuffix(rest, "/copy"))
+	case revisionPath.MatchString(path):
+		m := revisionPath.FindStringSubmatch(path)
+		switch {
+		case media:
+			s.handleDownload(w, r, m[1], m[2])
+		case r.Method == http.MethodDelete:
+			s.handleDeleteRevision(w, m[1], m[2])
+		default:
+			s.handleRevision(w, r, m[1], m[2])
+		}
 	default:
 		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+path)
 	}
@@ -91,6 +139,23 @@ func (s *Server) serveFiles(w http.ResponseWriter, r *http.Request, path string)
 
 // revisionPath matches /files/{fileId}/revisions/{revisionId}.
 var revisionPath = regexp.MustCompile(`^/files/([^/]+)/revisions/([^/]+)$`)
+
+// permissionPath matches /files/{fileId}/permissions/{permissionId}.
+var permissionPath = regexp.MustCompile(`^/files/([^/]+)/permissions/([^/]+)$`)
+
+// servePermission routes the three methods on one grant.
+func (s *Server) servePermission(w http.ResponseWriter, r *http.Request, m []string) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetPermission(w, m[1], m[2])
+	case http.MethodPatch:
+		s.handleUpdatePermission(w, r, m[1], m[2])
+	case http.MethodDelete:
+		s.handleDeletePermission(w, m[1], m[2])
+	default:
+		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" on a permission")
+	}
+}
 
 // serveUpload routes the media-upload endpoints, which Drive serves
 // under /upload with the same version path.
@@ -151,15 +216,36 @@ func (s *Server) injectFailure(w http.ResponseWriter, f *Failure) {
 	s.errorJSON(w, f.Status, f.Reason, msg)
 }
 
+// errorJSON writes Google's error envelope, with one condition spelled
+// BOTH ways it really arrives: the legacy errors[] entry keeps the
+// camelCase reason a caller asked for, and the google.rpc.ErrorInfo
+// detail carries the UPPER_SNAKE_CASE form. They used to be identical
+// here, which made the fake agree with any client that compared the
+// camelCase spelling exactly — including one that would have missed
+// every modern response from Drive itself.
 func (s *Server) errorJSON(w http.ResponseWriter, status int, reason, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	body := map[string]any{"error": map[string]any{
 		"code": status, "message": message, "status": rpcStatus(status),
-		"errors":  []map[string]string{{"reason": reason, "message": message}},
-		"details": []map[string]string{{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason}},
+		"errors": []map[string]string{{"reason": reason, "message": message}},
+		"details": []map[string]string{{
+			"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": upperSnake(reason),
+		}},
 	}}
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// upperSnake turns a camelCase reason into the ErrorInfo spelling.
+func upperSnake(reason string) string {
+	var b strings.Builder
+	for i, r := range reason {
+		if r >= 'A' && r <= 'Z' && i > 0 {
+			b.WriteByte('_')
+		}
+		b.WriteRune(r)
+	}
+	return strings.ToUpper(b.String())
 }
 
 func rpcStatus(code int) string {
@@ -241,14 +327,11 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, id string) {
 func (s *Server) handleListPermissions(w http.ResponseWriter, id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.Files[id]; !ok {
-		if _, ok := s.Drives[id]; !ok {
-			s.errorJSON(w, http.StatusNotFound, "notFound", "File not found: "+id+".")
-			return
-		}
+	if s.permissionSubjectLocked(id) == "" {
+		s.errorJSON(w, http.StatusNotFound, "notFound", "File not found: "+id+".")
+		return
 	}
-	perms := append([]*gdrive.Permission(nil), s.Permissions[id]...)
-	writeJSON(w, gdrive.PermissionList{Permissions: perms})
+	writeJSON(w, gdrive.PermissionList{Permissions: s.grantsLocked(id)})
 }
 
 func (s *Server) handleListDrives(w http.ResponseWriter, _ *http.Request) {

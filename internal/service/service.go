@@ -48,6 +48,29 @@ type API interface {
 	// update is about to replace.
 	GetRevision(ctx context.Context, fileID, revisionID string) (*gdrive.Revision, error)
 	UpdateRevision(ctx context.Context, fileID, revisionID string, keepForever bool) (*gdrive.Revision, error)
+
+	// Access.
+	CreatePermission(ctx context.Context, fileID string, meta *gdrive.PermissionMeta, o gapi.ShareOptions) (*gdrive.Permission, error)
+	UpdatePermission(ctx context.Context, fileID, permissionID string, meta *gdrive.PermissionMeta, o gapi.UpdateShareOptions) (*gdrive.Permission, error)
+	DeletePermission(ctx context.Context, fileID, permissionID string) error
+
+	// Shared drives.
+	GetDrive(ctx context.Context, driveID string) (*gdrive.Drive, error)
+	CreateDrive(ctx context.Context, requestID string, meta *gdrive.DriveMeta) (*gdrive.Drive, error)
+	UpdateDrive(ctx context.Context, driveID string, meta *gdrive.DriveMeta) (*gdrive.Drive, error)
+	HideDrive(ctx context.Context, driveID string) (*gdrive.Drive, error)
+	UnhideDrive(ctx context.Context, driveID string) (*gdrive.Drive, error)
+	DeleteDrive(ctx context.Context, driveID string) error
+
+	// History and the changes feed.
+	ListRevisions(ctx context.Context, fileID string) ([]*gdrive.Revision, error)
+	DeleteRevision(ctx context.Context, fileID, revisionID string) error
+	StartPageToken(ctx context.Context, driveID string) (string, error)
+	ListChanges(ctx context.Context, o gapi.ListChangesOptions) (*gdrive.ChangeList, error)
+
+	// Permanent removal, registered only with GDRIVE_ENABLE_DESTRUCTIVE.
+	DeleteFile(ctx context.Context, fileID string) error
+	EmptyTrash(ctx context.Context, driveID string) error
 }
 
 // Options configure the service.
@@ -236,6 +259,16 @@ func wrap(err error, what string) error {
 	case ClassBlocked:
 		return &Error{Class: ClassBlocked, Message: "your organisation's sharing policy does not allow this. Google said: " + msg, Err: err}
 	case ClassRateLimited:
+		// A daily quota and a burst are both "rate limited", and the
+		// advice is opposite: one is worth trying again in a minute and
+		// the other cannot succeed again today however long the wait.
+		// Saying "the request was retried" of a daily quota would be
+		// wrong twice over, because it is deliberately not retried.
+		if gapi.IsDailyQuota(err) {
+			return &Error{Class: ClassRateLimited, Message: "this Google Cloud project's daily quota for the " +
+				"Drive API is spent, so " + what + " cannot succeed again until the quota resets. Backing off " +
+				"does not help and this was not retried. Google said: " + msg, Err: err}
+		}
 		return &Error{Class: ClassRateLimited, Message: "Drive is rate-limiting this account; the request was retried and still refused. Wait a minute and try again. Google said: " + msg, Err: err}
 	case ClassNetwork:
 		return &Error{Class: ClassNetwork, Message: "could not reach Google while " + what + ": " + msg, Err: err}

@@ -153,3 +153,50 @@ func TestEveryPackageUnderInternalIsMeasuredOrExemptOnPurpose(t *testing.T) {
 		t.Errorf("%s is neither measured nor exempt", pkg)
 	}
 }
+
+func TestPinsRejectsEveryRangeForm(t *testing.T) {
+	// The forms that have actually appeared here, plus the ones that
+	// would. "~> v2.18.0" is the one that matters: it reads like a pin,
+	// was recorded in the evidence log as the fix, and survived a review
+	// looking straight at it.
+	for _, bad := range []string{"~> v2.18.0", "~> v2", "latest", "v2", "v2.18", "nightly", "^1.2.3"} {
+		if exactVersion.MatchString(strings.Trim(bad, `"`)) {
+			t.Errorf("%q was accepted as an exact version", bad)
+		}
+	}
+	for _, good := range []string{"v2.18.0", "1.51.1", "v3.1.3", "v2.13.2", "v1.0.0-rc.1"} {
+		if !exactVersion.MatchString(good) {
+			t.Errorf("%q was rejected, and it is one exact version", good)
+		}
+	}
+	// go-version-file names a file rather than a version, and go.mod is
+	// the pin: matching it would fail the gate on every workflow here.
+	for _, line := range []string{"          go-version-file: go.mod"} {
+		if versionInput.MatchString(line) {
+			t.Errorf("%q was read as a tool version", line)
+		}
+	}
+	for _, line := range []string{
+		`          version: "v2.18.0"`,
+		"          cosign-release: v3.1.3",
+		"          syft-version: v1.51.1",
+	} {
+		if !versionInput.MatchString(line) {
+			t.Errorf("%q was not read as a tool version", line)
+		}
+	}
+}
+
+func TestPinsPassesOnThisRepositoryAndSaysWhatItChecked(t *testing.T) {
+	// The gate runs from the repository root; the tests run from the
+	// package directory.
+	t.Chdir("../..")
+	var out strings.Builder
+	if err := pins(&out, nil); err != nil {
+		t.Fatalf("pins: %v\n%s", err, out.String())
+	}
+	// A check that silently examined nothing would report success too.
+	if !strings.Contains(out.String(), "tool versions in") {
+		t.Errorf("the gate does not say how much it checked: %q", out.String())
+	}
+}

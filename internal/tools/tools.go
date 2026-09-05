@@ -36,6 +36,10 @@ func Register(s *mcp.Server, d Deps) []string {
 	if !d.Config.ReadOnly {
 		names = append(names, registerWrite(s, d)...)
 	}
+	names = append(names, registerAccess(s, d)...)
+	names = append(names, registerDrives(s, d)...)
+	names = append(names, registerHistory(s, d)...)
+	names = append(names, registerDestructive(s, d)...)
 	return names
 }
 
@@ -74,4 +78,8 @@ var (
 	// idempotentWrite sets a state rather than adding to one, so calling
 	// it twice with the same arguments leaves the same result.
 	idempotentWrite = &mcp.ToolAnnotations{IdempotentHint: true, OpenWorldHint: new(false)}
+	// destructive removes something with no way back. Calling it twice is
+	// harmless only because the second call finds nothing left, which is
+	// not what idempotent is for, so it is not marked as such.
+	destructive = &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)}
 )

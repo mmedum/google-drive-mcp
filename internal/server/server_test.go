@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -95,16 +96,20 @@ func TestToolsListed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	// The read tools, then the two that move content out, then the ten
-	// that change Drive.
+	// The read tools, then the two that move content out, then the four
+	// listings phase 2 adds, then the tools that change Drive. The
+	// destructive four are not here: a default build does not register
+	// them, and TestDestructiveToolsExistOnlyWhenAskedFor covers those.
 	readTools := map[string]bool{
 		"get_account": false, "get_file": false, "search_files": false, "list_folder": false,
 		"read_file": false, "download_file": false,
+		"list_permissions": false, "list_drives": false, "list_revisions": false, "list_changes": false,
 	}
 	want := map[string]bool{
 		"create_file": false, "upload_file": false, "update_content": false, "create_folder": false,
 		"update_file": false, "move_file": false, "copy_file": false, "create_shortcut": false,
 		"trash_file": false, "restore_file": false,
+		"share_file": false, "unshare_file": false, "manage_drive": false, "manage_revision": false,
 	}
 	for name := range readTools {
 		want[name] = false
@@ -350,8 +355,9 @@ func TestDumpSchemas(t *testing.T) {
 	if out.Server != server.Name || out.SDK != server.SDKVersion {
 		t.Errorf("dump header = %+v", out)
 	}
-	if len(out.Tools) != 16 {
-		t.Fatalf("dumped %d tools, want 16", len(out.Tools))
+	const registeredTools = 24
+	if len(out.Tools) != registeredTools {
+		t.Fatalf("dumped %d tools, want %d", len(out.Tools), registeredTools)
 	}
 	// Sorted, so a diff between releases is a diff in the surface.
 	for i := 1; i < len(out.Tools); i++ {
@@ -441,7 +447,7 @@ func TestGetAccountReportsTheToolsThatExist(t *testing.T) {
 	}
 	// Naming a tool a later phase will add would be a claim the server
 	// cannot honour today.
-	for _, absent := range []string{"list_permissions", "share_file", "delete_file", "list_changes"} {
+	for _, absent := range []string{"list_comments", "add_comment", "delete_file", "list_labels"} {
 		if strings.Contains(out, absent) {
 			t.Errorf("get_account names %q, which is not registered:\n%s", absent, out)
 		}
@@ -453,11 +459,18 @@ func TestGetAccountReportsTheToolsThatExist(t *testing.T) {
 // would get "no such tool". As each phase lands its tools, its names come
 // off this list and may be used in output again.
 var notYetRegistered = []string{
-	"list_permissions", "share_file", "unshare_file",
-	"list_drives", "manage_drive", "list_revisions", "manage_revision", "list_changes",
-	"list_comments", "add_comment", "reply_comment", "delete_file", "empty_trash",
-	"delete_drive", "delete_revision", "delete_comment", "list_labels", "manage_labels",
+	"list_comments", "add_comment", "reply_comment", "delete_comment",
+	"list_access_requests", "resolve_access_request", "list_labels", "manage_labels",
 }
+
+// gatedByDefault are the tools a default build leaves out on purpose:
+// they destroy without a way back, and GDRIVE_ENABLE_DESTRUCTIVE has to
+// be set for them to exist. A default build's output must not name one
+// either — the advice would be as unfollowable as advice naming a tool
+// nobody has written — so they are checked the same way, and separately,
+// because these do exist in some builds and the two reasons are not the
+// same reason.
+var gatedByDefault = []string{"delete_file", "empty_trash", "delete_drive", "delete_revision"}
 
 func TestNothingAModelReadsNamesAToolThatDoesNotExist(t *testing.T) {
 	cs := session(t, defaultConfig(), true)
@@ -475,30 +488,25 @@ func TestNothingAModelReadsNamesAToolThatDoesNotExist(t *testing.T) {
 		texts = append(texts, tool.Description, string(raw))
 	}
 
-	// Every result the four tools can produce, including the refusals,
-	// which are where advice is densest.
-	calls := []struct {
-		name string
-		args map[string]any
-	}{
-		{"get_account", map[string]any{}},
-		{"get_file", map[string]any{"file": "id-notes-fixture"}},
-		{"get_file", map[string]any{"file": "id-projects-fixture"}},
-		{"get_file", map[string]any{"file": "1NoSuchFileIdFixtureAAAAAAAAAAAAAAA"}},
-		{"get_file", map[string]any{"file": "https://drive.google.com/drive/shared-drives"}},
-		{"list_folder", map[string]any{"folder": "/Projects"}},
-		{"list_folder", map[string]any{"folder": "id-notes-fixture"}},
-		{"list_folder", map[string]any{"folder": "root", "recursive": true}},
-		{"search_files", map[string]any{"name": "Meeting"}},
-		{"search_files", map[string]any{"name": "nothingmatchesthis"}},
-		{"search_files", map[string]any{}},
-		{"search_files", map[string]any{"kind": "not-a-kind", "name": "x"}},
-	}
-	for _, c := range calls {
+	// Every result every registered tool can produce, including the
+	// refusals, which are where advice is densest. The calls come from
+	// toolArgs rather than a list typed here, and
+	// TestEveryRegisteredToolIsExercised fails when a tool has no entry:
+	// a list typed by hand stops covering the surface the moment the
+	// surface grows, silently, which is exactly how this test came to be
+	// checking four tools out of twenty-four.
+	for _, c := range toolCalls() {
+		// The gated four are in the table because
+		// TestEveryRegisteredToolIsExercised makes them be; this build
+		// does not register them, and their absence is what the loop
+		// below asserts.
+		if !registered[c.name] {
+			continue
+		}
 		texts = append(texts, resultText(t, call(t, cs, c.name, c.args)))
 	}
 
-	for _, absent := range notYetRegistered {
+	for _, absent := range append(append([]string(nil), notYetRegistered...), gatedByDefault...) {
 		if registered[absent] {
 			t.Errorf("%q is registered; take it off notYetRegistered", absent)
 			continue
@@ -605,8 +613,9 @@ func TestReadOnlyModeRegistersNoWriteTools(t *testing.T) {
 			t.Errorf("read-only mode registered %q, which changes Drive", tool.Name)
 		}
 	}
-	if len(res.Tools) != 6 {
-		t.Errorf("read-only mode registered %d tools, want the six that only read", len(res.Tools))
+	const readOnlyTools = 10 // four reads, two content reads, and the four listings phase 2 adds
+	if len(res.Tools) != readOnlyTools {
+		t.Errorf("read-only mode registered %d tools, want the %d that only read", len(res.Tools), readOnlyTools)
 	}
 	// A write that is not registered cannot be called; the service
 	// refuses one anyway, so a later tool that forgets to ask still fails
@@ -773,5 +782,242 @@ func TestTheActionSchemaNamesEveryActionTheCodeCanProduce(t *testing.T) {
 		if !strings.Contains(described, action) {
 			t.Errorf("the schema does not name the action %q the code can produce: %s", action, described)
 		}
+	}
+}
+
+func TestDestructiveToolsExistOnlyWhenAskedFor(t *testing.T) {
+	// The specification treats annotations as untrusted hints, so the gate
+	// that holds is registration itself: a tool that is not registered
+	// cannot be called however a client feels about its annotations.
+	cfg := defaultConfig()
+	cfg.EnableDestructive = true
+	cs, fake := sessionAndFake(t, cfg, true)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	found := map[string]*mcp.Tool{}
+	for _, tool := range res.Tools {
+		found[tool.Name] = tool
+	}
+	for _, name := range gatedByDefault {
+		tool := found[name]
+		if tool == nil {
+			t.Errorf("%s is not registered with GDRIVE_ENABLE_DESTRUCTIVE=true", name)
+			continue
+		}
+		if tool.Annotations == nil || tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint {
+			t.Errorf("%s is not annotated as destructive", name)
+		}
+		// The hint a client may act on to put the call in front of a
+		// person before it runs.
+		if tool.Meta["anthropic/requiresUserInteraction"] != true {
+			t.Errorf("%s does not ask for user interaction: %v", name, tool.Meta)
+		}
+		if !strings.Contains(tool.Description, "NO UNDO") {
+			t.Errorf("%s does not say it cannot be undone: %s", name, tool.Description)
+		}
+	}
+
+	// Registered is not the same as callable: each still needs confirm.
+	out := resultText(t, call(t, cs, "delete_file", map[string]any{"file": "id-notes-fixture"}))
+	if !strings.Contains(out, "confirm: true") {
+		t.Errorf("delete_file ran without confirm:\n%s", out)
+	}
+	if fake.Files["id-notes-fixture"] == nil {
+		t.Fatal("the file was deleted without confirm")
+	}
+	if res := call(t, cs, "delete_file", map[string]any{
+		"file": "id-notes-fixture", "confirm": true,
+	}); res.IsError {
+		t.Fatalf("delete_file with confirm: %s", resultText(t, res))
+	}
+	if fake.Files["id-notes-fixture"] != nil {
+		t.Error("the file survived a confirmed delete")
+	}
+}
+
+func TestSharingOffRemovesOnlyTheToolsThatWiden(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Sharing = config.SharingOff
+	cs := session(t, cfg, true)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	registered := map[string]bool{}
+	for _, tool := range res.Tools {
+		registered[tool.Name] = true
+	}
+	for _, gone := range []string{"share_file", "unshare_file"} {
+		if registered[gone] {
+			t.Errorf("%s is registered with GDRIVE_SHARING=off", gone)
+		}
+	}
+	// Seeing who can reach a file is not widening access, so the read
+	// stays: a server that hides exposure is worse than one that cannot
+	// change it.
+	if !registered["list_permissions"] {
+		t.Error("list_permissions was removed along with the writes")
+	}
+	out := resultText(t, call(t, cs, "list_permissions", map[string]any{"file": "id-notes-fixture"}))
+	if !strings.Contains(out, "GDRIVE_SHARING=off") {
+		t.Errorf("the listing does not say why nothing can be changed:\n%s", out)
+	}
+}
+
+func TestReadOnlyModeKeepsEveryListingAndNoWrite(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.ReadOnly = true
+	cfg.EnableDestructive = true // read-only wins: the stricter setting is the one meant
+	cs := session(t, cfg, true)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	registered := map[string]bool{}
+	for _, tool := range res.Tools {
+		registered[tool.Name] = true
+		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+			t.Errorf("read-only mode registered %q, which changes Drive", tool.Name)
+		}
+	}
+	for _, want := range []string{"list_permissions", "list_drives", "list_revisions", "list_changes"} {
+		if !registered[want] {
+			t.Errorf("read-only mode dropped the listing %q", want)
+		}
+	}
+	for _, gone := range append([]string{"share_file", "manage_drive", "manage_revision"}, gatedByDefault...) {
+		if registered[gone] {
+			t.Errorf("read-only mode registered the write %q", gone)
+		}
+	}
+}
+
+// toolArgs is one or more representative calls per registered tool: the
+// happy path where there is one, and the refusals, which are where a
+// result's advice is densest and therefore where it is most likely to
+// name something that does not exist.
+//
+// It is a table rather than a list of calls so that the inventory can be
+// checked against the server's own tool list. A hand-typed list of calls
+// decays every time a phase adds a tool, and nothing makes a sound when
+// it does — which is how the test that reads these results came to be
+// exercising four tools out of twenty-four.
+func toolArgs() map[string][]map[string]any {
+	return map[string][]map[string]any{
+		"get_account": {{}},
+		"get_file": {
+			{"file": "id-notes-fixture"},
+			{"file": "id-projects-fixture"},
+			{"file": "1NoSuchFileIdFixtureAAAAAAAAAAAAAAA"},
+			{"file": "https://drive.google.com/drive/shared-drives"},
+		},
+		"list_folder": {
+			{"folder": "/Projects"},
+			{"folder": "id-notes-fixture"},
+			{"folder": "root", "recursive": true},
+		},
+		"search_files": {
+			{"name": "Meeting"},
+			{"name": "nothingmatchesthis"},
+			{},
+			{"kind": "not-a-kind", "name": "x"},
+		},
+		"read_file":      {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"download_file":  {{"file": "id-notes-fixture"}},
+		"upload_file":    {{"local_path": "notes.txt"}},
+		"create_file":    {{"name": "Notes", "kind": "doc"}, {"name": "x"}},
+		"create_folder":  {{"name": "Reports", "parent": "id-projects-fixture"}},
+		"update_content": {{"file": "id-notes-fixture", "content": "no"}},
+		"update_file":    {{"file": "id-notes-fixture", "starred": true}},
+		"move_file":      {{"file": "id-notes-fixture", "to": "root"}, {"file": "id-notes-fixture"}},
+		"copy_file":      {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"create_shortcut": {
+			{"target": "id-notes-fixture", "parent": "id-projects-fixture", "name": "shortcut"},
+		},
+		"trash_file":   {{"file": "id-notes-fixture", "dry_run": true}},
+		"restore_file": {{"file": "id-notes-fixture"}},
+
+		"list_permissions": {{"file": "id-notes-fixture"}},
+		"share_file": {
+			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "reader"},
+			{"file": "id-notes-fixture", "principal": "anyone", "role": "reader"},
+			{"file": "id-notes-fixture", "principal": "not-an-address", "role": "reader"},
+			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "owner"},
+		},
+		"unshare_file": {
+			{"file": "id-notes-fixture", "remove_link": true},
+			{"file": "id-notes-fixture"},
+		},
+		"list_drives": {{}},
+		"manage_drive": {
+			{"action": "create", "name": "Research"},
+			{"action": "restrict", "drive": "Research"},
+			{"action": "not-an-action"},
+		},
+		"list_revisions":  {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"manage_revision": {{"file": "id-notes-fixture", "revision": "id-nothing", "action": "keep"}},
+		"list_changes":    {{}, {"page_token": "not-a-token"}},
+
+		"delete_file":     {{"file": "id-notes-fixture"}},
+		"empty_trash":     {{"dry_run": true}},
+		"delete_drive":    {{"drive": "nothing-of-that-name"}},
+		"delete_revision": {{"file": "id-notes-fixture", "revision": "id-nothing"}},
+	}
+}
+
+// toolCall is one entry of toolArgs, flattened.
+type toolCall struct {
+	name string
+	args map[string]any
+}
+
+// toolCalls flattens toolArgs in a stable order, so a failure names the
+// same call every run.
+func toolCalls() []toolCall {
+	table := toolArgs()
+	names := make([]string, 0, len(table))
+	for name := range table {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]toolCall, 0, len(table))
+	for _, name := range names {
+		for _, args := range table[name] {
+			out = append(out, toolCall{name: name, args: args})
+		}
+	}
+	return out
+}
+
+func TestEveryRegisteredToolIsExercised(t *testing.T) {
+	// The forcing function. Without it, toolArgs is a list somebody typed
+	// once and every later phase quietly leaves its tools out of every
+	// test that reads from it.
+	//
+	// The destructive four are registered here so that the table has to
+	// cover them too: they are the tools whose output most needs reading.
+	cfg := defaultConfig()
+	cfg.EnableDestructive = true
+	cs := session(t, cfg, true)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	table := toolArgs()
+	for _, tool := range res.Tools {
+		if len(table[tool.Name]) == 0 {
+			t.Errorf("%s is registered and toolArgs has no call for it", tool.Name)
+		}
+		delete(table, tool.Name)
+	}
+	extra := make([]string, 0, len(table))
+	for name := range table {
+		extra = append(extra, name)
+	}
+	sort.Strings(extra)
+	for _, name := range extra {
+		t.Errorf("toolArgs has a call for %q, which is not registered", name)
 	}
 }

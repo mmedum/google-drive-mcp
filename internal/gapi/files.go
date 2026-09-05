@@ -84,7 +84,11 @@ func (c *Client) GetFile(ctx context.Context, id string, o GetFileOptions) (*gdr
 	if o.IncludeLabels {
 		q.Set("includeLabels", "*")
 	}
-	u := c.base + "/files/" + url.PathEscape(id) + "?" + q.Encode()
+	segment, err := fileSegment(id)
+	if err != nil {
+		return nil, err
+	}
+	u := c.base + "/files/" + segment + "?" + q.Encode()
 	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{id}})
 	if err != nil {
 		return nil, err
@@ -224,6 +228,10 @@ const PermissionFields = "id,type,role,emailAddress,domain,displayName,allowFile
 // to the end. A file's permissions are few; a shared drive's are the
 // membership list.
 func (c *Client) ListPermissions(ctx context.Context, fileID string) ([]*gdrive.Permission, error) {
+	segment, err := fileSegment(fileID)
+	if err != nil {
+		return nil, err
+	}
 	var out []*gdrive.Permission
 	pageToken := ""
 	for {
@@ -234,7 +242,7 @@ func (c *Client) ListPermissions(ctx context.Context, fileID string) ([]*gdrive.
 		if pageToken != "" {
 			v.Set("pageToken", pageToken)
 		}
-		u := c.base + "/files/" + url.PathEscape(fileID) + "/permissions?" + v.Encode()
+		u := c.base + "/files/" + segment + "/permissions?" + v.Encode()
 		body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
 		if err != nil {
 			return nil, err
@@ -406,7 +414,11 @@ func (c *Client) UpdateFile(ctx context.Context, id string, meta *gdrive.FileMet
 	if o.RemoveParents != "" {
 		v.Set("removeParents", o.RemoveParents)
 	}
-	u := c.base + "/files/" + url.PathEscape(id) + "?" + v.Encode()
+	segment, err := fileSegment(id)
+	if err != nil {
+		return nil, err
+	}
+	u := c.base + "/files/" + segment + "?" + v.Encode()
 	return c.writeFile(ctx, http.MethodPatch, u, meta, o.withFile(id))
 }
 
@@ -415,7 +427,11 @@ func (c *Client) UpdateFile(ctx context.Context, id string, meta *gdrive.FileMet
 // becomes a Google Doc with its text extracted. Folders cannot be
 // copied; Drive refuses them.
 func (c *Client) CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta, o WriteOptions) (*gdrive.File, error) {
-	u := c.base + "/files/" + url.PathEscape(id) + "/copy?" + o.values().Encode()
+	segment, err := fileSegment(id)
+	if err != nil {
+		return nil, err
+	}
+	u := c.base + "/files/" + segment + "/copy?" + o.values().Encode()
 	return c.writeFile(ctx, http.MethodPost, u, meta, o.withFile(id))
 }
 
@@ -467,4 +483,33 @@ func ExportFormatNames() []string {
 func AcceptsGeneratedID(mime string) bool {
 	mime = strings.TrimSpace(mime)
 	return mime == gdrive.MimeFolder || !gdrive.IsGoogleMime(mime)
+}
+
+// reservedFileSegments are the path segments Drive uses under /files for
+// something other than a file id. A caller-supplied id that spells one
+// of them addresses a different method than the caller asked for, and
+// url.PathEscape does not stop it: every character in them is legal in a
+// path segment, so there is nothing for it to escape.
+//
+// The worst case is not hypothetical arithmetic. "trash" is
+// files.emptyTrash, so DeleteFile("trash") would build
+// DELETE /files/trash and destroy an entire trash instead of one file —
+// a bounded destructive call silently becoming an unbounded one. The
+// resolve step in internal/service happens to catch it today, because
+// Drive answers 404 for GET /files/trash, but that is protection by
+// accident at three layers' distance from the URL being built. It
+// belongs here, where the segment is made.
+var reservedFileSegments = map[string]bool{"trash": true, "generateIds": true}
+
+// fileSegment turns a file id into a path segment, refusing one that
+// would address a different endpoint.
+func fileSegment(id string) (string, error) {
+	if id == "" {
+		return "", fmt.Errorf("%w: a file id is required", ErrInvalid)
+	}
+	if reservedFileSegments[id] {
+		return "", fmt.Errorf("%w: %q is not a file id; Drive uses it as an endpoint of its own under /files, "+
+			"and a request built with it would call that endpoint instead", ErrInvalid, id)
+	}
+	return url.PathEscape(id), nil
 }

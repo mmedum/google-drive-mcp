@@ -227,7 +227,10 @@ func Login(ctx context.Context, cfg *oauth2.Config, opts LoginOptions) (*oauth2.
 		return nil, errors.New("auth: timed out waiting for the browser")
 	}
 
-	tok, err := conf.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+	// The exchange is oauth2's own request, so it needs the same client
+	// with a deadline that a refresh does: http.DefaultClient has none,
+	// and a login that hangs here hangs with the browser already done.
+	tok, err := conf.Exchange(WithHTTPTimeout(ctx, DefaultHTTPTimeout), code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return nil, fmt.Errorf("auth: exchange code: %w", err)
 	}
@@ -238,9 +241,32 @@ func Login(ctx context.Context, cfg *oauth2.Config, opts LoginOptions) (*oauth2.
 }
 
 // TokenSource returns a caching token source backed by the refresh token.
-func TokenSource(ctx context.Context, cfg *oauth2.Config, refreshToken string) oauth2.TokenSource {
-	return oauth2.ReuseTokenSource(nil, cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken}))
+//
+// The timeout is not decoration. A refresh happens inside the oauth2
+// transport, against the context captured here rather than the one on
+// the request being made, so the per-request deadline in internal/gapi
+// does not reach it. Without a client of our own the refresh would use
+// http.DefaultClient, which has no timeout at all: a token endpoint that
+// accepted the connection and never answered would hang the first tool
+// call for the life of the process, and every call behind it.
+func TokenSource(ctx context.Context, cfg *oauth2.Config, refreshToken string, timeout time.Duration) oauth2.TokenSource {
+	return oauth2.ReuseTokenSource(nil, cfg.TokenSource(WithHTTPTimeout(ctx, timeout),
+		&oauth2.Token{RefreshToken: refreshToken}))
 }
+
+// WithHTTPTimeout gives the oauth2 package a client with a deadline, for
+// the two exchanges it makes on its own: the initial code exchange and
+// every later refresh. Both would otherwise use http.DefaultClient.
+func WithHTTPTimeout(ctx context.Context, timeout time.Duration) context.Context {
+	if timeout <= 0 {
+		timeout = DefaultHTTPTimeout
+	}
+	return context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Timeout: timeout})
+}
+
+// DefaultHTTPTimeout bounds a token exchange when no configured timeout
+// is to hand.
+const DefaultHTTPTimeout = 30 * time.Second
 
 // Endpoints used for revocation and token inspection. Vars so tests can
 // point them at a local server.

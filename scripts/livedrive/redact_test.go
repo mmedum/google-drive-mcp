@@ -131,3 +131,71 @@ func TestLinksAreRedactedWholeNotJustTheirIds(t *testing.T) {
 		t.Errorf("a link should become one placeholder, got %q", got)
 	}
 }
+
+func TestFirstRevisionReadsTheIDOutOfAListing(t *testing.T) {
+	// The parser is only ever run against this renderer's output, so the
+	// shape it expects is worth pinning: a subject line, then rows whose
+	// second field is a date, then prose.
+	listing := "rows.csv — csv: 2 revisions\n" +
+		"id-revision-b  2026-03-04 09:05Z (2 days ago) by Test Person (you)  1.2 KiB  current\n" +
+		"id-revision-a  2026-03-04 09:00Z (2 days ago) by Test Person (you)  1.0 KiB\n" +
+		"Drive discards a revision 30 days after it stops being current unless it is kept forever\n"
+	got := ""
+	for _, line := range strings.Split(listing, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && looksLikeDate(fields[1]) {
+			got = fields[0]
+			break
+		}
+	}
+	if got != "id-revision-b" {
+		t.Errorf("first revision = %q, want the newest row's id", got)
+	}
+	for _, not := range []string{"rows.csv", "2026-3-4", "09:00Z", ""} {
+		if looksLikeDate(not) {
+			t.Errorf("looksLikeDate(%q) = true", not)
+		}
+	}
+}
+
+func TestANumericPermissionIDIsRedacted(t *testing.T) {
+	// A permission id for a person is twenty digits with no letter, so
+	// the "a capital and a digit" rule let one through in a live run. It
+	// identifies a Google account, which is an id in every sense that
+	// matters here.
+	r := NewRedactor(false)
+	got := r.Do("owns it  Someone  17839208826236824972  inherited from a folder above it")
+	if strings.Contains(got, "17839208826236824972") {
+		t.Errorf("a numeric permission id survived redaction:\n%s", got)
+	}
+	if !strings.Contains(got, "<ID_") {
+		t.Errorf("it was removed rather than replaced with a placeholder:\n%s", got)
+	}
+
+	// Ordinary long numbers in output must stay readable, or a transcript
+	// becomes one nobody checks: byte counts and years are far shorter
+	// than an id and must not be touched.
+	plain := "bytes: 6291456 (6.0 MiB), modified 2026-09-05 20:04Z"
+	if out := NewRedactor(false).Do(plain); out != plain {
+		t.Errorf("an ordinary number was redacted:\n%s", out)
+	}
+}
+
+func TestOwnerIsReadFromACardForComparison(t *testing.T) {
+	// Spike F compares the owner before and after a transfer, because a
+	// call that answers 200 and leaves the owner where it was looks
+	// identical to one that worked. The value is only ever compared,
+	// never printed, so it is read before redaction.
+	card := "created: ownership transfer probe — text file\n" +
+		"id: id-transfer-probe-fixture\n" +
+		"owner: Someone Else <someone@example.com>\n" +
+		"you can: edit, comment\n"
+	if got := ownerFromResult(card); got != "Someone Else <someone@example.com>" {
+		t.Errorf("owner = %q", got)
+	}
+	// A card with no owner line means the file could not be read back,
+	// which spike F reports as "unknown" rather than as success.
+	if got := ownerFromResult("id: id-transfer-probe-fixture\n"); got != "" {
+		t.Errorf("owner = %q, want empty when there is no owner line", got)
+	}
+}
