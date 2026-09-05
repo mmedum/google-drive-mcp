@@ -1,0 +1,12 @@
+Meeting notes — Google Doc
+id: id-notes-fixture
+location: Marketing (shared drive)/Q3
+link: https://docs.google.com/document/d/id-notes-fixture/edit
+created: 2026-02-01 08:30Z (1 month ago)
+modified: 2026-03-05 16:45Z (19 hours ago) by Test Person (you)
+owner: Test Person (you)
+sharing: no grants of its own: everyone with access to the shared drive Marketing can see it
+you can: edit, comment, share, download, trash
+head revision: rev-42
+export formats: docx, epub, html, md, odt, pdf, rtf, txt, zip
+note: this is a Google Doc. Its text is available through Google's export; its content is edited through the Docs API, which this server does not offer.

@@ -1,10 +1,18 @@
 # Architecture — google-drive-mcp
 
-**Status:** design v0.2 (2026-09-05). No code yet. All design decisions
-are resolved (§17); Phase 0 begins on an explicit go. Every convention
-here was checked against primary sources on 2026-09-05; §18 lists what
-was confirmed, what was refuted, and what a Phase 0 spike still has to
-verify live.
+**Status:** phase 0 complete (2026-09-05), released as v0.0.1. In: the
+scaffolding and every gate, `login/logout/status/doctor`, `config`,
+`credentials`, `userconfig`, `auth`, the `gapi` core with `about.get`,
+`files.get`, `files.list`, `drives.list`, `permissions.list` and
+`generateIds`, the `drivetest` fake beneath it, `ref`, `model`, `render`,
+and the four read tools `get_account`, `get_file`, `search_files` and
+`list_folder`. Verified live against a Workspace account: `login`,
+`doctor`, the live driver, and spike A, which refuted three claims this
+document made (§18). Spikes B-F moved to the phase that builds the code
+they test (§16). Phase 1 begins on an explicit go. §16 has the phase
+plan, §17 the decisions that are not to be reopened, §17a the deferred
+cleanups, §17b where this repository differs from the shared standard,
+and §18 the evidence log.
 
 This document is the plan. It is written so that whoever picks the work
 up can start from the repository alone: read the status line above, §16
@@ -86,7 +94,7 @@ Verified against the Drive API v3 reference and guides on 2026-09-05.
 | Constraint | Consequence |
 |---|---|
 | A file has **one parent** (since 2020). A move is `files.update` with `addParents` and `removeParents`. A folder cannot be moved from My Drive into a shared drive (`teamDrivesFolderMoveInNotSupported`); a file can. My Drive allows 100 levels of nesting and 500 000 items per folder. | `move_file` is one call and reports old and new location; the folder-into-shared-drive case is refused up front with the alternative spelled out. |
-| **Search is not substring search.** `name contains 'x'` matches names whose words *start* with x; `fullText contains` matches whole tokens, or a phrase in double quotes inside the single quotes. Single quotes and backslashes are escaped with a backslash. `name = 'x'` is an exact match. | `search_files` builds the query from typed fields and says in its description and in an empty result what "contains" means. Path resolution uses `name =`. |
+| **Search is not substring search.** `name contains 'x'` matches names whose words *start* with x. Verified live (spike A, §18): the match ignores case, every word of x must prefix *some* word of the name, and **their order is irrelevant** — "Decentralized Identity" and "Identity Decentralized" return the same set. `name = 'x'` matches the whole name and **also ignores case**. `fullText contains` is looser than whole-token matching. Single quotes and backslashes are escaped with a backslash. | `search_files` builds the query from typed fields and says in its description and in an empty result what "contains" means. Path resolution uses `name =`, so two siblings differing only in case are `[ambiguous]`, not a coin toss. |
 | Shared drives need `supportsAllDrives=true` on nearly every method, `includeItemsFromAllDrives` plus `corpora` on listings, and `driveId` for one drive. `corpora=allDrives` can return `incompleteSearch=true`. A shared drive's root folder id is the drive id. | Every request carries `supportsAllDrives`. Listings default to `allDrives` and report `incomplete_search`. |
 | **Quota is in units**: a read costs 5, a list 100, a download 200, an edit 50; 325 000 units per minute per user, 1 000 000 per minute per project. Over the limit Google answers 403 `userRateLimitExceeded` / `rateLimitExceeded` or 429; the guide says truncated exponential backoff. Sharing has its own `sharingRateLimitExceeded`. | A list is twenty reads. Listings are paged and budgeted; path resolution is cached; sharing has its own limiter; retries honour the reasons above. |
 | **Uploads**: simple or multipart up to 5 MB; resumable above that, in chunks that are multiples of 256 KiB, resumed with `Content-Range: bytes */total` and a `308` carrying the received `Range`. 5 TB per file, 750 GB per user per day. Import conversion is asked for with `mimeType` in the metadata: Word, ODT, HTML, RTF, plain text and Markdown to a Doc; Excel, ODS, CSV, TSV to a Sheet; PowerPoint, ODP to Slides; images and PDF to a Doc with OCR. | `create_file` (inline text) uses multipart; `upload_file` streams from disk, multipart under 5 MB and resumable above, and recovers from a cut connection inside the call. `convert_to` is one field. |
@@ -219,18 +227,30 @@ internal/tools/           one file per area: files.go, content.go, organise.go, 
                           history.go, comments.go, resources.go, tools.go
 internal/version/
 testdata/                 synthetic fixtures (§14) and golden outputs
-docs/  scripts/
+docs/
+scripts/gates/            the repository's own checks, as Go: coverage floor, schema diff,
+                          stdio smoke, staleness, pre-commit; never shipped
+scripts/livedrive/        drives the built binary against a real account, redacting ids,
+                          links and addresses before anything is printed
 ```
+
+**One language.** Everything the repository runs on itself is Go. The
+gates were shell with Python embedded in them at first; that put a second
+toolchain on `make check` for JSON parsing Go does natively, and left the
+code holding the gates shut as the only code in the repository that was
+neither vetted, linted nor tested. As Go packages under `scripts/` they
+are all three, and a contributor needs one toolchain.
 
 Dependencies, all pinned: `modelcontextprotocol/go-sdk` v1.7.0 (with
 `google/jsonschema-go`), `golang.org/x/oauth2` v0.36.0,
 `zalando/go-keyring` v0.2.8, `golang.org/x/time` v0.15.0. Nothing else.
 There is no markdown here to parse and no diff to compute.
 
-**Scaffolding.** The Makefile, the four scripts (coverage floor, schema
-diff, staleness check, stdio smoke), `.golangci.yml`, the CI, CodeQL and
+**Scaffolding.** The Makefile, the gates under `scripts/gates` (coverage
+floor, schema diff, staleness check, stdio smoke, and the pre-commit
+hook they install), `.golangci.yml`, the CI, CodeQL and
 release workflows, `.goreleaser.yaml`, `.gitleaks.toml`,
-`.pre-commit-config.yaml`, Dependabot, the issue templates,
+Dependabot, the issue templates,
 `.gitattributes`, `.gitignore`, `SECURITY.md`, `CONTRIBUTING.md` and
 `docs/development.md` are written in Phase 0, before the first tool, so
 every later commit passes through the same gates (§12, §13). The
@@ -739,13 +759,13 @@ before and after summaries.
   address uses `GDRIVE_TEST_SHARE_WITH` from the environment and is
   skipped when unset. Access requests need a request made in the UI and
   are checked by hand. Ids and emails go only to the terminal.
-- **Live driver** `scripts/live-drive.py`: every tool and every action
+- **Live driver** `scripts/livedrive`: every tool and every action
   over stdio against the scratch folder, with ids, URLs and addresses
   replaced by placeholders before anything is printed. Run with each
   `GDRIVE_SHARING`
   value and with `GDRIVE_ENABLE_DESTRUCTIVE` on and off before a phase is
   called done. Every `isError=True` must be an expected refusal.
-- **Agent evals** `scripts/evals/run.py` (Phase 3), about twelve tasks
+- **Agent evals** `scripts/evals` (Phase 3), about twelve tasks
   through `claude -p` with only this server's tools: find a file and say
   who can see it; build a folder structure and move files into it; share
   with someone as commenter without emailing them; download a PDF; upload
@@ -783,15 +803,14 @@ before and after summaries.
 ## 15. Reliability of the plan itself: what must be verified live
 
 Everything in §2 comes from the reference. Five things have behaviour
-the reference does not pin down and are spiked in Phase 0 (§16) before a
-tool depends on them: the exact prefix semantics of `name contains`; how
-often `incompleteSearch` fires on a real account with `allDrives`; the
-resumable upload's recovery path against the real endpoint; resource keys
-on a link-shared file; and shared-drive creation and the folder-move
-refusal on a Workspace account. Ownership transfer on a consumer
-account is verified only if a consumer test account is available;
-otherwise it is implemented from the reference and marked unverified in
-§18.
+the reference does not pin down. The first — the exact semantics of
+`name contains` and `name =` — was spiked on 2026-09-05 and **refuted
+two claims this document made** (§18); the rest run at the start of the
+phase that builds the code they test (§16). The lesson is recorded
+rather than smoothed over: a documented API can be wrong about itself,
+and a fake built from the documentation inherits the error. Every rule in
+the fake that a live run has not confirmed is a rule the tests are only
+agreeing with themselves about.
 
 ## 16. Delivery phases
 
@@ -799,7 +818,7 @@ Each phase ends in a tagged release and waits for an explicit "go".
 How a phase is closed is written down at the end of this section, so
 that whoever picks the work up next starts from the repository alone.
 
-**Phase 0 — skeleton and spikes (v0.0.1).** Scaffolding (§5, §12):
+**Phase 0 — skeleton and spikes (v0.0.1). Done 2026-09-05.** Scaffolding (§5, §12):
 Makefile, golangci, govulncheck, go-licenses, gitleaks, goreleaser, the
 CI, CodeQL and release workflows with pinned actions and scoped tokens,
 Dependabot, templates, the pull request flow in `CONTRIBUTING.md`.
@@ -811,10 +830,7 @@ listings; `drivetest` with files, parents and listings; tools
 dump, staleness, coverage floor all green on three platforms; a live run
 of the four tools. Spikes, results into §18:
 
-- **A. Search semantics**, live: `name contains` at word starts versus
-  the middle of a word; `name =` case sensitivity; `fullText` tokens and
-  phrases; `incompleteSearch` with `allDrives`; whether `pageSize`
-  changes the quota cost of a list.
+- **A. Search semantics**, live: **done 2026-09-05**, results in §18.
 - **B. Google's Drive MCP**, only where a Cloud project enrolled in the
   Developer Preview Program is available, otherwise skipped: connect a
   client once, dump its tools and schemas, and record
@@ -831,6 +847,27 @@ of the four tools. Spikes, results into §18:
   move a file in and out, the folder-move refusal.
 - **F. Ownership transfer**: Workspace direct transfer live; consumer
   `pendingOwner` only if a consumer test account exists.
+
+A ran on 2026-09-05 and is recorded in §18; it refuted two things this
+document asserted, and the fake and a tool description were wrong with
+them.
+
+B-F are **moved to the phase that builds the code they test**, because
+they cannot be run here: C needs `upload_file`, the write half of E needs
+`manage_drive` and `move_file`, and F needs `permissions.create` — none
+of which phase 0 builds. A spike whose subject does not exist yet is a
+spike that gets skipped and then forgotten. So:
+
+- **C (resumable upload)** and the write half of **E (shared drives)**
+  run at the start of phase 1, before `upload_file` and `move_file` are
+  designed against assumptions.
+- **F (ownership transfer)** runs at the start of phase 2, before
+  `share_file` is.
+- **D (resource keys)** runs whenever a link-shared file from a second
+  account is available; the client already sends the header, and the
+  test in `internal/gapi` covers the mechanism.
+- **B (Google's Drive MCP)** needs a Cloud project in the Developer
+  Preview Programme. Nothing depends on it.
 
 **Phase 1 — content and organisation (v0.1.0).** `read_file`,
 `download_file`, `create_file`, `upload_file`, `update_content`,
@@ -905,9 +942,60 @@ here so they are not reopened.
 5. **Go directive.** `go 1.27.1`, the current point release.
    `GOTOOLCHAIN=auto` fetches it where an older 1.27 is installed.
 
+## 17b. Deviations from the shared Go MCP server standard
+
+The standard the sibling Go MCP servers run on was adopted here on
+2026-09-05. Almost all of it was already true or has been made true;
+what follows is where this repository deliberately differs, so that a
+difference is a decision rather than a drift.
+
+| The standard says | Here | Why |
+|---|---|---|
+| A test fails if **an id** appears in a log | Full ids never appear; a **six-character prefix** does, at debug level | A retry, its backoff and its outcome are separate log lines, and without a correlation key a failure cannot be traced to the call that caused it. Six characters of a 33-character id cannot be looked up, cannot be pasted into a URL, and identify nothing on their own. Everything else the standard names — names, titles, addresses, queries, content, and whole ids — is absent and stays absent: `TestLogsCarryNoTraceOfWhatWasTouched` runs the whole surface at debug level against unmistakable fixtures and fails on any of them. *(No longer a deviation: the standard's wording is being changed to the intent it always had — a log must not identify or reconstruct its subject.)* |
+| The staleness gate **deliberately fails** between the release commit and the tag | It passes, by accepting notes under an untagged version heading | Our release flow (§12) puts the release commit on a topic branch and requires CI green *before* the merge and therefore before the tag exists. A gate that fails there fails the release pull request. The gate still refuses an undocumented change: with the notes removed it fails, which is tested |
+| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Thirteen classes, including `ambiguous`, `blocked`, `rate_limited` and `ambiguous_outcome` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organisation's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next |
+
 ## 17a. Deferred cleanups
 
-None yet.
+Raised by the phase-0 review passes and deliberately not done in phase 0.
+
+- The six phase-0 spikes (§16 A-F) are unrun. Nothing in the code depends
+  on their outcome, but A (search semantics) and C (resumable upload)
+  should land before phase 1 designs `upload_file` against assumptions.
+- `internal/gapi/drivetest` implements the semantics of `name contains`
+  from the reference. Spike A is what confirms the fake and Drive agree.
+- **One MIME registry.** Three tables carry MIME knowledge in three
+  layers: `model.googleKinds`/`blobKinds` (mime to display name),
+  `service.kindMimes` (kind name to query clause, which retypes the six
+  Office types), and `gapi.exportMimeToName` (export mime to short name).
+  Adding a kind is three edits in three packages and a typo shows up as a
+  search that silently matches nothing. One registry keyed by MIME,
+  carrying display name, kind group and export name, would remove that;
+  it is a phase-3 job, once phases 1 and 2 have shown which of the three
+  shapes the registry actually needs.
+- **Schema descriptions from one source.** A Go struct tag cannot be
+  composed from a constant, so the paragraph describing what a `file`
+  argument accepts is written out per tool, and so are the kind and order
+  lists. A templated tag that nothing expanded once shipped `${…}` to the
+  model. Tests now assert that no schema carries a placeholder and that
+  the kind and order lists match `service.Kinds()` and
+  `service.OrderBys()`, which closes the hole; composing the descriptions
+  after `mcp.AddTool` would close the duplication as well, and is worth
+  doing once several more tools take a `file`.
+- **Bounded concurrency for listings.** A tree walk issues one
+  `files.list` per folder in series and a search page up to twenty
+  `files.get` in series, with no data dependency between siblings. Quota
+  is unchanged; the cost is wall-clock, roughly 2-3 s per call at 100 ms
+  round trip. A fan-out of 4-8 stays inside the read limiter and would
+  cut that. It belongs with the phase-3 benchmarks (§11), not before
+  them: the shared item budget becomes shared mutable state the moment
+  the walk is concurrent.
+- **`model.Account`.** `render.Account` is the only place outside
+  `internal/gdrive`'s own users that touches a wire type, and it parses
+  Drive's stringified int64 storage counts itself. The tool-surface half
+  of that problem is fixed (`get_account` now reports the names
+  `tools.Register` actually registered), but the storage arithmetic still
+  wants a model type.
 
 ## 18. Evidence log: conventions checked, changed, or rejected
 
@@ -922,7 +1010,11 @@ was checked rather than assumed.
 | Google has an official Drive MCP (my assumption: no) | Refuted: `drivemcp.googleapis.com/mcp/v1`, Developer Preview, eight tools, remote HTTP, Web OAuth client with the host's callback, `drive.readonly` + `drive.file` | §1 states what it does; spike B records its schemas; this server stays stdio, per-user, full-scope |
 | The Drive API has no preview-only features this server would want (my assumption) | Confirmed for everything in §8: files, permissions, drives, revisions, comments, changes, access proposals, labels and approvals are GA methods in the v3 reference | No preview enrolment in the setup guide; an enrolled project is needed only for spike B, which is skipped without one |
 | Quotas are per-request counts (inherited from the Docs limits) | Refuted: Drive charges units per method (read 5, list 100, download 200, edit 50; 325 000 per minute per user) | Listings are the expensive call; budgets and caches in §7.1 and §11 |
-| `name contains` is substring search (a common assumption in the OSS servers) | Refuted by the reference: prefix matching on the name; `fullText contains` matches whole tokens; exact prefix boundaries to be observed in spike A | Typed fields with the semantics in the description; `name =` for paths |
+| `name contains` is substring search (a common assumption in the OSS servers) | **Confirmed refuted, live (spike A, 2026-09-05)**: `name contains 'nferences'` returns 0 against an account where `name contains 'Conferences'` returns 6. A prefix match on words, not a substring match | Typed fields with the semantics in the description; `name =` for paths |
+| `name contains` requires its words to be consecutive and in order (my reading of the reference, and what `drivetest` implemented) | **Refuted live (spike A)**: "Decentralized Identity" and "Identity Decentralized" return the same 28 items, and "Decentralized Ide" returns 48. Every word must prefix *some* word of the name; order and adjacency are irrelevant | `drivetest` corrected; the `search_files` description had told the model the opposite, and was corrected with it |
+| `name = 'x'` is an exact, case-sensitive match (§2 as written, and what `drivetest` implemented) | **Refuted live (spike A)**: Conferences, conferences and CONFERENCES each return the same single item. It matches the whole name and ignores case | `drivetest` corrected. It matters beyond the fake: path resolution uses `name =`, so two siblings differing only in case both match one lookup and are `[ambiguous]` rather than one silently winning. The fake had been returning one, so that path was never tested |
+| `fullText contains` matches whole tokens only | **Refuted live (spike A)**: `fullText contains 'nferences'` returns 4. Drive's content index is looser than whole-token matching, in a way the reference does not describe | `drivetest` keeps the stricter whole-token rule deliberately: a fake that matches *less* than Drive fails a test production would pass, which gets noticed, while one that matches more hides a query that finds nothing |
+| `incompleteSearch` fires often enough with `allDrives` to need handling (my assumption) | Refined live (spike A): it did not fire once, including on a 200-result search across 21 shared drives. Rare, not absent | The handling stays — Google documents it and it is one line of output — but it is not a common path |
 | A file can have several parents (older Drive) | Refuted: single parent since 2020; `addParents`/`removeParents`; a My Drive folder cannot move into a shared drive | `move_file` design in §7.3 |
 | Uploads of any size go in one request | Refuted: 5 MB for simple and multipart; resumable above, 256 KiB multiples, `308` recovery | `upload_file` in §7.2; spike C |
 | Exports have no size limit | Refuted: 10 MB for `files.export`; `files.download` (long-running, 24 h) exists for Vids and for revisions of Docs and Sheets | `download_file` chooses the method by kind and revision |
@@ -954,4 +1046,17 @@ was checked rather than assumed.
 | Declaring `permissions` once at the top of a workflow is least privilege | Refined: Scorecard's Token-Permissions wants the top level read-only and write raised per job ([Scorecard checks](https://github.com/ossf/scorecard/blob/main/docs/checks.md)) | Top level `contents: read` everywhere; the release job raises `contents`, `id-token` and `attestations`; the CodeQL job raises `security-events` |
 | A checkout may leave its token on disk for later steps | Rejected: nothing in these workflows pushes with it, and GitHub's guide treats persisted credentials as avoidable exposure | `persist-credentials: false` on every checkout |
 | Tests and vulnerability scanning are enough static analysis | Refuted by Scorecard's SAST check, which names CodeQL | A CodeQL workflow on pushes, pull requests and weekly, so a rule added after a merge still reaches old code |
+| go-sdk v1.7.0 negotiates protocol `2026-07-28` when a client asks for it (assumed from the release notes) | Refuted by reading `mcp/shared.go` and by driving the built binary: `negotiatedVersion` caps every `initialize` handshake at `2025-11-25`, because `initialize` is itself deprecated in `2026-07-28`. The newer version is reachable only through the newer handshake. | The stdio smoke test asks for both versions and asserts a working session, not a particular number; the version the server answers with is `2025-11-25` either way |
+| A Drive id can be told from a file name by shape (assumed) | Refined: ids use the URL-safe base64 alphabet and run 28-44 characters for files and 19 for shared drives, so a floor of 15 separates them from names, which almost always carry a space, a dot or punctuation. The residue is real though: a name like `QuarterlyReviewNotes` clears the bar. | `internal/ref` treats a 15+ character word in that alphabet as an id; `internal/service` retries it as a name under My Drive when no file has that id, and an id lifted out of a URL is never retried that way |
+| A truncated folder path can be shown with a trailing ellipsis (my first cut) | Rejected in review: `My Drive/2026/…` states that 2026 sits directly under My Drive, which is exactly the wrong claim to make when the ancestors are the part that is unknown | `model.Location` carries `Above`, and an unread ancestor renders where it actually is: `My Drive/…/2026` |
+| A file in a shared drive with no permissions of its own is private (implied by the permission list) | Refuted: it is reachable by everyone with access to the drive. A summary reading "private to you" would be wrong in the direction that matters | `model.Sharing` carries the drive name and says "everyone with access to the shared drive X can see it" |
+| A read tool's location line can be truncated with a trailing ellipsis when the walk runs out of budget (my first cut) | Rejected in the phase-0 review: `My Drive/2026/…` asserts that 2026 sits directly under My Drive, and the unknown part is the ancestors, not the descendants | `model.Location.Above` puts the gap where it is: `My Drive/…/2026` |
+| A not-found path should report how many items the folder holds (§6 as written) | Refined in the phase-0 review: the extra listing costs 100 units and a bare count only prompts a second lookup. The same one call can name the siblings | `notFoundInFolder` names up to 12 siblings, folders marked, and points at `list_folder` beyond that |
+| Falling back from an unknown id to a name lookup is free (my first cut) | Refuted by measurement: a 5-unit 404 became 205 units, and a stale or mistyped id is the commonest bad input a model produces. Drive ids are base64 of random bytes, so one with no digit essentially does not occur | The fallback fires only for a word with no digit in it, which is the shape a file name has and an id does not |
+| A shared-drive listing may filter hidden drives in the client | Rejected in the phase-0 review: hiding a drive is a sidebar setting with no API equivalent, and the fiction had already propagated into the fake, which invented a query-string meaning for it | `gapi.ListDrives` returns what Drive returned; `internal/service` decides what `Drive.Hidden` means |
+| A path is resolved by following whatever it names, shortcuts included (my first cut) | Refuted in the phase-0 review: a shortcut part-way along a path is a way through to a folder, but the last segment is the thing the caller named. Following it made `get_file "/Projects/Budget shortcut"` describe the target, silently, and cached the target's id for that path, so a later `trash_file` on that path would have destroyed the wrong file | `walk` follows only the intermediate segments; the final one obeys `ResolveOptions.FollowShortcut`, and the two answers are cached separately |
+| An empty permission list means the file has no grants (implied by the API's shape) | Refuted in the phase-0 review: a list that was read and is empty, and one this account may not read, were the same `nil`. A shared-drive file with no grants of its own was reported as "sharing unknown" instead of "everyone with access to the drive can see it", understating exposure — the one direction §9 exists to prevent | `permissionsFor` returns whether the list was read at all, and `NewSharing` takes it as an argument |
+| Rate limiting only has to gate the first attempt of a call | Refuted in the phase-0 review: retries are triggered by 429 and by Google's three rate-limit reasons, so exempting them pushes hardest exactly when Drive has asked for less. Four of five attempts bypassed the limiter | The limiter is taken inside the retry loop, once per attempt |
+| An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
+| Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
 | Direct pushes to `main` by the maintainer are fine for a one-person project | Rejected: `main` is released code, and a rule with an exception for the person who releases is not a rule; Scorecard's Branch-Protection asks for pull requests gated by a passing check, and its two-reviewer tier cannot apply to a single maintainer | Pull requests required with CI green on three platforms as the gate; the review count does not apply; tags pushed directly, one at a time |

@@ -1,0 +1,10 @@
+Budget shortcut — shortcut to an Excel spreadsheet
+id: id-shortcut-fixture
+location: Marketing (shared drive)
+points at: id-budget-fixture (Excel spreadsheet)
+note: organising, sharing and trashing act on the shortcut itself, not on its target
+created: 2026-02-10 12:00Z (24 days ago)
+modified: 2026-02-10 12:00Z (24 days ago)
+sharing: no grants of its own: everyone with access to the shared drive Marketing can see it
+you can: restore, delete permanently
+trashed: yes, by Test Person (you) on 2026-03-05 10:00Z (1 day ago) — it is in the trash, not deleted, and Drive empties the trash 30 days after an item goes in

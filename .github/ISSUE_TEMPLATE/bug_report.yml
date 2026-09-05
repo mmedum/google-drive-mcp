@@ -1,0 +1,86 @@
+name: Bug report
+description: Something the server did wrong, or refused to do.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste anything private.** No file or folder ids or URLs,
+        no file names or content, no account or shared-drive email
+        addresses, no organisation names, and never a client secret,
+        refresh token or `client_secret.json`. `doctor` output is safe:
+        it redacts ids and prints no credentials. If a problem only
+        reproduces on one file, describe its shape — a folder 4 levels
+        deep in a shared drive, a 2 GB video, a link-shared PDF — rather
+        than sharing the file.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you asked for, what the server did, and what you expected instead.
+      placeholder: |
+        I asked Claude Code to move a folder into a shared drive.
+        It answered with [unsupported] ... and nothing moved.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `google-drive-mcp doctor`
+      description: Run it with no arguments, or with a file id or URL if the problem is file-specific. It checks credentials, scopes, the Drive API and the local transfer directory.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From `google-drive-mcp --version`.
+      placeholder: google-drive-mcp v0.1.0 (go1.27.1 linux/amd64)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - go install
+        - a release archive
+        - built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: MCP client
+      options:
+        - Claude Code
+        - Claude Desktop
+        - Cursor
+        - other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: account
+    attributes:
+      label: Account kind
+      description: Shared drives, labels and direct ownership transfer exist only on Google Workspace.
+      options:
+        - Google Workspace
+        - consumer (gmail.com)
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server log
+      description: Optional. Run the server with GDRIVE_LOG_LEVEL=debug and paste the stderr around the failure. The log carries truncated ids, counts and latencies only, but check it before pasting.
+      render: text
