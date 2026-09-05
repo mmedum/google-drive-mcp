@@ -126,21 +126,25 @@ func (s *Service) CreateFile(ctx context.Context, in CreateFileInput) (*Result, 
 		}
 		f, err = s.api.CreateFile(ctx, meta, gapi.WriteOptions{ResourceIDs: []string{parent.ID}})
 	} else {
-		contentType := strings.TrimSpace(in.MimeType)
-		if contentType == "" {
-			contentType = "text/plain"
+		var sending string
+		if sending, err = contentType(in.MimeType, "text/plain"); err != nil {
+			return nil, err
 		}
 		if meta.MimeType, err = convertTarget(in.ConvertTo); err != nil {
 			return nil, err
 		}
-		if err := s.checkConversion(ctx, contentType, meta.MimeType); err != nil {
+		if err := s.checkConversion(ctx, sending, meta.MimeType); err != nil {
 			return nil, err
 		}
-		if err := s.assignID(ctx, meta); err != nil {
+		// Drive resolves a create's type as the body's mimeType or, when
+		// that is absent, the content's. The id decision has to use the
+		// same one: meta.MimeType is empty whenever nothing is being
+		// converted.
+		if err := s.assignIDFor(ctx, meta, orElse(meta.MimeType, sending)); err != nil {
 			return nil, err
 		}
 		f, err = s.api.UploadMultipart(ctx, gapi.UploadRequest{
-			Meta: meta, ContentType: contentType,
+			Meta: meta, ContentType: sending,
 		}, []byte(in.Content))
 	}
 	if err != nil {
@@ -188,9 +192,12 @@ func (s *Service) UploadFile(ctx context.Context, in UploadFileInput) (*Result, 
 		return nil, err
 	}
 
-	contentType := strings.TrimSpace(in.MimeType)
-	if contentType == "" {
-		contentType = sniffType(file.Name(), file)
+	sending, err := contentType(in.MimeType, "")
+	if err != nil {
+		return nil, err
+	}
+	if sending == "" {
+		sending = sniffType(file.Name(), file)
 	}
 	meta := &gdrive.FileMeta{Name: name, Parents: []string{parent.ID}}
 	if in.Description != "" {
@@ -199,16 +206,16 @@ func (s *Service) UploadFile(ctx context.Context, in UploadFileInput) (*Result, 
 	if meta.MimeType, err = convertTarget(in.ConvertTo); err != nil {
 		return nil, err
 	}
-	if err := s.checkConversion(ctx, contentType, meta.MimeType); err != nil {
+	if err := s.checkConversion(ctx, sending, meta.MimeType); err != nil {
 		return nil, err
 	}
-	if err := s.assignID(ctx, meta); err != nil {
+	if err := s.assignIDFor(ctx, meta, orElse(meta.MimeType, sending)); err != nil {
 		return nil, err
 	}
 
 	req := gapi.UploadRequest{
 		WriteOptions: gapi.WriteOptions{OCRLanguage: in.OCRLanguage},
-		Meta:         meta, ContentType: contentType,
+		Meta:         meta, ContentType: sending,
 	}
 	uploaded, err := s.send(ctx, req, file, info.Size())
 	if err != nil {
@@ -303,12 +310,15 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 	before := f.HeadRevisionID
 	beforeSize := sizeOf(f)
 
-	explicit := strings.TrimSpace(in.MimeType)
-	contentType := explicit
-	if contentType == "" {
-		contentType = f.MimeType
+	explicit, err := contentType(in.MimeType, "")
+	if err != nil {
+		return nil, err
 	}
-	req := gapi.UploadRequest{FileID: f.ID, ContentType: contentType}
+	sending := explicit
+	if sending == "" {
+		sending = f.MimeType
+	}
+	req := gapi.UploadRequest{FileID: f.ID, ContentType: sending}
 
 	var updated *gdrive.File
 	if localPath != "" {
@@ -348,6 +358,35 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 		}
 	}
 	return s.write(ctx, updated, outcome{Action: render.ActionUpdated, Note: note})
+}
+
+// contentType is what the caller says their bytes are. Drive's own
+// formats are not bytes, so naming one here is a mistake with a
+// confusing consequence — the create is refused for a reason the caller
+// never mentioned — and the two things they meant are both named.
+func contentType(mime, fallback string) (string, error) {
+	mime = strings.TrimSpace(mime)
+	if mime == "" {
+		return fallback, nil
+	}
+	if gdrive.IsGoogleMime(mime) {
+		return "", Errorf(ClassInvalid, "mime_type says what the bytes being sent are, and %s is one of "+
+			"Google's own formats, which has no bytes. For an empty one use kind: %s; to turn this content "+
+			"into one use convert_to: %s.",
+			model.KindName(mime), googleKindWord(mime), googleKindWord(mime))
+	}
+	return mime, nil
+}
+
+// googleKindWord is the kind or convert_to word for one of Drive's own
+// formats, so the advice names something the caller can actually pass.
+func googleKindWord(mime string) string {
+	for word, target := range newKinds {
+		if target == mime {
+			return word
+		}
+	}
+	return "doc"
 }
 
 // convertTarget maps a convert_to name onto the Google format an import
@@ -612,6 +651,15 @@ func (s *Service) forget(f *gdrive.File, moved bool) {
 			delete(s.paths, key)
 		}
 	}
+}
+
+// orElse is the first value that is set, for the places where Drive
+// resolves one field from another.
+func orElse(first, second string) string {
+	if first != "" {
+		return first
+	}
+	return second
 }
 
 func orNone(s string) string {

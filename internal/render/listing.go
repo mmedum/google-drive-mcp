@@ -172,13 +172,16 @@ func treeLabel(n *TreeNode, root bool) string {
 	f := n.File
 	name := f.Name
 	if root {
-		// The root shows its full path. A drive's own root is already
-		// named by the location, so it is not appended twice; testing the
+		// The root shows its full path, built the same way the header
+		// above it is: a location with a name added, not a rendered
+		// location with a name glued on. A drive's own root is already
+		// named by its location, so it is not appended twice; testing the
 		// string for a matching suffix would drop a level from a folder
 		// called Projects inside a folder called Projects.
-		name = f.Location.String()
-		if !f.IsDriveRoot {
-			name += "/" + f.Name
+		if f.IsDriveRoot {
+			name = f.Location.String()
+		} else {
+			name = f.Location.Child(f.Name).String()
 		}
 	}
 	if f.IsFolder {

@@ -36,9 +36,18 @@ type Location struct {
 // built here rather than by appending a name to a rendered path: three
 // of the forms String produces are not paths at all, and a name glued
 // onto "Shared with me" reads like a folder that does not exist.
+//
+// A folder whose own parent is invisible does not make its contents
+// orphaned — they have a folder, and it is this one — but everything
+// above it is still unknown. That is what Above is for, and putting the
+// gap where it belongs is the point: "My Drive/Orphan" would assert a
+// parent nobody has seen, which is the one claim this type exists to
+// avoid making.
 func (l Location) Child(name string) Location {
 	out := l
-	out.Orphaned = false
+	if l.Orphaned || l.SharedWithMe {
+		out.Orphaned, out.SharedWithMe, out.Above = false, false, true
+	}
 	out.Folders = append(append([]string(nil), l.Folders...), name)
 	return out
 }

@@ -125,6 +125,22 @@ agreeing with the design rather than with Google.
   content is replaced, and the result says so if it fails.
 - An upload's response no longer drops the resource keys it carried, so
   a later call on a link-shared file still sends them.
+- A rate limit is retried whatever the request is. Refusing to repeat a
+  create that cannot carry an id was right for a 5xx, whose answer does
+  not say whether the file was made, and wrong for a 429: being turned
+  away proves the work was never begun. Every Docs-format create would
+  otherwise have failed on the first rate limit instead of backing off.
+- Opening a resumable upload session is retried again. A session is a
+  URI, not a file — nothing exists until chunks are committed — so a 503
+  on the opening request had been aborting an entire large upload before
+  a byte was sent.
+- `mime_type` naming one of Google's own formats is refused, and says
+  which of the two things the caller meant: `kind` for an empty one,
+  `convert_to` to turn content into one. It had been failing with a
+  message about pre-generated ids, which the caller never mentioned.
+- The id decision uses the type the file will actually be. Drive
+  resolves a create's type as the body's or, failing that, the content's,
+  and only the first was being consulted.
 - The host allowlist stripped the port before matching, so an access
   token would have gone to `www.googleapis.com:8443`. It refuses a host
   carrying a port. Phase 1 is where this began to matter: fetching a
@@ -161,7 +177,15 @@ Output that misled:
   and it sat next to the list of formats that can be.
 - A recursive listing was headed with the folder's parent rather than
   the folder it shows, so a tree and a flat listing of the same folder
-  named different places. Both build the location the same way now.
+  named different places. Both build the location the same way now, and
+  so does the tree's own first line, which had been built by a third
+  route and could contradict its header.
+- A folder whose parent this account cannot see is no longer reported at
+  the root of My Drive. Adding a name to a location that is not a path
+  had been turning "(no folder this account can see)" into
+  "My Drive/Orphan" — asserting a parent nobody has seen, which is the
+  one claim the location type exists to avoid. The gap is shown where it
+  is: "My Drive/…/Orphan".
 - A file's kind reads with its article in every message that names it:
   "Notes is a Google Doc", not "Notes is Google Doc".
 
