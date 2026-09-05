@@ -1,0 +1,9 @@
+Budget.xlsx — Excel spreadsheet
+id: id-budget-fixture
+location: My Drive/Projects/2026
+showing: csv, bytes 0 to 23 of 96 — there is more: call read_file again with offset: 24
+note: this is the FIRST SHEET only.
+---
+name,amount
+first,1
+second,2

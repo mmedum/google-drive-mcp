@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 )
@@ -299,4 +300,129 @@ var exportMimeToName = map[string]string{
 // ExportFormatName returns the short name for an export MIME type, or "".
 func ExportFormatName(mime string) string {
 	return exportMimeToName[strings.TrimSpace(mime)]
+}
+
+// WriteOptions are the parameters a metadata write shares.
+type WriteOptions struct {
+	// Fields overrides FileFields on the response.
+	Fields string
+	// OCRLanguage hints the language of text extracted from an image or
+	// a PDF being converted to a document.
+	OCRLanguage string
+	// KeepRevisionForever pins the revision the call creates.
+	KeepRevisionForever bool
+	// ResourceIDs carry resource keys for the ids this call names.
+	ResourceIDs []string
+}
+
+// withFile puts the file being written at the head of the ids whose
+// resource keys ride along on the call.
+func (o WriteOptions) withFile(id string) []string {
+	return append([]string{id}, o.ResourceIDs...)
+}
+
+func (o WriteOptions) values() url.Values {
+	v := url.Values{}
+	fields := o.Fields
+	if fields == "" {
+		fields = FileFields
+	}
+	v.Set("fields", fields)
+	v.Set("supportsAllDrives", "true")
+	if o.OCRLanguage != "" {
+		v.Set("ocrLanguage", o.OCRLanguage)
+	}
+	if o.KeepRevisionForever {
+		v.Set("keepRevisionForever", "true")
+	}
+	return v
+}
+
+// CreateFile creates a file from metadata alone: a folder, a shortcut,
+// or an empty Workspace document. Content goes through the upload paths
+// instead. A pre-generated id in the body makes the call idempotent, so
+// a retry after an ambiguous failure cannot leave two files behind.
+func (c *Client) CreateFile(ctx context.Context, meta *gdrive.FileMeta, o WriteOptions) (*gdrive.File, error) {
+	return c.writeFile(ctx, http.MethodPost, c.base+"/files?"+o.values().Encode(), meta, o.ResourceIDs)
+}
+
+// writeFile sends one metadata write and decodes the file it answers
+// with. Create, update and copy differ in method and URL and in nothing
+// else, so the marshalling, the request and the resource-key bookkeeping
+// are written once.
+func (c *Client) writeFile(ctx context.Context, method, u string, meta *gdrive.FileMeta, ids []string) (*gdrive.File, error) {
+	payload, err := json.Marshal(orEmptyMeta(meta))
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.do(ctx, request{kind: kindWrite, method: method, url: u,
+		body: payload, resourceIDs: ids})
+	if err != nil {
+		return nil, err
+	}
+	f, err := decodeFile(body)
+	if err != nil {
+		return nil, err
+	}
+	c.rememberKeys(f)
+	return f, nil
+}
+
+// UpdateOptions add the move parameters to a metadata patch. Drive has
+// allowed one parent since 2020, so a move is a patch that names the
+// parent to add and the one to remove.
+type UpdateOptions struct {
+	WriteOptions
+	AddParents    string
+	RemoveParents string
+}
+
+// UpdateFile patches one file's metadata. Only the fields present in
+// meta change, which is what makes the call idempotent and safe to
+// retry.
+func (c *Client) UpdateFile(ctx context.Context, id string, meta *gdrive.FileMeta, o UpdateOptions) (*gdrive.File, error) {
+	v := o.values()
+	if o.AddParents != "" {
+		v.Set("addParents", o.AddParents)
+	}
+	if o.RemoveParents != "" {
+		v.Set("removeParents", o.RemoveParents)
+	}
+	u := c.base + "/files/" + url.PathEscape(id) + "?" + v.Encode()
+	return c.writeFile(ctx, http.MethodPatch, u, meta, o.withFile(id))
+}
+
+// CopyFile copies one file. A body mimeType different from the source's
+// asks Drive to convert as it copies, which is how a PDF or an image
+// becomes a Google Doc with its text extracted. Folders cannot be
+// copied; Drive refuses them.
+func (c *Client) CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta, o WriteOptions) (*gdrive.File, error) {
+	u := c.base + "/files/" + url.PathEscape(id) + "/copy?" + o.values().Encode()
+	return c.writeFile(ctx, http.MethodPost, u, meta, o.withFile(id))
+}
+
+// exportNameToMime inverts exportMimeToName, so a tool can take the
+// short name a person writes and send the MIME type Drive expects.
+var exportNameToMime = sync.OnceValue(func() map[string]string {
+	out := make(map[string]string, len(exportMimeToName))
+	for mime, name := range exportMimeToName {
+		out[name] = mime
+	}
+	return out
+})
+
+// ExportMime returns the MIME type for a short format name, or "".
+func ExportMime(name string) string {
+	return exportNameToMime()[strings.ToLower(strings.TrimSpace(name))]
+}
+
+// ExportFormatNames lists every short format name, for tool descriptions
+// and error messages.
+func ExportFormatNames() []string {
+	names := make([]string, 0, len(exportMimeToName))
+	for _, name := range exportMimeToName {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }

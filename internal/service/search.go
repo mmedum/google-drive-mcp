@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -67,13 +66,7 @@ var kindMimes = map[string]string{
 
 // Kinds lists the accepted kind names, for tool descriptions and errors.
 func Kinds() []string {
-	out := make([]string, 0, len(kindMimes)+1)
-	for k := range kindMimes {
-		out = append(out, k)
-	}
-	out = append(out, "any")
-	sort.Strings(out)
-	return out
+	return sortedKeys(kindMimes, "any")
 }
 
 // orderByKeys maps the order names a tool accepts onto Drive's own keys.
@@ -88,12 +81,7 @@ var orderByKeys = map[string]string{
 
 // OrderBys lists the accepted order names.
 func OrderBys() []string {
-	out := make([]string, 0, len(orderByKeys))
-	for k := range orderByKeys {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(orderByKeys)
 }
 
 // Default and maximum page sizes for a search.

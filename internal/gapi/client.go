@@ -155,9 +155,15 @@ func New(ts oauth2.TokenSource, o Options) *Client {
 // googleHost reports whether credentials may be sent to this host. Only
 // Google's API and content hosts are on the list; a download URI that
 // files.download hands back lives on googleusercontent.com.
+//
+// A host with an explicit port is refused rather than stripped of it.
+// Google's endpoints do not use one, and this check decides whether an
+// access token goes out — some of it against URLs that arrived in a
+// response body, such as a revision's export link. Where such a check is
+// going to be wrong, it should be wrong in the direction of refusing.
 func googleHost(host string) bool {
-	if i := strings.IndexByte(host, ':'); i >= 0 {
-		host = host[:i]
+	if strings.ContainsRune(host, ':') {
+		return false
 	}
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	switch host {
@@ -229,6 +235,18 @@ type request struct {
 	// along on this call.
 	resourceIDs []string
 	header      http.Header
+	// accepted reports whether a status is a success for this request.
+	// nil means 2xx: a resumable upload's 308 is progress, not a failure,
+	// and it is the only caller that needs to say so.
+	accepted func(int) bool
+}
+
+// ok reports whether a response status is a success for this request.
+func (r request) ok(status int) bool {
+	if r.accepted != nil {
+		return r.accepted(status)
+	}
+	return status >= 200 && status < 300
 }
 
 // do performs one logical request with rate limiting and retries and
@@ -253,6 +271,20 @@ func (c *Client) limiter(k reqKind) *rate.Limiter {
 }
 
 func (c *Client) doResponse(ctx context.Context, r request) (*attemptResult, error) {
+	return attempts(c, ctx, r, "drive api", c.once, func(res *attemptResult) []any {
+		return []any{"status", res.status, "bytes", len(res.body), "ms", res.elapsed.Milliseconds()}
+	})
+}
+
+// attempts is the retry loop both the metadata path and the transfer
+// path run: take a token, try once, and on a transient failure back off
+// and try again. It is written once because the policy it encodes — what
+// may be retried, how long to wait, how many times — has to be one
+// policy, and two copies of a loop are two policies waiting to diverge.
+func attempts[T any](c *Client, ctx context.Context, r request, event string,
+	once func(context.Context, request) (T, error), fields func(T) []any,
+) (T, error) {
+	var zero T
 	limiter := c.limiter(r.kind)
 	path := redactPath(r.url)
 	var lastErr error
@@ -262,31 +294,43 @@ func (c *Client) doResponse(ctx context.Context, r request) (*attemptResult, err
 		// stay under, so exempting them would push hardest at the worst
 		// possible moment.
 		if err := limiter.Wait(ctx); err != nil {
-			return nil, err
+			return zero, err
 		}
-		res, err := c.once(ctx, r)
+		res, err := once(ctx, r)
 		if err == nil {
-			c.log.DebugContext(ctx, "drive api", "method", r.method, "path", path,
-				"status", res.status, "bytes", len(res.body), "ms", res.elapsed.Milliseconds(), "attempt", attempt)
+			c.log.DebugContext(ctx, event, append([]any{"method", r.method, "path", path,
+				"attempt", attempt}, fields(res)...)...)
 			return res, nil
 		}
 		lastErr = err
 		retry, after := retryable(r.kind, err)
-		c.log.DebugContext(ctx, "drive api error", "method", r.method, "path", path,
+		c.log.DebugContext(ctx, event+" error", "method", r.method, "path", path,
 			"attempt", attempt, "class", Class(err), "reason", Reason(err), "retry", retry && attempt < c.retry.MaxAttempts)
 		if !retry || attempt == c.retry.MaxAttempts {
 			break
 		}
 		if err := c.sleep(ctx, c.backoff(attempt, after)); err != nil {
-			return nil, err
+			return zero, err
 		}
 	}
-	return nil, lastErr
+	return zero, lastErr
+}
+
+// classify turns a non-2xx response into the error the caller sees, and
+// decides whether it may be tried again. Both request paths share it:
+// a new rate-limit reason must not have to be added twice.
+func classify(status int, header http.Header, method, path string, body []byte) error {
+	apiErr := parseAPIError(status, method, path, body)
+	if status == 429 || status >= 500 || (status == 403 && isRateReason(apiErr.Reason)) {
+		return &transientError{err: apiErr, after: parseRetryAfter(header.Get("Retry-After"))}
+	}
+	return apiErr
 }
 
 type attemptResult struct {
 	status  int
 	body    []byte
+	header  http.Header
 	elapsed time.Duration
 }
 
@@ -323,16 +367,11 @@ func (c *Client) once(ctx context.Context, r request) (*attemptResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: read body: %w", ErrNetwork, err)
 	}
-	res := &attemptResult{status: resp.StatusCode, body: data, elapsed: time.Since(start)}
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	res := &attemptResult{status: resp.StatusCode, body: data, header: resp.Header, elapsed: time.Since(start)}
+	if r.ok(resp.StatusCode) {
 		return res, nil
 	}
-	apiErr := parseAPIError(resp.StatusCode, r.method, redactPath(r.url), data)
-	if resp.StatusCode == 429 || resp.StatusCode >= 500 ||
-		(resp.StatusCode == 403 && isRateReason(apiErr.Reason)) {
-		return nil, &transientError{err: apiErr, after: parseRetryAfter(resp.Header.Get("Retry-After"))}
-	}
-	return nil, apiErr
+	return nil, classify(resp.StatusCode, resp.Header, r.method, redactPath(r.url), data)
 }
 
 // newRequest builds one HTTP request, checks the host allowlist before
@@ -451,4 +490,96 @@ func redactPath(raw string) string {
 		parts := idInPath.FindStringSubmatch(m)
 		return "/" + parts[1] + "/" + ShortID(parts[2])
 	})
+}
+
+// stream is a response whose body the caller reads. Transfers do not go
+// through do: a download is bounded by the file's size, not by a fixed
+// deadline, and holding it in memory would defeat the point.
+type stream struct {
+	status int
+	header http.Header
+	body   io.ReadCloser
+}
+
+// doStream performs a request with the same limiting and retries as do,
+// but hands the response body back unread. Retries happen only before
+// the body is handed over: once the caller has bytes, a failure is the
+// caller's to see.
+func (c *Client) doStream(ctx context.Context, r request) (*stream, error) {
+	return attempts(c, ctx, r, "drive transfer", c.onceStream, func(s *stream) []any {
+		return []any{"status", s.status}
+	})
+}
+
+// onceStream sends one request and returns the live body on success.
+//
+// The per-attempt deadline covers the response headers and then stands
+// down: a 1 GiB download cannot finish inside the timeout that bounds a
+// metadata call, and cutting it off there would make every large
+// transfer fail. What replaces it is a stall guard on the body — each
+// individual Read must make progress within the same timeout — so a
+// connection that stops sending is still cut, and one that is merely
+// slow is not.
+func (c *Client) onceStream(ctx context.Context, r request) (*stream, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	headers := time.AfterFunc(c.timeout, cancel)
+	req, err := c.newRequest(ctx, r)
+	if err != nil {
+		headers.Stop()
+		cancel()
+		return nil, err
+	}
+	resp, err := c.httpc.Do(req)
+	headers.Stop()
+	if err != nil {
+		cancel()
+		if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+			// The guard fired: no headers inside the deadline.
+			return nil, fmt.Errorf("%w: no response within %s", ErrNetwork, c.timeout)
+		}
+		return nil, wrapTransportError(err)
+	}
+	if !r.ok(resp.StatusCode) {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		_ = resp.Body.Close()
+		cancel()
+		return nil, classify(resp.StatusCode, resp.Header, r.method, redactPath(r.url), data)
+	}
+	return &stream{status: resp.StatusCode, header: resp.Header,
+		body: newStallGuard(resp.Body, c.timeout, cancel)}, nil
+}
+
+// maxErrorBodyBytes bounds the error body read from a failed transfer.
+// Google's error envelope is a few hundred bytes; anything larger is not
+// an error message.
+const maxErrorBodyBytes = 1 << 20
+
+// stallGuard cancels a transfer whose next Read makes no progress inside
+// the timeout. The clock runs only while a Read is outstanding, so a
+// caller that is slow to ask for more bytes is never the one cut off.
+type stallGuard struct {
+	rc     io.ReadCloser
+	timer  *time.Timer
+	limit  time.Duration
+	cancel context.CancelFunc
+}
+
+func newStallGuard(rc io.ReadCloser, limit time.Duration, cancel context.CancelFunc) *stallGuard {
+	t := time.AfterFunc(limit, cancel)
+	t.Stop()
+	return &stallGuard{rc: rc, timer: t, limit: limit, cancel: cancel}
+}
+
+func (g *stallGuard) Read(p []byte) (int, error) {
+	g.timer.Reset(g.limit)
+	n, err := g.rc.Read(p)
+	g.timer.Stop()
+	return n, err
+}
+
+func (g *stallGuard) Close() error {
+	g.timer.Stop()
+	err := g.rc.Close()
+	g.cancel()
+	return err
 }

@@ -103,20 +103,32 @@ func (e *APIError) Unwrap() error {
 		return ErrBlocked
 	case e.Status == 403 && e.Reason == reasonStorageFull:
 		return ErrInvalid
+	// Drive answers a structural refusal — moving a My Drive folder into
+	// a shared drive — with a 403 as well, so the reason has to be read
+	// before the status: "you may not" and "this cannot be done" lead a
+	// model to different next steps.
+	case e.Reason == reasonFolderMove:
+		return ErrUnsupported
 	case e.Status == 403:
 		return ErrForbidden
 
 	case e.Status == 404:
 		return ErrNotFound
+	case e.Status == 416:
+		// A byte range that starts past the end of the file.
+		return ErrInvalid
 	case e.Status == 409:
 		return ErrExists
 	case e.Status == 429:
 		return ErrRateLimited
+	// 501 is "this cannot be done", not "this went wrong", so it is
+	// matched before the rest of the 5xx range rather than after it,
+	// where it could never fire.
+	case e.Status == 501:
+		return ErrUnsupported
 	case e.Status >= 500:
 		return ErrServer
 
-	case e.Reason == reasonFolderMove || e.Status == 501:
-		return ErrUnsupported
 	case e.Status == 400 && e.Reason == reasonDuplicate:
 		return ErrExists
 	case e.Status == 400:

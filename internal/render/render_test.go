@@ -363,3 +363,127 @@ func TestTreeRootKeepsEveryLevelOfItsPath(t *testing.T) {
 		t.Errorf("the drive root's name was doubled:\n%s", out)
 	}
 }
+
+func TestWriteCardGolden(t *testing.T) {
+	golden(t, "write_card.txt", FileCard(sheet(), FileCardOptions{
+		Now: now, Action: ActionUpdated,
+		Changes: []Change{
+			{Field: "name", From: "Budget.xlsx", To: "Budget 2026.xlsx"},
+			{Field: "description", From: "", To: "the quarterly numbers"},
+		},
+		Note: "the content is unchanged; update_content replaces that.",
+	}))
+}
+
+func TestFileTextGolden(t *testing.T) {
+	golden(t, "file_text.txt", FileText(sheet(), FileTextOptions{
+		Now: now, Format: "csv", Offset: 0, Bytes: 24, Total: 96, More: true,
+		Note: "this is the FIRST SHEET only.",
+		Text: "name,amount\nfirst,1\nsecond,2\n",
+	}))
+}
+
+func TestFileTextOfAWholeFile(t *testing.T) {
+	got := FileText(sheet(), FileTextOptions{Now: now, Format: "text", Bytes: 5, Total: 5, Text: "hello"})
+	if !strings.Contains(got, "the whole file") {
+		t.Errorf("output:\n%s", got)
+	}
+	if !strings.HasSuffix(got, "hello\n") {
+		t.Errorf("the text should end with a newline:\n%q", got)
+	}
+}
+
+func TestFileTextOfAnEmptyFile(t *testing.T) {
+	got := FileText(sheet(), FileTextOptions{Now: now, Format: "text"})
+	if !strings.Contains(got, "the file is empty") {
+		t.Errorf("output:\n%s", got)
+	}
+}
+
+func TestFileTextPastTheEnd(t *testing.T) {
+	got := FileText(sheet(), FileTextOptions{Now: now, Format: "text", Offset: 500})
+	if !strings.Contains(got, "the file ends before it") {
+		t.Errorf("output:\n%s", got)
+	}
+}
+
+func TestFileTextNil(t *testing.T) {
+	if got := FileText(nil, FileTextOptions{}); got != "(no file)\n" {
+		t.Errorf("FileText(nil) = %q", got)
+	}
+}
+
+func TestStripDataURIs(t *testing.T) {
+	in := "before ![a chart](data:image/png;base64,AAAA) between ![](data:image/gif;base64,BBBB) after"
+	got := StripDataURIs(in)
+	if strings.Contains(got, "base64") {
+		t.Errorf("an inlined image survived: %s", got)
+	}
+	if strings.Count(got, "[image removed]") != 2 {
+		t.Errorf("both images should be marked: %s", got)
+	}
+	// A markdown link that is not a data URI is left alone.
+	kept := "![a chart](chart.png)"
+	if StripDataURIs(kept) != kept {
+		t.Errorf("a plain image link was rewritten: %s", StripDataURIs(kept))
+	}
+}
+
+func TestDownloadGolden(t *testing.T) {
+	golden(t, "download.txt", Download(sheet(), DownloadOptions{
+		Now: now, Path: "/home/person/drive/Budget-id-bud.xlsx", Bytes: 4096, Format: "xlsx",
+		Checksum: model.Checksum{State: model.ChecksumMatch},
+	}))
+}
+
+func TestDownloadNil(t *testing.T) {
+	if got := Download(nil, DownloadOptions{}); got != "(no file)\n" {
+		t.Errorf("Download(nil) = %q", got)
+	}
+}
+
+func TestNewWriteJSONCarriesTheText(t *testing.T) {
+	m := sheet()
+	text := FileCard(m, FileCardOptions{Now: now, Action: ActionCreated})
+	got := NewWriteJSON(m, ActionCreated, "a note", text, []Change{{Field: "name", From: "a", To: "b"}})
+	if got.Summary != text {
+		t.Error("the structured result does not carry the prose a client may show instead")
+	}
+	if got.File == nil || got.File.ID != m.ID || got.File.Size != 4096 {
+		t.Errorf("file = %+v", got.File)
+	}
+	if got.Action != "created" || got.Note != "a note" || len(got.Changes) != 1 {
+		t.Errorf("result = %+v", got)
+	}
+	if NewWriteJSON(nil, ActionCreated, "", "", nil).File != nil {
+		t.Error("a result with no file should carry none")
+	}
+}
+
+func TestChecksumSaysWhichOfTheFourItIs(t *testing.T) {
+	// "Nothing to compare against" and "it matched" are the two that
+	// must never read alike: one is a guarantee and the other is its
+	// absence.
+	cases := map[model.ChecksumState]string{
+		model.ChecksumMatch:         "verified",
+		model.ChecksumMismatch:      "MISMATCH",
+		model.ChecksumNotComparable: "not compared",
+		model.ChecksumNotPublished:  "no checksum",
+	}
+	for state, want := range cases {
+		got := Checksum(model.Checksum{State: state, Expected: "aaa", Actual: "bbb", Why: "it is an export"})
+		if !strings.Contains(got, want) {
+			t.Errorf("state %d rendered %q, want it to contain %q", state, got, want)
+		}
+	}
+	if strings.Contains(Checksum(model.Checksum{State: model.ChecksumNotPublished}), "verified") {
+		t.Error("a file with no checksum was described as verified")
+	}
+}
+
+func TestDryRunIsSaidOnceByTheCard(t *testing.T) {
+	got := FileCard(sheet(), FileCardOptions{Now: now, Action: ActionMoved, DryRun: true})
+	if !strings.Contains(got, "NOTHING WAS CHANGED") {
+		t.Errorf("a dry run did not say so:\n%s", got)
+	}
+}

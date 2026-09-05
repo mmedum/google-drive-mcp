@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +30,17 @@ type Location struct {
 	SharedWithMe bool
 	// Orphaned means the file has no parent this account can see.
 	Orphaned bool
+}
+
+// Child is the location of something inside this one. A destination is
+// built here rather than by appending a name to a rendered path: three
+// of the forms String produces are not paths at all, and a name glued
+// onto "Shared with me" reads like a folder that does not exist.
+func (l Location) Child(name string) Location {
+	out := l
+	out.Orphaned = false
+	out.Folders = append(append([]string(nil), l.Folders...), name)
+	return out
 }
 
 // String renders the location the way results show it.
@@ -175,11 +185,7 @@ func New(f *gdrive.File, o Options) *File {
 			m.ShortcutTargetKind = KindName(t)
 		}
 	}
-	if f.Size != "" {
-		if n, err := strconv.ParseInt(f.Size, 10, 64); err == nil {
-			m.Size, m.HasSize = n, true
-		}
-	}
+	m.Size, m.HasSize = f.SizeBytes()
 	m.Created = parseTime(f.CreatedTime)
 	m.Modified = parseTime(f.ModifiedTime)
 	m.TrashedAt = parseTime(f.TrashedTime)
