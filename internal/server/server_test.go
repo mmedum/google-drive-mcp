@@ -440,3 +440,29 @@ func TestNothingAModelReadsNamesAToolThatDoesNotExist(t *testing.T) {
 		}
 	}
 }
+
+func TestOverlappingToolsPointAtEachOther(t *testing.T) {
+	// A tool description is the model's only map. Where two tools could
+	// both plausibly answer a question, each has to name the other and
+	// say when to choose it, or the model picks by guesswork.
+	cs := session(t, defaultConfig(), true)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	describes := map[string]string{}
+	for _, tool := range res.Tools {
+		describes[tool.Name] = tool.Description
+	}
+	overlaps := [][2]string{
+		{"search_files", "list_folder"}, // both find items
+		{"list_folder", "search_files"},
+		{"get_file", "list_folder"}, // a folder is a file too
+		{"get_account", "get_file"}, // both are "get something"
+	}
+	for _, pair := range overlaps {
+		if !strings.Contains(describes[pair[0]], pair[1]) {
+			t.Errorf("%s overlaps with %s but never names it:\n%s", pair[0], pair[1], describes[pair[0]])
+		}
+	}
+}

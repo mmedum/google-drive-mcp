@@ -54,10 +54,18 @@ account and reference machinery, and the four read tools.
   everything else.
 - The leak check turns this project's first rule into something a build
   can enforce: no addresses outside the documentation domains, no
-  strings shaped like a Drive id, and no Drive links carrying one. It
-  runs in `make check`, in the pre-commit hook and in CI. gitleaks
-  covers credentials; this covers what a live run against a real Drive
-  can drag in.
+  strings shaped like a Drive id, no Drive links carrying one, and no
+  compiled binaries. It runs in `make check`, in the pre-commit hook and
+  in CI; `leaks history` walks every blob in every commit and is what to
+  run before the repository goes public, since a leak removed from the
+  tip is still in the log. gitleaks covers credentials; this covers what
+  a live run against a real Drive can drag in.
+- A test that fails if a file id, a name, an address, a search term or
+  file content ever reaches a log. It runs the whole surface at debug
+  level against unmistakable fixtures, which is what lets the issue
+  template ask a reporter for a debug log without also asking them to
+  audit it. Ids appear only as a six-character prefix, for correlating
+  the lines of one call.
 - `scripts/livedrive`, which drives the built binary over stdio against a
   real account and replaces ids, links, addresses and the names beside
   them with stable placeholders. It says on every run that file and

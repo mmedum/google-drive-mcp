@@ -62,7 +62,8 @@ func registerRead(s *mcp.Server, d Deps) []string {
 			"shared drives and which ones it can see, and what this server will let you do on their behalf: whether it " +
 			"is read-only, whether the sharing and destructive tools are registered, and whether files can be " +
 			"downloaded or uploaded at all. Call it once when something is refused and you want to know whether it is " +
-			"the account, the organisation or this server's configuration saying no.",
+			"the account, the organisation or this server's configuration saying no. " +
+			"It describes the account, not any file: get_file does that.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ AccountInput) (*mcp.CallToolResult, any, error) {
 		out, err := d.Service.GetAccount(ctx)
@@ -78,7 +79,8 @@ func registerRead(s *mcp.Server, d Deps) []string {
 			"link, size, when it changed and who changed it, who owns it, WHO CAN SEE IT, and what this account may " +
 			"do with it. Cheap: one or two calls. Call it first when handed an id, a URL or a path, because names in " +
 			"Drive are not unique and the folder a file sits in is part of what it means. " +
-			"On a shortcut it describes the shortcut itself and names its target.",
+			"On a shortcut it describes the shortcut itself and names its target. " +
+			"For one item; list_folder lists what is inside a folder, and search_files finds items you cannot name.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in FileInput) (*mcp.CallToolResult, any, error) {
 		out, err := d.Service.GetFile(ctx, service.GetFileInput{File: in.File, IncludeLabels: in.IncludeLabels})

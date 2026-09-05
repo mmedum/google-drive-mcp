@@ -55,8 +55,14 @@ var allowedIDs = map[string]string{
 	"0ABcdEFghIJklMNop":                            "synthetic shared-drive id in the ref tests",
 }
 
-// leaks scans every tracked text file for anything account-specific.
-func leaks(out io.Writer, _ []string) error {
+// leaks scans for anything account-specific. With "history" it scans
+// every blob this repository has ever held, because a leak deleted from
+// the tip is still in the log and still public the moment the repository
+// is.
+func leaks(out io.Writer, args []string) error {
+	if arg(args, 0, "") == "history" {
+		return leaksInHistory(out)
+	}
 	files, err := trackedFiles()
 	if err != nil {
 		return err
@@ -68,6 +74,11 @@ func leaks(out io.Writer, _ []string) error {
 		}
 		body, err := os.ReadFile(path)
 		if err != nil {
+			continue
+		}
+		if isBinary(body) {
+			found = append(found, path+": a compiled binary is committed here. "+
+				"Nothing built belongs in the repository, and its contents cannot be reviewed")
 			continue
 		}
 		found = append(found, scanForLeaks(path, string(body))...)
@@ -156,6 +167,45 @@ func abbreviate(s string) string {
 	return s[:4] + "…" + s[len(s)-2:]
 }
 
+// leaksInHistory walks every blob in every commit. It is slower than the
+// working-tree scan and is not on the make check path; it is what runs
+// before the repository is made public, and after anything is removed
+// from it in a hurry.
+func leaksInHistory(out io.Writer) error {
+	revs, err := exec.Command("git", "rev-list", "--all", "--objects").Output()
+	if err != nil {
+		return fmt.Errorf("list objects: %w", err)
+	}
+	seen := map[string]bool{}
+	var found []string
+	scanned := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(revs)), "\n") {
+		hash, path, ok := strings.Cut(line, " ")
+		if !ok || path == "" || !isText(path) || skipFiles[filepath.Base(path)] || seen[hash] {
+			continue
+		}
+		seen[hash] = true
+		body, err := exec.Command("git", "cat-file", "-p", hash).Output()
+		if err != nil {
+			continue
+		}
+		scanned++
+		if isBinary(body) {
+			found = append(found, path+"@"+hash[:8]+": a compiled binary is in the history")
+			continue
+		}
+		found = append(found, scanForLeaks(path+"@"+hash[:8], string(body))...)
+	}
+	if len(found) > 0 {
+		for _, f := range found {
+			_, _ = fmt.Fprintln(out, f)
+		}
+		return fmt.Errorf("%d thing(s) in this repository's history look like they came from a real Drive", len(found))
+	}
+	_, _ = fmt.Fprintf(out, "history leak check ok (%d blobs)\n", scanned)
+	return nil
+}
+
 func trackedFiles() ([]string, error) {
 	out, err := exec.Command("git", "ls-files", "-z").Output()
 	if err != nil {
@@ -168,6 +218,21 @@ func trackedFiles() ([]string, error) {
 		}
 	}
 	return files, nil
+}
+
+// isBinary reports whether the content is not text a person wrote. A NUL
+// byte in the first few kilobytes is what git itself uses to decide.
+func isBinary(body []byte) bool {
+	head := body
+	if len(head) > 8000 {
+		head = head[:8000]
+	}
+	for _, b := range head {
+		if b == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // isText keeps the scan to files a person could paste something into.
