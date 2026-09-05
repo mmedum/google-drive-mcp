@@ -156,3 +156,47 @@ func TestAFailedAgentRunIsAnError(t *testing.T) {
 		t.Fatal("an empty stream was read as a success")
 	}
 }
+
+// TestAPromptWithAnUnfilledPlaceholderIsRefused is the first eval run's
+// own finding. The scratch folder's id was never recorded as a value, so
+// every prompt reached the agent with a literal "{folder}" in it — and
+// the two tasks that ran still passed, one by finding the file by name
+// and one by refusing for the wrong reason. A task that scores something
+// nobody meant to ask is worse than a task that fails.
+func TestAPromptWithAnUnfilledPlaceholderIsRefused(t *testing.T) {
+	got, err := fill("put it in {folder} as {kind}", map[string]string{
+		"folder": "1FolderIdFixtureAAAAAAAAAAAAAAA", "kind": "a doc",
+	})
+	if err != nil {
+		t.Fatalf("fill: %v", err)
+	}
+	if got != "put it in 1FolderIdFixtureAAAAAAAAAAAAAAA as a doc" {
+		t.Errorf("prompt = %q", got)
+	}
+	_, err = fill("put it in {folder} as {kind}", map[string]string{"folder": "x"})
+	if err == nil {
+		t.Fatal("a prompt with an unfilled placeholder was sent")
+	}
+	if !strings.Contains(err.Error(), "{kind}") {
+		t.Errorf("the refusal does not name the placeholder: %v", err)
+	}
+}
+
+// TestEveryTasksPlaceholdersCanBeFilled walks the whole table, so a task
+// added with a placeholder no setup records fails here rather than in a
+// run that costs a live account and several minutes.
+func TestEveryTasksPlaceholdersCanBeFilled(t *testing.T) {
+	for _, task := range tasks() {
+		names := placeholder.FindAllString(task.prompt, -1)
+		for _, name := range names {
+			// "folder" is the scratch folder, which the harness records
+			// for every task; anything else has to come from a setup.
+			if name == "{folder}" {
+				continue
+			}
+			if task.setup == nil {
+				t.Errorf("%s uses %s and has no setup to record it", task.name, name)
+			}
+		}
+	}
+}
