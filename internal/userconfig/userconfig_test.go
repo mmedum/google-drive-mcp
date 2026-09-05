@@ -175,7 +175,9 @@ func TestANamedProfileLivesBesideTheDefaultOne(t *testing.T) {
 	}
 }
 
-func TestSaveReplacesTheFileWholeAndOwnerOnly(t *testing.T) {
+func TestSaveReplacesTheFileWhole(t *testing.T) {
+	// The permission bits are TestSaveIsOwnerOnly's, which knows that
+	// Windows does not model them. This is about the replace itself.
 	dir := t.TempDir()
 	t.Setenv(EnvDir, dir)
 
@@ -183,13 +185,6 @@ func TestSaveReplacesTheFileWholeAndOwnerOnly(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 	p, _ := Path("work")
-	info, err := os.Stat(p)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("config written %o, want 0600: it names the account", perm)
-	}
 	// The temporary file the write goes through must not survive it.
 	if _, err := os.Stat(p + ".tmp"); !os.IsNotExist(err) {
 		t.Error("the temporary file was left behind")
