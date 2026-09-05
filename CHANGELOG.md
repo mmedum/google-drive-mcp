@@ -6,6 +6,70 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Collaboration, resources and the numbers. Six new tools, one of them
+registered only when the deployer asks and needing `confirm: true` on the
+call as well; three `gdrive://` resources; a recursive copy; and the
+first benchmarks, which refuted two of the performance targets this
+project had written down.
+
+### Added
+
+- `list_comments`, `add_comment` and `reply_comment`: the threads on a
+  file, with their replies and whether each is still open. Comments live
+  on the file in Drive, not inside the document, so these work for a PDF
+  or an image as well as for a Google Doc — which is the reason to have
+  them here rather than in a server built on the Docs API. A comment made
+  through this server is unanchored: pinning one to a passage means
+  knowing where that passage is, and that is the Docs API's job.
+  `reply_comment` answers, resolves, reopens or edits; Drive records
+  resolving as a reply of its own, so everybody who can see the file sees
+  who closed a thread.
+- `list_access_requests` and `resolve_access_request`: who has asked to
+  be let into a file, and accepting or denying one. Only an approver can
+  see them, and the API cannot create one — that happens when somebody is
+  turned away from a file. Accepting grants a permission, so it is a
+  sharing tool: `GDRIVE_SHARING=off` removes it, `capabilities.canShare`
+  is checked first, and the result reports who could see the file before
+  and who can see it after. A request that names more than one role is
+  refused as `[ambiguous]` rather than accepted as one of them.
+- Gated behind `GDRIVE_ENABLE_DESTRUCTIVE=true`: `delete_comment`, which
+  also needs `confirm: true`. There is no trash for a comment — Drive
+  keeps the thread with its words removed — so resolving is what closes a
+  conversation and this is what removes it.
+- **Resources.** `gdrive://<id>` is a file's text, `gdrive://<id>/meta`
+  is its description, and `gdrive://<id>/children` is a folder's first
+  page. A reference with a slash in it has to be percent-encoded, which
+  is the price of templates that cannot shadow each other. There is no
+  static resource list: enumerating a Drive is a listing, and a client
+  would pay for one on every connection.
+- **`copy_file` with `recursive`** copies a folder and everything in it.
+  The tree is walked in full before anything is written, and one that
+  does not fit the budget is refused with nothing copied rather than
+  copied halfway — a listing that stops short is a listing that stops
+  short, and a copy that stops short leaves a folder that looks complete
+  and is not. `dry_run` says how big it is first. A shortcut inside a
+  tree is made again pointing where it points now, not at the copy.
+- **`make bench`** and **`make evals`**. The benchmarks measure what §11
+  of the architecture promised; the evals run thirteen tasks through an
+  agent with only this server's tools and score both the end state and
+  the trace — no invented ids, and `allow_anyone` never passed unasked.
+
+### Changed
+
+- **One media type registry.** Five tables in three packages knew what a
+  media type meant: a display name, a search filter, an export name, the
+  format a read takes and the format a download defaults to. They are one
+  table now (`internal/mediatype`), which is what makes adding a kind one
+  edit instead of four.
+- `download_file`'s schema now offers `zip` and `json`, which the server
+  has always accepted and the description never mentioned. The check that
+  ties the two together found it the first time it ran.
+- **`get_file` costs one call plus one per folder above the file**, not
+  "at most two" as §11 claimed. Two holds for a file at the top of My
+  Drive; below that the location line is a climb. Nothing changed in the
+  code — the target was wrong, and it is now stated as the code behaves
+  and asserted in a test.
+
 ## [0.2.0] - 2026-09-05
 
 Access, shared drives and history — and the run that found what the tests

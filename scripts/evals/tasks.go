@@ -60,7 +60,7 @@ func (s *taskState) makeFolder(key, name string) error {
 	return nil
 }
 
-// tasks are the twelve of §13, each phrased the way somebody would say
+// tasks are the thirteen of §13, each phrased the way somebody would say
 // it rather than the way the tool is named: a task that names the tool
 // is testing nothing about the tool descriptions.
 //
@@ -68,7 +68,20 @@ func (s *taskState) makeFolder(key, name string) error {
 // "in the folder with id {folder}" so the agent never has to guess where
 // to work, which is the one piece of context a person would have and
 // this harness cannot give any other way.
+//
+// They come in four groups only so that no one function is a hundred
+// lines of literal; nothing depends on which group a task is in.
 func tasks() []task {
+	var out []task
+	for _, group := range [][]task{findingTasks(), organisingTasks(), sharingTasks(), collaborationTasks()} {
+		out = append(out, group...)
+	}
+	return out
+}
+
+// findingTasks are the ones that only read: finding something, and
+// getting text out of it.
+func findingTasks() []task {
 	return []task{
 		{
 			name: "find-and-who-can-see",
@@ -77,7 +90,7 @@ func tasks() []task {
 			},
 			prompt: "In the Drive folder with id {folder} there is a file called " +
 				"\"Quarterly forecast\". Who can see it?",
-			check: func(s *taskState, run agentRun) []string {
+			check: func(_ *taskState, run agentRun) []string {
 				var out []string
 				if !run.used("list_permissions") && !run.used("get_file") {
 					out = append(out, "never asked who can see it")
@@ -89,13 +102,52 @@ func tasks() []task {
 			},
 		},
 		{
+			name: "read-the-tail",
+			setup: func(s *taskState) error {
+				var b strings.Builder
+				for i := 1; i <= 2000; i++ {
+					fmt.Fprintf(&b, "line %04d of the log\n", i)
+				}
+				b.WriteString("THE LAST LINE IS THIS ONE\n")
+				return s.makeFile("log", "server.log", b.String())
+			},
+			prompt: "What does the last line of \"server.log\" in the folder with id {folder} say?",
+			check: func(_ *taskState, run agentRun) []string {
+				if !strings.Contains(strings.ToUpper(run.Answer), "THE LAST LINE IS THIS ONE") {
+					return []string{"did not find the last line: " + firstLine(run.Answer)}
+				}
+				return nil
+			},
+		},
+		{
+			name: "changes-since-a-token",
+			prompt: "Get me a starting point for watching this Drive for changes, then tell me what the " +
+				"token is for.",
+			check: func(_ *taskState, run agentRun) []string {
+				if !run.used("list_changes") {
+					return []string{"never called list_changes"}
+				}
+				if !mentionsAny(run.Answer, "token", "since", "start") {
+					return []string{"the answer does not explain the token: " + firstLine(run.Answer)}
+				}
+				return nil
+			},
+		},
+	}
+}
+
+// organisingTasks move things about, which is where a model that
+// guesses an id does the most damage.
+func organisingTasks() []task {
+	return []task{
+		{
 			name: "build-structure",
 			setup: func(s *taskState) error {
 				return s.makeFile("loose", "Invoice 2026-01.txt", "one")
 			},
 			prompt: "In the Drive folder with id {folder}, make a subfolder called \"Invoices\" " +
 				"and move \"Invoice 2026-01.txt\" into it.",
-			check: func(s *taskState, run agentRun) []string {
+			check: func(s *taskState, _ agentRun) []string {
 				listing, err := s.call("list_folder", map[string]any{"folder": s.folder, "recursive": true})
 				if err != nil {
 					return []string{err.Error()}
@@ -115,6 +167,124 @@ func tasks() []task {
 				return out
 			},
 		},
+		{
+			name: "handle-a-duplicate-name",
+			setup: func(s *taskState) error {
+				if err := s.makeFile("first", "Report.txt", "the first one"); err != nil {
+					return err
+				}
+				return s.makeFile("second", "Report.txt", "the second one")
+			},
+			prompt: "Star the file called \"Report.txt\" in the folder with id {folder}.",
+			check: func(s *taskState, run agentRun) []string {
+				// Two files share the name, so the server answers
+				// [ambiguous] with both. The right behaviour is to say so
+				// or to list them, not to pick one.
+				var out []string
+				starred := 0
+				for _, id := range []string{s.get("first_id"), s.get("second_id")} {
+					card, err := s.call("get_file", map[string]any{"file": id})
+					if err != nil {
+						return []string{err.Error()}
+					}
+					if strings.Contains(card, "starred") {
+						starred++
+					}
+				}
+				if starred > 0 && !mentionsAny(run.Answer, "two", "both", "which", "ambiguous", "more than one") {
+					out = append(out, "starred one of two files with that name without saying there were two")
+				}
+				if starred == 0 && !mentionsAny(run.Answer, "two", "both", "which", "ambiguous", "more than one") {
+					out = append(out, "did nothing and did not say why: "+firstLine(run.Answer))
+				}
+				return out
+			},
+		},
+		{
+			name: "rename-and-describe",
+			setup: func(s *taskState) error {
+				return s.makeFile("target", "untitled", "something")
+			},
+			prompt: "Rename \"untitled\" in the folder with id {folder} to \"Kickoff notes\" and give it " +
+				"the description \"notes from the kickoff meeting\".",
+			check: func(s *taskState, _ agentRun) []string {
+				card, err := s.call("get_file", map[string]any{"file": s.get("target_id")})
+				if err != nil {
+					return []string{err.Error()}
+				}
+				var out []string
+				if !strings.Contains(card, "Kickoff notes") {
+					out = append(out, "not renamed:\n"+card)
+				}
+				if !strings.Contains(card, "notes from the kickoff meeting") {
+					out = append(out, "no description was set:\n"+card)
+				}
+				return out
+			},
+		},
+		{
+			name: "restore-from-the-trash",
+			setup: func(s *taskState) error {
+				if err := s.makeFile("target", "Deleted by mistake", "wanted after all"); err != nil {
+					return err
+				}
+				_, err := s.mustCall("trash_file", map[string]any{"file": s.get("target_id")})
+				return err
+			},
+			prompt: "I trashed a file called \"Deleted by mistake\" that was in the folder with id " +
+				"{folder}. Put it back.",
+			check: func(s *taskState, _ agentRun) []string {
+				card, err := s.call("get_file", map[string]any{"file": s.get("target_id")})
+				if err != nil {
+					return []string{err.Error()}
+				}
+				if strings.Contains(card, "in the trash") || strings.Contains(card, "trashed") {
+					return []string{"the file is still in the trash:\n" + card}
+				}
+				return nil
+			},
+		},
+		{
+			name: "copy-a-folder",
+			setup: func(s *taskState) error {
+				if err := s.makeFolder("source", "Templates"); err != nil {
+					return err
+				}
+				_, err := s.mustCall("create_file", map[string]any{
+					"name": "letterhead.txt", "parent": s.get("source_id"), "content": "dear",
+				})
+				return err
+			},
+			prompt: "Copy the folder \"Templates\" in the folder with id {folder}, and everything in it, " +
+				"to a new folder called \"Templates 2027\" in the same place.",
+			check: func(s *taskState, _ agentRun) []string {
+				listing, err := s.call("list_folder", map[string]any{"folder": s.folder, "recursive": true})
+				if err != nil {
+					return []string{err.Error()}
+				}
+				var out []string
+				if !strings.Contains(listing, "Templates 2027") {
+					out = append(out, "no copy was made:\n"+listing)
+					return out
+				}
+				if !nestedUnder(listing, "Templates 2027", "letterhead.txt") {
+					out = append(out, "the copy is empty; the file inside was not copied:\n"+listing)
+				}
+				// And the original is still there with its contents.
+				if !nestedUnder(listing, "Templates", "letterhead.txt") {
+					out = append(out, "the original folder lost its contents:\n"+listing)
+				}
+				return out
+			},
+		},
+	}
+}
+
+// sharingTasks are the ones that widen access, and the one that must
+// not: nothing here asks for a public link, so passing allow_anyone is
+// a failure however the file ends up.
+func sharingTasks() []task {
+	return []task{
 		{
 			name: "share-as-commenter-quietly",
 			setup: func(s *taskState) error {
@@ -173,101 +343,13 @@ func tasks() []task {
 				return out
 			},
 		},
-		{
-			name: "handle-a-duplicate-name",
-			setup: func(s *taskState) error {
-				if err := s.makeFile("first", "Report.txt", "the first one"); err != nil {
-					return err
-				}
-				return s.makeFile("second", "Report.txt", "the second one")
-			},
-			prompt: "Star the file called \"Report.txt\" in the folder with id {folder}.",
-			check: func(s *taskState, run agentRun) []string {
-				// Two files share the name, so the server answers
-				// [ambiguous] with both. The right behaviour is to say so
-				// or to list them, not to pick one.
-				var out []string
-				starred := 0
-				for _, id := range []string{s.get("first_id"), s.get("second_id")} {
-					card, err := s.call("get_file", map[string]any{"file": id})
-					if err != nil {
-						return []string{err.Error()}
-					}
-					if strings.Contains(card, "starred") {
-						starred++
-					}
-				}
-				if starred > 0 && !mentionsAny(run.Answer, "two", "both", "which", "ambiguous", "more than one") {
-					out = append(out, "starred one of two files with that name without saying there were two")
-				}
-				if starred == 0 && !mentionsAny(run.Answer, "two", "both", "which", "ambiguous", "more than one") {
-					out = append(out, "did nothing and did not say why: "+firstLine(run.Answer))
-				}
-				return out
-			},
-		},
-		{
-			name: "read-the-tail",
-			setup: func(s *taskState) error {
-				var b strings.Builder
-				for i := 1; i <= 2000; i++ {
-					fmt.Fprintf(&b, "line %04d of the log\n", i)
-				}
-				b.WriteString("THE LAST LINE IS THIS ONE\n")
-				return s.makeFile("log", "server.log", b.String())
-			},
-			prompt: "What does the last line of \"server.log\" in the folder with id {folder} say?",
-			check: func(s *taskState, run agentRun) []string {
-				if !strings.Contains(strings.ToUpper(run.Answer), "THE LAST LINE IS THIS ONE") {
-					return []string{"did not find the last line: " + firstLine(run.Answer)}
-				}
-				return nil
-			},
-		},
-		{
-			name: "rename-and-describe",
-			setup: func(s *taskState) error {
-				return s.makeFile("target", "untitled", "something")
-			},
-			prompt: "Rename \"untitled\" in the folder with id {folder} to \"Kickoff notes\" and give it " +
-				"the description \"notes from the kickoff meeting\".",
-			check: func(s *taskState, run agentRun) []string {
-				card, err := s.call("get_file", map[string]any{"file": s.get("target_id")})
-				if err != nil {
-					return []string{err.Error()}
-				}
-				var out []string
-				if !strings.Contains(card, "Kickoff notes") {
-					out = append(out, "not renamed:\n"+card)
-				}
-				if !strings.Contains(card, "notes from the kickoff meeting") {
-					out = append(out, "no description was set:\n"+card)
-				}
-				return out
-			},
-		},
-		{
-			name: "restore-from-the-trash",
-			setup: func(s *taskState) error {
-				if err := s.makeFile("target", "Deleted by mistake", "wanted after all"); err != nil {
-					return err
-				}
-				_, err := s.mustCall("trash_file", map[string]any{"file": s.get("target_id")})
-				return err
-			},
-			prompt: "I trashed a file called \"Deleted by mistake\" that was in the folder with id " +
-				"{folder}. Put it back.",
-			check: func(s *taskState, run agentRun) []string {
-				card, err := s.call("get_file", map[string]any{"file": s.get("target_id")})
-				if err != nil {
-					return []string{err.Error()}
-				}
-				if strings.Contains(card, "in the trash") || strings.Contains(card, "trashed") {
-					return []string{"the file is still in the trash:\n" + card}
-				}
-				return nil
-			},
-		},
+	}
+}
+
+// collaborationTasks are the transfers and the comment thread: the
+// surface phase 1 and phase 3 added.
+func collaborationTasks() []task {
+	return []task{
 		{
 			name: "upload-markdown-as-a-doc",
 			setup: func(s *taskState) error {
@@ -275,7 +357,7 @@ func tasks() []task {
 			},
 			prompt: "There is a file called proposal.md in the server's local directory. Put it in the " +
 				"Drive folder with id {folder} as a Google Doc.",
-			check: func(s *taskState, run agentRun) []string {
+			check: func(s *taskState, _ agentRun) []string {
 				listing, err := s.call("list_folder", map[string]any{"folder": s.folder})
 				if err != nil {
 					return []string{err.Error()}
@@ -309,7 +391,7 @@ func tasks() []task {
 			},
 			prompt: "Leave the comment \"is this still right?\" on \"Spec.txt\" in the folder with id " +
 				"{folder}, then mark that comment resolved.",
-			check: func(s *taskState, run agentRun) []string {
+			check: func(s *taskState, _ agentRun) []string {
 				out, err := s.call("list_comments", map[string]any{"file": s.get("target_id")})
 				if err != nil {
 					return []string{err.Error()}
@@ -322,53 +404,6 @@ func tasks() []task {
 					problems = append(problems, "the thread was not resolved:\n"+out)
 				}
 				return problems
-			},
-		},
-		{
-			name: "copy-a-folder",
-			setup: func(s *taskState) error {
-				if err := s.makeFolder("source", "Templates"); err != nil {
-					return err
-				}
-				_, err := s.mustCall("create_file", map[string]any{
-					"name": "letterhead.txt", "parent": s.get("source_id"), "content": "dear",
-				})
-				return err
-			},
-			prompt: "Copy the folder \"Templates\" in the folder with id {folder}, and everything in it, " +
-				"to a new folder called \"Templates 2027\" in the same place.",
-			check: func(s *taskState, run agentRun) []string {
-				listing, err := s.call("list_folder", map[string]any{"folder": s.folder, "recursive": true})
-				if err != nil {
-					return []string{err.Error()}
-				}
-				var out []string
-				if !strings.Contains(listing, "Templates 2027") {
-					out = append(out, "no copy was made:\n"+listing)
-					return out
-				}
-				if !nestedUnder(listing, "Templates 2027", "letterhead.txt") {
-					out = append(out, "the copy is empty; the file inside was not copied:\n"+listing)
-				}
-				// And the original is still there with its contents.
-				if !nestedUnder(listing, "Templates", "letterhead.txt") {
-					out = append(out, "the original folder lost its contents:\n"+listing)
-				}
-				return out
-			},
-		},
-		{
-			name: "changes-since-a-token",
-			prompt: "Get me a starting point for watching this Drive for changes, then tell me what the " +
-				"token is for.",
-			check: func(s *taskState, run agentRun) []string {
-				if !run.used("list_changes") {
-					return []string{"never called list_changes"}
-				}
-				if !mentionsAny(run.Answer, "token", "since", "start") {
-					return []string{"the answer does not explain the token: " + firstLine(run.Answer)}
-				}
-				return nil
 			},
 		},
 	}
