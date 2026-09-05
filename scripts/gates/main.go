@@ -10,6 +10,7 @@
 //	go run ./scripts/gates schema-diff ./google-drive-mcp
 //	go run ./scripts/gates smoke ./google-drive-mcp
 //	go run ./scripts/gates staleness ./google-drive-mcp
+//	go run ./scripts/gates pins
 package main
 
 import (
@@ -36,6 +37,8 @@ func main() {
 		err = staleness(os.Stdout, args)
 	case "leaks":
 		err = leaks(os.Stdout, args)
+	case "pins":
+		err = pins(os.Stdout, args)
 	case "precommit":
 		err = precommit(os.Stdout, args)
 	case "install-hooks":
@@ -64,6 +67,7 @@ Usage:
   go run ./scripts/gates staleness [BINARY]         documentation must match the code
   go run ./scripts/gates leaks                     nothing from a real Drive is in the working tree
   go run ./scripts/gates leaks history             ...nor anywhere in the history
+  go run ./scripts/gates pins                      every tool a workflow installs is one exact version
   go run ./scripts/gates precommit                 gofmt, vet and a secret scan
   go run ./scripts/gates install-hooks             write the git pre-commit hook
 `)
