@@ -294,6 +294,12 @@ func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) {
 	at := start
 	for ; at < len(s.Changes) && len(out.Changes) < pageSize; at++ {
 		c := s.Changes[at]
+		// A test may put a null in here on purpose, to see what the
+		// client does with one. The fake serves it; it does not die of it.
+		if c == nil {
+			out.Changes = append(out.Changes, nil)
+			continue
+		}
 		if !includeRemoved && c.Removed {
 			continue
 		}

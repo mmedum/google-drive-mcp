@@ -303,6 +303,34 @@ func TestADailyQuotaIsRateLimitedButNotRetried(t *testing.T) {
 		t.Errorf("%d attempts were made; backing off cannot free a daily quota", n)
 	}
 
+	// A 429 carrying the same reason must not be retried either. Google
+	// returns 429 for a spent quota as well as for a burst, so letting
+	// the status decide would put the reason's whole point back.
+	s.Requested()
+	s.Fail = func(*http.Request) *drivetest.Failure {
+		return &drivetest.Failure{Status: http.StatusTooManyRequests, Reason: "dailyLimitExceeded",
+			Message: "Daily Limit Exceeded"}
+	}
+	if _, err := c.GetFile(t.Context(), "id-budget-fixture", gapi.GetFileOptions{}); !gapi.IsDailyQuota(err) {
+		t.Errorf("a 429 daily quota = %v, want it recognised", err)
+	}
+	if n := s.Count(http.MethodGet); n != 1 {
+		t.Errorf("a 429 daily quota was retried %d times", n)
+	}
+
+	// A 429 with no reason this client knows IS a burst, which is the
+	// safe reading, and retrying is what it is for.
+	s.Requested()
+	s.Fail = drivetest.FailTimes(1, "/files", drivetest.Failure{
+		Status: http.StatusTooManyRequests, Reason: "", Message: "slow down",
+	})
+	if _, err := c.GetFile(t.Context(), "id-budget-fixture", gapi.GetFileOptions{}); err != nil {
+		t.Fatalf("an unlabelled 429 was not retried through: %v", err)
+	}
+	if n := s.Count(http.MethodGet); n != 2 {
+		t.Errorf("%d attempts for an unlabelled 429, want a refusal and a success", n)
+	}
+
 	// A burst, by contrast, is exactly what retrying is for.
 	s.Fail = drivetest.FailTimes(2, "/files", drivetest.Failure{
 		Status: http.StatusForbidden, Reason: "userRateLimitExceeded", Message: "slow down",

@@ -95,13 +95,20 @@ type ShareFileInput struct {
 	// on, which the result says.
 	Notify  bool
 	Message string
-	// Expires is RFC 3339 or a duration like 30d. Users and groups only,
-	// at most a year, as Drive requires.
+	// Expires is RFC 3339 or a duration like 30d, or the word "never" to
+	// remove an expiry a grant already has. Users and groups only, at
+	// most a year, as Drive requires. Clearing goes through
+	// permissions.update's own removeExpiration parameter, so it is only
+	// possible on a grant that exists.
 	Expires string
 	// Discoverable is allowFileDiscovery: whether a domain or anyone
 	// grant makes the file turn up in search rather than only opening by
-	// link.
-	Discoverable bool
+	// link. A pointer because "not passed" and "false" are different
+	// requests on an existing grant: a plain bool silently narrowed a
+	// file that was already findable by search every time the role was
+	// changed, which is a change the caller never asked for and could
+	// not opt out of.
+	Discoverable *bool
 	// AllowAnyone is the acknowledgement an anyone-with-the-link grant
 	// needs. Without it the grant is refused however good the role.
 	AllowAnyone bool
@@ -135,7 +142,7 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 			"account to a writer, and it cannot be undone from here: only the new owner can hand it back. "+
 			"Pass transfer_ownership: true on the same call if that is really what is wanted.", principal.label())
 	}
-	expires, err := s.parseExpiry(in.Expires, principal, role)
+	expires, clearExpiry, err := s.parseExpiry(in.Expires, principal, role)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +163,13 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 		return nil, err
 	}
 	plan := sharePlan{
-		principal: principal, role: role, expires: expires, existing: existing,
-		notify: in.Notify, message: in.Message, discoverable: in.Discoverable, file: f,
+		principal: principal, role: role, expires: expires, clearExpiry: clearExpiry,
+		existing: existing, notify: in.Notify, message: in.Message,
+		discoverable: in.Discoverable, file: f,
+	}
+	if clearExpiry && existing == nil {
+		return nil, Errorf(ClassInvalid, "there is no grant to %s yet, so it has no expiry to remove. "+
+			"Leave expires out to grant access that does not expire.", principal.label())
 	}
 	if existing != nil && existing.Role == role && !plan.changesAnything() {
 		note := fmt.Sprintf("%s already %s. Nothing was changed.", principal.label(), model.RoleWords(role))
@@ -165,7 +177,8 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 			// An unchanged grant that is going to lapse is not the same
 			// as one that is not, and this is the call where somebody
 			// would have found out.
-			note += " That access expires on " + existing.Expires + "; pass expires to move it."
+			note += " That access expires on " + existing.Expires +
+				"; pass expires to move it, or expires: never to remove the expiry."
 		}
 		return s.report(ctx, res, outcome{Action: render.ActionUnchanged, Note: note}), nil
 	}
@@ -191,10 +204,13 @@ type sharePlan struct {
 	role      string
 	expires   string
 	// existing is the grant this principal already had, or nil.
-	existing     *model.Grant
+	existing *model.Grant
+	// clearExpiry removes an expiry the grant already has, which is a
+	// query parameter on update rather than a value in the body.
+	clearExpiry  bool
 	notify       bool
 	message      string
-	discoverable bool
+	discoverable *bool
 	file         *gdrive.File
 }
 
@@ -208,9 +224,12 @@ func (p sharePlan) changesAnything() bool {
 	if p.expires != "" && p.expires != p.existing.Expires {
 		return true
 	}
+	if p.clearExpiry && p.existing.Expires != "" {
+		return true
+	}
 	switch p.principal.kind {
 	case principalDomain, principalAnyone:
-		return p.discoverable != p.existing.Discoverable
+		return p.discoverable != nil && *p.discoverable != p.existing.Discoverable
 	}
 	return false
 }
@@ -223,11 +242,21 @@ func (s *Service) applyShare(ctx context.Context, f *gdrive.File, p sharePlan) e
 	meta := &gdrive.PermissionMeta{Role: p.role, ExpirationTime: p.expires}
 	switch p.principal.kind {
 	case principalDomain, principalAnyone:
-		meta.AllowFileDiscovery = gdrive.Bool(p.discoverable)
+		// Only when the caller said so. Sending it unasked narrowed a
+		// file that was already findable by search every time somebody
+		// changed a role.
+		if p.discoverable != nil {
+			meta.AllowFileDiscovery = gdrive.Bool(*p.discoverable)
+		} else if p.existing == nil {
+			// A new link grant is by-link-only unless asked otherwise,
+			// which is Drive's own default and the quieter one.
+			meta.AllowFileDiscovery = gdrive.Bool(false)
+		}
 	}
 	if p.existing != nil {
 		_, err := s.api.UpdatePermission(ctx, f.ID, p.existing.PermissionID, meta, gapi.UpdateShareOptions{
 			TransferOwnership: p.role == model.RoleOwner,
+			RemoveExpiration:  p.clearExpiry,
 			ResourceIDs:       []string{f.ID},
 		})
 		return err
@@ -259,12 +288,16 @@ func (s *Service) applyShare(ctx context.Context, f *gdrive.File, p sharePlan) e
 // the file is the half worth reading.
 func (s *Service) shareResult(ctx context.Context, res *Resolved, before, after model.Sharing, p sharePlan, dryRun bool) *Result {
 	changes := make([]render.Change, 0, 2)
+	to := model.RoleWords(p.role) + expiryWords(p.expires)
+	if p.clearExpiry {
+		to = model.RoleWords(p.role) + ", with no expiry"
+	}
 	changes = append(changes, render.Change{Field: "access for " + p.principal.label(),
-		From: grantWords(p.existing), To: model.RoleWords(p.role) + expiryWords(p.expires)})
+		From: grantWords(p.existing), To: to})
 	changes = append(changes, render.Exposure(before, after)...)
 
 	out := outcome{Action: render.ActionShared, Changes: changes, DryRun: dryRun,
-		Note: s.shareNote(p, after, dryRun)}
+		Note: s.shareNote(p, after)}
 	result := s.report(ctx, res, out)
 	result.JSON.SharingBefore = before.Summary()
 	result.JSON.SharingAfter = after.Summary()
@@ -274,15 +307,26 @@ func (s *Service) shareResult(ctx context.Context, res *Resolved, before, after 
 // shareNote says the things a role and an exposure line do not: what a
 // transfer actually did, what a link grant means, and whether mail went
 // out.
-func (s *Service) shareNote(p sharePlan, after model.Sharing, dryRun bool) string {
+func (s *Service) shareNote(p sharePlan, after model.Sharing) string {
 	var parts []string
 	if p.role == model.RoleOwner {
 		if p.file.DriveID != "" {
 			parts = append(parts, "in a shared drive the drive owns its files, so this makes "+
 				p.principal.label()+" an organizer rather than an owner")
-		} else if after.PendingOwner != "" || !dryRun {
-			parts = append(parts, "an ownership transfer needs the new owner to accept it on a consumer "+
-				"account, and the permission list says pending until they do. This account becomes a writer")
+		} else {
+			// What is certain is the demotion. Whether a consumer account
+			// produces a pending transfer is read off the answer rather
+			// than asserted: this server sends role owner with
+			// transferOwnership and never sets pendingOwner itself, and
+			// what Drive does with that on a consumer account has not
+			// been seen here (spike F, §16). Describing an outcome
+			// nobody has observed is how a result becomes wrong.
+			parts = append(parts, "this account is now a writer on it rather than its owner, and cannot "+
+				"take that back: only the new owner can hand it on")
+			if after.PendingOwner != "" {
+				parts = append(parts, "the transfer is waiting for "+after.PendingOwner+
+					" to accept it, and list_permissions says pending until they do")
+			}
 		}
 		parts = append(parts, "Google always mails an ownership transfer; that cannot be turned off")
 	} else if p.principal.notifiable() {
@@ -293,8 +337,15 @@ func (s *Service) shareNote(p sharePlan, after model.Sharing, dryRun bool) strin
 		}
 	}
 	if p.principal.kind == principalAnyone {
+		// What the grant is now, not what this call asked for: leaving
+		// discoverable out keeps whatever the grant already had, and the
+		// exposure a person needs to read is the resulting one.
+		findable := p.discoverable != nil && *p.discoverable
+		if p.discoverable == nil && p.existing != nil {
+			findable = p.existing.Discoverable
+		}
 		what := "anyone with the link can now reach it without signing in"
-		if p.discoverable {
+		if findable {
 			what = "anyone on the internet can now reach it AND find it by search"
 		}
 		parts = append(parts, what)
@@ -665,32 +716,40 @@ func parseRole(v string) (string, error) {
 // checks it against the rules Drive states: users and groups only, in
 // the future, at most a year out. Refusing here names which rule was
 // broken, where Drive's own answer is a generic 400.
-func (s *Service) parseExpiry(v string, p principal, role string) (string, error) {
+// parseExpiry reads when a grant should end, and reports separately that
+// it should not end at all. "never" is its own answer rather than an
+// empty string, because leaving expires out has to keep meaning "do not
+// touch the expiry this grant already has".
+func (s *Service) parseExpiry(v string, p principal, role string) (expires string, clear bool, err error) {
 	raw := strings.TrimSpace(v)
 	if raw == "" {
-		return "", nil
+		return "", false, nil
 	}
 	if p.kind != principalUser && p.kind != principalGroup {
-		return "", Errorf(ClassInvalid, "Drive only lets a grant to a person or a group expire, and this one "+
-			"is to %s. Remove it with unshare_file when it is no longer wanted.", p.label())
+		return "", false, Errorf(ClassInvalid, "Drive only lets a grant to a person or a group expire, and "+
+			"this one is to %s. Remove it with unshare_file when it is no longer wanted.", p.label())
 	}
 	if role == model.RoleOwner {
-		return "", Errorf(ClassInvalid, "ownership does not expire; a transfer is permanent until it is "+
-			"transferred again.")
+		return "", false, Errorf(ClassInvalid, "ownership does not expire; a transfer is permanent until it "+
+			"is transferred again.")
+	}
+	if strings.EqualFold(raw, "never") {
+		return "", true, nil
 	}
 	now := s.now()
 	when, err := parseExpiryTime(raw, now)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	switch {
 	case !when.After(now):
-		return "", Errorf(ClassInvalid, "expires %q is not in the future (it is %s). Drive refuses an expiry "+
-			"that has already passed.", raw, model.Ago(when, now))
+		return "", false, Errorf(ClassInvalid, "expires %q is not in the future (it is %s). Drive refuses an "+
+			"expiry that has already passed.", raw, model.Ago(when, now))
 	case when.Sub(now) > maxExpiry:
-		return "", Errorf(ClassInvalid, "expires %q is more than a year away, and Drive's limit is a year.", raw)
+		return "", false, Errorf(ClassInvalid, "expires %q is more than a year away, and Drive's limit is a "+
+			"year. Pass never to remove an expiry a grant already has.", raw)
 	}
-	return when.UTC().Format(time.RFC3339), nil
+	return when.UTC().Format(time.RFC3339), false, nil
 }
 
 // parseExpiryTime reads when a grant should end: an absolute date, or a

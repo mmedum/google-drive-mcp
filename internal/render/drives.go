@@ -38,6 +38,9 @@ func Drives(drives []*model.Drive, o DrivesOptions) string {
 	var table strings.Builder
 	w := tabwriter.NewWriter(&table, 0, 0, 2, ' ', 0)
 	for _, d := range drives {
+		if d == nil {
+			continue
+		}
 		name := d.Name
 		if d.Hidden {
 			name += " (hidden)"
@@ -48,7 +51,7 @@ func Drives(drives []*model.Drive, o DrivesOptions) string {
 	b.sb.WriteString(table.String())
 
 	for _, d := range drives {
-		if len(d.Restrictions) > 0 {
+		if d != nil && len(d.Restrictions) > 0 {
 			b.linef("%s is restricted: %s", d.Name, strings.Join(d.Restrictions, "; "))
 		}
 	}
