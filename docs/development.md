@@ -2,12 +2,17 @@
 
 ## Prerequisites
 
-- Go 1.27.1 or newer. `go.mod` names the exact point release, so
-  `GOTOOLCHAIN=auto` (the default) fetches it if your installed Go is
-  older.
-- Python 3 for the three gate scripts.
+- Go 1.27.1 or newer, and nothing else. `go.mod` names the exact point
+  release, so `GOTOOLCHAIN=auto` (the default) fetches it if your
+  installed Go is older.
 - Optional, matching what CI pins: golangci-lint v2.13.2, govulncheck
   v1.7.0, go-licenses v1.6.0, gitleaks v8.30.1, GoReleaser v2.18.
+
+Everything this repository runs on itself is Go, including the gates and
+the live driver, so a contributor needs one toolchain and one language.
+They live under `scripts/` as ordinary packages, which means the code
+holding the gates shut is itself built, vetted, linted and tested;
+GoReleaser builds only `./cmd/...`, so none of it ships.
 
 Install the Go-based tools with the current toolchain, so they can read
 the language version `go.mod` targets:
@@ -55,6 +60,22 @@ that assumes substring matching fails in the fake rather than in
 production. Failures can be injected per request, including a cut
 connection, which is how the retry and backoff paths are exercised.
 
+### The gates
+
+```
+go run ./scripts/gates coverage cov.out 80    statement-coverage floor per core package
+go run ./scripts/gates schema-diff BINARY     tool surface against the last tag
+go run ./scripts/gates smoke BINARY           drive the binary over stdio, no credentials
+go run ./scripts/gates staleness BINARY       documentation must match the code
+go run ./scripts/gates precommit              gofmt, vet and a secret scan
+go run ./scripts/gates install-hooks          write the git pre-commit hook
+```
+
+`make hooks` installs a pre-commit hook that runs the `precommit` gate.
+It skips the secret scan when gitleaks is not installed — a hook that
+fails on a missing tool is a hook people disable — and CI runs gitleaks
+unconditionally, so nothing reaches `main` unscanned.
+
 Renderer output is compared against golden files:
 
 ```
@@ -80,6 +101,19 @@ My Drive, work only inside it, and trash it at the end. With
 `GDRIVE_TEST_WORKSPACE=1` they also exercise a scratch shared drive.
 Sharing tests need a second address in `GDRIVE_TEST_SHARE_WITH` and are
 skipped when it is unset. Ids and addresses go to the terminal only.
+
+### The live driver
+
+```
+make live                                   # or:
+go run ./scripts/livedrive -bin ./google-drive-mcp -file /Projects
+```
+
+It drives the built binary over stdio against whichever account is
+signed in, and prints every result with ids, links and addresses replaced
+by stable placeholders, so a transcript can go into an issue or a commit
+message. `-raw` turns that off; do not use it in a terminal you are
+sharing. A phase is not done until this has run.
 
 ## Layout
 
@@ -146,6 +180,7 @@ A release, once the phase's work is merged:
    `internal/service`.
 5. Add it to the README's tool table, document any new setting in
    `docs/configuration.md`, and add a `CHANGELOG.md` entry. `make
-   staleness` fails until you do.
+   staleness` fails until you do, in both directions: it also catches a
+   documented tool that no longer exists.
 6. Run `make schema-diff`. A removed tool or field, or a new required
    field, is a breaking change.

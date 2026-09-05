@@ -236,11 +236,29 @@ func runServer(args []string) int {
 	logger.Info("serving MCP over stdio", "version", version.String(),
 		"read_only", cfg.ReadOnly, "sharing", string(cfg.Sharing),
 		"destructive", cfg.EnableDestructive, "transfers", cfg.LocalDir != "")
-	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, io.EOF) {
+	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && !isDisconnect(err) {
 		return fail("server: %v", err)
 	}
 	logger.Info("client disconnected; exiting")
 	return 0
+}
+
+// isDisconnect reports whether the session ended because the client went
+// away, which is how every stdio session ends and is not a failure: a
+// non-zero exit here shows up in the client's log as a crash.
+//
+// The SDK signals it by wrapping its own "server is closing" sentinel,
+// which lives in an internal package and so cannot be compared by
+// identity, and the EOF underneath it is text rather than a wrapped
+// error. Hence the string. It is checked after the typed cases, and the
+// cost of it going stale is an exit code, not a wrong answer; the smoke
+// gate closes a client mid-request and fails if the exit is non-zero.
+func isDisconnect(err error) bool {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return true
+	}
+	return strings.Contains(err.Error(), "server is closing")
 }
 
 // openCommand parses a subcommand's flags, loads the configuration and

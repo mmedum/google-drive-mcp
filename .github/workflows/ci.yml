@@ -27,7 +27,7 @@ jobs:
       - run: go test -race -coverpkg=./internal/... -coverprofile=cov.out -covermode=atomic ./...
       - name: coverage floor
         if: runner.os == 'Linux'
-        run: bash scripts/coverage-check.sh cov.out 80
+        run: go run ./scripts/gates coverage cov.out 80
 
   lint:
     runs-on: ubuntu-latest
@@ -73,9 +73,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go build -o google-drive-mcp ./cmd/google-drive-mcp
-      - run: bash scripts/stdio-smoke.sh ./google-drive-mcp
-      - run: bash scripts/schema-diff.sh ./google-drive-mcp
-      - run: bash scripts/staleness-check.sh ./google-drive-mcp
+      - run: go run ./scripts/gates smoke ./google-drive-mcp
+      - run: go run ./scripts/gates schema-diff ./google-drive-mcp
+      - run: go run ./scripts/gates staleness ./google-drive-mcp
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: schemas
