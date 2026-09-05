@@ -80,6 +80,13 @@ type Server struct {
 	Permissions map[string][]*gdrive.Permission
 	// Drives are the shared drives the account can see.
 	Drives map[string]*gdrive.Drive
+	// Comments are the threads on a file id, oldest first, with their
+	// replies inline the way Drive returns them.
+	Comments map[string][]*gdrive.Comment
+	// Proposals are the pending requests for access to a file id. The
+	// API cannot create one, so nor can the fake: they are placed by a
+	// fixture, as they are placed by somebody being refused.
+	Proposals map[string][]*gdrive.AccessProposal
 	// Changes is the changes feed, in the order things happened. A page
 	// token is an offset into it, which is enough to exercise what the
 	// client has to get right about an opaque token.
@@ -125,6 +132,8 @@ func New() *Server {
 		RevisionContent: map[string]string{},
 		Permissions:     map[string][]*gdrive.Permission{},
 		Drives:          map[string]*gdrive.Drive{},
+		Comments:        map[string][]*gdrive.Comment{},
+		Proposals:       map[string][]*gdrive.AccessProposal{},
 		sessions:        map[string]*uploadSession{},
 		driveRequests:   map[string]string{},
 		now:             time.Now,
@@ -313,6 +322,12 @@ func (s *Server) AddDrive(id, name string) *gdrive.Drive {
 func (s *Server) Grant(fileID string, p *gdrive.Permission) *gdrive.Permission {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.grantLocked(fileID, p)
+}
+
+// grantLocked is Grant with the lock already held, for the handlers that
+// grant while holding it.
+func (s *Server) grantLocked(fileID string, p *gdrive.Permission) *gdrive.Permission {
 	if p.ID == "" {
 		s.nextID++
 		p.ID = fmt.Sprintf("id-permission-%d", s.nextID)
