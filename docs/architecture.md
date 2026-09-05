@@ -1,15 +1,18 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 0 built (2026-09-05), awaiting its v0.0.1 release. In:
-the scaffolding and every gate, `login/logout/status/doctor`, `config`,
+**Status:** phase 0 complete (2026-09-05), released as v0.0.1. In: the
+scaffolding and every gate, `login/logout/status/doctor`, `config`,
 `credentials`, `userconfig`, `auth`, the `gapi` core with `about.get`,
 `files.get`, `files.list`, `drives.list`, `permissions.list` and
 `generateIds`, the `drivetest` fake beneath it, `ref`, `model`, `render`,
 and the four read tools `get_account`, `get_file`, `search_files` and
-`list_folder`. **The six phase-0 spikes (§16 A-F) have not run**: each
-needs a live Google account, and none of them is a dependency of the code
-that is in. Phase 1 begins on an explicit go. §16 has the phase plan,
-§17 the decisions that are not to be reopened, §18 the evidence log.
+`list_folder`. Verified live against a Workspace account: `login`,
+`doctor`, the live driver, and spike A, which refuted three claims this
+document made (§18). Spikes B-F moved to the phase that builds the code
+they test (§16). Phase 1 begins on an explicit go. §16 has the phase
+plan, §17 the decisions that are not to be reopened, §17a the deferred
+cleanups, §17b where this repository differs from the shared standard,
+and §18 the evidence log.
 
 This document is the plan. It is written so that whoever picks the work
 up can start from the repository alone: read the status line above, §16
@@ -815,8 +818,7 @@ Each phase ends in a tagged release and waits for an explicit "go".
 How a phase is closed is written down at the end of this section, so
 that whoever picks the work up next starts from the repository alone.
 
-**Phase 0 — skeleton and spikes (v0.0.1). Code done 2026-09-05; spike A
-done, B-F moved (see below).** Scaffolding (§5, §12):
+**Phase 0 — skeleton and spikes (v0.0.1). Done 2026-09-05.** Scaffolding (§5, §12):
 Makefile, golangci, govulncheck, go-licenses, gitleaks, goreleaser, the
 CI, CodeQL and release workflows with pinned actions and scoped tokens,
 Dependabot, templates, the pull request flow in `CONTRIBUTING.md`.
@@ -949,7 +951,7 @@ difference is a decision rather than a drift.
 
 | The standard says | Here | Why |
 |---|---|---|
-| A test fails if **an id** appears in a log | Full ids never appear; a **six-character prefix** does, at debug level | A retry, its backoff and its outcome are separate log lines, and without a correlation key a failure cannot be traced to the call that caused it. Six characters of a 33-character id cannot be looked up, cannot be pasted into a URL, and identify nothing on their own. Everything else the standard names — names, titles, addresses, queries, content, and whole ids — is absent and stays absent: `TestLogsCarryNoTraceOfWhatWasTouched` runs the whole surface at debug level against unmistakable fixtures and fails on any of them |
+| A test fails if **an id** appears in a log | Full ids never appear; a **six-character prefix** does, at debug level | A retry, its backoff and its outcome are separate log lines, and without a correlation key a failure cannot be traced to the call that caused it. Six characters of a 33-character id cannot be looked up, cannot be pasted into a URL, and identify nothing on their own. Everything else the standard names — names, titles, addresses, queries, content, and whole ids — is absent and stays absent: `TestLogsCarryNoTraceOfWhatWasTouched` runs the whole surface at debug level against unmistakable fixtures and fails on any of them. *(No longer a deviation: the standard's wording is being changed to the intent it always had — a log must not identify or reconstruct its subject.)* |
 | The staleness gate **deliberately fails** between the release commit and the tag | It passes, by accepting notes under an untagged version heading | Our release flow (§12) puts the release commit on a topic branch and requires CI green *before* the merge and therefore before the tag exists. A gate that fails there fails the release pull request. The gate still refuses an undocumented change: with the notes removed it fails, which is tested |
 | Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Thirteen classes, including `ambiguous`, `blocked`, `rate_limited` and `ambiguous_outcome` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organisation's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next |
 

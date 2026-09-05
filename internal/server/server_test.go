@@ -204,7 +204,7 @@ func TestToolErrorsCarryAClass(t *testing.T) {
 		args  map[string]any
 		class string
 	}{
-		{"get_file", map[string]any{"file": "1NoSuchFileIdAAAAAAAAAAAAAAAAAAAAAA"}, "[not_found]"},
+		{"get_file", map[string]any{"file": "1NoSuchFileIdFixtureAAAAAAAAAAAAAAA"}, "[not_found]"},
 		{"get_file", map[string]any{"file": "https://example.com/x"}, "[invalid]"},
 		{"search_files", map[string]any{}, "[invalid]"},
 		{"list_folder", map[string]any{"folder": "id-notes-fixture"}, "[invalid]"},
@@ -413,7 +413,7 @@ func TestNothingAModelReadsNamesAToolThatDoesNotExist(t *testing.T) {
 		{"get_account", map[string]any{}},
 		{"get_file", map[string]any{"file": "id-notes-fixture"}},
 		{"get_file", map[string]any{"file": "id-projects-fixture"}},
-		{"get_file", map[string]any{"file": "1NoSuchFileIdAAAAAAAAAAAAAAAAAAAAAA"}},
+		{"get_file", map[string]any{"file": "1NoSuchFileIdFixtureAAAAAAAAAAAAAAA"}},
 		{"get_file", map[string]any{"file": "https://drive.google.com/drive/shared-drives"}},
 		{"list_folder", map[string]any{"folder": "/Projects"}},
 		{"list_folder", map[string]any{"folder": "id-notes-fixture"}},

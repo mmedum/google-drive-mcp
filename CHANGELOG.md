@@ -66,6 +66,12 @@ account and reference machinery, and the four read tools.
   template ask a reporter for a debug log without also asking them to
   audit it. Ids appear only as a six-character prefix, for correlating
   the lines of one call.
+- Integration tests (`make integration`, build tag `integration`) that
+  run against the signed-in account and assert the search rules the whole
+  addressing design rests on — that `name contains` is a prefix match and
+  not a substring one, and that `name =` ignores case — against Drive
+  rather than against our model of it. They print no names, addresses or
+  ids, and discover what to probe with from the account at run time.
 - `scripts/livedrive`, which drives the built binary over stdio against a
   real account and replaces ids, links, addresses and the names beside
   them with stable placeholders. It says on every run that file and

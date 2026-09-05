@@ -80,3 +80,27 @@ func TestEveryAllowedIDCarriesAReason(t *testing.T) {
 		}
 	}
 }
+
+func TestSyntheticIdsSaySoInTheirOwnText(t *testing.T) {
+	// The convention that keeps the allowlist from growing: an id
+	// invented for a fixture carries the marker, so no exception has to
+	// be written down for it. Drive builds ids from random bytes and
+	// cannot produce this word by chance.
+	invented := "1Zzyzx" + syntheticMarker + "FileIdAAAAAAA"
+	if got := scanForLeaks("f.go", invented); len(got) != 0 {
+		t.Errorf("a self-declaring fixture id was flagged: %v", got)
+	}
+	// The same id without the marker is indistinguishable from a real
+	// one, and is treated as real.
+	// Assembled, like the other samples: a literal here would make the
+	// gate flag its own test.
+	real := sample("1Zzyzx", "SomethingFileId", "AAAAAAAAAAAA")
+	if got := scanForLeaks("f.go", real); len(got) == 0 {
+		t.Errorf("an id with no marker should be treated as real: %q", real)
+	}
+	// The marker cannot be used to smuggle anything else through.
+	address := sample("someone@", "a-real-", "company.com")
+	if got := scanForLeaks("f.go", syntheticMarker+" "+address); len(got) == 0 {
+		t.Error("the marker must not exempt an address")
+	}
+}

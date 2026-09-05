@@ -90,17 +90,35 @@ ids but carry a `-fixture` suffix; addresses are `example.com`.
 
 ### Integration tests
 
-Tagged `integration` and off by default:
+Tagged `integration` and off by default. They use whichever account
+`google-drive-mcp login` signed in to:
 
 ```
-GDRIVE_INTEGRATION=1 go test -tags=integration ./...
+make integration          # or:
+GDRIVE_INTEGRATION=1 go test -tags=integration ./... -v
 ```
 
-They create one folder named "google-drive-mcp test (safe to delete)" in
-My Drive, work only inside it, and trash it at the end. With
-`GDRIVE_TEST_WORKSPACE=1` they also exercise a scratch shared drive.
-Sharing tests need a second address in `GDRIVE_TEST_SHARE_WITH` and are
-skipped when it is unset. Ids and addresses go to the terminal only.
+They are the only check that the fake and Drive agree, which is not a
+theoretical worry: two of the rules this design stated were wrong, and
+`drivetest` had implemented them faithfully, so the entire suite agreed
+with itself (see the evidence log, §18). The live tests assert those
+rules against Drive rather than against our model of it — that
+`name contains` really is a prefix match and not a substring one, and
+that `name =` really does ignore case, which is what makes two siblings
+differing only in case ambiguous instead of one silently winning.
+
+**They print no file names, folder names, addresses or ids.** A failing
+assertion reports a shape or a count. That is deliberate: a test whose
+output cannot be pasted into an issue is a test whose failures get
+described from memory. They discover what to probe with at run time from
+the account's own contents rather than hard-coding anything.
+
+While the server has only read tools they write nothing, so there is
+nothing to clean up. When phase 1 adds writes they gain a scratch folder
+named "google-drive-mcp test (safe to delete)", created in My Drive,
+worked in, and trashed at the end; `GDRIVE_TEST_WORKSPACE=1` will add a
+scratch shared drive and `GDRIVE_TEST_SHARE_WITH` a second address for
+the sharing tests.
 
 ### The live driver
 

@@ -42,13 +42,23 @@ var (
 // skipFiles hold long opaque content that is not ours to police.
 var skipFiles = map[string]bool{"go.sum": true, "go.mod": true}
 
-// allowedIDs are id-shaped strings that are demonstrably not from
-// anybody's Drive. Each carries its reason: an entry without one is how
-// a gate like this quietly stops working.
+// syntheticMarker is the convention that keeps the allowlist below from
+// growing with every test: an id invented for a fixture says so in its
+// own text. Drive issues ids from random bytes, so one cannot contain
+// this word by chance, and a rule scales where a list of exceptions does
+// not — every entry added to a list is a chance to add a real one.
+const syntheticMarker = "Fixture"
+
+// allowedIDs are id-shaped strings that must look convincingly real and
+// therefore cannot carry the marker. Each carries its reason: an entry
+// without one is how a gate like this quietly stops working.
 var allowedIDs = map[string]string{
-	"1SyntheticFixtureFileIdAAAAAAAAAAAA":          "synthetic fixture id, used by the smoke gate and the ref tests",
-	"1NoSuchFileIdAAAAAAAAAAAAAAAAAAAAAA":          "synthetic fixture id for a file that does not exist",
-	"1AbC23dEfGh45iJkLmN67opQrStUvWxYz":            "synthetic fixture id in the mistyped-id test",
+	"1AbC23dEfGh45iJkLmN67opQrStUvWxYz": "deliberately realistic id in the mistyped-id test, which is about ids that look real",
+	// These predate the marker convention and survive in this
+	// repository's history, which `leaks history` walks. They were
+	// invented for tests and name nothing.
+	"1NoSuchFileIdAAAAAAAAAAAAAAAAAAAAAA":          "fixture id in the history, before synthetic ids declared themselves",
+	"0AZzyzxSyntheticDriveIdAAA":                   "fixture shared-drive id in the history, same",
 	"1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms": "the id in Google's own published API documentation",
 	"1ZzzMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms": "that documentation id with its head changed, to have a second value",
 	"0AKl3lQ5UUqptUk9PVA":                          "the shared-drive id in Google's own published API documentation",
@@ -124,6 +134,9 @@ func scanForLeaks(path, body string) []string {
 // suspiciousID reports whether a token has the shape of a Drive id
 // rather than of a long word.
 func suspiciousID(id string) bool {
+	if strings.Contains(id, syntheticMarker) {
+		return false
+	}
 	return hasCapital.MatchString(id) && hasNumber.MatchString(id)
 }
 
