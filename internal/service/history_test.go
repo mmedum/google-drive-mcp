@@ -239,3 +239,76 @@ func startToken(t *testing.T, svc *service.Service) string {
 	}
 	return token
 }
+
+func TestANullEntryInTheFeedDoesNotTakeTheServerDown(t *testing.T) {
+	// JSON can carry a null in an array and Drive has no reason to send
+	// one, which is exactly why nothing was checking: model.NewChange
+	// returns nil for it and the renderer dereferenced that. A malformed
+	// page should cost one missing row, not the whole stdio server.
+	svc, fake := setup(t, service.Options{})
+	token := startToken(t, svc)
+	if _, err := svc.CreateFolder(t.Context(), service.CreateFolderInput{Name: "Reports"}); err != nil {
+		t.Fatalf("CreateFolder: %v", err)
+	}
+	fake.Changes = append(fake.Changes, nil)
+
+	out, err := svc.ListChanges(t.Context(), service.ListChangesInput{PageToken: token})
+	if err != nil {
+		t.Fatalf("ListChanges: %v", err)
+	}
+	if out == "" {
+		t.Error("the feed rendered nothing at all")
+	}
+	// The real change either side of the null is still reported: a
+	// malformed entry costs one row, not the page.
+	if !strings.Contains(out, "Reports") {
+		t.Errorf("the null swallowed the change beside it:\n%s", out)
+	}
+}
+
+func TestTheStartingPointDoesNotClaimNothingHasChanged(t *testing.T) {
+	// The first call names no token, so it has no page of changes to be
+	// empty. "nothing has changed since that token" reads as a completed
+	// poll, which is the one thing this answer is not.
+	svc, _ := setup(t, service.Options{})
+	out, err := svc.ListChanges(t.Context(), service.ListChangesInput{})
+	if err != nil {
+		t.Fatalf("ListChanges: %v", err)
+	}
+	if strings.Contains(out, "nothing has changed since that token") {
+		t.Errorf("the starting point reads as a completed poll:\n%s", out)
+	}
+	if !strings.Contains(out, "starting point") {
+		t.Errorf("the starting point does not say what it is:\n%s", out)
+	}
+}
+
+func TestPinningARevisionThroughAShortcutKeepsTheContext(t *testing.T) {
+	// The path that changed something used to render a poorer card than
+	// the path that changed nothing: pin through a shortcut and the card
+	// did not say a shortcut had been followed, then the same call again
+	// suddenly did.
+	svc, fake := setup(t, service.Options{})
+	fake.SetContent("id-budget-fixture", "first")
+	fake.SetContent("id-budget-fixture", "second")
+	rev := fake.Revisions["id-budget-fixture"][0].ID
+
+	got, err := svc.ManageRevision(t.Context(), service.ManageRevisionInput{
+		File: "id-shortcut-fixture", Revision: rev, Action: "keep",
+	})
+	if err != nil {
+		t.Fatalf("ManageRevision: %v", err)
+	}
+	if !strings.Contains(got.Text, "followed the shortcut") {
+		t.Errorf("the card does not say a shortcut was followed:\n%s", got.Text)
+	}
+	again, err := svc.ManageRevision(t.Context(), service.ManageRevisionInput{
+		File: "id-shortcut-fixture", Revision: rev, Action: "keep",
+	})
+	if err != nil {
+		t.Fatalf("ManageRevision: %v", err)
+	}
+	if strings.Contains(got.Text, "followed the shortcut") != strings.Contains(again.Text, "followed the shortcut") {
+		t.Errorf("the same input rendered differently the second time:\n%s\n---\n%s", got.Text, again.Text)
+	}
+}

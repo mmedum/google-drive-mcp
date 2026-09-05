@@ -38,6 +38,9 @@ func Revisions(revs []*model.Revision, o RevisionsOptions) string {
 	var table strings.Builder
 	w := tabwriter.NewWriter(&table, 0, 0, 2, ' ', 0)
 	for _, r := range revs {
+		if r == nil {
+			continue
+		}
 		when := model.HumanTime(r.Modified, o.Now)
 		if r.By != "" {
 			when += " by " + r.By
@@ -90,6 +93,11 @@ type ChangesOptions struct {
 	NewStartToken string
 	// NextPageToken means this page did not exhaust the feed.
 	NextPageToken string
+	// Starting marks the answer to a call that carried no token at all.
+	// It has no page of changes to be empty: saying "nothing has changed
+	// since that token" of a call that named none reads as a completed
+	// poll, which is the one thing this answer is not.
+	Starting bool
 	// Scope names the shared drive the feed was limited to.
 	Scope string
 	Note  string
@@ -103,11 +111,16 @@ func Changes(changes []*model.Change, o ChangesOptions) string {
 		b.line(o.Title)
 	}
 	if len(changes) == 0 {
-		b.line("nothing has changed since that token")
+		if !o.Starting {
+			b.line("nothing has changed since that token")
+		}
 	} else {
 		var table strings.Builder
 		w := tabwriter.NewWriter(&table, 0, 0, 2, ' ', 0)
 		for _, c := range changes {
+			if c == nil {
+				continue
+			}
 			name := c.Name
 			if name == "" {
 				name = "(no longer readable)"

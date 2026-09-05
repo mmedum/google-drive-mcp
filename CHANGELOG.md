@@ -83,6 +83,59 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   without a client of our own it used `http.DefaultClient`, which has no
   timeout. `docs/security.md` claimed every token refresh ran under a
   deadline; it does now, and so does `login`'s code exchange.
+- **A null entry in a Drive response could take the whole server down.**
+  JSON can carry a null in an array; `model.NewChange` returned nil for
+  one and the renderer dereferenced it. A malformed page now costs one
+  missing row rather than a SIGSEGV, guarded in the service and again in
+  the renderers, which are pure and are the last thing between a response
+  and the process. The same shape was closed for revisions and drives.
+- **`empty_trash` counted a different set of items than it deletes.** The
+  count listed everything trashed this account could see — a shared
+  drive's trash, and files owned by other people — while the call deletes
+  only this account's own trashed files. On an account with a busy shared
+  drive it could announce hundreds of items and destroy a dozen. It is
+  the one destructive call whose whole safety story is saying how much it
+  is about to destroy.
+- **An unreadable permission list was reported as "that grant does not
+  exist".** `unshare_file` swallowed a failed `permissions.list` and then
+  concluded nothing matched, telling the model a file was already
+  unshared when the truth was unknown — wrong in the direction that
+  matters. It now says what actually went wrong.
+- **`share_file` silently narrowed a link grant.** `discoverable` was a
+  plain bool, so "not passed" and "false" were the same request:
+  changing the role on a file that was findable by search quietly made it
+  by-link-only. It is a pointer now, and leaving it out keeps whatever
+  the grant has.
+- **An expiry could be set and moved but never removed.** `expires:
+  never` clears one; leaving `expires` out still means "do not touch it".
+- **A 429 could override the daily-quota decision.** The status was
+  consulted before the reason, so a 429 carrying `dailyLimitExceeded`
+  was retried through the whole backoff schedule — exactly the loop the
+  fix above exists to prevent. The reason decides; an unlabelled 429 is
+  still treated as a burst, which is the safe reading.
+- **The ownership-transfer note asserted a flow that had not been
+  observed.** It stated that a consumer account produces a pending
+  transfer; this server never sets `pendingOwner` and nobody has watched
+  Drive's behaviour here. The note now states the one certain
+  consequence — this account becomes a writer — and reports a pending
+  transfer only when the answer shows one. Spike F settles the rest.
+- **`manage_revision` rendered a poorer card when it worked than when it
+  did not.** The success path lost the followed shortcut and the shared
+  drive's name, so the same input described itself differently on the
+  second call.
+- **The first `list_changes` call contradicted itself**, saying "nothing
+  has changed since that token" about a call that named no token, which
+  reads as a completed poll.
+- **`manage_drive` with `action: restrict` and no restrictions** reported
+  that every restriction already had the value asked for, when none had
+  been asked for.
+- **`TestLogsCarryNoTraceOfWhatWasTouched` had stopped covering the whole
+  surface.** It was written for phase 1's tools and eight more were added
+  around it, including the only ones that take an email address as an
+  argument. It covers them now, a domain joined the forbidden fixtures,
+  and `method=DELETE` joined the assertion that the writes actually
+  reached the network. `docs/architecture.md` §17b had gone on claiming
+  otherwise.
 - **`goreleaser-action` was still not pinned.** `~> v2.18.0` reads like a
   pin and is not: the action's own README says the input takes "a max
   satisfying semver one", so any 2.18.x could decide what the release

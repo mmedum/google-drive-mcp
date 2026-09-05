@@ -509,3 +509,115 @@ func TestUnshareSaysSoWhenItCannotReadWhoHasAccess(t *testing.T) {
 		t.Errorf("the refusal does not say what actually went wrong: %v", err)
 	}
 }
+
+func TestChangingARoleDoesNotSilentlyNarrowALinkGrant(t *testing.T) {
+	// discoverable was a plain bool, so "not passed" and "false" were the
+	// same request: changing the role on a file that was findable by
+	// search quietly made it by-link-only, which the caller never asked
+	// for and could not opt out of.
+	svc, fake := setup(t, service.Options{})
+	fake.Grant("id-budget-fixture", &gdrive.Permission{
+		Type: "anyone", Role: "reader", AllowFileDiscovery: true,
+	})
+
+	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-budget-fixture", Principal: "anyone", Role: "writer", AllowAnyone: true,
+	})
+	if err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	if !fake.Permissions["id-budget-fixture"][0].AllowFileDiscovery {
+		t.Error("changing the role turned off findability nobody asked to change")
+	}
+	if !strings.Contains(got.Text, "find it by search") {
+		t.Errorf("the note describes an exposure the file does not have:\n%s", got.Text)
+	}
+
+	// Passing it explicitly still works, in both directions.
+	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-budget-fixture", Principal: "anyone", Role: "writer",
+		AllowAnyone: true, Discoverable: boolPtr(false),
+	}); err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	if fake.Permissions["id-budget-fixture"][0].AllowFileDiscovery {
+		t.Error("discoverable: false was ignored")
+	}
+	// And a brand-new link grant is by link only, which is the quieter
+	// default and Drive's own.
+	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-notes-fixture", Principal: "anyone", Role: "reader", AllowAnyone: true,
+	}); err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	if fake.Permissions["id-notes-fixture"][0].AllowFileDiscovery {
+		t.Error("a new link grant was findable by search without being asked for")
+	}
+}
+
+func TestAnExpiryCanBeRemoved(t *testing.T) {
+	// Setting and moving an expiry worked; removing one had no path at
+	// all short of revoking and re-granting, because leaving expires out
+	// has to keep meaning "do not touch it".
+	svc, fake := setup(t, service.Options{})
+	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer", Expires: "30d",
+	}); err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	if fake.Permissions["id-budget-fixture"][0].ExpirationTime == "" {
+		t.Fatal("no expiry was set")
+	}
+
+	// Leaving it out keeps it, and says so rather than reporting a write.
+	unchanged, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer",
+	})
+	if err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	if fake.Permissions["id-budget-fixture"][0].ExpirationTime == "" {
+		t.Error("leaving expires out cleared it")
+	}
+	if !strings.Contains(unchanged.Text, "expires: never") {
+		t.Errorf("the result does not say how to remove the expiry:\n%s", unchanged.Text)
+	}
+
+	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer", Expires: "never",
+	})
+	if err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	if fake.Permissions["id-budget-fixture"][0].ExpirationTime != "" {
+		t.Error("expires: never did not remove the expiry")
+	}
+	if !strings.Contains(got.Text, "no expiry") {
+		t.Errorf("the change does not say what happened:\n%s", got.Text)
+	}
+
+	// There is nothing to clear on a grant that does not exist yet, and
+	// saying so beats granting non-expiring access by accident.
+	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-notes-fixture", Principal: "bob@example.com", Role: "reader", Expires: "never",
+	}); err == nil {
+		t.Error("expires: never was accepted where there was no grant")
+	}
+}
+
+func TestAnOwnershipTransferDescribesOnlyWhatItKnows(t *testing.T) {
+	// The note used to assert a consumer pending-acceptance flow this
+	// code does not perform and nobody has observed. The demotion is
+	// certain; the rest is read off the answer.
+	svc, _ := setup(t, service.Options{})
+	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-budget-fixture", Principal: "alice@example.com", Role: "owner",
+		TransferOwnership: true,
+	})
+	if err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	if !strings.Contains(got.Text, "now a writer on it rather than its owner") {
+		t.Errorf("the result does not state the one certain consequence:\n%s", got.Text)
+	}
+}

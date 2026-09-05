@@ -153,7 +153,14 @@ func (s *Service) trashCount(ctx context.Context, driveID string) (int, bool) {
 	q := gapi.ListQuery{Q: "trashed = true", PageSize: gapi.MaxPageSize,
 		Fields: "files(id)", DriveID: driveID}
 	if driveID == "" {
+		// files.emptyTrash with no driveId deletes "all of the user's
+		// trashed files", so the count has to be the same set. A listing
+		// defaults to every drive this account can see and includes
+		// items it merely has access to: counting that way reported a
+		// shared drive's trash, and files owned by other people, as part
+		// of what this call is about to destroy. It is not.
 		q.Corpora = gapi.CorporaUser
+		q.Q += " and 'me' in owners"
 	}
 	list, err := s.api.ListFiles(ctx, q)
 	if err != nil {

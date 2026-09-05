@@ -26,8 +26,8 @@ type ShareInput struct {
 	Role              string `json:"role" jsonschema:"what they may do: reader, commenter, writer, or file_organizer and organizer inside a shared drive. owner hands the file over and needs transfer_ownership."`
 	Notify            bool   `json:"notify,omitempty" jsonschema:"send Google's notification email. Off by default: a tool call is not a reason to put mail in somebody's inbox. An ownership transfer always mails, whatever this says."`
 	Message           string `json:"message,omitempty" jsonschema:"a line to include in that email; only used when notify is true"`
-	Expires           string `json:"expires,omitempty" jsonschema:"when the grant should end, as a date like 2026-12-01 or a duration like 30d. People and groups only, and Drive's limit is a year."`
-	Discoverable      bool   `json:"discoverable,omitempty" jsonschema:"for a domain or anyone grant: also let the file turn up in their search results, not only open by link. Off by default."`
+	Expires           string `json:"expires,omitempty" jsonschema:"when the grant should end, as a date like 2026-12-01 or a duration like 30d, or never to remove an expiry a grant already has. People and groups only, and Drive's limit is a year. Leave it out to keep whatever expiry is already there."`
+	Discoverable      *bool  `json:"discoverable,omitempty" jsonschema:"for a domain or anyone grant: whether the file also turns up in their search results rather than only opening by link. Leave it out to keep what the grant already has; a new grant is by link only."`
 	AllowAnyone       bool   `json:"allow_anyone,omitempty" jsonschema:"required to grant access to anyone with the link. Without it that grant is refused, because it puts the file within reach of everybody who has or guesses the link."`
 	TransferOwnership bool   `json:"transfer_ownership,omitempty" jsonschema:"required for role: owner. It makes them the owner and demotes this account to a writer, and only the new owner can hand it back."`
 	DryRun            bool   `json:"dry_run,omitempty" jsonschema:"report who can see it now and what this would change, and change nothing"`

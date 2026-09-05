@@ -238,3 +238,22 @@ func TestManageDriveIsNotAvailableReadOnly(t *testing.T) {
 		t.Errorf("ListDrives on a read-only server: %v", err)
 	}
 }
+
+func TestRestrictWithNothingToRestrictSaysSo(t *testing.T) {
+	// It used to report "every restriction passed already had that
+	// value" when none had been passed at all — a falsehood in the shape
+	// of a reassurance.
+	svc, _ := setup(t, service.Options{})
+	_, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
+		Action: "restrict", Drive: "Marketing",
+	})
+	if err == nil {
+		t.Fatal("restrict with no restrictions was accepted")
+	}
+	if !strings.Contains(err.Error(), "restrictions is required") {
+		t.Errorf("err = %v, want it to name the missing argument", err)
+	}
+	if !strings.Contains(err.Error(), "members_only") {
+		t.Errorf("the refusal does not name what may be passed: %v", err)
+	}
+}

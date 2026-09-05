@@ -346,9 +346,17 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 // a new rate-limit reason must not have to be added twice.
 func classify(status int, header http.Header, method, path string, body []byte) error {
 	apiErr := parseAPIError(status, method, path, body)
+	// The reason is consulted first and the status second. Google returns
+	// 429 for a spent quota as well as for a burst, so letting the status
+	// decide would classify a 429 carrying dailyLimitExceeded as
+	// transient and retry it through the whole backoff schedule — the
+	// loop the comment below says must not happen. A 429 with no reason
+	// this client knows is a burst, which is the safe reading.
 	throttled, backoffHelps := isRateReason(apiErr.Reason)
-	throttled = throttled && status == 403
-	if status == 429 {
+	switch {
+	case throttled:
+		throttled = status == 403 || status == 429
+	case status == 429:
 		throttled, backoffHelps = true, true
 	}
 	// A daily quota is throttling that waiting does not fix. It stays

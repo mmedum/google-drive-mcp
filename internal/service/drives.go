@@ -45,7 +45,9 @@ func (s *Service) ListDrives(ctx context.Context, in ListDrivesInput) (string, e
 				continue
 			}
 		}
-		drives = append(drives, model.NewDrive(d))
+		if m := model.NewDrive(d); m != nil {
+			drives = append(drives, m)
+		}
 	}
 	sort.Slice(drives, func(i, j int) bool { return strings.ToLower(drives[i].Name) < strings.ToLower(drives[j].Name) })
 
@@ -210,6 +212,10 @@ func (s *Service) changeDrive(ctx context.Context, action string, in ManageDrive
 		return s.applyDriveChange(ctx, d, action, nil, changes, in.DryRun)
 	}
 
+	if len(in.Restrictions) == 0 {
+		return nil, Errorf(ClassInvalid, "restrictions is required for restrict: pass the switches to set, "+
+			"as name to true or false. The names are %s.", strings.Join(model.DriveRestrictionNames, ", "))
+	}
 	restrictions, changes, err := driveRestrictionPatch(d.Restrictions, in.Restrictions)
 	if err != nil {
 		return nil, err
