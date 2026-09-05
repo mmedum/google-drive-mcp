@@ -105,18 +105,34 @@ func TestSyntheticIdsSaySoInTheirOwnText(t *testing.T) {
 	}
 }
 
-func TestLinkPatternDoesNotMatchLookalikeHosts(t *testing.T) {
+func TestLinkDetectionAsksWhatHostAURLIsReallyFor(t *testing.T) {
 	id := sample("1a2B3c4D5e", "6F7g8H9i0J", "kLmNoPqRsTuVw")
-	// A host that merely starts with Drive's is a different host.
+	// A host that merely starts with Drive's is a different host, and
+	// nothing there belongs to anybody's Drive. Parsing settles it;
+	// a pattern that matched the host as text would not.
 	for _, notALink := range []string{
 		"https://drive.google.com.example.invalid/file/d/" + id,
-		"xhttps://drive.google.com/file/d/" + id,
+		"https://notdrive.google.com/file/d/" + id,
 	} {
 		for _, f := range scanForLeaks("f.go", notALink) {
 			if strings.Contains(f, "Drive link") {
 				t.Errorf("matched a lookalike host: %q -> %s", notALink, f)
 			}
 		}
+	}
+	// A real link embedded in a longer token still counts. This is a
+	// detector, not a validator: the id is in the text either way, and
+	// missing it because of a stray character before the scheme would be
+	// the wrong way to be wrong.
+	embedded := "see(https://drive.google.com/file/d/" + id + "/view)"
+	var sawEmbedded bool
+	for _, f := range scanForLeaks("f.go", embedded) {
+		if strings.Contains(f, "Drive link") {
+			sawEmbedded = true
+		}
+	}
+	if !sawEmbedded {
+		t.Error("a link embedded in surrounding text went undetected")
 	}
 	// The real thing still matches, wherever it sits in the line.
 	for _, link := range []string{

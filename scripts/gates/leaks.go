@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,14 +35,14 @@ var (
 	// A Drive id: base64url, 19 characters or more. Requiring a capital
 	// and a digit keeps prose and kebab-case identifiers out of it.
 	idPattern = regexp.MustCompile(`[A-Za-z0-9_\-]{19,}={0,2}`)
-	// The host is spelled out in full and must be followed by a slash, so
-	// drive.google.com.example.invalid does not match; the leading \b
-	// stops it matching inside a longer token. This searches text for a
-	// link — it never decides whether a host may be talked to. That
-	// decision is in internal/gapi, against a parsed URL.
-	linkPattern = regexp.MustCompile(`\bhttps://(?:drive|docs)\.google\.com/\S+`)
-	hasCapital  = regexp.MustCompile(`[A-Z]`)
-	hasNumber   = regexp.MustCompile(`[0-9]`)
+	// Candidate URLs only. Which host a URL is actually for is decided by
+	// parsing it, not by matching text: a pattern that looks like a host
+	// check invites every trick that has ever been played on one
+	// (userinfo before the @, a lookalike suffix, a case difference).
+	// internal/gapi settles the same question the same way.
+	urlPattern = regexp.MustCompile(`https?://[^\s"'` + "`" + `<>)\]]+`)
+	hasCapital = regexp.MustCompile(`[A-Z]`)
+	hasNumber  = regexp.MustCompile(`[0-9]`)
 )
 
 // skipFiles hold long opaque content that is not ours to police.
@@ -117,8 +118,8 @@ func scanForLeaks(path, body string) []string {
 				found = append(found, where+": an address on a real domain: "+abbreviate(m[0]))
 			}
 		}
-		for _, link := range linkPattern.FindAllString(line, -1) {
-			if !allowedLink(link) {
+		for _, candidate := range urlPattern.FindAllString(line, -1) {
+			if isDriveLink(candidate) && !allowedLink(candidate) {
 				found = append(found, where+": a Drive link carrying an id")
 			}
 		}
@@ -156,6 +157,23 @@ func isCodeIdentifier(line string, loc []int) bool {
 		return true
 	}
 	return false
+}
+
+// driveHosts are the hosts whose URLs carry a file id in the path.
+var driveHosts = map[string]bool{
+	"drive.google.com": true,
+	"docs.google.com":  true,
+}
+
+// isDriveLink parses the candidate and asks what host it is really for.
+// Anything unparseable is not a link.
+func isDriveLink(candidate string) bool {
+	u, err := url.Parse(candidate)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return driveHosts[host]
 }
 
 // allowedLink permits a link whose every id-shaped part is allowed.
