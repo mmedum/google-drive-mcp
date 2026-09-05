@@ -99,8 +99,12 @@ staleness: build ## Docs must match the code
 pins: ## Every tool a workflow installs must be one exact version
 	$(GO) run ./scripts/gates pins
 
+.PHONY: gate-classes
+gate-classes: ## The error classes the code emits must be the ones it declares
+	$(GO) run ./scripts/gates classes
+
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins smoke staleness ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins gate-classes smoke staleness ## Everything CI runs
 
 .PHONY: clean
 clean:
