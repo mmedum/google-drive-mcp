@@ -621,3 +621,48 @@ func TestAnOwnershipTransferDescribesOnlyWhatItKnows(t *testing.T) {
 		t.Errorf("the result does not state the one certain consequence:\n%s", got.Text)
 	}
 }
+
+func TestTheCardAfterASharingChangeShowsTheNewExposure(t *testing.T) {
+	// The card's "sharing:" line is the one a person reads to see what
+	// they just exposed. It was rendered from the file read BEFORE the
+	// write, so share_file on a private file reported "sharing: private
+	// to you" in the same result whose change line said the file was now
+	// reachable by anyone with the link. Live runs showed it twice.
+	svc, fake := setup(t, service.Options{})
+
+	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-budget-fixture", Principal: "anyone", Role: "reader", AllowAnyone: true,
+	})
+	if err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	if strings.Contains(got.Text, "sharing: private to you") {
+		t.Errorf("the card still says the file is private after making it public:\n%s", got.Text)
+	}
+	if !strings.Contains(got.Text, "sharing: anyone with the link can view") {
+		t.Errorf("the card does not show the exposure the call created:\n%s", got.Text)
+	}
+	if got.JSON.File.Sharing != got.JSON.SharingAfter {
+		t.Errorf("the card and the after-summary disagree: %q vs %q",
+			got.JSON.File.Sharing, got.JSON.SharingAfter)
+	}
+
+	// And removing the last grant leaves it private, not "shared, but no
+	// grants are visible to this account" — which is what the stale
+	// `shared` flag produced.
+	back, err := svc.UnshareFile(t.Context(), service.UnshareFileInput{
+		File: "id-budget-fixture", RemoveLink: true,
+	})
+	if err != nil {
+		t.Fatalf("UnshareFile: %v", err)
+	}
+	if strings.Contains(back.JSON.SharingAfter, "no grants are visible") {
+		t.Errorf("removing the last grant reported unknown exposure: %q", back.JSON.SharingAfter)
+	}
+	if !strings.Contains(back.Text, "sharing: private to you") {
+		t.Errorf("the card does not show the file is private again:\n%s", back.Text)
+	}
+	if len(fake.Permissions["id-budget-fixture"]) != 0 {
+		t.Errorf("the grant is still there: %+v", fake.Permissions["id-budget-fixture"])
+	}
+}

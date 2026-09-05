@@ -189,10 +189,10 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 	if err := s.applyShare(ctx, f, plan); err != nil {
 		return nil, s.shareError(err, f, principal)
 	}
-	after := s.sharingNow(ctx, f)
 	// A grant changes who can reach the file, and the paths that led to
 	// it are unaffected; only the cached copy of the file itself is.
 	s.forget(f, false)
+	res, after := s.rereadAfterSharing(ctx, res)
 	return s.shareResult(ctx, res, before, after, plan, false), nil
 }
 
@@ -423,8 +423,8 @@ func (s *Service) UnshareFile(ctx context.Context, in UnshareFileInput) (*Result
 	if err := s.api.DeletePermission(ctx, f.ID, target.PermissionID); err != nil {
 		return nil, wrap(err, fmt.Sprintf("removing %s's access to %s", target.Label(), f.Name))
 	}
-	after := s.sharingNow(ctx, f)
 	s.forget(f, false)
+	res, after := s.rereadAfterSharing(ctx, res)
 	return s.unshareResult(ctx, res, before, after, *target, false), nil
 }
 
@@ -506,6 +506,36 @@ func (s *Service) exposure(ctx context.Context, res *Resolved, p principal) (mod
 		}
 	}
 	return sharing, nil, nil
+}
+
+// rereadAfterSharing reads the file again after a grant changed, and
+// returns both the resolved file the card is rendered from and the
+// exposure that file now has.
+//
+// Rendering from the file read BEFORE the write left the card's
+// "sharing:" line showing the state the call had just changed — so
+// share_file on a private file reported "sharing: private to you" in the
+// same result whose change line said the file was now reachable by
+// anyone with the link. That line is the one a person checks to see what
+// they just exposed, and it was stale exactly when it mattered most.
+//
+// It also fixes the "after" summary. That was built from the permission
+// list read afresh but the `shared` flag of the stale file, so removing
+// the last grant reported "shared, but no grants are visible to this
+// account" instead of "private to you".
+//
+// One read replaces the separate permission re-read it used to do, since
+// a file read carries its own grants outside a shared drive.
+func (s *Service) rereadAfterSharing(ctx context.Context, res *Resolved) (*Resolved, model.Sharing) {
+	fresh, err := s.Resolve(ctx, res.File.ID, ResolveOptions{FollowShortcut: false, Fresh: true})
+	if err != nil {
+		// The write happened; failing to describe it must not fail the
+		// call. Fall back to the permission list alone, which is still
+		// better than the state from before the write.
+		s.log.DebugContext(ctx, "could not re-read after a sharing change", "class", gapi.Class(err))
+		return res, s.sharingNow(ctx, res.File)
+	}
+	return fresh, s.Model(ctx, fresh).Sharing
 }
 
 // sharingNow re-reads the permission list. A failure here is reported as

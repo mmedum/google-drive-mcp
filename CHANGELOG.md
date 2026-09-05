@@ -142,8 +142,41 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   artifacts are. It is `v2.18.0` now, with no operator. The narrowing
   from `~> v2` had been recorded in the evidence log as a fix.
 
+### Fixed (found by the live run)
+
+- **A file card showed the exposure the call had just changed.** The card
+  was rendered from the file read before the write, so `share_file` on a
+  private file reported `sharing: private to you` in the same result
+  whose change line said the file was now reachable by anyone with the
+  link. That line is the one a person checks to see what they just
+  exposed, and it was stale exactly when it mattered most. Both sharing
+  tools now render from the file as it is afterwards, which also replaces
+  the separate permission re-read they used to do.
+- **Removing the last grant reported "shared, but no grants are visible
+  to this account"** instead of "private to you", because the summary
+  was built from a fresh permission list and the stale file's `shared`
+  flag.
+- **An inherited grant on a My Drive file was blamed on a shared drive.**
+  The reference says `inheritedFrom` "is only populated for items in
+  shared drives", so an empty one means a folder above — not a drive.
+  Every My Drive file with an inherited grant said "inherited from the
+  shared drive", including the owner's own grant on a file that had never
+  been near one.
+- **The live driver could not tell a working changes feed from a broken
+  one.** Drive's feed is eventually consistent, and asking a second after
+  a write returned "0 changes" on two runs — which reads as a feed
+  working and reporting nothing. It now polls, and says which happened
+  rather than printing an empty answer and moving on.
+- **The live driver left a permission id unredacted.** A permission id
+  for a person is twenty digits with no letter, and the redactor's rule
+  required a capital and a digit. It identifies a Google account.
+
 ### Added (tooling)
 
+- Both leak modes now fail rather than passing quietly when they find
+  nothing to scan. "I found nothing" and "I had nowhere to look" printed
+  the same sentence, so a gate run from the wrong directory would have
+  reported a clean tree for ever.
 - `gates pins`, in `make check` and in CI: every tool version a workflow
   installs must be exactly one version. It exists because a comment could
   not hold this shut — the comment beside the wrong value said which half

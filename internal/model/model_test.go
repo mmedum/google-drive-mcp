@@ -488,3 +488,38 @@ func TestChildKeepsWhatIsUnknownUnknown(t *testing.T) {
 		t.Errorf("Child aliased its parent: parent=%v a=%v b=%v", parent.Folders, a.Folders, b.Folders)
 	}
 }
+
+func TestAnInheritedGrantOutsideASharedDriveIsNotBlamedOnOne(t *testing.T) {
+	// The reference says inheritedFrom "is only populated for items in
+	// shared drives", so an empty one is a My Drive item inheriting from
+	// a folder above it. Saying "the shared drive" was wrong on every My
+	// Drive file that had an inherited grant, which a live run showed is
+	// the ordinary case — including the owner's own grant.
+	s := NewSharing(false, []*gdrive.Permission{{
+		ID: "id-permission-fixture", Type: "user", Role: "owner",
+		EmailAddress: "person@example.com",
+		Details:      []*gdrive.PermissionDetails{{PermissionType: "file", Role: "owner", Inherited: true}},
+	}}, true)
+	if len(s.Grants) != 1 {
+		t.Fatalf("grants = %+v", s.Grants)
+	}
+	if strings.Contains(s.Grants[0].InheritedFrom, "shared drive") {
+		t.Errorf("a My Drive grant is blamed on a shared drive: %q", s.Grants[0].InheritedFrom)
+	}
+	if !s.Grants[0].Inherited() {
+		t.Error("the grant is not marked inherited at all")
+	}
+
+	// Inside a shared drive Drive does populate it, and the name it gives
+	// is what the result must show.
+	inDrive := NewSharing(true, []*gdrive.Permission{{
+		ID: "id-permission-fixture", Type: "user", Role: "writer",
+		EmailAddress: "person@example.com",
+		Details: []*gdrive.PermissionDetails{{
+			PermissionType: "member", Role: "writer", Inherited: true, InheritedFrom: "id-drive-fixture",
+		}},
+	}}, true)
+	if inDrive.Grants[0].InheritedFrom != "id-drive-fixture" {
+		t.Errorf("inheritedFrom = %q, want the id Drive gave", inDrive.Grants[0].InheritedFrom)
+	}
+}
