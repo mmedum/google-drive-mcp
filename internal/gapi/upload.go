@@ -66,11 +66,15 @@ func (r UploadRequest) uploadParams(uploadType string) url.Values {
 
 // method and path differ between creating a file and replacing one's
 // content, and nothing else about an upload does.
-func (r UploadRequest) target() (method, path string) {
-	if r.FileID != "" {
-		return http.MethodPatch, "/files/" + url.PathEscape(r.FileID)
+func (r UploadRequest) target() (method, path string, err error) {
+	if r.FileID == "" {
+		return http.MethodPost, "/files", nil
 	}
-	return http.MethodPost, "/files"
+	segment, err := fileSegment(r.FileID)
+	if err != nil {
+		return "", "", err
+	}
+	return http.MethodPatch, "/files/" + segment, nil
 }
 
 // UploadMultipart sends metadata and content in one request. Google caps
@@ -111,7 +115,10 @@ func (c *Client) UploadMultipart(ctx context.Context, r UploadRequest, content [
 		return nil, err
 	}
 
-	method, path := r.target()
+	method, path, err := r.target()
+	if err != nil {
+		return nil, err
+	}
 	// A create carries a pre-generated id, which is what makes the retry
 	// inside do safe; an update is a patch and idempotent in itself.
 	resp, err := c.doResponse(ctx, request{
@@ -275,7 +282,10 @@ func (c *Client) startResumable(ctx context.Context, r UploadRequest, size int64
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	method, path := r.target()
+	method, path, err := r.target()
+	if err != nil {
+		return "", err
+	}
 	resp, err := c.doResponse(ctx, request{
 		kind: kindWrite, method: method, url: c.uploadURL(path, r.uploadParams("resumable")),
 		body: meta, contentType: "application/json; charset=UTF-8",

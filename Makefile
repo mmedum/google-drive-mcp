@@ -91,8 +91,12 @@ leaks: ## Nothing from a real Drive may be in the repository
 staleness: build ## Docs must match the code
 	$(GO) run ./scripts/gates staleness $(BIN)
 
+.PHONY: pins
+pins: ## Every tool a workflow installs must be one exact version
+	$(GO) run ./scripts/gates pins
+
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks smoke staleness ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins smoke staleness ## Everything CI runs
 
 .PHONY: clean
 clean:

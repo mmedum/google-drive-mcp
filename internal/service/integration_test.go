@@ -64,7 +64,7 @@ func live(t *testing.T) (*service.Service, *gapi.Client) {
 	}
 
 	ctx := context.Background()
-	api := gapi.New(auth.TokenSource(ctx, oc, token), gapi.Options{
+	api := gapi.New(auth.TokenSource(ctx, oc, token, 60*time.Second), gapi.Options{
 		Timeout: 60 * time.Second, UserAgent: "google-drive-mcp/integration-test",
 	})
 	return service.New(api, service.Options{}), api

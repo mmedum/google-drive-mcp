@@ -31,7 +31,8 @@ make check
 runs, in order: gofmt, `go vet` (including the integration-tagged tests,
 so they keep compiling), golangci-lint, the tests with the race detector
 and an 80% statement-coverage floor per core package, govulncheck, the
-stdio smoke test, and the staleness check. It is the definition of done,
+stdio smoke test, the pin check, and the staleness check. It is the
+definition of done,
 and CI runs the same gates on Linux, macOS and Windows.
 
 Individually:
@@ -47,6 +48,7 @@ make smoke          # drive the binary over stdio, without credentials
 make schemas        # write schemas.json
 make schema-diff    # compare the tool surface with the last tag
 make staleness      # docs must match the code
+make pins           # every tool a workflow installs is one exact version
 make bench
 ```
 
@@ -67,6 +69,7 @@ go run ./scripts/gates coverage cov.out 80    statement-coverage floor per core 
 go run ./scripts/gates schema-diff BINARY     tool surface against the last tag
 go run ./scripts/gates smoke BINARY           drive the binary over stdio, no credentials
 go run ./scripts/gates staleness BINARY       documentation must match the code
+go run ./scripts/gates pins                   workflow tool versions are exact, not ranges
 go run ./scripts/gates precommit              gofmt, vet and a secret scan
 go run ./scripts/gates install-hooks          write the git pre-commit hook
 ```

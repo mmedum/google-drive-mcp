@@ -346,12 +346,28 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 // a new rate-limit reason must not have to be added twice.
 func classify(status int, header http.Header, method, path string, body []byte) error {
 	apiErr := parseAPIError(status, method, path, body)
-	rateLimited := status == 429 || (status == 403 && isRateReason(apiErr.Reason))
-	if rateLimited || status >= 500 {
+	// The reason is consulted first and the status second. Google returns
+	// 429 for a spent quota as well as for a burst, so letting the status
+	// decide would classify a 429 carrying dailyLimitExceeded as
+	// transient and retry it through the whole backoff schedule — the
+	// loop the comment below says must not happen. A 429 with no reason
+	// this client knows is a burst, which is the safe reading.
+	throttled, backoffHelps := isRateReason(apiErr.Reason)
+	switch {
+	case throttled:
+		throttled = status == 403 || status == 429
+	case status == 429:
+		throttled, backoffHelps = true, true
+	}
+	// A daily quota is throttling that waiting does not fix. It stays
+	// classified as rate limiting, because that is what happened, but it
+	// is not transient: retrying spends attempts against a quota that
+	// resets on a clock rather than on a backoff.
+	if (throttled && backoffHelps) || status >= 500 {
 		return &transientError{
 			err:     apiErr,
 			after:   parseRetryAfter(header.Get("Retry-After")),
-			refused: rateLimited,
+			refused: throttled,
 		}
 	}
 	return apiErr
@@ -449,14 +465,6 @@ func (c *Client) newRequest(ctx context.Context, r request) (*http.Request, erro
 		req.Header.Set("X-Goog-Drive-Resource-Keys", h)
 	}
 	return req, nil
-}
-
-func isRateReason(reason string) bool {
-	switch reason {
-	case reasonRateLimit, reasonUserRateLimit, reasonSharingRateLimit:
-		return true
-	}
-	return false
 }
 
 // retryable decides whether an attempt may be repeated.

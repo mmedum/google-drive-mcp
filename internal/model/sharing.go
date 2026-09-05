@@ -145,7 +145,12 @@ func NewSharing(shared bool, perms []*gdrive.Permission, known bool) Sharing {
 		if inherited {
 			g.InheritedFrom = from
 			if g.InheritedFrom == "" {
-				g.InheritedFrom = "the shared drive"
+				// The reference says inheritedFrom "is only populated for
+				// items in shared drives", so an empty one is a My Drive
+				// item inheriting from a folder above it. Calling that
+				// "the shared drive" was wrong on every My Drive file
+				// that had an inherited grant, which is most of them.
+				g.InheritedFrom = "a folder above it"
 			}
 			s.Inherited++
 		}

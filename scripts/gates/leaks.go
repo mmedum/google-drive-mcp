@@ -105,9 +105,23 @@ func leaks(out io.Writer, args []string) error {
 		}
 		return fmt.Errorf("%d thing(s) here look like they came from a real Drive", len(found))
 	}
+	// "I found nothing" and "I had nowhere to look" print the same
+	// sentence unless one of them refuses to. A gate run from the wrong
+	// directory, or after the file listing stops working, would otherwise
+	// report a clean tree for ever.
+	if len(files) == 0 {
+		return fmt.Errorf("no files were scanned: the scan found nothing because it looked at nothing")
+	}
 	_, _ = fmt.Fprintf(out, "leak check ok (%d files)\n", len(files))
 	return nil
 }
+
+// The floor is zero rather than a count, because the thing being guarded
+// against is "nowhere to look", not "a small repository". A count picked
+// to suit this tree fails the gate's own tests, which run it against a
+// two-commit fixture — and a gate that has to be exempted in tests is
+// one nobody trusts in production. Zero is the boundary that actually
+// separates "found nothing" from "looked at nothing".
 
 func scanForLeaks(path, body string) []string {
 	var found []string
@@ -256,6 +270,10 @@ func leaksInHistory(out io.Writer) error {
 			_, _ = fmt.Fprintln(out, f)
 		}
 		return fmt.Errorf("%d thing(s) in this repository's history look like they came from a real Drive", len(found))
+	}
+	if blobs == 0 || messages == 0 {
+		return fmt.Errorf("scanned %d blobs and %d messages: a repository has at least one of each, so "+
+			"the scan found nothing because it looked at nothing", blobs, messages)
 	}
 	_, _ = fmt.Fprintf(out, "history leak check ok (%d blobs, %d messages)\n", blobs, messages)
 	return nil

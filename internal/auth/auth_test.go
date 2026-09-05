@@ -342,7 +342,7 @@ func TestTokenSourceUsesTheRefreshToken(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := &oauth2.Config{ClientID: "id", Endpoint: oauth2.Endpoint{TokenURL: srv.URL, AuthStyle: oauth2.AuthStyleInParams}}
-	ts := TokenSource(context.Background(), cfg, "stored-refresh")
+	ts := TokenSource(context.Background(), cfg, "stored-refresh", DefaultHTTPTimeout)
 	tok, err := ts.Token()
 	if err != nil {
 		t.Fatalf("Token: %v", err)
@@ -360,5 +360,67 @@ func TestTokenSourceUsesTheRefreshToken(t *testing.T) {
 	}
 	if seen != "" {
 		t.Error("a valid token was refreshed again instead of reused")
+	}
+}
+
+// TestATokenRefreshCannotHangForever covers a claim docs/security.md
+// makes and the code did not keep: that every attempt, token refresh and
+// transfer chunk runs under a deadline.
+//
+// A refresh happens inside the oauth2 transport against the context
+// captured when the source was built, not the one on the request being
+// made, so internal/gapi's per-request timeout never reaches it. With
+// http.DefaultClient — which has no timeout — a token endpoint that
+// accepts a connection and never answers would hang the first tool call
+// for the life of the process.
+//
+// The endpoint here is a raw listener that accepts and never writes,
+// rather than an httptest.Server: Close on one of those blocks waiting
+// for exactly the connection this test is deliberately leaving open.
+func TestATokenRefreshCannotHangForever(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	accepted := make(chan struct{}, 1)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			select {
+			case accepted <- struct{}{}:
+			default:
+			}
+			// Held open, answering nothing, until the test ends.
+			defer func() { _ = conn.Close() }()
+		}
+	}()
+
+	cfg := &oauth2.Config{
+		ClientID: "client-id-fixture", ClientSecret: "client-secret-fixture",
+		Endpoint: oauth2.Endpoint{TokenURL: "http://" + ln.Addr().String() + "/token"},
+	}
+	ts := TokenSource(context.Background(), cfg, "refresh-token-fixture", 200*time.Millisecond)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := ts.Token()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a token came back from an endpoint that never answered")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refresh hung: the token source has no deadline of its own")
+	}
+	select {
+	case <-accepted:
+	default:
+		t.Error("the refresh never reached the endpoint, so the test proved nothing")
 	}
 }

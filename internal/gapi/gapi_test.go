@@ -356,8 +356,14 @@ func TestAbuseAndOwnershipHelpers(t *testing.T) {
 	if gapi.IsNotOwner(err) {
 		t.Error("IsNotOwner should not match an abuse refusal")
 	}
-	if gapi.Reason(err) != "cannotDownloadAbusiveFile" {
-		t.Errorf("Reason = %q", gapi.Reason(err))
+	// Reason hands back whatever Google actually sent, and Google sends
+	// this condition two ways: cannotDownloadAbusiveFile in the legacy
+	// envelope and CANNOT_DOWNLOAD_ABUSIVE_FILE in a google.rpc.ErrorInfo
+	// detail. Pinning one spelling here would assert the parser's
+	// preference rather than the contract, so the test asserts the
+	// condition and leaves the spelling to Google.
+	if got := gapi.Reason(err); !sameCondition(got, "cannotDownloadAbusiveFile") {
+		t.Errorf("Reason = %q, want the abuse reason in either spelling", got)
 	}
 	if gapi.Reason(errors.New("plain")) != "" || gapi.Message(errors.New("plain")) != "" {
 		t.Error("a plain error has no Google reason or message")
@@ -632,4 +638,48 @@ func TestGenerateIDsRefusesMoreThanDriveAllows(t *testing.T) {
 	if _, err := c.GenerateIDs(context.Background(), 0); err != nil {
 		t.Errorf("a count of zero should mean the default, not an error: %v", err)
 	}
+}
+
+// TestAFileIDThatNamesASiblingEndpointIsRefused covers a confusion that
+// url.PathEscape cannot: every character in "trash" is legal in a path
+// segment, so nothing about escaping stops DeleteFile("trash") building
+// DELETE /files/trash — which is files.emptyTrash, and would destroy a
+// whole trash instead of one file. The guard belongs where the URL is
+// made, not in whatever layer happens to reject the id first today.
+func TestAFileIDThatNamesASiblingEndpointIsRefused(t *testing.T) {
+	s := drivetest.New()
+	defer s.Close()
+	drivetest.SmallTree(s)
+	c := drivetest.Client(t, s)
+
+	for _, id := range []string{"trash", "generateIds", ""} {
+		if err := c.DeleteFile(t.Context(), id); err == nil {
+			t.Errorf("DeleteFile(%q) was allowed to build a request", id)
+		} else if !errors.Is(err, gapi.ErrInvalid) {
+			t.Errorf("DeleteFile(%q) = %v, want an invalid-request error", id, err)
+		}
+		if _, err := c.GetFile(t.Context(), id, gapi.GetFileOptions{}); err == nil {
+			t.Errorf("GetFile(%q) was allowed to build a request", id)
+		}
+	}
+	// Nothing reached the fake, so nothing could have been destroyed.
+	if n := s.Count(http.MethodDelete); n != 0 {
+		t.Errorf("%d delete requests were sent", n)
+	}
+	// The alias Drive itself accepts is not a reserved segment and still
+	// works: the guard must not cost the one word callers actually pass.
+	if _, err := c.GetFile(t.Context(), "root", gapi.GetFileOptions{}); err != nil {
+		t.Errorf("GetFile(\"root\"): %v", err)
+	}
+}
+
+// sameCondition compares two spellings of one Google error reason, the
+// way internal/gapi does internally: Google writes the same condition as
+// camelCase in error.errors[] and as UPPER_SNAKE_CASE in a
+// google.rpc.ErrorInfo detail.
+func sameCondition(a, b string) bool {
+	fold := func(s string) string {
+		return strings.ToLower(strings.ReplaceAll(s, "_", ""))
+	}
+	return a != "" && fold(a) == fold(b)
 }

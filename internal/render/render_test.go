@@ -487,3 +487,35 @@ func TestDryRunIsSaidOnceByTheCard(t *testing.T) {
 		t.Errorf("a dry run did not say so:\n%s", got)
 	}
 }
+
+// TestRenderersSurviveANilRow covers the layer the service guard sits in
+// front of. A renderer here is pure and is the last thing between a
+// malformed response and the process: a nil in a slice must cost one
+// missing row, not a SIGSEGV that takes the stdio server down.
+func TestRenderersSurviveANilRow(t *testing.T) {
+	now := time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
+
+	changes := Changes([]*model.Change{
+		nil,
+		{Kind: "file", ID: "id-fixture", Name: "Budget.xlsx", At: now},
+	}, ChangesOptions{Now: now})
+	if !strings.Contains(changes, "Budget.xlsx") {
+		t.Errorf("the nil swallowed the row beside it:\n%s", changes)
+	}
+
+	revisions := Revisions([]*model.Revision{
+		nil,
+		{ID: "id-revision-fixture", Modified: now},
+	}, RevisionsOptions{Now: now})
+	if !strings.Contains(revisions, "id-revision-fixture") {
+		t.Errorf("the nil swallowed the revision beside it:\n%s", revisions)
+	}
+
+	drives := Drives([]*model.Drive{
+		nil,
+		{ID: "id-drive-fixture", Name: "Marketing"},
+	}, DrivesOptions{})
+	if !strings.Contains(drives, "Marketing") {
+		t.Errorf("the nil swallowed the drive beside it:\n%s", drives)
+	}
+}

@@ -57,7 +57,11 @@ func (c *Client) Download(ctx context.Context, fileID string, o DownloadOptions)
 	if o.AcknowledgeAbuse {
 		v.Set("acknowledgeAbuse", "true")
 	}
-	u := c.base + "/files/" + url.PathEscape(fileID)
+	segment, err := fileSegment(fileID)
+	if err != nil {
+		return nil, err
+	}
+	u := c.base + "/files/" + segment
 	if o.RevisionID != "" {
 		u += "/revisions/" + url.PathEscape(o.RevisionID)
 	}
@@ -77,7 +81,11 @@ func (c *Client) Export(ctx context.Context, fileID, mimeType string) (*Content,
 	v := url.Values{}
 	v.Set("mimeType", mimeType)
 	v.Set("supportsAllDrives", "true")
-	u := c.base + "/files/" + url.PathEscape(fileID) + "/export?" + v.Encode()
+	segment, err := fileSegment(fileID)
+	if err != nil {
+		return nil, err
+	}
+	u := c.base + "/files/" + segment + "/export?" + v.Encode()
 	return c.content(ctx, request{kind: kindRead, method: http.MethodGet, url: u,
 		accept: "*/*", resourceIDs: []string{fileID}})
 }
@@ -145,9 +153,13 @@ const RevisionFields = "id,mimeType,modifiedTime,keepForever,published,size,md5C
 // content is not bytes on the wire: it is reached through the export
 // links this call returns.
 func (c *Client) GetRevision(ctx context.Context, fileID, revisionID string) (*gdrive.Revision, error) {
+	segment, err := fileSegment(fileID)
+	if err != nil {
+		return nil, err
+	}
 	v := url.Values{}
 	v.Set("fields", RevisionFields)
-	u := c.base + "/files/" + url.PathEscape(fileID) + "/revisions/" + url.PathEscape(revisionID) + "?" + v.Encode()
+	u := c.base + "/files/" + segment + "/revisions/" + url.PathEscape(revisionID) + "?" + v.Encode()
 	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
 	if err != nil {
 		return nil, err
@@ -166,9 +178,13 @@ func (c *Client) UpdateRevision(ctx context.Context, fileID, revisionID string, 
 	if err != nil {
 		return nil, err
 	}
+	segment, err := fileSegment(fileID)
+	if err != nil {
+		return nil, err
+	}
 	v := url.Values{}
 	v.Set("fields", RevisionFields)
-	u := c.base + "/files/" + url.PathEscape(fileID) + "/revisions/" + url.PathEscape(revisionID) + "?" + v.Encode()
+	u := c.base + "/files/" + segment + "/revisions/" + url.PathEscape(revisionID) + "?" + v.Encode()
 	body, err := c.do(ctx, request{kind: kindWrite, method: http.MethodPatch, url: u,
 		body: payload, resourceIDs: []string{fileID}})
 	if err != nil {

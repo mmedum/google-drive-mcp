@@ -36,6 +36,9 @@ const (
 	secretFolder   = "Grimsby restructuring"
 	secretDrive    = "Sprawlmart acquisition"
 	secretEmail    = "hallucinated.person@example.com"
+	// A domain is its own kind of secret: sharing with one names an
+	// organisation even when it names no person.
+	secretDomain   = "quimby-restructuring.example"
 	secretPerson   = "Bartholomew Quimby"
 	secretQuery    = "Kwyjibo"
 	secretContent  = "the numbers nobody outside this room has seen"
@@ -104,13 +107,49 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	_, _ = svc.TrashFile(ctx, service.TrashInput{File: secretFileID})
 	_, _ = svc.RestoreFile(ctx, service.TrashInput{File: secretFileID})
 
+	// Access, shared drives and history. The sharing calls matter most
+	// here: they are the only ones that take an email address as an
+	// argument, so they are where one would reach a log.
+	_, _ = svc.ListPermissions(ctx, service.ListPermissionsInput{File: secretFileID})
+	_, _ = svc.ShareFile(ctx, service.ShareFileInput{
+		File: secretFileID, Principal: secretEmail, Role: "writer", Message: secretContent})
+	_, _ = svc.ShareFile(ctx, service.ShareFileInput{
+		File: secretFileID, Principal: "anyone", Role: "reader", AllowAnyone: true})
+	_, _ = svc.ShareFile(ctx, service.ShareFileInput{
+		File: secretFileID, Principal: "domain:" + secretDomain, Role: "reader"})
+	_, _ = svc.UnshareFile(ctx, service.UnshareFileInput{File: secretFileID, Principal: secretEmail})
+	_, _ = svc.UnshareFile(ctx, service.UnshareFileInput{File: secretFileID, RemoveLink: true})
+	_, _ = svc.ListDrives(ctx, service.ListDrivesInput{Name: secretDrive})
+	_, _ = svc.ManageDrive(ctx, service.ManageDriveInput{Action: "rename", Drive: secretDrive, Name: secretFolder})
+	_, _ = svc.ManageDrive(ctx, service.ManageDriveInput{Action: "create", Name: secretDrive + " II"})
+	_, _ = svc.ListRevisions(ctx, service.ListRevisionsInput{File: secretFileID})
+	_, _ = svc.ManageRevision(ctx, service.ManageRevisionInput{
+		File: secretFileID, Revision: fake.Revisions[secretFileID][0].ID, Action: "keep"})
+	_, _ = svc.ListChanges(ctx, service.ListChangesInput{})
+	_, _ = svc.ListChanges(ctx, service.ListChangesInput{PageToken: "0", Drive: secretDrive})
+
+	// The destructive surface logs too, and it is the one that issues
+	// DELETE. It runs on a copy, so the fixtures the assertions below
+	// need are still there.
+	destructive := service.New(api, service.Options{
+		Logger: logger, LocalDir: dir, Destructive: true,
+		Now: func() time.Time { return testNow },
+	})
+	doomed, err := destructive.CreateFile(ctx, service.CreateFileInput{
+		Name: secretFileName + " (doomed)", Content: secretContent})
+	if err == nil {
+		_, _ = destructive.DeleteFile(ctx, service.DeleteFileInput{
+			File: doomed.JSON.File.ID, Confirm: true})
+	}
+	_, _ = destructive.EmptyTrash(ctx, service.EmptyTrashInput{Drive: secretDrive, Confirm: true})
+
 	got := log.String()
 	if strings.TrimSpace(got) == "" {
 		t.Fatal("nothing was logged at debug level; this test would pass vacuously")
 	}
 	// The writes have to have reached the network, or this test proves
 	// only that calls which never happened logged nothing.
-	for _, method := range []string{"method=GET", "method=POST", "method=PATCH"} {
+	for _, method := range []string{"method=GET", "method=POST", "method=PATCH", "method=DELETE"} {
 		if !strings.Contains(got, method) {
 			t.Fatalf("no %s reached the log, so the write surface was not exercised:\n%s", method, got)
 		}
@@ -128,6 +167,7 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 		secretQuery:    "a search term",
 		secretContent:  "file content",
 		secretLocalOne: "a local file name",
+		secretDomain:   "a domain shared with",
 		dir:            "a local path",
 	}
 	for value, what := range forbidden {

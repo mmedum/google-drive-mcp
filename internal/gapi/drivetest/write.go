@@ -135,6 +135,7 @@ func (s *Server) createFile(meta *gdrive.FileMeta, contentType string, content [
 	if content != nil {
 		s.setContentLocked(f, content)
 	}
+	s.recordChangeLocked(f)
 	return f, nil
 }
 
@@ -238,6 +239,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request, id string)
 		s.setTrashedLocked(f, *meta.Trashed, true)
 	}
 	f.ModifiedTime = s.now().UTC().Format(time.RFC3339)
+	s.recordChangeLocked(f)
 	s.mu.Unlock()
 	writeJSON(w, s.project(f, q.Get("fields"), q.Get("includeLabels") != ""))
 }
@@ -441,6 +443,7 @@ func (s *Server) finishUpload(w http.ResponseWriter, fileID string,
 	}
 	s.setContentLocked(f, content)
 	f.ModifiedTime = s.now().UTC().Format(time.RFC3339)
+	s.recordChangeLocked(f)
 	s.mu.Unlock()
 	writeJSON(w, s.project(f, fields, false))
 }

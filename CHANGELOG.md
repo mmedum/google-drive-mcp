@@ -6,7 +6,202 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-05
+
+Access, shared drives and history — and the run that found what the tests
+could not. Twelve new tools, four of them registered only when the
+deployer asks and each needing `confirm: true` on the call as well.
+Verified against a real Google Workspace account over three runs: the
+first two reported "all calls behaved as expected" while three results
+were wrong, because a call succeeding and a call telling the truth are
+different questions.
+
+### Added
+
+- `list_permissions`: who can see a file or a shared drive, with each
+  grant's role in plain words, when it expires, whether it reaches people
+  by link or by search, and where it came from. An inherited shared-drive
+  grant says so and names its source, because that is the only place it
+  can be removed.
+- `share_file`: grant or change one principal's access, reporting who
+  could see the file before and who can see it after — the grant is the
+  small half of the answer. Granting to somebody who already has access
+  changes their role rather than adding a second grant. A link anyone can
+  open needs `allow_anyone: true`; handing over ownership needs
+  `transfer_ownership: true`. No notification mail unless `notify` is
+  set, which is the opposite of Drive's own default; where Google forces
+  it on, the result says so. An organisation's policy refusal comes back
+  as `[blocked]` with Google's own words and who set it.
+- `unshare_file`: revoke one grant, or the link that let anybody open it,
+  and say what access is left. An inherited grant is refused with its
+  source named, and an owner's access is not revoked but transferred.
+- `list_drives` and `manage_drive`: the shared drives this account can
+  see with what it may do in each, and create, rename, hide, unhide or
+  restrict one. Membership is not here — a member is a permission on the
+  drive, so `share_file` does it and one place decides who sees what.
+- `list_revisions` and `manage_revision`: a file's version history newest
+  first with the current version marked, and pinning so Drive does not
+  discard a version after thirty days. For a Google document the result
+  repeats Google's own caveat that the list can be incomplete.
+- `list_changes`: the changes feed. With no token it hands back the
+  starting point and says the feed has no beginning; with one it lists
+  what happened and carries the token for next time. A trashed file and
+  one that is gone for good read differently, because only one can be
+  undone.
+- Gated behind `GDRIVE_ENABLE_DESTRUCTIVE=true`: `delete_file`,
+  `empty_trash`, `delete_drive` and `delete_revision`. Each also needs
+  `confirm: true` on the call, because a registered tool is one a model
+  will reach for eventually. `empty_trash` is the only one that names no
+  item, so it reports how much is in the trash before destroying it.
+
 ### Fixed
+
+- **A file id spelling a sibling endpoint could turn a bounded delete
+  into an unbounded one.** Drive puts non-id endpoints under `/files` as
+  sibling segments, so `delete_file` on an id of `trash` would have built
+  `DELETE /files/trash` — `files.emptyTrash`, destroying an entire trash
+  instead of one file. `url.PathEscape` does not prevent it, because
+  every character in the word is legal in a path segment. Every
+  `/files/{id}` path now goes through one guard that refuses the reserved
+  segments; it was unreachable before only because a lookup two layers
+  above happened to fail first.
+- **Deleting the top of a drive is refused by this server, not only by
+  Google.** `root` is Drive's alias for My Drive's root folder and a
+  shared drive's id is its own root folder's id, so either could be
+  passed where a file was expected. Google refuses both through
+  `capabilities.canDelete`; a bounded call becoming an unbounded one must
+  not rest on a field the other side computes, so it is now refused here
+  as well, and a test asserts the refusal holds with the capabilities
+  stripped off.
+- **A throttled request could be classified as a permission error.**
+  Google spells one condition two ways — `rateLimitExceeded` in the
+  legacy error envelope and `RATE_LIMIT_EXCEEDED` in a
+  `google.rpc.ErrorInfo` detail — and this client prefers the detail
+  while comparing the camelCase spelling exactly, so every reason that
+  arrived the modern way missed. Reasons are now compared in a form that
+  folds both spellings. The in-memory Drive used to send the same string
+  in both places, which is why no test caught it; it now sends each in
+  its own spelling, as Google does.
+- **`dailyLimitExceeded` is recognised, and deliberately not retried.**
+  It is a 403 quota reason like the others, but backing off cannot free a
+  daily quota, so retrying only spent attempts and the advice "wait a
+  minute and try again" was false. It is reported as rate limiting with
+  what actually happened.
+- **A token refresh could hang for the life of the process.** The refresh
+  runs inside the oauth2 transport against the context the token source
+  was built with, so the per-request deadline never reached it, and
+  without a client of our own it used `http.DefaultClient`, which has no
+  timeout. `docs/security.md` claimed every token refresh ran under a
+  deadline; it does now, and so does `login`'s code exchange.
+- **A null entry in a Drive response could take the whole server down.**
+  JSON can carry a null in an array; `model.NewChange` returned nil for
+  one and the renderer dereferenced it. A malformed page now costs one
+  missing row rather than a SIGSEGV, guarded in the service and again in
+  the renderers, which are pure and are the last thing between a response
+  and the process. The same shape was closed for revisions and drives.
+- **`empty_trash` counted a different set of items than it deletes.** The
+  count listed everything trashed this account could see — a shared
+  drive's trash, and files owned by other people — while the call deletes
+  only this account's own trashed files. On an account with a busy shared
+  drive it could announce hundreds of items and destroy a dozen. It is
+  the one destructive call whose whole safety story is saying how much it
+  is about to destroy.
+- **An unreadable permission list was reported as "that grant does not
+  exist".** `unshare_file` swallowed a failed `permissions.list` and then
+  concluded nothing matched, telling the model a file was already
+  unshared when the truth was unknown — wrong in the direction that
+  matters. It now says what actually went wrong.
+- **`share_file` silently narrowed a link grant.** `discoverable` was a
+  plain bool, so "not passed" and "false" were the same request:
+  changing the role on a file that was findable by search quietly made it
+  by-link-only. It is a pointer now, and leaving it out keeps whatever
+  the grant has.
+- **An expiry could be set and moved but never removed.** `expires:
+  never` clears one; leaving `expires` out still means "do not touch it".
+- **A 429 could override the daily-quota decision.** The status was
+  consulted before the reason, so a 429 carrying `dailyLimitExceeded`
+  was retried through the whole backoff schedule — exactly the loop the
+  fix above exists to prevent. The reason decides; an unlabelled 429 is
+  still treated as a burst, which is the safe reading.
+- **The ownership-transfer note asserted a flow that had not been
+  observed.** It stated that a consumer account produces a pending
+  transfer; this server never sets `pendingOwner` and nobody has watched
+  Drive's behaviour here. The note now states the one certain
+  consequence — this account becomes a writer — and reports a pending
+  transfer only when the answer shows one. Spike F settles the rest.
+- **`manage_revision` rendered a poorer card when it worked than when it
+  did not.** The success path lost the followed shortcut and the shared
+  drive's name, so the same input described itself differently on the
+  second call.
+- **The first `list_changes` call contradicted itself**, saying "nothing
+  has changed since that token" about a call that named no token, which
+  reads as a completed poll.
+- **`manage_drive` with `action: restrict` and no restrictions** reported
+  that every restriction already had the value asked for, when none had
+  been asked for.
+- **`TestLogsCarryNoTraceOfWhatWasTouched` had stopped covering the whole
+  surface.** It was written for phase 1's tools and eight more were added
+  around it, including the only ones that take an email address as an
+  argument. It covers them now, a domain joined the forbidden fixtures,
+  and `method=DELETE` joined the assertion that the writes actually
+  reached the network. `docs/architecture.md` §17b had gone on claiming
+  otherwise.
+- **`goreleaser-action` was still not pinned.** `~> v2.18.0` reads like a
+  pin and is not: the action's own README says the input takes "a max
+  satisfying semver one", so any 2.18.x could decide what the release
+  artifacts are. It is `v2.18.0` now, with no operator. The narrowing
+  from `~> v2` had been recorded in the evidence log as a fix.
+
+### Fixed (found by the live runs, and confirmed fixed by a third)
+
+- **A file card showed the exposure the call had just changed.** The card
+  was rendered from the file read before the write, so `share_file` on a
+  private file reported `sharing: private to you` in the same result
+  whose change line said the file was now reachable by anyone with the
+  link. That line is the one a person checks to see what they just
+  exposed, and it was stale exactly when it mattered most. Both sharing
+  tools now render from the file as it is afterwards, which also replaces
+  the separate permission re-read they used to do.
+- **Removing the last grant reported "shared, but no grants are visible
+  to this account"** instead of "private to you", because the summary
+  was built from a fresh permission list and the stale file's `shared`
+  flag.
+- **An inherited grant on a My Drive file was blamed on a shared drive.**
+  The reference says `inheritedFrom` "is only populated for items in
+  shared drives", so an empty one means a folder above — not a drive.
+  Every My Drive file with an inherited grant said "inherited from the
+  shared drive", including the owner's own grant on a file that had never
+  been near one.
+- **The live driver could not tell a working changes feed from a broken
+  one.** Drive's feed is eventually consistent, and asking a second after
+  a write returned "0 changes" on two runs — which reads as a feed
+  working and reporting nothing. It now polls, and says which happened
+  rather than printing an empty answer and moving on. The feed does
+  work: the third run reported the change and handed back a fresh token.
+- **The live driver left a permission id unredacted.** A permission id
+  for a person is twenty digits with no letter, and the redactor's rule
+  required a capital and a digit. It identifies a Google account.
+
+### Added (tooling)
+
+- Spike F in the live driver now **reads the transfer back**. It records
+  the owner before, transfers, then reads the file again and compares:
+  a call that answers 200 and leaves the owner where it was looks
+  identical to one that worked, from the result alone. It reports three
+  outcomes — the owner changed, the owner did not change, or the file
+  could not be read back at all — because "unknown" and "it worked" must
+  not print the same. The owner is compared, never printed.
+
+- Both leak modes now fail rather than passing quietly when they find
+  nothing to scan. "I found nothing" and "I had nowhere to look" printed
+  the same sentence, so a gate run from the wrong directory would have
+  reported a clean tree for ever.
+- `gates pins`, in `make check` and in CI: every tool version a workflow
+  installs must be exactly one version. It exists because a comment could
+  not hold this shut — the comment beside the wrong value said which half
+  of the pin mattered, and the value was still a range. It rejects `~>`,
+  `^`, `latest` and a bare major, and fails rather than passing quietly
+  if it finds no workflows or no versions to check.
 
 - `gates leaks history` had never done the job its own documentation
   describes, in either direction. It scanned annotated tag objects
