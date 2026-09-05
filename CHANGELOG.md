@@ -142,6 +142,15 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   artifacts are. It is `v2.18.0` now, with no operator. The narrowing
   from `~> v2` had been recorded in the evidence log as a fix.
 
+### Added (tooling)
+
+- `gates pins`, in `make check` and in CI: every tool version a workflow
+  installs must be exactly one version. It exists because a comment could
+  not hold this shut — the comment beside the wrong value said which half
+  of the pin mattered, and the value was still a range. It rejects `~>`,
+  `^`, `latest` and a bare major, and fails rather than passing quietly
+  if it finds no workflows or no versions to check.
+
 - `gates leaks history` had never done the job its own documentation
   describes, in either direction. It scanned annotated tag objects
   including the `tagger` line git writes itself, so it failed on this
