@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 )
 
@@ -108,8 +109,6 @@ func (s *Server) serveReplies(w http.ResponseWriter, r *http.Request, fileID, co
 	switch {
 	case replyID == "" && r.Method == http.MethodPost:
 		s.handleCreateReply(w, r, fileID, commentID)
-	case replyID == "" && r.Method == http.MethodGet:
-		s.handleListReplies(w, fileID, commentID)
 	case r.Method == http.MethodPatch:
 		s.handleUpdateReply(w, r, fileID, commentID, replyID)
 	case r.Method == http.MethodDelete:
@@ -140,27 +139,10 @@ func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request, file
 	// paging honest.
 	sort.SliceStable(matched, func(i, j int) bool { return matched[i].CreatedTime < matched[j].CreatedTime })
 
-	pageSize := 20
-	if n, err := strconv.Atoi(q.Get("pageSize")); err == nil && n > 0 {
-		pageSize = n
-	}
-	if pageSize > 100 {
-		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid Value for pageSize")
+	start, end, ok := s.pageWindow(w, q, len(matched), gapi.DefaultCommentPageSize, gapi.MaxCommentPageSize)
+	if !ok {
 		return
 	}
-	start := 0
-	if tok := q.Get("pageToken"); tok != "" {
-		n, err := strconv.Atoi(strings.TrimPrefix(tok, "offset-"))
-		if err != nil {
-			s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid page token")
-			return
-		}
-		start = n
-	}
-	if start > len(matched) {
-		start = len(matched)
-	}
-	end := min(start+pageSize, len(matched))
 	page := gdrive.CommentList{Comments: append([]*gdrive.Comment{}, matched[start:end]...)}
 	if end < len(matched) {
 		page.NextPageToken = "offset-" + strconv.Itoa(end)
@@ -253,19 +235,6 @@ func (s *Server) handleDeleteComment(w http.ResponseWriter, fileID, commentID st
 	c.ModifiedTime = s.now().UTC().Format(time.RFC3339)
 	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) handleListReplies(w http.ResponseWriter, fileID, commentID string) {
-	s.mu.Lock()
-	c := s.commentLocked(fileID, commentID)
-	if c == nil {
-		s.mu.Unlock()
-		s.errorJSON(w, http.StatusNotFound, "notFound", "Comment not found: "+commentID+".")
-		return
-	}
-	out := gdrive.ReplyList{Replies: append([]*gdrive.Reply{}, c.Replies...)}
-	s.mu.Unlock()
-	writeJSON(w, out)
 }
 
 func (s *Server) handleCreateReply(w http.ResponseWriter, r *http.Request, fileID, commentID string) {

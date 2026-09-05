@@ -43,7 +43,7 @@ func (s *Service) ListAccessRequests(ctx context.Context, in ListAccessRequestsI
 			model.Plural(len(reqs), "pending access request", "pending access requests")),
 		Location:   s.Location(ctx, f).String(),
 		Now:        s.now(),
-		CanShare:   f.Capabilities == nil || f.Capabilities.CanShare,
+		CanShare:   model.CanShare(f),
 		SharingOff: s.opts.Sharing == config.SharingOff,
 	}), nil
 }
@@ -108,7 +108,7 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 		return nil, err
 	}
 	f := res.File
-	if f.Capabilities != nil && !f.Capabilities.CanShare {
+	if !model.CanShare(f) {
 		return nil, Errorf(ClassForbidden, "this account cannot change who may see %s, so it cannot answer "+
 			"a request for access to it either.", f.Name)
 	}

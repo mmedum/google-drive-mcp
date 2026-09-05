@@ -468,4 +468,9 @@ var exportFormatsFor = map[string][]string{
 	gdrive.MimeSlides: {"application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		"application/vnd.oasis.opendocument.presentation", "text/plain"},
 	gdrive.MimeDrawing: {"application/pdf", "image/jpeg", "image/png", "image/svg+xml"},
+	// An Apps Script project exports as its own JSON and nothing else.
+	// The fake did not offer it, so a read of one was refused here and
+	// allowed by Drive — found by the test that holds internal/mediatype
+	// against what read_file actually does.
+	gdrive.MimeScript: {"application/vnd.google-apps.script+json"},
 }

@@ -35,7 +35,7 @@ func (h *harness) call(tool string, args map[string]any) (string, error) {
 		return "", err
 	}
 	if isError {
-		return text, fmt.Errorf("%s refused: %s", tool, firstLine(text))
+		return text, fmt.Errorf("%s refused: %s", tool, mcpstdio.FirstLine(text))
 	}
 	return text, nil
 }
@@ -48,26 +48,6 @@ func (h *harness) mustCall(tool string, args map[string]any) (string, error) {
 		return "", fmt.Errorf("setting the task up: %w", err)
 	}
 	return out, nil
-}
-
-// idIn reads the "id: …" line a card carries. Every write and every
-// get_file prints one, and it is how a setup step hands an id to the
-// checks that come after.
-var idLine = regexp.MustCompile(`(?m)^id:\s*(\S+)\s*$`)
-
-func idIn(card string) string {
-	m := idLine.FindStringSubmatch(card)
-	if len(m) < 2 {
-		return ""
-	}
-	return m[1]
-}
-
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
 }
 
 // placeholder matches the {name} a prompt substitutes a value into.
@@ -125,7 +105,7 @@ func run(o options) error {
 	if err != nil {
 		return err
 	}
-	h.folder = idIn(made)
+	h.folder = mcpstdio.IDIn(made)
 	if h.folder == "" {
 		return errors.New("could not read the scratch folder's id out of create_folder's result")
 	}

@@ -28,7 +28,7 @@ func (c *Client) StartPageToken(ctx context.Context, driveID string) (string, er
 		v.Set("driveId", driveID)
 	}
 	u := c.base + "/changes/startPageToken?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u})
 	if err != nil {
 		return "", err
 	}
@@ -89,7 +89,7 @@ func (c *Client) ListChanges(ctx context.Context, o ListChangesOptions) (*gdrive
 	}
 	v.Set("fields", ChangeFields)
 	u := c.base + "/changes?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
 	}

@@ -119,7 +119,6 @@ func fastest(best, got time.Duration) time.Duration {
 
 func BenchmarkFileCard(b *testing.B) {
 	card := sheet()
-	now := time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
 	for b.Loop() {
 		if out := FileCard(card, FileCardOptions{Now: now}); out == "" {
 			b.Fatal("empty")

@@ -1231,6 +1231,43 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   `service.OrderBys()`, which closes the hole; composing the descriptions
   after `mcp.AddTool` would close the duplication as well, and is worth
   doing once several more tools take a `file`.
+- **A recursive copy writes its tree one item at a time.** The plan is
+  breadth first, so every sibling under a folder that already exists is
+  independent and only the parent-to-child edge is a real dependency; a
+  two-hundred-item copy is therefore two hundred round trips in series,
+  which at a Drive write's latency is around a minute. A fan-out per
+  level would cut it to roughly the depth. It is not done for the same
+  reason as the entry below — the failure list and the "finish and say
+  exactly what did not make it" contract become shared mutable state —
+  and it belongs with that one, because the fix is the same fix. Raised
+  by the phase-3 review.
+- **A sharing write builds the file's model twice.** `rereadAfterSharing`
+  ends by building one to read the exposure off it, and the result then
+  builds another from the same resolved file. On a shared-drive item each
+  costs a `permissions.list`, so an accepted access request or a share
+  there is one round trip more than it needs. The fix is for the reread
+  to hand its model on, which is a signature change through the share,
+  unshare and access-request paths — worth doing, and worth doing with a
+  live run after it rather than at the end of a phase. Raised by the
+  phase-3 review.
+- **A pre-generated id's rule is consulted in two places.** `assignIDFor`
+  decides for a single create and `idPool` decides for a tree, and both
+  ask `gapi.AcceptsGeneratedID`. The duplication is not free but it is
+  not removable for nothing either: a pool must count how many ids it
+  will use before it asks for them, which is the same predicate by
+  necessity. One id source on the service — take one, or prime a
+  batch — would make it one call site. Raised by the phase-3 review.
+- **`readPlan` states which kinds have a text form, and so does the
+  registry.** `internal/mediatype` records a `ReadAs` per kind and
+  `service.readPlan` switches on the media type to build the plan around
+  it, so the set of readable kinds is written twice. They cannot disagree
+  silently any more — a test reads every entry with a `ReadAs` through
+  `read_file`, and found the fake refusing an Apps Script export Drive
+  allows — but the switch is still where a new readable kind has to be
+  added second. Moving the rest of a plan into the registry (the accepted
+  format alternatives, the note, the display name of the format) would
+  make it one place; it puts user-facing prose into a leaf table, which
+  is the trade to weigh. Raised by the phase-3 review.
 - **Bounded concurrency for listings**, still open, and the phase-3
   benchmarks did not settle it. A tree walk issues one `files.list` per
   folder in series and a search page up to twenty `files.get` in series,
@@ -1243,6 +1280,17 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   measurement against Drive. The design constraint stands: the shared
   item budget becomes shared mutable state the moment the walk is
   concurrent.
+- **The three sharing writes repeat their prelude.** `share_file`,
+  `unshare_file` and `resolve_access_request` each resolve fresh, check
+  `capabilities.canShare`, and read the exposure before — by hand, in
+  that order, three times. The predicate itself is now one function
+  (`model.CanShare`), which was the half worth doing immediately; the
+  prelude is not, and "check canShare before any sharing write" is still
+  enforced by whoever remembers. A `sharingTarget` helper returning the
+  resolved file and the exposure before would make the rule structural
+  rather than remembered. Raised by the phase-3 review, and the reason it
+  waits is that it changes the flow of two tools that are already
+  verified live.
 - **`model.Account`.** `render.Account` is the only place outside
   `internal/gdrive`'s own users that touches a wire type, and it parses
   Drive's stringified int64 storage counts itself. The tool-surface half

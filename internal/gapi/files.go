@@ -38,7 +38,7 @@ const MaxPageSize = 1000
 func (c *Client) About(ctx context.Context) (*gdrive.About, error) {
 	u := c.base + "/about?fields=" + url.QueryEscape(
 		"user(displayName,emailAddress,permissionId),storageQuota,canCreateDrives,maxUploadSize,importFormats")
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func (c *Client) GetFile(ctx context.Context, id string, o GetFileOptions) (*gdr
 		return nil, err
 	}
 	u := c.base + "/files/" + segment + "?" + q.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{id}})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: []string{id}})
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func (c *Client) ListFiles(ctx context.Context, lq ListQuery) (*gdrive.FileList,
 		v.Set("spaces", lq.Spaces)
 	}
 	u := c.base + "/files?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: lq.ResourceIDs})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: lq.ResourceIDs})
 	if err != nil {
 		return nil, err
 	}
@@ -197,14 +197,13 @@ func (c *Client) GenerateIDs(ctx context.Context, count int) ([]string, error) {
 	v.Set("space", "drive")
 	v.Set("type", "files")
 	u := c.base + "/files/generateIds?" + v.Encode()
-	// kindRead, and kindRead now grants a retry, so this is the one call
-	// worth justifying: it is the only request here that is not a plain
-	// read, because it allocates. Repeating it is still safe — a second
-	// attempt hands back different ids and the unused ones cost nothing,
-	// since an id becomes a file only when a create carries it. A later
-	// call that allocates something with a cost must not borrow the
-	// label.
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
+	// A GET, so it takes the read budget and may be repeated — and it is
+	// the one call here that is not a plain read, because it allocates.
+	// Repeating it is still safe: a second attempt hands back different
+	// ids and the unused ones cost nothing, since an id becomes a file
+	// only when a create carries it. A later call that allocates
+	// something with a cost must not simply inherit this.
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +240,7 @@ func (c *Client) ListPermissions(ctx context.Context, fileID string) ([]*gdrive.
 			v.Set("pageToken", pageToken)
 		}
 		u := c.base + "/files/" + segment + "/permissions?" + v.Encode()
-		body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
+		body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
 		if err != nil {
 			return nil, err
 		}
@@ -332,7 +331,7 @@ func (c *Client) writeFile(ctx context.Context, method, u string, meta *gdrive.F
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.do(ctx, request{kind: kindWrite, method: method, url: u,
+	body, err := c.do(ctx, request{method: method, url: u,
 		body: payload, resourceIDs: ids, idempotent: carriesID(meta)})
 	if err != nil {
 		return nil, err
