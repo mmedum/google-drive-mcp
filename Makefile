@@ -59,6 +59,10 @@ integration: ## Live tests against the signed-in account (writes nothing yet)
 live: build ## Drive the binary against the signed-in Google account (redacted)
 	$(GO) run ./scripts/livedrive -bin $(BIN) $(LIVE_ARGS)
 
+.PHONY: evals
+evals: build ## Agent evals against the signed-in account, in one scratch folder
+	$(GO) run ./scripts/evals -bin $(BIN)
+
 .PHONY: bench
 bench: ## Benchmarks over the in-memory Drive
 	$(GO) test -run XXX -bench . -benchmem ./internal/ref ./internal/render ./internal/service
