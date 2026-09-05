@@ -40,7 +40,15 @@ test: ## Unit tests with race detector and coverage
 
 .PHONY: cover
 cover: test ## Enforce the coverage floor on core packages
-	@bash scripts/coverage-check.sh cov.out $(COVER_MIN)
+	$(GO) run ./scripts/gates coverage cov.out $(COVER_MIN)
+
+.PHONY: hooks
+hooks: ## Install the git pre-commit hook
+	$(GO) run ./scripts/gates install-hooks
+
+.PHONY: live
+live: build ## Drive the binary against the signed-in Google account (redacted)
+	$(GO) run ./scripts/livedrive -bin $(BIN) $(LIVE_ARGS)
 
 .PHONY: bench
 bench: ## Benchmarks over the in-memory Drive
@@ -60,15 +68,15 @@ schemas: build ## Dump tool schemas
 
 .PHONY: schema-diff
 schema-diff: build ## Diff tool schemas against the last tag
-	@bash scripts/schema-diff.sh $(BIN)
+	$(GO) run ./scripts/gates schema-diff $(BIN)
 
 .PHONY: smoke
 smoke: build ## Drive the binary over stdio
-	@bash scripts/stdio-smoke.sh $(BIN)
+	$(GO) run ./scripts/gates smoke $(BIN)
 
 .PHONY: staleness
 staleness: build ## Docs must match the code
-	@bash scripts/staleness-check.sh $(BIN)
+	$(GO) run ./scripts/gates staleness $(BIN)
 
 .PHONY: check
 check: fmt vet lint cover vuln smoke staleness ## Everything CI runs

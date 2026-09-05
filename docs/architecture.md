@@ -224,18 +224,30 @@ internal/tools/           one file per area: files.go, content.go, organise.go, 
                           history.go, comments.go, resources.go, tools.go
 internal/version/
 testdata/                 synthetic fixtures (§14) and golden outputs
-docs/  scripts/
+docs/
+scripts/gates/            the repository's own checks, as Go: coverage floor, schema diff,
+                          stdio smoke, staleness, pre-commit; never shipped
+scripts/livedrive/        drives the built binary against a real account, redacting ids,
+                          links and addresses before anything is printed
 ```
+
+**One language.** Everything the repository runs on itself is Go. The
+gates were shell with Python embedded in them at first; that put a second
+toolchain on `make check` for JSON parsing Go does natively, and left the
+code holding the gates shut as the only code in the repository that was
+neither vetted, linted nor tested. As Go packages under `scripts/` they
+are all three, and a contributor needs one toolchain.
 
 Dependencies, all pinned: `modelcontextprotocol/go-sdk` v1.7.0 (with
 `google/jsonschema-go`), `golang.org/x/oauth2` v0.36.0,
 `zalando/go-keyring` v0.2.8, `golang.org/x/time` v0.15.0. Nothing else.
 There is no markdown here to parse and no diff to compute.
 
-**Scaffolding.** The Makefile, the four scripts (coverage floor, schema
-diff, staleness check, stdio smoke), `.golangci.yml`, the CI, CodeQL and
+**Scaffolding.** The Makefile, the gates under `scripts/gates` (coverage
+floor, schema diff, staleness check, stdio smoke, and the pre-commit
+hook they install), `.golangci.yml`, the CI, CodeQL and
 release workflows, `.goreleaser.yaml`, `.gitleaks.toml`,
-`.pre-commit-config.yaml`, Dependabot, the issue templates,
+Dependabot, the issue templates,
 `.gitattributes`, `.gitignore`, `SECURITY.md`, `CONTRIBUTING.md` and
 `docs/development.md` are written in Phase 0, before the first tool, so
 every later commit passes through the same gates (§12, §13). The
@@ -744,13 +756,13 @@ before and after summaries.
   address uses `GDRIVE_TEST_SHARE_WITH` from the environment and is
   skipped when unset. Access requests need a request made in the UI and
   are checked by hand. Ids and emails go only to the terminal.
-- **Live driver** `scripts/live-drive.py`: every tool and every action
+- **Live driver** `scripts/livedrive`: every tool and every action
   over stdio against the scratch folder, with ids, URLs and addresses
   replaced by placeholders before anything is printed. Run with each
   `GDRIVE_SHARING`
   value and with `GDRIVE_ENABLE_DESTRUCTIVE` on and off before a phase is
   called done. Every `isError=True` must be an expected refusal.
-- **Agent evals** `scripts/evals/run.py` (Phase 3), about twelve tasks
+- **Agent evals** `scripts/evals` (Phase 3), about twelve tasks
   through `claude -p` with only this server's tools: find a file and say
   who can see it; build a folder structure and move files into it; share
   with someone as commenter without emailing them; download a PDF; upload
@@ -1014,4 +1026,5 @@ was checked rather than assumed.
 | An empty permission list means the file has no grants (implied by the API's shape) | Refuted in the phase-0 review: a list that was read and is empty, and one this account may not read, were the same `nil`. A shared-drive file with no grants of its own was reported as "sharing unknown" instead of "everyone with access to the drive can see it", understating exposure — the one direction §9 exists to prevent | `permissionsFor` returns whether the list was read at all, and `NewSharing` takes it as an argument |
 | Rate limiting only has to gate the first attempt of a call | Refuted in the phase-0 review: retries are triggered by 429 and by Google's three rate-limit reasons, so exempting them pushes hardest exactly when Drive has asked for less. Four of five attempts bypassed the limiter | The limiter is taken inside the retry loop, once per attempt |
 | An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
+| Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
 | Direct pushes to `main` by the maintainer are fine for a one-person project | Rejected: `main` is released code, and a rule with an exception for the person who releases is not a rule; Scorecard's Branch-Protection asks for pull requests gated by a passing check, and its two-reviewer tier cannot apply to a single maintainer | Pull requests required with CI green on three platforms as the gate; the review count does not apply; tags pushed directly, one at a time |

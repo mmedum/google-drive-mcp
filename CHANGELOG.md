@@ -44,10 +44,14 @@ account and reference machinery, and the four read tools.
   file, one permission per principal, and per-request failure injection.
 - The scaffolding: Makefile, golangci-lint, govulncheck, go-licenses,
   gitleaks, GoReleaser, CI on Linux, macOS and Windows, CodeQL,
-  Dependabot, the release workflow with Sigstore signing and build
-  provenance, and the four gate scripts (coverage floor, schema diff,
-  staleness, stdio smoke).
-- `scripts/live-drive.py`, which drives the server over stdio against a
+  Dependabot, and the release workflow with Sigstore signing and build
+  provenance.
+- `scripts/gates`, the repository's own checks as Go: the coverage floor,
+  the tool-schema diff against the last tag, the stdio smoke test, the
+  staleness check, and the pre-commit hook `make hooks` installs. Go is
+  the only toolchain a contributor needs, and the code holding the gates
+  shut is built, vetted, linted and tested like everything else.
+- `scripts/livedrive`, which drives the built binary over stdio against a
   real account and replaces ids, links and addresses with stable
   placeholders before printing anything.
 

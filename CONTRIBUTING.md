@@ -51,7 +51,10 @@ make check
 
 runs gofmt, go vet, golangci-lint, the tests with the race detector and
 an 80% coverage floor on core packages, govulncheck, the stdio smoke test
-and the staleness check. Also:
+and the staleness check. Everything it runs is Go: the gates live in
+`scripts/gates`, so they are built, vetted, linted and tested like the
+rest. `make hooks` installs a pre-commit hook that runs the fast ones.
+Also:
 
 - Add or update tests (golden files with `go test ./internal/render -update`).
 - Update `README.md`, `docs/`, and `CHANGELOG.md` under `[Unreleased]`
