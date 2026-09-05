@@ -217,6 +217,8 @@ internal/userconfig/      non-secret profile file: client_secret path, account e
 internal/auth/            loopback OAuth (127.0.0.1:<random>, PKCE), scope sets (full / read-only / labels)
 internal/gdrive/          Drive API wire types (File, Permission, Revision, Comment, Reply, Drive, Change,
                           About, AccessProposal, Label, Operation), no dependencies
+internal/mediatype/       what a media type means, in one table: display name, kind filter, export
+                          name, the format a read takes, the format a download defaults to
 internal/gapi/            raw REST client: client.go (retry, limiters, slog, host allowlist, resource
                           keys), files.go, upload.go (multipart, resumable), download.go (streaming,
                           Range, md5), permissions.go, drives.go, revisions.go, comments.go,
@@ -233,16 +235,21 @@ internal/render/          text renderers: file card, listing, tree, permissions,
 internal/service/         orchestration: resolve refs and paths (short cache), search, listing and
                           walking, content in and out, organising, the sharing policy, trash, drives,
                           history, comments, access requests, labels
-internal/server/          SDK wiring; schema dump through an in-memory client session
+internal/server/          SDK wiring; the gdrive:// resource templates; schema dump through an
+                          in-memory client session
 internal/tools/           one file per area: files.go, content.go, organise.go, access.go, drives.go,
                           history.go, comments.go, resources.go, tools.go
 internal/version/
 testdata/                 synthetic fixtures (§14) and golden outputs
 docs/
 scripts/gates/            the repository's own checks, as Go: coverage floor, schema diff,
-                          stdio smoke, staleness, pre-commit; never shipped
+                          stdio smoke, staleness, leaks, pins, error classes, pre-commit;
+                          never shipped
 scripts/livedrive/        drives the built binary against a real account, redacting ids,
                           links and addresses before anything is printed
+scripts/evals/            drives an agent against the built binary and scores the end state
+                          and the trace
+scripts/internal/         the stdio client and the redactor those two share
 ```
 
 **One language.** Everything the repository runs on itself is Go. The

@@ -31,8 +31,8 @@ make check
 runs, in order: gofmt, `go vet` (including the integration-tagged tests,
 so they keep compiling), golangci-lint, the tests with the race detector
 and an 80% statement-coverage floor per core package, govulncheck, the
-stdio smoke test, the pin check, and the staleness check. It is the
-definition of done,
+licence check, the leak check, the pin check, the error-class check, the
+stdio smoke test and the staleness check. It is the definition of done,
 and CI runs the same gates on Linux, macOS and Windows.
 
 Individually:
@@ -49,8 +49,16 @@ make schemas        # write schemas.json
 make schema-diff    # compare the tool surface with the last tag
 make staleness      # docs must match the code
 make pins           # every tool a workflow installs is one exact version
-make bench
+make gate-classes   # the error classes the code emits are the ones it declares
+make bench          # the numbers in §11 of docs/architecture.md
+make evals          # thirteen agent tasks against the signed-in account
 ```
+
+`make bench` and `make evals` are not part of `make check`: the first
+measures rather than judges, and the second needs a signed-in account,
+the `claude` command, and several minutes. The targets `make check`
+enforces are the call counts and the memory ceiling, which are ordinary
+tests.
 
 ## Tests
 
@@ -136,6 +144,27 @@ by stable placeholders, so a transcript can go into an issue or a commit
 message. `-raw` turns that off; do not use it in a terminal you are
 sharing. A phase is not done until this has run.
 
+**Read the transcript, not its verdict.** Two runs in phase 2 reported
+"all calls behaved as expected" while three results were wrong, and one
+in phase 3 reported it while every `add_comment` was failing. The driver
+checks whether a call succeeded and whether an expected refusal arrived;
+whether the answer was *true* is still a person's job.
+
+### The agent evals
+
+```
+make evals                                          # or:
+go run ./scripts/evals -bin ./google-drive-mcp -only share-as-commenter-quietly
+```
+
+Thirteen tasks through `claude -p` with only this server's tools, scored
+on the end state read back through the server and on the trace: an id no
+result ever handed the agent is a failure, and so is `allow_anyone` on a
+task that asked for one person. Everything happens in one scratch folder,
+which is trashed at the end. It needs the `claude` command on PATH and a
+signed-in account, and it costs real tokens, so it is not in `make
+check`.
+
 ## Layout
 
 See `docs/architecture.md` §5. The short version:
@@ -147,13 +176,18 @@ internal/credentials/     refresh token: keyring, then file, then env
 internal/userconfig/      the non-secret profile file
 internal/auth/            loopback OAuth with PKCE
 internal/gdrive/          Drive API wire types, no dependencies
+internal/mediatype/       what a media type means: name, filter, formats
 internal/gapi/            the raw REST client, and drivetest beneath it
 internal/ref/             references and paths, parsing only
 internal/model/           the server's view of a file
 internal/render/          text output
 internal/service/         orchestration and policy
 internal/tools/           MCP tools
-internal/server/          SDK wiring and the schema dump
+internal/server/          SDK wiring, the gdrive:// resources, schema dump
+scripts/gates/            the repository's own checks
+scripts/livedrive/        the live driver
+scripts/evals/            the agent evals
+scripts/internal/         the stdio client and the redactor they share
 ```
 
 Dependency direction runs one way: `tools` → `service` → `gapi` →
