@@ -18,6 +18,12 @@
 //
 //	go run ./scripts/livedrive -bin ./google-drive-mcp -write -parent /Scratch
 //
+// -share SOMEONE@EXAMPLE.COM adds the sharing calls that need a second
+// person, including the ownership transfer of spike F. The transfer is
+// made on a file created for it, and it CANNOT be undone from this
+// account: trashing the scratch folder does not take back a file whose
+// owner is now somebody else.
+//
 // -raw turns redaction off. Do not use it in a terminal you are sharing.
 package main
 
@@ -35,10 +41,11 @@ func main() {
 	write := flag.Bool("write", false, "also exercise every tool that changes Drive, in one scratch folder that is trashed afterwards")
 	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
 	drive := flag.String("drive", "", "a shared drive to move a file into and out of, by name or id; empty skips that half")
+	share := flag.String("share", "", "an address to grant access to, for the half of sharing that needs a second person (spike F included); empty skips it")
 	flag.Parse()
 
 	if err := run(options{binary: *binary, file: *file, raw: *raw, write: *write,
-		parent: *parent, drive: *drive}); err != nil {
+		parent: *parent, drive: *drive, share: *share}); err != nil {
 		fmt.Fprintln(os.Stderr, "livedrive: "+err.Error())
 		os.Exit(1)
 	}
@@ -62,6 +69,7 @@ type options struct {
 	write  bool
 	parent string
 	drive  string
+	share  string
 }
 
 func run(o options) error {
@@ -131,7 +139,7 @@ func run(o options) error {
 		fmt.Println("\n(pass -file REF to also exercise get_file and a recursive listing)")
 	}
 	if o.write {
-		failures, err := runWrites(session, redact, dir, o.parent, o.drive)
+		failures, err := runWrites(session, redact, dir, o.parent, o.drive, o.share)
 		unexpected += failures
 		if err != nil {
 			return err

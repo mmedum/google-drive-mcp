@@ -36,10 +36,19 @@ var (
 )
 
 // Google's documented error reasons that this server branches on.
+//
+// They are compared through sameReason, never with ==, because Google
+// spells one condition two ways: the legacy `error.errors[].reason`
+// envelope is camelCase and a `google.rpc.ErrorInfo` detail is
+// UPPER_SNAKE_CASE. parseAPIError prefers the ErrorInfo detail, so an
+// exact camelCase comparison would miss every reason that arrived the
+// modern way — classifying a throttled read as a permission error, which
+// is the failure this vocabulary exists to prevent.
 const (
 	reasonRateLimit               = "rateLimitExceeded"
 	reasonUserRateLimit           = "userRateLimitExceeded"
 	reasonSharingRateLimit        = "sharingRateLimitExceeded"
+	reasonDailyLimit              = "dailyLimitExceeded"
 	reasonDomainPolicy            = "domainPolicy"
 	reasonInvalidSharing          = "invalidSharingRequest"
 	reasonShareOutBlocked         = "shareOutNotPermittedForContent"
@@ -92,22 +101,23 @@ func (e *APIError) Unwrap() error {
 	switch {
 	case e.Status == 401:
 		return ErrUnauthorized
-	case e.Reason == reasonScopeInsufficient || strings.Contains(msg, "insufficient authentication scopes"):
+	case sameReason(e.Reason, reasonScopeInsufficient) || strings.Contains(msg, "insufficient authentication scopes"):
 		return ErrMissingScope
 
 	// A 403 is Google's answer to three unrelated things: too many
 	// requests, a policy refusal, and a plain lack of rights.
-	case e.Status == 403 && (e.Reason == reasonRateLimit || e.Reason == reasonUserRateLimit || e.Reason == reasonSharingRateLimit):
+	case e.Status == 403 && rateLimitedReason(e.Reason):
 		return ErrRateLimited
-	case e.Reason == reasonDomainPolicy || e.Reason == reasonInvalidSharing || e.Reason == reasonShareOutBlocked:
+	case sameReason(e.Reason, reasonDomainPolicy) || sameReason(e.Reason, reasonInvalidSharing) ||
+		sameReason(e.Reason, reasonShareOutBlocked):
 		return ErrBlocked
-	case e.Status == 403 && e.Reason == reasonStorageFull:
+	case e.Status == 403 && sameReason(e.Reason, reasonStorageFull):
 		return ErrInvalid
 	// Drive answers a structural refusal — moving a My Drive folder into
 	// a shared drive — with a 403 as well, so the reason has to be read
 	// before the status: "you may not" and "this cannot be done" lead a
 	// model to different next steps.
-	case e.Reason == reasonFolderMove:
+	case sameReason(e.Reason, reasonFolderMove):
 		return ErrUnsupported
 	case e.Status == 403:
 		return ErrForbidden
@@ -129,7 +139,7 @@ func (e *APIError) Unwrap() error {
 	case e.Status >= 500:
 		return ErrServer
 
-	case e.Status == 400 && e.Reason == reasonDuplicate:
+	case e.Status == 400 && sameReason(e.Reason, reasonDuplicate):
 		return ErrExists
 	case e.Status == 400:
 		return ErrInvalid
@@ -141,14 +151,62 @@ func (e *APIError) Unwrap() error {
 // file; the caller may retry with acknowledgeAbuse.
 func IsAbuse(err error) bool {
 	var e *APIError
-	return errors.As(err, &e) && e.Reason == reasonAbuse
+	return errors.As(err, &e) && sameReason(e.Reason, reasonAbuse)
 }
 
 // IsNotOwner reports whether Drive refused because only the owner may do
 // this, which is how My Drive trashing works.
 func IsNotOwner(err error) bool {
 	var e *APIError
-	return errors.As(err, &e) && e.Reason == reasonInsufficientPerm
+	return errors.As(err, &e) && sameReason(e.Reason, reasonInsufficientPerm)
+}
+
+// IsDailyQuota reports whether Google refused because a daily quota is
+// spent. It is worth telling apart from a burst: the advice is different
+// and so is the wait.
+func IsDailyQuota(err error) bool {
+	var e *APIError
+	return errors.As(err, &e) && sameReason(e.Reason, reasonDailyLimit)
+}
+
+// rateReasons are the 403 reasons that mean "too many requests", mapped
+// to whether backing off can help. Three of them are a burst this
+// account is being throttled for, and waiting is exactly the answer. The
+// fourth is a daily project quota: no amount of backing off frees it
+// before it resets, and retrying sends a model round a loop until the
+// quota's own clock rolls over.
+var rateReasons = map[string]bool{
+	normalReason(reasonRateLimit):        true,
+	normalReason(reasonUserRateLimit):    true,
+	normalReason(reasonSharingRateLimit): true,
+	normalReason(reasonDailyLimit):       false,
+}
+
+// isRateReason reports whether a reason means the request was throttled,
+// and whether waiting and trying again can help.
+func isRateReason(reason string) (rateLimited, backoffHelps bool) {
+	helps, ok := rateReasons[normalReason(reason)]
+	return ok, helps
+}
+
+// rateLimitedReason reports whether a reason means throttled at all,
+// whatever the answer about waiting.
+func rateLimitedReason(reason string) bool {
+	rateLimited, _ := isRateReason(reason)
+	return rateLimited
+}
+
+// sameReason compares a reason Google sent against one this package
+// names, in whichever of the two spellings it arrived.
+func sameReason(got, want string) bool {
+	return got != "" && normalReason(got) == normalReason(want)
+}
+
+// normalReason folds the two spellings onto one key. Nothing displays
+// this form: APIError.Reason keeps whatever Google actually sent, which
+// is what a log line and a message have to carry.
+func normalReason(s string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), "_", ""))
 }
 
 // Reason returns Google's machine-readable reason, or "".

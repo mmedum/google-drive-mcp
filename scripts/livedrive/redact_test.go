@@ -131,3 +131,29 @@ func TestLinksAreRedactedWholeNotJustTheirIds(t *testing.T) {
 		t.Errorf("a link should become one placeholder, got %q", got)
 	}
 }
+
+func TestFirstRevisionReadsTheIDOutOfAListing(t *testing.T) {
+	// The parser is only ever run against this renderer's output, so the
+	// shape it expects is worth pinning: a subject line, then rows whose
+	// second field is a date, then prose.
+	listing := "rows.csv — csv: 2 revisions\n" +
+		"id-revision-b  2026-03-04 09:05Z (2 days ago) by Test Person (you)  1.2 KiB  current\n" +
+		"id-revision-a  2026-03-04 09:00Z (2 days ago) by Test Person (you)  1.0 KiB\n" +
+		"Drive discards a revision 30 days after it stops being current unless it is kept forever\n"
+	got := ""
+	for _, line := range strings.Split(listing, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && looksLikeDate(fields[1]) {
+			got = fields[0]
+			break
+		}
+	}
+	if got != "id-revision-b" {
+		t.Errorf("first revision = %q, want the newest row's id", got)
+	}
+	for _, not := range []string{"rows.csv", "2026-3-4", "09:00Z", ""} {
+		if looksLikeDate(not) {
+			t.Errorf("looksLikeDate(%q) = true", not)
+		}
+	}
+}

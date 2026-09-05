@@ -1,22 +1,28 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 1 complete (2026-09-05), released as v0.1.0. Sixteen
-tools: phase 0's four reads plus `read_file`, `download_file`,
-`create_file`, `upload_file`, `update_content`, `create_folder`,
-`update_file`, `move_file`, `copy_file`, `create_shortcut`, `trash_file`
-and `restore_file`, with local-directory confinement, the duplicate-name
-guard, and the transfer half of `gapi` — ranged streaming downloads,
-exports, and resumable uploads that recover through the protocol.
-Verified live against a Workspace account: 67 calls covering every tool,
-including a 6 MiB upload through the resumable path returning
-byte-identical, and ten refusals. That run is spike C, and with a shared
-drive named it is the write half of spike E as well: a file moved in and
-back out, and the folder-move refusal seen for real. The live runs
-refuted five things this document asserted, two of them making a tool
-fail outright (§18). Phase 2 begins on an explicit go. §16 has the
-phase plan, §17 the decisions that are not to be reopened, §17a the
-deferred cleanups, §17b where this repository differs from the shared
-standard, and §18 the evidence log.
+**Status:** phase 2 code complete (2026-09-05), not yet released or
+verified live. Twenty-four registered tools: phase 1's sixteen plus
+`list_permissions`, `share_file`, `unshare_file`, `list_drives`,
+`manage_drive`, `list_revisions`, `manage_revision` and `list_changes`,
+with four more — `delete_file`, `empty_trash`, `delete_drive`,
+`delete_revision` — registered only under
+`GDRIVE_ENABLE_DESTRUCTIVE=true` and each needing `confirm: true` on the
+call as well. The sharing policy of §7.4 is implemented: a
+`capabilities.canShare` check first, exposure before and after,
+`allow_anyone` and `transfer_ownership` as per-call acknowledgements, no
+notification mail by default, and Google's policy refusals mapped to
+`[blocked]`. The fake grew the sharing matrix, inherited shared-drive
+grants and a changes feed.
+
+**What phase 2 still owes:** the live run against a scratch folder and a
+scratch shared drive, including spike F (ownership transfer) and a share
+the organisation's policy blocks; then the release. Checking the Drive v3
+discovery document before writing the client corrected four things this
+document and the code had from memory, and a review from outside found
+five more, three of which were live defects (§18). §16 has the phase
+plan, §17 the decisions that are not to be reopened, §17a the deferred
+cleanups, §17b where this repository differs from the shared standard,
+and §18 the evidence log.
 
 This document is the plan. It is written so that whoever picks the work
 up can start from the repository alone: read the status line above, §16
@@ -919,15 +925,38 @@ file into a shared drive and back out, and the folder-move refusal. That
 part says loudly if the move back fails, because it is the only thing
 trashing the scratch folder cannot clean up.
 
-**Phase 2 — access, shared drives, history (v0.2.0).** `list_permissions`,
+**Phase 2 — access, shared drives, history (v0.2.0). Code complete
+2026-09-05; live run and release outstanding.** `list_permissions`,
 `share_file`, `unshare_file` with the policy; `list_drives`,
 `manage_drive`; `list_revisions`, `manage_revision`, `list_changes`;
 gated `delete_file`, `empty_trash`, `delete_drive`, `delete_revision`.
-The sharing matrix and the inherited-permission cases in the fake; live
-against the scratch folder and the scratch shared drive, including one
-share that the organisation's policy blocks (an external address on an
-organisational unit with external sharing off, if the admin can set one
-up) so the `[blocked]` mapping in §7.4 is built from a real response.
+The sharing matrix and the inherited-permission cases are in the fake,
+along with a changes feed and the shared-drive writes.
+
+Two things changed how this phase was built, and both are worth keeping
+for phase 3. The discovery document was read *before* the client rather
+than after, which corrected four assumptions at the cost of one request
+(§18). And the tool surface was reviewed from outside, which found three
+live defects the tests here did not: a file id that could turn a bounded
+delete into an unbounded one, a rate-limit reason that had silently
+stopped matching, and a token refresh with no deadline behind a security
+claim that said otherwise.
+
+Still owed before the release:
+
+- The live run against a scratch folder and a scratch shared drive,
+  covering every new tool, plus **spike F** (ownership transfer):
+  Workspace direct transfer, and `pendingOwner` on a consumer account if
+  a test account exists.
+- One share that the organisation's policy blocks — an external address
+  on an organisational unit with external sharing off, if the admin can
+  set one up — so the `[blocked]` mapping in §7.4 is built from a real
+  response rather than from an injected one.
+- A destructive run behind `GDRIVE_ENABLE_DESTRUCTIVE=true` inside the
+  scratch folder only, so `delete_file`, `delete_revision` and
+  `empty_trash` are seen against Drive. `empty_trash` is the one that
+  cannot be scoped to the scratch folder: it takes the whole account's
+  trash, so it runs only against a scratch shared drive, or not at all.
 
 **Phase 3 — collaboration, resources, evals, performance (v0.3.0).**
 Comments and access requests; `gdrive://` resources; `copy_file
@@ -1001,12 +1030,22 @@ difference is a decision rather than a drift.
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
 
-- Spike A ran (§18). C (resumable upload), the write half of E (shared
-  drives) and F (ownership transfer) are still unrun: the code they test
-  exists as of phase 1 and behaves against `drivetest`, including a
-  forced interruption and a session that stores part of a chunk, but no
-  fake can prove Drive agrees. They run with the live driver's `-write`
-  mode against a scratch folder.
+- Spikes A, C and the write half of E have run (§18). **F (ownership
+  transfer) is still unrun**: `share_file` with `role: owner` exists as
+  of phase 2 and behaves against `drivetest`, including the
+  `pendingOwner` case and the forced notification, but no fake can prove
+  Drive agrees. It runs with the live driver against a scratch folder,
+  and needs a second account to transfer to.
+- **A `POST` that only reads would take the wrong limiter.** Not a
+  defect here — every `POST` in `internal/gapi` genuinely writes, and the
+  limiter is named per call site rather than derived from the method, so
+  the exposure is the mirror image: a call site labelling a write
+  `kindRead`. Today that is one deliberate case (`files.generateIds`,
+  a `GET` that allocates) with a comment explaining why the label is
+  still honest. A comment is a weaker guarantee than a test; a check that
+  walks this package's syntax tree and asserts every request literal's
+  `kind` against its method would close it, and phase 3 is where the
+  benchmarks make that file worth touching anyway.
 - `internal/gapi/drivetest` implements the semantics of `name contains`
   from the reference. Spike A is what confirms the fake and Drive agree.
 - **Two places know a file's text form.** `service.readPlan` maps a
@@ -1084,8 +1123,29 @@ notes, GitHub's Actions hardening guide, the OpenSSF Scorecard checks,
 and the issue trackers named in §1. "(convention)" marks a practice that
 was checked rather than assumed.
 
+**Phase 2 additions (2026-09-05).** The rows below the first block were
+added by phase 2. Two things produced most of them: reading the Drive v3
+discovery document (`www.googleapis.com/discovery/v1/apis/drive/v3/rest`,
+revision 20260901) *before* writing the client rather than after, and a
+review from outside this session. The pattern in both is the same and
+worth stating once: **anything written from memory rather than from the
+reference was wrong about a quarter of the time, and the wrongness was
+invisible until a real call failed.**
+
 | Convention | Verdict | Effect |
 |---|---|---|
+| `permissions.create` and `permissions.update` take the same parameters (assumed; one options struct was written for both) | Refuted by the discovery document: create has `sendNotificationEmail`, `emailMessage` and `moveToNewOwnersRoot`; update has none of those and has `removeExpiration` instead | Two option types in `internal/gapi`, so a parameter cannot be offered on a call that ignores it |
+| An empty `expirationTime` clears a permission's expiry (assumed) | Refuted: clearing it is the `removeExpiration` query parameter on update. Drive does not read `""` as "remove this" | `PermissionMeta.ExpirationTime` is a plain string that only sets; `UpdateShareOptions.RemoveExpiration` clears |
+| `sendNotificationEmail` may be sent on any grant, so send it explicitly every time (assumed, and it is the safer-looking habit) | Refuted: the reference says it "defaults to `true` for users and groups, and **is not allowed for other requests**", and "must not be disabled for ownership transfers". Sending it for a `domain` or `anyone` grant is a 400 either way | The parameter is a `*bool`: omitted entirely for those principal types, explicit for a user or group, forced true for a transfer with the result saying so |
+| `files.emptyTrash` needs `enforceSingleParent` alongside `driveId` (assumed) | Refuted: `enforceSingleParent` is deprecated on both `files.delete` and `files.emptyTrash`, as are `supportsTeamDrives`, `teamDriveId`, `includeTeamDriveItems` and `enforceExpansiveAccess` | None of them is sent; a test asserts `files.emptyTrash` carries no deprecated parameter |
+| A shared drive is hidden by patching `hidden` on the resource (assumed; the field is writable) | Not refuted, but not taken: `drives.hide` and `drives.unhide` are their own endpoints. A patch field the service might quietly ignore is a poor way to change what a person sees | `HideDrive`/`UnhideDrive` post to the dedicated endpoints; a test asserts which endpoint was used |
+| Drive returns the signed-in person's role on a shared drive, so `list_drives` can show it (§7.5 as written) | Refuted: the `Drive` resource carries capabilities and no role, and `drives.list` has no field for one. Naming a role from capabilities would be a guess dressed as a fact, and getting the real one costs a `permissions.list` per drive | `list_drives` says what the account **may do**, in the same plain words a file card uses. `list_permissions` on the drive gives the actual membership, this account's grant included |
+| `url.PathEscape` on a file id makes a path safe (assumed) | **Refuted, and it was a live defect.** Drive puts non-id endpoints under `/files` as sibling segments, so an id of `trash` builds `DELETE /files/trash` — `files.emptyTrash`. A bounded destructive call becomes an unbounded one, and escaping cannot prevent it: every character in the word is legal in a path segment. It was unreachable only because a lookup two layers above happened to 404 first | One `fileSegment` guard that every `/files/{id}` path goes through, refusing the reserved segments, with a test asserting no request is even built. The general rule: **enumerate every value a reference type accepts that denotes more than one resource, or a resource containing others, and refuse them explicitly at each bounded destructive call** |
+| Google refusing to delete a drive root through `capabilities.canDelete` is protection enough (implied by the capability checks elsewhere) | Refuted in principle rather than in practice: it holds today, but `root` is an alias for My Drive's root and a shared drive's id is its own root folder's id, so a bounded call turning unbounded rested on a field **the other side computes and sends** | `delete_file` refuses both cases itself, and a test strips the capabilities off the fixture to prove the refusal does not depend on them |
+| One Google error reason has one spelling (assumed; the constants were camelCase and compared with `==`) | **Refuted, and it was a live defect.** Google writes a condition as `rateLimitExceeded` in the legacy `error.errors[]` envelope and as `RATE_LIMIT_EXCEEDED` in a `google.rpc.ErrorInfo` detail. This client prefers the detail, so every reason arriving the modern way missed its comparison: a throttled read was classified as a permission error, which is exactly what the class vocabulary exists to prevent | Reasons are compared through `sameReason`, which folds both spellings. The fake had been sending the same string in both places — a fake agreeing with the bug — and now sends each in its own spelling, so the whole suite exercises the modern form |
+| A 403 quota reason means "wait and try again" (assumed for all of them) | Refuted for one: `dailyLimitExceeded` is a daily project quota. Backing off cannot free it, so retrying spends attempts and the advice is false | The rate reasons are a map to "can backing off help": three true, `dailyLimitExceeded` false. It is still classified as rate limiting, because that is what happened, but it is not retried and the message says what actually blocks it |
+| The per-request deadline in `internal/gapi` covers a token refresh (asserted by `docs/security.md`) | **Refuted, and it was a live defect in a security claim.** A refresh runs inside the oauth2 transport against the context the token source was built with, not the one on the request, and with no client of our own it used `http.DefaultClient`, which has no timeout. A token endpoint that accepted a connection and never answered would hang the first tool call for the life of the process | `auth.TokenSource` and `login`'s code exchange both put a client with a deadline in the context. The test uses a raw listener that accepts and never answers, because `httptest.Server.Close` blocks on exactly the connection such a test must leave open — and it was checked to fail without the fix |
+| `~> v2.18.0` pins `goreleaser-action`'s binary (recorded in this log as a fix earlier the same day) | Refuted by the action's own README at the tag this workflow pins: the input takes "a fixed version like `v0.117.0` or a max satisfying semver one like `~> 0.132`. In this case this will return `v0.132.1`". Narrowing a range is not pinning it, and it reads as though it were | `version: "v2.18.0"`, no operator. Worth recording twice: the wrong version of this fix survived a review looking straight at it |
 | Google has an official Drive MCP (my assumption: no) | Refuted: `drivemcp.googleapis.com/mcp/v1`, Developer Preview, eight tools, remote HTTP, Web OAuth client with the host's callback, `drive.readonly` + `drive.file` | §1 states what it does; spike B records its schemas; this server stays stdio, per-user, full-scope |
 | The Drive API has no preview-only features this server would want (my assumption) | Confirmed for everything in §8: files, permissions, drives, revisions, comments, changes, access proposals, labels and approvals are GA methods in the v3 reference | No preview enrolment in the setup guide; an enrolled project is needed only for spike B, which is skipped without one |
 | Quotas are per-request counts (inherited from the Docs limits) | Refuted: Drive charges units per method (read 5, list 100, download 200, edit 50; 325 000 per minute per user) | Listings are the expensive call; budgets and caches in §7.1 and §11 |
@@ -1158,7 +1218,8 @@ was checked rather than assumed.
 | A My Drive folder cannot move into a shared drive (§18, from the reference) | **Confirmed live in the same run**, and with it the `[unsupported]` mapping made earlier in this phase: Drive answers 403 `teamDrivesFolderMoveInNotSupported`, and the tool says what to do instead | Spike E's write half is done. Its read half was already covered by `list_drives` in phase 0's live run |
 | A Google-native document's `size` is worth showing | Refuted live: a new, empty Google Doc reports `size: 1 B`, and so does a long one — the field is the metadata Drive keeps, not the size of anything a person can get. The card said "size: 1 B" beside "export formats: docx, epub, …", inviting a reading the number cannot support | `model` fills in a size only for a file with bytes of its own. The export formats line already says what can actually be had |
 | The coverage floor covers the packages that matter (phase 0's hand-written list) | Refuted when the list was replaced by `go list ./internal/...`: `internal/userconfig` — the profile file that records the account, the token location and the scopes — had never been under the floor at all, at 70%. A list maintained by hand omits a package silently, and the omission looks exactly like a package that does not exist | The list is derived, with three packages exempt by name and reason (wire types, a version string, the test fake). A package added in a later phase is under the floor from the day it exists. The gap it exposed was closed with tests for the paths a person has to trust: where a profile's files live, that a save replaces the file whole at `0600`, and that every path reports a machine with no config directory rather than returning an empty one |
-| Pinning `goreleaser-action` by SHA pins the release (phase 0's release workflow) | Refuted, and by this repository's own earlier finding: the action was pinned by commit and then handed `version: "~> v2"`, so the binary that decides what the artifacts are floated across a whole major version. The `cosign`/`syft` sweep after the v0.0.1 signing failure pinned the tools those actions install and did not come back for this one | `version: "~> v2.18.0"`, beside the SHA, with a comment saying which half of the pin matters. A step that installs a tool has two versions, and this is the third time that has cost something |
+| Pinning `goreleaser-action` by SHA pins the release (phase 0's release workflow) | Refuted, and by this repository's own earlier finding: the action was pinned by commit and then handed `version: "~> v2"`, so the binary that decides what the artifacts are floated across a whole major version. The `cosign`/`syft` sweep after the v0.0.1 signing failure pinned the tools those actions install and did not come back for this one | `version: "~> v2.18.0"`, beside the SHA, with a comment saying which half of the pin matters. A step that installs a tool has two versions, and this is the third time that has cost something. **Superseded 2026-09-05 (phase 2): the narrowing was not a pin either** |
+| `~> v2.18.0` pins goreleaser to 2.18.0 (the fix above) | Refuted. The action's README at the tag this workflow pins says the input takes "a fixed version like `v0.117.0` or a max satisfying semver one like `~> 0.132`. In this case this will return `v0.132.1`". `~>` is a constraint whatever follows it, so `~> v2.18.0` floats across every 2.18.x. The first fix narrowed the range and read as though it had closed it | `version: "v2.18.0"`, no operator. Recorded because the wrong version of this fix survived a review that was looking straight at it: narrowing a range looks like pinning, and only the tool's own documentation settles which it is |
 | `gates leaks history` works, because it runs and reports (assumed from phase 0, when it was written and never run against a repository with annotated tags) | **Refuted the first time it was run in anger, 2026-09-05**, and in both directions at once. It scanned tag objects including the `tagger` identity git writes itself, so it failed on this repository's own two tags; and it skipped commit objects entirely, so "an id in a commit message" — the case its own comment names — had never been checked. The first defect guaranteed the second would never be noticed: a gate that always fails is a gate whose output nobody reads | A blob is scanned whole, a commit or tag from its message down. An identity is public in every repository by construction and unremovable without rewriting every commit; a message is what a person typed. Three tests, including the same address in a header and in a message with opposite verdicts |
 | A host allowlist may strip the port before matching (phase 0's `googleHost`) | Refined in phase 1, prompted by a sibling project's opposite reading: stripping means `https://www.googleapis.com:8443` is allowed. Google's endpoints carry no port, and phase 1 added a path that fetches a URL taken out of a **response body** (a revision's export link), which makes this check load-bearing rather than a formality | A host with a port is refused. Where a check that decides whether an access token leaves the machine is going to be wrong, it should be wrong in the direction of refusing |
 | Pinning an action to a full commit SHA pins what that step does | Refuted live: the first `v0.0.1` release failed because `cosign-installer` was pinned by SHA while the cosign it installs was not, and cosign 3 had moved from `--output-signature`/`--output-certificate` to a single `--bundle`. The action was immutable; its effect was not | `cosign-release` and `syft-version` are named alongside the action SHAs. A step that installs a tool has two versions, and pinning one of them is the more dangerous half of the job, because it looks done |
