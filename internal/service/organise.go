@@ -266,16 +266,10 @@ func (s *Service) movable(ctx context.Context, f, target *gdrive.File) error {
 	return nil
 }
 
-// locationOf renders where a folder is, as a destination path. The
-// folder's own name is added to the location rather than to the string
-// it renders as: three of the forms a location takes are not paths at
-// all, and a name glued onto one of those reads like a folder nobody has.
+// locationOf renders where a folder's contents live, as a destination
+// path.
 func (s *Service) locationOf(ctx context.Context, folder *gdrive.File) string {
-	loc := s.Location(ctx, folder)
-	if s.isDriveRoot(ctx, folder) {
-		return loc.String()
-	}
-	return loc.Child(folder.Name).String()
+	return s.folderLocation(ctx, folder, s.Location(ctx, folder)).String()
 }
 
 // CopyFileInput describes a copy.
@@ -344,6 +338,9 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 	// A copy of a Google Doc is a Google Doc unless it is being
 	// converted, and what the copy becomes is what decides whether an id
 	// may be sent with it.
+	if err := s.checkConversion(ctx, f.MimeType, convert); err != nil {
+		return nil, err
+	}
 	becomes := convert
 	if becomes == "" {
 		becomes = f.MimeType

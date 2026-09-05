@@ -126,6 +126,24 @@ func New() *Server {
 		},
 		CanCreateDrives: true,
 		MaxUploadSize:   "5497558138880",
+		// The conversions Drive actually offers for these types, so that
+		// a check against them means something. A csv becomes a Sheet and
+		// not a Doc, which is the pair that caught this out live.
+		ImportFormats: map[string][]string{
+			"text/plain":                {gdrive.MimeDocument},
+			"text/markdown":             {gdrive.MimeDocument},
+			"text/html":                 {gdrive.MimeDocument},
+			"application/rtf":           {gdrive.MimeDocument},
+			"application/pdf":           {gdrive.MimeDocument},
+			"image/jpeg":                {gdrive.MimeDocument},
+			"image/png":                 {gdrive.MimeDocument},
+			"text/csv":                  {gdrive.MimeSheet},
+			"text/tab-separated-values": {gdrive.MimeSheet},
+			"application/vnd.ms-excel":  {gdrive.MimeSheet},
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         {gdrive.MimeSheet},
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   {gdrive.MimeDocument},
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation": {gdrive.MimeSlides},
+		},
 	}
 	s.Files[s.RootID] = &gdrive.File{
 		ID: s.RootID, Name: "My Drive", MimeType: gdrive.MimeFolder,

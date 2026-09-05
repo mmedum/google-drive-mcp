@@ -38,7 +38,8 @@ const MaxPageSize = 1000
 // About returns the signed-in account, its storage and whether it can
 // create shared drives. The cheapest authenticated call there is.
 func (c *Client) About(ctx context.Context) (*gdrive.About, error) {
-	u := c.base + "/about?fields=" + url.QueryEscape("user(displayName,emailAddress,permissionId),storageQuota,canCreateDrives,maxUploadSize")
+	u := c.base + "/about?fields=" + url.QueryEscape(
+		"user(displayName,emailAddress,permissionId),storageQuota,canCreateDrives,maxUploadSize,importFormats")
 	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
@@ -322,13 +323,14 @@ type WriteOptions struct {
 	ResourceIDs []string
 }
 
-// createsWithoutID reports whether this call makes a new file and
-// carries nothing that would collapse a second attempt into the first. A
-// patch is idempotent whatever it holds; a create is idempotent only
-// through its pre-generated id, and Drive refuses one for the Docs
-// Editors formats.
-func createsWithoutID(method string, meta *gdrive.FileMeta) bool {
-	return method == http.MethodPost && (meta == nil || meta.ID == "")
+// carriesID reports whether a create body holds a pre-generated id,
+// which is the one thing that makes a POST to Drive safe to repeat:
+// Drive refuses the second attempt as a duplicate rather than making a
+// second file. Drive will not accept one for its own formats
+// (AcceptsGeneratedID), so those creates are not repeatable and are not
+// marked as such.
+func carriesID(meta *gdrive.FileMeta) bool {
+	return meta != nil && meta.ID != ""
 }
 
 // withFile puts the file being written at the head of the ids whose
@@ -372,7 +374,7 @@ func (c *Client) writeFile(ctx context.Context, method, u string, meta *gdrive.F
 		return nil, err
 	}
 	body, err := c.do(ctx, request{kind: kindWrite, method: method, url: u,
-		body: payload, resourceIDs: ids, unsafeToRepeat: createsWithoutID(method, meta)})
+		body: payload, resourceIDs: ids, idempotent: carriesID(meta)})
 	if err != nil {
 		return nil, err
 	}

@@ -94,6 +94,12 @@ type Service struct {
 	// per file.
 	root      string
 	rootTried bool
+	// imports is about.importFormats: what Google will convert each media
+	// type into. It is static, so it is read once; importsTried records
+	// the attempt so that a Drive which cannot answer is not asked again
+	// per conversion.
+	imports      map[string][]string
+	importsTried bool
 	// export holds the last document exported for a read. Drive takes no
 	// byte range on an export, so without this every window of a long
 	// document costs a full re-export: reading a 1 MB Doc a page at a

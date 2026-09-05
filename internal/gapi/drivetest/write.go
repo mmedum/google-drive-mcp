@@ -163,6 +163,24 @@ func (s *Server) setContentLocked(f *gdrive.File, content []byte) {
 	f.HeadRevisionID = rev.ID
 }
 
+// importable reports whether the fake offers this conversion, from the
+// same table about.get hands out. Drive answers "The requested
+// conversion is not supported" for the rest, which is what caught a csv
+// being asked to become a Doc.
+func (s *Server) importable(from, to string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.About == nil || s.About.ImportFormats == nil {
+		return true
+	}
+	for _, target := range s.About.ImportFormats[from] {
+		if target == to {
+			return true
+		}
+	}
+	return false
+}
+
 // applyMeta applies a create or patch body to a file, changing only the
 // fields the body carried.
 func applyMeta(f *gdrive.File, meta *gdrive.FileMeta) {
@@ -306,6 +324,10 @@ func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if src.IsFolder() {
 		s.errorJSON(w, http.StatusForbidden, "fileNotCopyable", "Folders cannot be copied.")
+		return
+	}
+	if meta.MimeType != "" && meta.MimeType != src.MimeType && !s.importable(src.MimeType, meta.MimeType) {
+		s.errorJSON(w, http.StatusBadRequest, "invalid", "The requested conversion is not supported.")
 		return
 	}
 	body := meta

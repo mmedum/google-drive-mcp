@@ -239,12 +239,31 @@ type request struct {
 	// nil means 2xx: a resumable upload's 308 is progress, not a failure,
 	// and it is the only caller that needs to say so.
 	accepted func(int) bool
-	// unsafeToRepeat marks a call that a second attempt could apply
-	// twice. It names the exception rather than the kind, because "a
-	// write is idempotent here" is true only for the reason each write
-	// gives, and a later write that cannot give it would otherwise
-	// inherit permission to retry without anyone deciding so.
-	unsafeToRepeat bool
+	// idempotent marks a POST that a second attempt cannot apply twice —
+	// a create carrying a pre-generated id, which Drive collapses into
+	// the first. It is only consulted for a POST: every other method
+	// this client uses is idempotent by HTTP's own definition, and a
+	// POST is not.
+	idempotent bool
+}
+
+// repeatable reports whether a second attempt at this request is safe.
+//
+// The default is the safe one. GET, PATCH, PUT and DELETE mean the same
+// thing applied twice as applied once, so they may be repeated; a POST
+// may not, unless whoever built it said why. A POST added in a later
+// phase and given no thought therefore fails closed, which is the whole
+// point: the previous version of this rule read a flag whose zero value
+// was "safe to repeat", so a new write inherited permission to retry by
+// omission — the same shape as the bug that made it necessary.
+func (r request) repeatable() bool {
+	switch r.method {
+	case http.MethodGet, http.MethodHead, http.MethodPatch, http.MethodPut, http.MethodDelete:
+		return true
+	case http.MethodPost:
+		return r.idempotent
+	}
+	return false
 }
 
 // ok reports whether a response status is a success for this request.
@@ -430,18 +449,17 @@ func isRateReason(reason string) bool {
 // retryable decides whether an attempt may be repeated.
 //
 // Reads retry on any transient failure. A write retries on one too, but
-// only because of what the caller put in it: a pre-generated id, or
-// patch semantics that make a second application a no-op. A 500 proves
+// only when repeating it means what doing it once meant. A 500 proves
 // Google answered, not that it did nothing — it can arrive after the
-// file was created — so a write that carries neither says so with
-// unsafeToRepeat and is reported rather than repeated.
+// file was created — so a create that cannot be collapsed into itself is
+// reported rather than repeated.
 //
 // A network failure on a write is ambiguous in the other direction: the
 // request may never have arrived. Those are never repeated.
 func retryable(r request, err error) (bool, time.Duration) {
 	var te *transientError
 	if errors.As(err, &te) {
-		return !r.unsafeToRepeat, te.after
+		return r.repeatable(), te.after
 	}
 	if errors.Is(err, ErrNetwork) {
 		return r.kind == kindRead, 0
@@ -593,4 +611,12 @@ func (g *stallGuard) Close() error {
 	err := g.rc.Close()
 	g.cancel()
 	return err
+}
+
+// RepeatableForTest exposes the repeatability rule to the tests in this
+// package's external test file. The rule decides whether a failed write
+// is tried again, and it is worth asserting directly rather than only
+// through the two calls that happen to exercise it today.
+func RepeatableForTest(method string, idempotent bool) bool {
+	return request{method: method, idempotent: idempotent}.repeatable()
 }

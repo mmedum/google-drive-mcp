@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -132,6 +133,9 @@ func (s *Service) CreateFile(ctx context.Context, in CreateFileInput) (*Result, 
 		if meta.MimeType, err = convertTarget(in.ConvertTo); err != nil {
 			return nil, err
 		}
+		if err := s.checkConversion(ctx, contentType, meta.MimeType); err != nil {
+			return nil, err
+		}
 		if err := s.assignID(ctx, meta); err != nil {
 			return nil, err
 		}
@@ -193,6 +197,9 @@ func (s *Service) UploadFile(ctx context.Context, in UploadFileInput) (*Result, 
 		meta.Description = gdrive.String(in.Description)
 	}
 	if meta.MimeType, err = convertTarget(in.ConvertTo); err != nil {
+		return nil, err
+	}
+	if err := s.checkConversion(ctx, contentType, meta.MimeType); err != nil {
 		return nil, err
 	}
 	if err := s.assignID(ctx, meta); err != nil {
@@ -355,6 +362,83 @@ func convertTarget(name string) (string, error) {
 		return "", Errorf(ClassInvalid, "convert_to %q is not one of %s", name, strings.Join(ConvertKinds(), ", "))
 	}
 	return target, nil
+}
+
+// checkConversion refuses a conversion Drive will not perform, before it
+// is attempted, and names what the file can become instead. Drive's own
+// answer is "The requested conversion is not supported", which leaves a
+// model to guess which pair was wrong; the account's importFormats says
+// exactly, and it is the same static table for everyone.
+//
+// It fails open. If the table cannot be read, the call goes ahead and
+// Drive decides: a check that cannot run must not refuse work that would
+// have succeeded.
+func (s *Service) checkConversion(ctx context.Context, from, to string) error {
+	if to == "" || from == "" {
+		return nil
+	}
+	targets, ok := s.importTargets(ctx, from)
+	if !ok || len(targets) == 0 {
+		return nil
+	}
+	if slices.Contains(targets, to) {
+		return nil
+	}
+	names := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if name := convertName(t); name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	became := "nothing this server offers"
+	if len(names) > 0 {
+		became = strings.Join(names, " or ")
+	}
+	return Errorf(ClassInvalid, "Google does not import %s as %s. It converts to %s. "+
+		"Without convert_to the file is copied as it is.",
+		model.KindName(from), model.KindName(to), became)
+}
+
+// importTargets is what Google will convert one media type into, from
+// the account's own about.importFormats. The table is static, so it is
+// read once and kept for the life of the process.
+func (s *Service) importTargets(ctx context.Context, from string) ([]string, bool) {
+	s.mu.Lock()
+	formats, tried := s.imports, s.importsTried
+	s.mu.Unlock()
+	if !tried {
+		about, err := s.api.About(ctx)
+		if err != nil {
+			s.log.DebugContext(ctx, "import formats unavailable", "class", gapi.Class(err))
+			// Recorded as tried either way: a Drive that cannot answer
+			// must not be asked once per conversion.
+			s.mu.Lock()
+			s.importsTried = true
+			s.mu.Unlock()
+			return nil, false
+		}
+		formats = about.ImportFormats
+		s.mu.Lock()
+		s.imports, s.importsTried = formats, true
+		s.mu.Unlock()
+	}
+	if formats == nil {
+		return nil, false
+	}
+	targets, ok := formats[gdrive.MimeOnly(from)]
+	return targets, ok
+}
+
+// convertName is the convert_to word for a Google format, for a message
+// that has to say what a file may become.
+func convertName(mime string) string {
+	for name, target := range convertKinds {
+		if target == mime {
+			return name
+		}
+	}
+	return ""
 }
 
 // sniffType decides what a local file is: its extension first, because
