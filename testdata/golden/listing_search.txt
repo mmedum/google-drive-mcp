@@ -1,0 +1,6 @@
+search: name contains "report" — 3 hits
+folder      2026           id-2026-fixture    My Drive/Projects  modified 2026-03-01 11:00Z (5 days ago) by Test Person (you)
+Google Doc  Meeting notes  id-notes-fixture   My Drive/Projects  modified 2026-03-05 16:45Z (19 hours ago) by Other Person <other@example.com>  shared
+PDF         Report.pdf     id-report-fixture  My Drive/Projects  modified 2026-02-20 09:15Z (14 days ago) by Test Person (you)                  starred, link-shared
+Drive reports the search was incomplete: it could not reach every shared drive in time, so there may be matches it did not return. Narrow it with drive: or in_folder, or run it again.
+more results: call again with page_token "offset-3"

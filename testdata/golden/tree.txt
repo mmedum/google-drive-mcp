@@ -1,0 +1,7 @@
+My Drive/Projects — tree, depth 2, 4 items shown
+My Drive/Projects/  [id-projects-fixture]  (2 items)
+├── 2026/  [id-2026-fixture]  (2 items)
+│   ├── Budget.xlsx  [id-budget-fixture]  (Excel spreadsheet, 4.0 KiB)
+│   └── Meeting notes  [id-notes-fixture]  (Google Doc)
+└── Archive/  [id-archive-fixture]  (812 items, not entered: depth limit 2)
+stopped at the depth limit; list_folder on Archive with recursive: true goes deeper

@@ -1,0 +1,49 @@
+# Nothing deployer-specific may enter this repository: no OAuth client ids
+# or secrets, no refresh tokens, no real file ids. gitleaks runs in
+# pre-commit and CI with these rules on top of its defaults.
+title = "google-drive-mcp"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "google-oauth-client-id"
+description = "Google OAuth client id"
+regex = '''[0-9]{8,}-[a-z0-9]{20,}\.apps\.googleusercontent\.com'''
+
+[[rules]]
+id = "google-oauth-client-secret"
+description = "Google OAuth client secret"
+regex = '''GOCSPX-[A-Za-z0-9_-]{20,}'''
+
+[[rules]]
+id = "google-refresh-token"
+description = "Google OAuth refresh token"
+regex = '''1//0[A-Za-z0-9_-]{30,}'''
+
+[allowlist]
+description = "Values that look like secrets and are not"
+paths = [
+  '''go\.sum$''',
+]
+# Drive file and shared-drive ids that Google itself publishes in its API
+# documentation, and which appear here as test fixtures. gitleaks reads
+# them as generic API keys because they are long, high-entropy and sit
+# near the word "API" — which is what a real key looks like, so the rule
+# is right to be suspicious. Allowlisted by value rather than by path:
+# scripts/gates/leaks.go is the file most likely to collect examples, and
+# exempting it wholesale would stop it being scanned at all.
+# They mirror allowedIDs in scripts/gates/leaks.go, which is that gate's
+# own record of id-shaped strings that came from nobody's Drive. Both
+# lists exist because a value can look like a secret without being one,
+# and both name the value rather than the file it sits in.
+regexes = [
+  '''1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms''',
+  '''1ZzzMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms''',
+  '''0AKl3lQ5UUqptUk9PVA''',
+  '''0ABcdEFghIJklMNop''',
+  '''1AbC23dEfGh45iJkLmN67opQrStUvWxYz''',
+  '''1SyntheticFixtureFileIdAAAAAAAAAAAA''',
+  '''1NoSuchFileIdAAAAAAAAAAAAAAAAAAAAAA''',
+  '''0AZzyzxSyntheticDriveIdAAA''',
+]

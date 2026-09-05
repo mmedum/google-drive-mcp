@@ -1,0 +1,9 @@
+Test Person <person@example.com>
+storage: 4.0 GiB of 15.0 GiB used (27%; 3.0 GiB in Drive, 1.0 GiB in the trash)
+shared drives: this account can create them
+drives you can see: Marketing, Engineering
+this server: read and write
+tools registered: get_account, get_file, list_folder, search_files
+sharing: an anyone-with-the-link grant needs allow_anyone: true on the call. What may actually be shared is decided by your organisation's own policy, which Google enforces on every call.
+destructive tools: disabled: nothing registered here removes anything permanently. Set GDRIVE_ENABLE_DESTRUCTIVE=true to change that.
+file transfer: /home/person/drive-files (downloads land there, uploads are read from there; at most 1.0 GiB per download)
