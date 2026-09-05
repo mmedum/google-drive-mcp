@@ -56,8 +56,9 @@ func smoke(out io.Writer, args []string) error {
 				"name": "get_file", "arguments": map[string]any{"file": syntheticFileID},
 			}),
 			request(4, "resources/templates/list", nil),
+			request(5, "resources/read", map[string]any{"uri": "gdrive://" + syntheticFileID}),
 		}
-		replies, err := drive(binary, env, frames, []int{1, 2, 3, 4})
+		replies, err := drive(binary, env, frames, []int{1, 2, 3, 4, 5})
 		if err != nil {
 			return fmt.Errorf("%s: %w", proto, err)
 		}
@@ -156,10 +157,45 @@ func checkSession(proto string, replies map[int]map[string]any) error {
 	if text := resultText(callResult); !strings.Contains(text, "[auth]") {
 		return fmt.Errorf("%s: tool error should carry the [auth] class, got %q", proto, text)
 	}
-	if _, ok := replies[4]; !ok {
+	templates, ok := replies[4]
+	if !ok {
 		return fmt.Errorf("%s: no resources/templates/list response", proto)
 	}
+	listed := templateURIs(templates)
+	for _, want := range []string{"gdrive://{file}", "gdrive://{file}/meta", "gdrive://{folder}/children"} {
+		if !listed[want] {
+			return fmt.Errorf("%s: %s missing from resources/templates/list", proto, want)
+		}
+	}
+	// A resource read without credentials must fail the way a tool call
+	// does: with the [auth] class and a live server, not a crash. A
+	// resource read is a JSON-RPC error rather than a result carrying
+	// isError, which is the one shape difference between the two.
+	read, ok := replies[5]
+	if !ok {
+		return fmt.Errorf("%s: no resources/read response", proto)
+	}
+	rpcErr, _ := read["error"].(map[string]any)
+	message, _ := rpcErr["message"].(string)
+	if !strings.Contains(message, "[auth]") {
+		return fmt.Errorf("%s: a resource read without credentials should carry the [auth] class, got %q",
+			proto, message)
+	}
 	return nil
+}
+
+func templateURIs(reply map[string]any) map[string]bool {
+	out := map[string]bool{}
+	result, _ := reply["result"].(map[string]any)
+	templates, _ := result["resourceTemplates"].([]any)
+	for _, t := range templates {
+		if m, ok := t.(map[string]any); ok {
+			if uri, ok := m["uriTemplate"].(string); ok {
+				out[uri] = true
+			}
+		}
+	}
+	return out
 }
 
 func toolNames(reply map[string]any) map[string]bool {

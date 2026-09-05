@@ -32,7 +32,10 @@ const instructions = "Google Drive tools, at the file boundary: finding files, w
 	"search_files when you do not; a listing costs twenty times a read, so do not walk a tree to find one file. " +
 	"Drive has no substring search: name and text match the beginnings of words and whole words. " +
 	"Ids are the contract. A name or path that matches more than one item comes back as [ambiguous] with the " +
-	"candidates; pick one and pass its id rather than retrying the name."
+	"candidates; pick one and pass its id rather than retrying the name. " +
+	"Three of the reads are also resources, for a client that attaches them rather than calling a tool: " +
+	"gdrive://<id> is the file's text, gdrive://<id>/meta is the card, and gdrive://<id>/children is a " +
+	"folder's first page. A reference with a slash in it has to be percent-encoded there, so pass an id."
 
 // Deps are what the server needs.
 type Deps struct {
@@ -50,6 +53,7 @@ func New(d Deps) *mcp.Server {
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: Name, Version: d.Version}, opts)
 	registered := tools.Register(s, tools.Deps{Service: d.Service, Config: d.Config, Logger: d.Logger})
+	registerResources(s, d)
 	if d.Service != nil {
 		d.Service.SetRegisteredTools(registered)
 	}
