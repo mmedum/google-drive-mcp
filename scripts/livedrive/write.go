@@ -258,7 +258,7 @@ func (w *writeRun) refusals(m made) {
 // touches anything outside the scratch folder.
 func (w *writeRun) sharedDrive(m made) {
 	if w.drive == "" {
-		fmt.Println("\n(pass -drive NAME to also exercise moving a file into a shared drive and back)")
+		fmt.Println("\n(pass -drive NAME_OR_ID to also exercise moving a file into a shared drive and back)")
 		return
 	}
 	if m.small == "" || m.folder == "" {

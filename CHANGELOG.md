@@ -6,6 +6,14 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-05
+
+Content and organising: a file's text out, a file in, and everything
+that arranges what is there. Verified against a real Workspace account,
+including a file moved into a shared drive and back, which refuted five
+things the design had asserted since phase 0 — two of them making a tool
+fail outright.
+
 ### Added
 
 - `read_file`: a file's text, straight back. A Google Doc as Google's
@@ -188,6 +196,12 @@ Output that misled:
   is: "My Drive/…/Orphan".
 - A file's kind reads with its article in every message that names it:
   "Notes is a Google Doc", not "Notes is Google Doc".
+- The sharing line of a file in a shared drive counted its people and
+  then counted the inherited grants again — "shared with 4 people: 4 can
+  edit … 4 inherited from the shared drive" invites the arithmetic
+  4 + 4 — and named the drive twice. Where the grants come from is part
+  of the same clause now. Seen for the first time when a file was moved
+  into a real shared drive: the fake had no members to inherit from.
 
 The gates themselves:
 

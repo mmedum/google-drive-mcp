@@ -12,12 +12,11 @@ Single binary, stdio, one Google account per profile. You run it against
 a Google Cloud project you own, so nothing about this repository is tied
 to any particular organisation or account.
 
-**Status: v0.0.1 released; phase 1 of the plan in
-[docs/architecture.md](docs/architecture.md) is written and awaiting its
-live run, which is what v0.1.0 waits on.** The sixteen tools below work
-against the in-memory Drive the tests use; the four read tools are the
-ones verified against a real account so far. Sharing and history arrive
-in v0.2.0, collaboration in v0.3.0.
+**Status: v0.1.0, phase 1 of the plan in
+[docs/architecture.md](docs/architecture.md).** The sixteen tools below
+work, and every one of them is verified against a real Google Workspace
+account as well as against the in-memory Drive the tests use. Sharing
+and history arrive in v0.2.0, collaboration in v0.3.0.
 
 ## What it does today
 

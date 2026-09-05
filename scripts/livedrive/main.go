@@ -34,7 +34,7 @@ func main() {
 	raw := flag.Bool("raw", false, "print results without redaction (never in a shared terminal)")
 	write := flag.Bool("write", false, "also exercise every tool that changes Drive, in one scratch folder that is trashed afterwards")
 	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
-	drive := flag.String("drive", "", "a shared drive to move a file into and out of, by name; empty skips that half")
+	drive := flag.String("drive", "", "a shared drive to move a file into and out of, by name or id; empty skips that half")
 	flag.Parse()
 
 	if err := run(options{binary: *binary, file: *file, raw: *raw, write: *write,
