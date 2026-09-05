@@ -1,6 +1,6 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 3 complete (2026-09-05), released as v0.3.0. Twenty-nine
+**Status:** phase 3 complete (2026-09-06), released as v0.3.0. Twenty-nine
 registered tools: phase 2's twenty-four plus `list_comments`,
 `add_comment`, `reply_comment`, `list_access_requests` and
 `resolve_access_request`, with five now registered only under
@@ -1039,7 +1039,7 @@ release (§17a):
   it runs only against a scratch shared drive, or not at all.
 
 **Phase 3 — collaboration, resources, evals, performance (v0.3.0). Done
-2026-09-05.** Comments and access requests; `gdrive://` resources;
+2026-09-06.** Comments and access requests; `gdrive://` resources;
 `copy_file recursive`; the agent evals; `make bench` and the numbers in
 §11; the media-type registry and the request-kind check §17a had
 deferred here.
@@ -1064,10 +1064,33 @@ floor ran only on Linux, so a test skipped on Windows cost coverage
 nobody could measure. It runs on all three now, and one of the two
 Windows skips turned out to be unnecessary.
 
+Five live runs closed it, and the first found the defect no test could
+have: Drive refuses `assigneeEmailAddress` in a comment field selection,
+so every `add_comment` failed. The run before the fix reported "all calls
+behaved as expected" — phase 2's lesson arriving again, and the reason
+the driver now says in `docs/development.md` that its verdict is not the
+thing to read. Reading the transcript also found a resolve-only reply
+rendering as an empty pair of quotes.
+
+The whole comment thread is verified on a blob and on a Google Doc:
+create, reply, resolve, resolve again reporting unchanged rather than
+posting a second reply everybody can see, reopen, edit, and the listing
+with its replies. So are the three resources, the recursive copy with its
+dry run and its three refusals, and the access-request listing.
+
+Three of the thirteen evals have run against a real account, and the
+first run of those found a bug in the eval harness rather than in the
+server: the scratch folder's id was never substituted, so every prompt
+carried a literal `{folder}`. Both tasks passed anyway — one by finding
+the file by name, one by refusing for the wrong reason — which is the
+end-state-versus-trace problem happening inside the thing built to catch
+it.
+
 What was NOT verified live, and is deferred rather than holding the
 release (§17a): spike F and a policy-blocked share, both still blocked
-on a second account and an administrator; and the destructive five,
-which stay gated off and out of the live driver.
+on a second account and an administrator; the destructive five, which
+stay gated off and out of the live driver; and the ten evals nobody has
+run yet.
 
 **Phase 4 — Workspace extras and the rest of the API (v0.4.0).** Labels;
 approvals and Drive Activity verified live and added if they behave;
@@ -1315,7 +1338,7 @@ worth stating once: **anything written from memory rather than from the
 reference was wrong about a quarter of the time, and the wrongness was
 invisible until a real call failed.**
 
-**Phase 3 additions (2026-09-05).** The discovery document
+**Phase 3 additions (2026-09-06).** The discovery document
 (revision 20260901) was read before the client again, and the
 benchmarks §11 had been promising since phase 0 were finally run. The
 first corrected four things; the second refuted two of this document's
@@ -1335,6 +1358,7 @@ own numbers.
 | A wall-clock target can be asserted in `make check` | **Refuted.** 10 000 items render in 4.7 ms uninstrumented and over 60 ms under the race detector with coverage counters, which is what `make check` runs | The test asserts linearity — ten times the items within twenty times the work — plus a backstop far above anything instrumentation explains. The millisecond figure lives in the benchmark, where nothing is instrumented |
 | A benchmark's fixture shape does not matter, only its size | **Refuted, by getting it wrong.** The first 10 000-item tree made one folder per folder, so it was a thousand levels deep — a shape Drive would never return — and measured the cost of the indent string, at 226 MB allocated per render. A realistic shape is 6.8 MB | The fixture branches three ways, which puts 10 000 items about eight levels down, inside the depth a walk will go to |
 | A gate that runs on one platform of a three-platform matrix is enough | **Refuted** (reported by a sibling Go MCP server, checked here). The coverage floor ran under `if: runner.os == 'Linux'`, so a test skipped on Windows cost coverage nobody could measure | It runs on all three. One of the two Windows skips here turned out to be unnecessary — `os.UserConfigDir` reads `%AppData%` there, so clearing that is the same experiment — and now runs everywhere |
+| The reference listing a field means the field can be requested | **Refuted, live.** `Comment.assigneeEmailAddress` is in the discovery document and is a real field; Drive answers 400 "Invalid field selection assignee_email_address" when a `fields` expression names it, so asking fails the whole call. Every `add_comment` failed on the first live run | The field is out of the request, the model and the renderer, and a note sits where it was in the wire types, because the next person to read the reference will want to add it back. Neither the fake nor the discovery document could have caught this: the first answered the field happily, and the second is the source that says it exists |
 | A live run that reports "all calls behaved as expected" has verified the tool surface | **Refuted, and it is the most useful thing phase 2 learned.** Two runs said exactly that while three results were wrong: a file card reporting `sharing: private to you` in the same result whose change line said the file was now public, a removal reporting "shared, but no grants are visible" instead of "private to you", and every My Drive file blaming an inherited grant on a shared drive it had never been near. The driver checks whether a call *succeeded*, not whether it *told the truth*, and those are different questions | The transcript is read, not just its verdict. Phase 3's evals are the mechanised version of this: a result that is wrong while succeeding is the class of defect no status code catches |
 | The changes feed answering "0 changes" straight after a write is a bug | Neither confirmed nor refuted for two runs, which was the problem: Drive's feed is eventually consistent, so a feed that works and reports nothing is indistinguishable from a broken one when you ask once. The third run reported the change and a fresh token | The live driver polls the feed and says which happened rather than printing an empty answer. **The general rule: where a system is eventually consistent, a single read cannot be evidence of absence** |
 | `permissions.create` and `permissions.update` take the same parameters (assumed; one options struct was written for both) | Refuted by the discovery document: create has `sendNotificationEmail`, `emailMessage` and `moveToNewOwnersRoot`; update has none of those and has `removeExpiration` instead | Two option types in `internal/gapi`, so a parameter cannot be offered on a call that ignores it |

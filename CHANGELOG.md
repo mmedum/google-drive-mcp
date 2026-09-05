@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-06
+
 Collaboration, resources and the numbers. Six new tools, one of them
 registered only when the deployer asks and needing `confirm: true` on the
 call as well; three `gdrive://` resources; a recursive copy; and the
@@ -574,5 +576,6 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
-[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.2.0...v0.3.0
 [0.0.1]: https://github.com/mmedum/google-drive-mcp/releases/tag/v0.0.1
