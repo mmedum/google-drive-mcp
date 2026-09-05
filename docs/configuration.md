@@ -21,7 +21,7 @@ than one per run.
 | `GDRIVE_LOG_FORMAT` | `--log-format` | `text` | `text` or `json`. |
 | `GDRIVE_READ_ONLY` | `--read-only` | `false` | Register only the read tools, and ask for read-only scopes at login. |
 | `GDRIVE_ENABLE_DESTRUCTIVE` | `--enable-destructive` | `false` | Register the tools that destroy without a way back: permanent delete, empty trash, delete revision, delete shared drive, delete comment. Without it, trash and restore are the only removal. |
-| `GDRIVE_SHARING` | `--sharing` | `all` | `all` registers the sharing tools; `off` leaves them unregistered while `list_permissions` still works. An `anyone`-with-the-link grant needs `allow_anyone: true` on the individual call in either case. |
+| `GDRIVE_SHARING` | `--sharing` | `all` | `all` registers the sharing tools — `share_file`, `unshare_file` and `resolve_access_request`, which grants a permission when it accepts one; `off` leaves them unregistered while `list_permissions` and `list_access_requests` still work, since seeing who can reach a file is not widening it. An `anyone`-with-the-link grant needs `allow_anyone: true` on the individual call in either case. |
 | `GDRIVE_LOCAL_DIR` | `--local-dir` | unset | The one directory downloads are written to and uploads are read from, as an absolute path. **Unset means no file transfer at all**; inline text still works both ways. |
 | `GDRIVE_MAX_DOWNLOAD` | `--max-download` | `1GiB` | Largest single download. Accepts `1GiB`, `500MB`, `2G` or a plain byte count; IEC units are powers of 1024 and decimal units powers of 1000. |
 | `GDRIVE_HTTP_TIMEOUT` | `--http-timeout` | `60s` | Deadline for one attempt at a Google API call, and for one chunk of a transfer. Between `1s` and `10m`. |

@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -27,15 +27,23 @@ import (
 // and this is the check.
 func TestNoWriteIsLabelledAsARead(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	sources, err := filepath.Glob("*.go")
 	if err != nil {
-		t.Fatalf("parse internal/gapi: %v", err)
+		t.Fatalf("list internal/gapi: %v", err)
 	}
-	pkg, ok := pkgs["gapi"]
-	if !ok {
-		t.Fatalf("package gapi not found in %v", keys(pkgs))
+	var files []*ast.File
+	for _, name := range sources {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		files = append(files, file)
+	}
+	if len(files) == 0 {
+		t.Fatal("no source files were parsed, so this check has nothing to look at")
 	}
 
 	// readMethods are the ones whose kind may be kindRead. Everything
@@ -43,7 +51,7 @@ func TestNoWriteIsLabelledAsARead(t *testing.T) {
 	readMethods := map[string]bool{"http.MethodGet": true, "http.MethodHead": true}
 
 	found := 0
-	for _, file := range pkg.Files {
+	for _, file := range files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			lit, ok := n.(*ast.CompositeLit)
 			if !ok {
@@ -123,12 +131,4 @@ func exprText(e ast.Expr) string {
 		}
 	}
 	return ""
-}
-
-func keys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }

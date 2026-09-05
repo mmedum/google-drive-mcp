@@ -80,6 +80,7 @@ func (s *Session) StderrTail(n int) []string {
 	return append([]string(nil), s.stderr[len(s.stderr)-n:]...)
 }
 
+// Close shuts the conversation down and waits for the server to exit.
 func (s *Session) Close() {
 	_ = s.stdin.Close()
 	_ = s.cmd.Wait()
