@@ -37,15 +37,20 @@ sboms:
 
 # Sign the checksum file with a keyless Sigstore certificate tied to the
 # workflow's OIDC identity: no private key to hold or leak.
+#
+# cosign 3 writes a bundle carrying the signature and the certificate
+# together; the separate --output-signature and --output-certificate
+# flags are deprecated and, with the new bundle format, ignored. The
+# first release attempt failed on exactly that, because the action was
+# pinned and the tool it installs was not (see .github/workflows).
 signs:
   - cmd: cosign
-    certificate: "${artifact}.pem"
+    signature: "${artifact}.bundle"
     args:
       - sign-blob
-      - "--output-certificate=${certificate}"
-      - "--output-signature=${signature}"
-      - "${artifact}"
+      - "--bundle=${signature}"
       - "--yes"
+      - "${artifact}"
     artifacts: checksum
     output: true
 
