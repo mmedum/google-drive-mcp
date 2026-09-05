@@ -20,8 +20,14 @@ const ReplyFields = "id,createdTime,modifiedTime,author(displayName,me),content,
 // CommentFields is what a comment is read with, replies included. Drive
 // returns the whole thread inline, so a listing of threads costs one
 // call rather than one per thread.
+// assigneeEmailAddress is deliberately absent. The discovery document
+// lists it as a property of Comment, but Drive REFUSES it in a field
+// selection — "Invalid field selection assignee_email_address" — so
+// asking for it fails the whole call. Found by the live run, which is
+// the only place it could have been found: the reference says the field
+// exists, and it does; what does not work is asking for it.
 const CommentFields = "id,createdTime,modifiedTime,author(displayName,me),content,deleted,resolved," +
-	"anchor,quotedFileContent,assigneeEmailAddress,replies(" + ReplyFields + ")"
+	"anchor,quotedFileContent,replies(" + ReplyFields + ")"
 
 // maxCommentPageSize is Drive's ceiling for comments.list and
 // replies.list. It coerces anything larger, and the fake refuses it.

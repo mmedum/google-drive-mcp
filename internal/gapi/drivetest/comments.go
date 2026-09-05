@@ -46,11 +46,6 @@ func Anchored(anchor, quoted string) CommentOpt {
 	}
 }
 
-// AssignedTo marks the comment as an action item for an address.
-func AssignedTo(email string) CommentOpt {
-	return func(c *gdrive.Comment) { c.AssigneeEmailAddress = email }
-}
-
 // WithReply appends a reply to the thread. An action of "resolve" or
 // "reopen" sets the thread's resolved state, which is the only way Drive
 // lets it be set.

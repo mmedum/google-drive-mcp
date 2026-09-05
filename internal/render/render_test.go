@@ -539,7 +539,7 @@ func commentThreads() []*model.Comment {
 		model.NewComment(&gdrive.Comment{
 			ID: "id-comment-2", Content: "typo in the header", CreatedTime: "2026-03-01T08:00:00Z",
 			ModifiedTime: "2026-03-02T08:00:00Z", Author: &gdrive.User{DisplayName: "Test Person", Me: true},
-			Resolved: true, AssigneeEmailAddress: "other@example.com",
+			Resolved: true,
 			Replies: []*gdrive.Reply{{
 				ID: "id-reply-2", Content: "fixed", Action: "resolve", CreatedTime: "2026-03-02T08:00:00Z",
 				Author: &gdrive.User{DisplayName: "Other Person"},
@@ -626,5 +626,27 @@ func TestAccessRequestsSayWhenNothingCanAnswerThem(t *testing.T) {
 				t.Errorf("does not say %q:\n%s", tc.want, got)
 			}
 		})
+	}
+}
+
+// TestAReplyThatOnlyResolvedSaysNothingRatherThanNothingInQuotes is a
+// live-run finding: Drive lets a reply carry an action and no text, and
+// the first rendering printed an empty pair of quotes under it, which
+// reads as somebody having deliberately said nothing.
+func TestAReplyThatOnlyResolvedSaysNothingRatherThanNothingInQuotes(t *testing.T) {
+	threads := []*model.Comment{model.NewComment(&gdrive.Comment{
+		ID: "id-comment-1", Content: "is this right?", CreatedTime: "2026-03-04T09:00:00Z",
+		Author: &gdrive.User{DisplayName: "Test Person", Me: true}, Resolved: true,
+		Replies: []*gdrive.Reply{{
+			ID: "id-reply-1", Action: "resolve", CreatedTime: "2026-03-05T09:00:00Z",
+			Author: &gdrive.User{DisplayName: "Test Person", Me: true},
+		}},
+	})}
+	got := Comments(threads, CommentsOptions{Now: now, CanComment: true})
+	if strings.Contains(got, `""`) {
+		t.Errorf("an empty reply is rendered as empty quotes:\n%s", got)
+	}
+	if !strings.Contains(got, "(resolved the thread)") {
+		t.Errorf("the reply does not say what it did:\n%s", got)
 	}
 }

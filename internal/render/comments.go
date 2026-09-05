@@ -62,7 +62,7 @@ func Comments(threads []*model.Comment, o CommentsOptions) string {
 }
 
 func writeThread(b *buf, c *model.Comment, now time.Time) {
-	b.linef("%s  %s  %s%s", c.ID, threadState(c), byWhen(c.By, c.Created, now), assignedWords(c))
+	b.linef("%s  %s  %s", c.ID, threadState(c), byWhen(c.By, c.Created, now))
 	if c.Quoted != "" {
 		b.linef("  on: %s", oneLine(c.Quoted))
 	} else if c.Anchored {
@@ -78,9 +78,15 @@ func writeThread(b *buf, c *model.Comment, now time.Time) {
 			continue
 		}
 		b.linef("  %s  %s%s", r.ID, byWhen(r.By, r.Created, now), replyAction(r))
-		if r.Deleted {
+		switch {
+		case r.Deleted:
 			b.line("    (deleted)")
-		} else {
+		case strings.TrimSpace(r.Text) == "" && r.Action != "":
+			// A reply that only resolved or reopened the thread has no
+			// words, and the line above has already said what it did.
+			// The live run printed an empty pair of quotes here, which
+			// reads as somebody having said nothing on purpose.
+		default:
 			writeQuotedText(b, r.Text, "    ")
 		}
 	}
@@ -108,13 +114,6 @@ func replyAction(r *model.Reply) string {
 	default:
 		return ""
 	}
-}
-
-func assignedWords(c *model.Comment) string {
-	if c.AssignedTo == "" {
-		return ""
-	}
-	return "  assigned to " + c.AssignedTo
 }
 
 func byWhen(by string, at, now time.Time) string {

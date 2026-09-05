@@ -27,9 +27,7 @@ type Comment struct {
 	// Anchored marks a comment tied to a region of the document, whether
 	// or not Drive quoted the passage.
 	Anchored bool
-	// AssignedTo is the address a comment was made an action item for.
-	AssignedTo string
-	Replies    []*Reply
+	Replies  []*Reply
 }
 
 // Reply is the server's view of one reply in a thread.
@@ -54,7 +52,6 @@ func NewComment(c *gdrive.Comment) *Comment {
 		ID: c.ID, By: userWords(c.Author), Created: parseTime(c.CreatedTime),
 		Modified: parseTime(c.ModifiedTime), Text: c.Content, Resolved: c.Resolved,
 		Deleted: c.Deleted, Anchored: strings.TrimSpace(c.Anchor) != "",
-		AssignedTo: c.AssigneeEmailAddress,
 	}
 	if c.QuotedFileContent != nil {
 		out.Quoted = c.QuotedFileContent.Value
