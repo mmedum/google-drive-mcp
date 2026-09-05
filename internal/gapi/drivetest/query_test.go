@@ -28,7 +28,12 @@ func TestNameContainsMatchesWordPrefixesOnly(t *testing.T) {
 		"name contains 'udget'":      false, // the middle of a word
 		"name contains 'inal'":       false,
 		"name contains '2026 final'": true,
-		"name contains 'final 2026'": false, // words must be consecutive
+		// Observed live (spike A): the order of the words does not
+		// matter, and they need not be adjacent.
+		"name contains 'final 2026'":   true,
+		"name contains 'Budget final'": true,
+		"name contains 'Bud fin'":      true,
+		"name contains 'Bud nope'":     false,
 	}
 	for q, want := range cases {
 		if got := match(t, q, f, s); got != want {
@@ -37,18 +42,30 @@ func TestNameContainsMatchesWordPrefixesOnly(t *testing.T) {
 	}
 }
 
-func TestNameEqualsIsExact(t *testing.T) {
+func TestNameEqualsMatchesTheWholeNameIgnoringCase(t *testing.T) {
 	s := New()
 	defer s.Close()
 	f := &gdrive.File{Name: "Q3"}
-	if !match(t, "name = 'Q3'", f, s) {
-		t.Error("exact name should match")
+	// Observed live (spike A): `name =` matches the whole name but is not
+	// case-sensitive. Path resolution leans on this — a folder holding
+	// "Budget" and "budget" makes one lookup return two, which is how the
+	// ambiguity guard gets reached rather than one silently winning.
+	for _, q := range []string{"name = 'Q3'", "name = 'q3'", "name = 'Q3'"} {
+		if !match(t, q, f, s) {
+			t.Errorf("%s should match", q)
+		}
 	}
-	if match(t, "name = 'q3'", f, s) {
-		t.Error("name = is case-sensitive")
+	if match(t, "name = 'Q'", f, s) {
+		t.Error("name = matches the whole name, not a prefix of it")
+	}
+	if match(t, "name = 'Q4'", f, s) {
+		t.Error("a different name should not match")
 	}
 	if !match(t, "name != 'Q4'", f, s) {
 		t.Error("!= should match a different name")
+	}
+	if match(t, "name != 'q3'", f, s) {
+		t.Error("!= should agree with = about case")
 	}
 }
 

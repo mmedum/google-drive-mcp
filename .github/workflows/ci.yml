@@ -61,6 +61,13 @@ jobs:
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # gitleaks knows about credentials. This knows about everything else
+      # a live run against a real Drive can drag in: addresses, file ids,
+      # and links carrying one.
+      - run: go run ./scripts/gates leaks
 
   smoke:
     runs-on: ubuntu-latest

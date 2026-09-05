@@ -859,3 +859,36 @@ func TestASharedDriveFileWithNoGrantsIsNotCalledUnknown(t *testing.T) {
 		t.Errorf("the drive's own reach should be stated:\n%s", out)
 	}
 }
+
+func TestNamesDifferingOnlyInCaseAreAmbiguous(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	// Drive's `name =` ignores case (observed live, spike A), so two
+	// siblings differing only in case both match one lookup. Taking
+	// either would be taking the first match.
+	fake.AddFile("id-budget-lower-fixture", "budget.xlsx", "text/plain", "id-2026-fixture")
+	_, err := svc.Resolve(context.Background(), "/Projects/2026/Budget.xlsx", service.ResolveOptions{})
+	if err == nil {
+		t.Fatal("two names differing only in case should be ambiguous")
+	}
+	if !strings.HasPrefix(err.Error(), "[ambiguous]") {
+		t.Fatalf("err = %v, want ambiguous", err)
+	}
+	for _, want := range []string{"id-budget-fixture", "id-budget-lower-fixture"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("both candidates should be offered, missing %s: %v", want, err)
+		}
+	}
+}
+
+func TestAPathResolvesRegardlessOfCase(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	// The other side of the same coin: with no collision, a path typed in
+	// the wrong case still finds the one file it can mean.
+	res, err := svc.Resolve(context.Background(), "/projects/2026/budget.xlsx", service.ResolveOptions{})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if res.File.ID != "id-budget-fixture" {
+		t.Errorf("resolved to %q", res.File.ID)
+	}
+}

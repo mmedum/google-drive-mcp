@@ -26,10 +26,47 @@ func TestRedactsIdsLinksAndAddresses(t *testing.T) {
 			t.Errorf("%q survived redaction:\n%s", secret, got)
 		}
 	}
-	for _, kept := range []string{"Budget.xlsx", "Excel spreadsheet", "owner:", "A Person"} {
+	// A display name beside an address is a person, and goes too.
+	if strings.Contains(got, "A Person") {
+		t.Errorf("a person's name survived beside their address:\n%s", got)
+	}
+	// File names cannot be told from prose, so they stay — which is why
+	// Summary has to say so.
+	for _, kept := range []string{"Budget.xlsx", "Excel spreadsheet", "owner:"} {
 		if !strings.Contains(got, kept) {
 			t.Errorf("%q was redacted but is not account-specific:\n%s", kept, got)
 		}
+	}
+}
+
+func TestPeopleBesideAddressesAreRedacted(t *testing.T) {
+	r := NewRedactor(false)
+	got := r.Do("modified 2026-09-04 13:17Z by Kim Nørskov <kim@example.com>")
+	for _, secret := range []string{"Kim", "Nørskov", "kim@example.com"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("%q survived:\n%s", secret, got)
+		}
+	}
+	if !strings.Contains(got, "modified 2026-09-04 13:17Z by ") {
+		t.Errorf("the surrounding line was mangled:\n%s", got)
+	}
+	// "(you)" is the signed-in person and names nobody else.
+	if got := r.Do("by Someone Else (you)"); !strings.Contains(got, "(you)") {
+		t.Errorf("(you) should survive: %s", got)
+	}
+}
+
+func TestSummaryAlwaysWarnsAboutNames(t *testing.T) {
+	// A transcript believed to be clean and is not is worse than one
+	// nobody trusts, so every run says what is still in it.
+	quiet := NewRedactor(false)
+	if !strings.Contains(quiet.Summary(), "names are never redacted") {
+		t.Errorf("summary with nothing redacted = %q", quiet.Summary())
+	}
+	busy := NewRedactor(false)
+	busy.Do("a@example.com")
+	if !strings.Contains(busy.Summary(), "NOT redacted") {
+		t.Errorf("summary after redacting = %q", busy.Summary())
 	}
 }
 

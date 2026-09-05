@@ -8,7 +8,9 @@ people who run it against their own Drive.
 - **Nothing deployer-specific enters the repository.** No organisation
   names, file or folder ids or URLs, account emails, Cloud project ids,
   OAuth client ids or secrets, and no names or content of real files.
-  Test fixtures are synthetic. gitleaks runs in pre-commit and CI.
+  Test fixtures are synthetic. Two gates enforce this rather than trusting
+  it: gitleaks for credentials, and `make leaks` for addresses, Drive ids
+  and Drive links. Both run in the pre-commit hook and in CI.
 - **Stdout is for JSON-RPC.** Log with `slog` to stderr only, and log
   truncated ids, counts and latencies — never names, paths, emails,
   queries or content.

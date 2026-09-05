@@ -34,6 +34,8 @@ func main() {
 		err = smoke(os.Stdout, args)
 	case "staleness":
 		err = staleness(os.Stdout, args)
+	case "leaks":
+		err = leaks(os.Stdout, args)
 	case "precommit":
 		err = precommit(os.Stdout, args)
 	case "install-hooks":
@@ -60,6 +62,7 @@ Usage:
   go run ./scripts/gates schema-diff [BINARY]       tool surface against the last tag
   go run ./scripts/gates smoke [BINARY]             drive the binary over stdio, no credentials
   go run ./scripts/gates staleness [BINARY]         documentation must match the code
+  go run ./scripts/gates leaks                     nothing from a real Drive is in the repository
   go run ./scripts/gates precommit                 gofmt, vet and a secret scan
   go run ./scripts/gates install-hooks             write the git pre-commit hook
 `)

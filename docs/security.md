@@ -54,7 +54,8 @@ you asked for it; it never reaches the log.
 | Instructions hidden inside a file | Read tools are read-only and return content as data. The server never acts on what a file says; the client's per-call approval is what stands between a suggestion in a document and a write. |
 | Runaway listings and quota exhaustion | One page per call, budgeted tree walks with depth and item limits that report where they stopped, per-process rate limiters, and backoff that honours Google's own retry reasons. |
 | A stalled request hanging the server | Every attempt, token refresh and transfer chunk runs under a deadline, and response bodies are bounded. |
-| Secrets reaching the repository | gitleaks runs in pre-commit and in CI, with rules for Google client ids, client secrets and refresh tokens on top of its defaults. Every fixture is synthetic. |
+| Secrets reaching the repository | gitleaks runs in the pre-commit hook and in CI, with rules for Google client ids, client secrets and refresh tokens on top of its defaults. Every fixture is synthetic. |
+| Somebody else's Drive reaching the repository | A leak check (`make leaks`, also in the pre-commit hook and in CI) refuses any address outside the documentation domains, anything shaped like a Drive id, and any Drive link carrying one. Ids that are demonstrably synthetic are allowlisted individually, each with its reason. This is the rule most easily broken by accident: a transcript pasted into an issue, a fixture copied out of a real listing, an id in a commit message. |
 
 ## Annotations are not a security boundary
 

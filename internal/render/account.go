@@ -98,12 +98,27 @@ func storageLine(q *gdrive.StorageQuota) string {
 			model.HumanSize(usage), model.HumanSize(inDrive), model.HumanSize(inTrash))
 	}
 	limit := parseBytes(q.Limit)
-	pct := 0.0
-	if limit > 0 {
-		pct = 100 * float64(usage) / float64(limit)
+	return fmt.Sprintf("%s of %s used (%s; %s in Drive, %s in the trash)",
+		model.HumanSize(usage), model.HumanSize(limit), percentUsed(usage, limit),
+		model.HumanSize(inDrive), model.HumanSize(inTrash))
+}
+
+// percentUsed renders a share of the quota. A large allowance makes a
+// real amount round to "0%", which reads as a broken number rather than
+// as plenty of room.
+func percentUsed(usage, limit int64) string {
+	if limit <= 0 {
+		return "unknown"
 	}
-	return fmt.Sprintf("%s of %s used (%.0f%%; %s in Drive, %s in the trash)",
-		model.HumanSize(usage), model.HumanSize(limit), pct, model.HumanSize(inDrive), model.HumanSize(inTrash))
+	pct := 100 * float64(usage) / float64(limit)
+	switch {
+	case pct > 0 && pct < 0.1:
+		return "under 0.1%"
+	case pct < 10:
+		return fmt.Sprintf("%.1f%%", pct)
+	default:
+		return fmt.Sprintf("%.0f%%", pct)
+	}
 }
 
 // parseBytes reads the string form Drive uses for int64 counts.

@@ -1,0 +1,180 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+// This gate turns the repository's first rule into something checkable.
+// Nothing deployer-specific may enter it: no account addresses, no real
+// file, folder or shared-drive ids, no links carrying one. gitleaks
+// covers credentials; this covers everything else, which is the part a
+// live run against a real Drive can drag in — a pasted transcript, a
+// fixture copied out of a listing, an id in a commit message.
+//
+// It is deliberately blunt. A false positive costs an entry in the
+// allowlist below, with a reason; a false negative costs somebody else
+// their Drive.
+
+// documentedDomains are the domains RFC 2606 reserves for documentation,
+// plus the address git commits are attributed to. Anything else that
+// looks like an address belongs to a real person.
+var documentedDomains = map[string]bool{
+	"example.com": true, "example.org": true, "example.net": true,
+	"anthropic.com": true,
+}
+
+var (
+	addressPattern = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})`)
+	// A Drive id: base64url, 19 characters or more. Requiring a capital
+	// and a digit keeps prose and kebab-case identifiers out of it.
+	idPattern   = regexp.MustCompile(`[A-Za-z0-9_\-]{19,}={0,2}`)
+	linkPattern = regexp.MustCompile(`https://(?:drive|docs)\.google\.com/\S+`)
+	hasCapital  = regexp.MustCompile(`[A-Z]`)
+	hasNumber   = regexp.MustCompile(`[0-9]`)
+)
+
+// skipFiles hold long opaque content that is not ours to police.
+var skipFiles = map[string]bool{"go.sum": true, "go.mod": true}
+
+// allowedIDs are id-shaped strings that are demonstrably not from
+// anybody's Drive. Each carries its reason: an entry without one is how
+// a gate like this quietly stops working.
+var allowedIDs = map[string]string{
+	"1SyntheticFixtureFileIdAAAAAAAAAAAA":          "synthetic fixture id, used by the smoke gate and the ref tests",
+	"1NoSuchFileIdAAAAAAAAAAAAAAAAAAAAAA":          "synthetic fixture id for a file that does not exist",
+	"1AbC23dEfGh45iJkLmN67opQrStUvWxYz":            "synthetic fixture id in the mistyped-id test",
+	"1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms": "the id in Google's own published API documentation",
+	"1ZzzMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms": "that documentation id with its head changed, to have a second value",
+	"0AKl3lQ5UUqptUk9PVA":                          "the shared-drive id in Google's own published API documentation",
+	"0ABcdEFghIJklMNop":                            "synthetic shared-drive id in the ref tests",
+}
+
+// leaks scans every tracked text file for anything account-specific.
+func leaks(out io.Writer, _ []string) error {
+	files, err := trackedFiles()
+	if err != nil {
+		return err
+	}
+	var found []string
+	for _, path := range files {
+		if skipFiles[filepath.Base(path)] {
+			continue
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		found = append(found, scanForLeaks(path, string(body))...)
+	}
+	if len(found) > 0 {
+		for _, f := range found {
+			_, _ = fmt.Fprintln(out, f)
+		}
+		return fmt.Errorf("%d thing(s) here look like they came from a real Drive", len(found))
+	}
+	_, _ = fmt.Fprintf(out, "leak check ok (%d files)\n", len(files))
+	return nil
+}
+
+func scanForLeaks(path, body string) []string {
+	var found []string
+	for i, line := range strings.Split(body, "\n") {
+		where := fmt.Sprintf("%s:%d", path, i+1)
+		for _, m := range addressPattern.FindAllStringSubmatch(line, -1) {
+			if !documentedDomains[strings.ToLower(m[1])] {
+				found = append(found, where+": an address on a real domain: "+abbreviate(m[0]))
+			}
+		}
+		for _, link := range linkPattern.FindAllString(line, -1) {
+			if !allowedLink(link) {
+				found = append(found, where+": a Drive link carrying an id")
+			}
+		}
+		for _, loc := range idPattern.FindAllStringIndex(line, -1) {
+			id := line[loc[0]:loc[1]]
+			if !suspiciousID(id) || allowedIDs[id] != "" || looksLikeInfrastructure(line) {
+				continue
+			}
+			if isCodeIdentifier(line, loc) {
+				continue
+			}
+			found = append(found, where+": something shaped like a Drive id: "+abbreviate(id))
+		}
+	}
+	return found
+}
+
+// suspiciousID reports whether a token has the shape of a Drive id
+// rather than of a long word.
+func suspiciousID(id string) bool {
+	return hasCapital.MatchString(id) && hasNumber.MatchString(id)
+}
+
+// isCodeIdentifier reports whether the match is part of a program rather
+// than a value: something reached through a dot, or called. A leaked id
+// arrives as a literal or in prose, never as a selector.
+func isCodeIdentifier(line string, loc []int) bool {
+	if loc[0] > 0 && line[loc[0]-1] == '.' {
+		return true
+	}
+	if loc[1] < len(line) && (line[loc[1]] == '(' || line[loc[1]] == '.') {
+		return true
+	}
+	return false
+}
+
+// allowedLink permits a link whose every id-shaped part is allowed.
+func allowedLink(link string) bool {
+	for _, id := range idPattern.FindAllString(link, -1) {
+		if suspiciousID(id) && allowedIDs[id] == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// looksLikeInfrastructure skips the long opaque strings this repository
+// has for its own reasons: pinned action digests and module checksums.
+func looksLikeInfrastructure(line string) bool {
+	return strings.Contains(line, "uses:") ||
+		strings.Contains(line, "codeql-bundle") ||
+		strings.Contains(line, "h1:")
+}
+
+// abbreviate shows enough of a finding to locate it without reprinting
+// it in full into a terminal, a log, or CI output.
+func abbreviate(s string) string {
+	if len(s) <= 8 {
+		return s
+	}
+	return s[:4] + "…" + s[len(s)-2:]
+}
+
+func trackedFiles() ([]string, error) {
+	out, err := exec.Command("git", "ls-files", "-z").Output()
+	if err != nil {
+		return nil, fmt.Errorf("list tracked files: %w", err)
+	}
+	var files []string
+	for _, name := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+		if name != "" && isText(name) {
+			files = append(files, name)
+		}
+	}
+	return files, nil
+}
+
+// isText keeps the scan to files a person could paste something into.
+func isText(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".gz", ".ico", ".woff", ".woff2":
+		return false
+	}
+	return true
+}
