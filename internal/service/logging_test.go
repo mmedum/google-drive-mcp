@@ -29,7 +29,7 @@ import (
 const (
 	secretFileID   = "1ZzyzxSyntheticFixtureFileIdAAAAAAA"
 	secretFolderID = "1ZzyzxSyntheticFixtureFolderIdAAAAA"
-	secretDriveID  = "0AZzyzxSyntheticDriveIdAAA"
+	secretDriveID  = "0AZzyzxFixtureDriveIdAAAAA"
 	secretFileName = "Kwyjibo quarterly forecast.xlsx"
 	secretFolder   = "Grimsby restructuring"
 	secretDrive    = "Sprawlmart acquisition"

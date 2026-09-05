@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
 
@@ -243,22 +244,32 @@ func runServer(args []string) int {
 	return 0
 }
 
+// JSON-RPC codes the SDK uses when a session is winding down. They are
+// not in the JSON-RPC specification's own range; the SDK defines them
+// and exports the error type carrying them through its jsonrpc package.
+const (
+	codeServerClosing = -32004
+	codeClientClosing = -32003
+)
+
 // isDisconnect reports whether the session ended because the client went
-// away, which is how every stdio session ends and is not a failure: a
-// non-zero exit here shows up in the client's log as a crash.
+// away. That is how every stdio session ends, and it is not a failure: a
+// non-zero exit here shows up in the client's log as a crash, on every
+// clean shutdown.
 //
-// The SDK signals it by wrapping its own "server is closing" sentinel,
-// which lives in an internal package and so cannot be compared by
-// identity, and the EOF underneath it is text rather than a wrapped
-// error. Hence the string. It is checked after the typed cases, and the
-// cost of it going stale is an exit code, not a wrong answer; the smoke
-// gate closes a client mid-request and fails if the exit is non-zero.
+// The SDK reports it as a wire error wrapping its own sentinel, and the
+// EOF underneath is text rather than a wrapped error, so errors.Is on
+// io.EOF does not see it. The code is the thing to match: it survives a
+// reworded message, which a string check would not.
 func isDisconnect(err error) bool {
-	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+	if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
-	return strings.Contains(err.Error(), "server is closing")
+	var wire *jsonrpc.Error
+	if errors.As(err, &wire) {
+		return wire.Code == codeServerClosing || wire.Code == codeClientClosing
+	}
+	return false
 }
 
 // openCommand parses a subcommand's flags, loads the configuration and

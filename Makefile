@@ -51,6 +51,10 @@ cover: test ## Enforce the coverage floor on core packages
 hooks: ## Install the git pre-commit hook
 	$(GO) run ./scripts/gates install-hooks
 
+.PHONY: integration
+integration: ## Live tests against the signed-in account (writes nothing yet)
+	GDRIVE_INTEGRATION=1 $(GO) test -tags=integration ./... -v -count=1
+
 .PHONY: live
 live: build ## Drive the binary against the signed-in Google account (redacted)
 	$(GO) run ./scripts/livedrive -bin $(BIN) $(LIVE_ARGS)

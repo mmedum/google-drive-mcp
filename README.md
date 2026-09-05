@@ -14,8 +14,9 @@ to any particular organisation or account.
 
 **Status: v0.0.1, phase 0 of the plan in
 [docs/architecture.md](docs/architecture.md).** The four read tools below
-work. Content, organising, sharing, history and collaboration arrive in
-the phases that follow.
+work, and are verified against a real account as well as against the
+in-memory Drive the tests use. Content and organising arrive in v0.1.0,
+sharing and history in v0.2.0, collaboration in v0.3.0.
 
 ## What it does today
 
