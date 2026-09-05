@@ -1183,6 +1183,16 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   When an account is available: `livedrive -write -share ADDRESS` makes
   a file for the purpose, records its owner, transfers, reads it back and
   compares. It reports three outcomes, two of which are failures.
+- **Ten of the thirteen evals have never been run.** `make evals` needs
+  the `claude` command, a signed-in account and several minutes, and it
+  costs real tokens, so it is not in `make check` and phase 3 ran three
+  tasks rather than thirteen. What that proved is the harness end to end
+  — an agent reaching this server's tools and nothing else, a task set
+  up, scored on the end state and on the trace, and the scratch folder
+  trashed — and it found a defect in the harness on its first run. What
+  it did not prove is what the other ten tasks say about the tool
+  descriptions, which is the whole point of having them. They are the
+  first thing to run when somebody has ten minutes and a live account.
 - **A policy-blocked share is unseen live.** The `[blocked]` mapping is
   built from Google's documented reasons and exercised against an
   injected refusal, not a real one. It needs an administrator to put an
