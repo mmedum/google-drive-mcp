@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -149,4 +152,77 @@ func TestLinkDetectionAsksWhatHostAURLIsReallyFor(t *testing.T) {
 			t.Errorf("a real link went undetected: %q", link)
 		}
 	}
+}
+
+// gitRepo makes a repository with one commit and one annotated tag, both
+// carrying the identity given, and returns its directory.
+func gitRepo(t *testing.T, identity, message string) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=A Tester", "GIT_AUTHOR_EMAIL="+identity,
+			"GIT_COMMITTER_NAME=A Tester", "GIT_COMMITTER_EMAIL="+identity,
+			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("nothing to see\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "a.txt")
+	run("commit", "-q", "-m", message)
+	run("tag", "-a", "v1.0.0", "-m", message)
+	return dir
+}
+
+func TestHistoryScansMessagesAndNotTheIdentitiesGitWrites(t *testing.T) {
+	// The same address in two places, with two verdicts. In the header it
+	// is how git records who made the commit — public in every repository
+	// by construction, and unremovable without rewriting every commit. In
+	// the message it is something a person typed, which is exactly what
+	// this gate is for.
+	//
+	// Assembled rather than written out, like every other sample here: a
+	// leak-shaped literal in this file makes the gate flag its own test,
+	// and the fix for that is always to allowlist the file, after which
+	// the file is no longer covered. The comment at the top of this file
+	// says so, and I wrote the literal anyway; the gate caught it.
+	identity := sample("a.tester", "@", "gmail", ".com")
+
+	t.Run("an identity header is not a leak", func(t *testing.T) {
+		t.Chdir(gitRepo(t, identity, "Add a file\n\nNothing disclosing here.\n"))
+		var out strings.Builder
+		if err := leaksInHistory(&out); err != nil {
+			t.Errorf("the gate failed on git's own identity records: %v\n%s", err, out.String())
+		}
+	})
+
+	t.Run("an address in a message is", func(t *testing.T) {
+		t.Chdir(gitRepo(t, identity, "Add a file\n\nReported by "+identity+" from their Drive.\n"))
+		var out strings.Builder
+		err := leaksInHistory(&out)
+		if err == nil {
+			t.Fatalf("an address written into a commit message was not caught:\n%s", out.String())
+		}
+		if !strings.Contains(out.String(), "commit ") {
+			t.Errorf("the report does not say which commit: %s", out.String())
+		}
+	})
+
+	t.Run("an id in a message is", func(t *testing.T) {
+		// Id-shaped, with the capital and the digit the pattern wants, and
+		// without the marker that says a value was invented for a test.
+		id := sample("1BhX8kk0TbMD", "8KXojnKfZ6b7", "vTAVNz3ni")
+		t.Chdir(gitRepo(t, identity, "Add a file\n\nSeen on "+id+" today.\n"))
+		var out strings.Builder
+		if err := leaksInHistory(&out); err == nil {
+			t.Fatalf("an id in a commit message was not caught:\n%s", out.String())
+		}
+	})
 }
