@@ -10,18 +10,32 @@ import (
 )
 
 // Resource is one gdrive:// resource's content and the media type it is
-// in. A resource read differs from the matching tool call in exactly two
-// ways: it carries a media type, because a resource is content rather
-// than a report, and it takes the whole output budget in one go, because
-// there is no model on the other end to ask for the next window.
+// in.
+//
+// A resource read differs from the matching tool call in three ways, and
+// the third is the one worth stating: it carries a media type, it takes
+// the whole output budget in one go because there is no model on the
+// other end to ask for the next window, and it is the CONTENT ALONE.
+// read_file lays its window out under a header saying which part of
+// which file it is; a resource cannot, because a client told the bytes
+// are text/csv may hand them to something that parses csv, and five
+// lines of prose on top would make the media type a lie. The description
+// a header would have carried is what gdrive://{file}/meta is for.
 type Resource struct {
 	Text     string
 	MimeType string
+	// Truncated marks content the budget cut short, with how much came
+	// back and how much there is. It travels in the read's _meta rather
+	// than in the text, for the same reason the header does not: a note
+	// appended to a csv is no longer a csv.
+	Truncated bool
+	Bytes     int64
+	Total     int64
 }
 
 // ResourceText is what gdrive://{file} returns: the file's text under
 // one budget, in the form read_file would give it — markdown for a Doc,
-// csv for a Sheet, plain text otherwise.
+// csv for a Sheet, the file's own type otherwise — and nothing else.
 func (s *Service) ResourceText(ctx context.Context, reference string) (*Resource, error) {
 	res, err := s.Resolve(ctx, reference, ResolveOptions{FollowShortcut: true})
 	if err != nil {
@@ -35,11 +49,15 @@ func (s *Service) ResourceText(ctx context.Context, reference string) (*Resource
 	if err != nil {
 		return nil, err
 	}
-	text, err := s.ReadFile(ctx, ReadFileInput{File: f.ID, MaxChars: render.MaxMaxChars})
+	in := ReadFileInput{File: f.ID, MaxChars: render.MaxMaxChars}
+	w, err := s.textWindow(ctx, res, plan, in, render.MaxMaxChars)
 	if err != nil {
 		return nil, err
 	}
-	return &Resource{Text: text, MimeType: textMimeOf(f, plan)}, nil
+	return &Resource{
+		Text: w.text, MimeType: textMimeOf(f, plan),
+		Truncated: w.more, Bytes: w.used, Total: w.total,
+	}, nil
 }
 
 // textMimeOf is the media type the text a read produced is in. For a

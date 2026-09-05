@@ -14,8 +14,10 @@ func TestClassValueFollowsTheNamingConvention(t *testing.T) {
 		// after the kind of failure and the value after what the caller
 		// should do about it.
 		"ClassAmbiguousIO": "ambiguous_outcome",
-		// Not a class at all.
-		"Classes":  "es",
+		// Not classes. "Classes" is the list, and reading it as a class
+		// called "es" is what would fail this gate the day somebody
+		// joined gapi.Classes() into a tool description.
+		"Classes":  "",
 		"Class":    "",
 		"NotAName": "",
 	}

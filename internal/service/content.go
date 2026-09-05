@@ -54,8 +54,33 @@ func (s *Service) ReadFile(ctx context.Context, in ReadFileInput) (string, error
 		return "", err
 	}
 
+	w, err := s.textWindow(ctx, res, plan, in, budget)
+	if err != nil {
+		return "", err
+	}
+	return s.renderText(ctx, res, plan, in, w), nil
+}
+
+// textWindow is one window of a file's text and what a header needs to
+// describe it. It exists because a tool result and a resource want the
+// same bytes and different wrappings: read_file lays the window out
+// under a header saying which part of the file it is, and a resource
+// hands back the text alone, because a resource IS the content and a
+// client may feed it to something that parses the media type.
+type textWindow struct {
+	text  string
+	used  int64
+	total int64
+	more  bool
+}
+
+// textWindow reads the window a caller asked for, from an export or from
+// the file's own bytes.
+func (s *Service) textWindow(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput, budget int,
+) (textWindow, error) {
+	f := res.File
 	if plan.exportMime != "" {
-		return s.readExport(ctx, res, plan, in, budget)
+		return s.exportWindow(ctx, res, plan, in, budget)
 	}
 	// A blob's size does not bound this call: only the window shown is
 	// fetched, so the head of a 200 MB log is one small request, and
@@ -64,21 +89,21 @@ func (s *Service) ReadFile(ctx context.Context, in ReadFileInput) (string, error
 	if size, known := f.SizeBytes(); known && in.Offset >= size {
 		// Drive answers a range that starts past the end with a 416,
 		// which says nothing useful. The file's own size already does.
-		return s.renderText(ctx, res, plan, in, "", 0, size, false), nil
+		return textWindow{total: size}, nil
 	}
 	content, err := s.api.Download(ctx, f.ID, gapi.DownloadOptions{
 		Offset: in.Offset, Length: int64(budget) + utf8.UTFMax,
 	})
 	if err != nil {
-		return "", s.contentError(err, f, "reading")
+		return textWindow{}, s.contentError(err, f, "reading")
 	}
 	defer func() { _ = content.Body.Close() }()
 
 	window, used, more, err := readWindow(content.Body, budget)
 	if err != nil {
-		return "", wrap(err, "reading "+f.Name)
+		return textWindow{}, wrap(err, "reading "+f.Name)
 	}
-	return s.renderText(ctx, res, plan, in, window, used, totalOf(content, f), more), nil
+	return textWindow{text: window, used: used, total: totalOf(content, f), more: more}, nil
 }
 
 // readExport returns a window of a Google-native document. Drive takes
@@ -87,21 +112,22 @@ func (s *Service) ReadFile(ctx context.Context, in ReadFileInput) (string, error
 // the first cost nothing. The key carries the revision and the
 // modification time, so a document that changed under a paging model is
 // exported again rather than served from a stale copy.
-func (s *Service) readExport(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput, budget int) (string, error) {
+func (s *Service) exportWindow(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput, budget int,
+) (textWindow, error) {
 	f := res.File
 	key := f.ID + "\x00" + f.HeadRevisionID + "\x00" + f.ModifiedTime + "\x00" + plan.exportMime
 	text, ok := s.exportedText(key)
 	if !ok {
 		content, err := s.api.Export(ctx, f.ID, plan.exportMime)
 		if err != nil {
-			return "", s.contentError(err, f, "reading")
+			return textWindow{}, s.contentError(err, f, "reading")
 		}
 		defer func() { _ = content.Body.Close() }()
 		// The cap is Google's own: an export larger than this does not
 		// arrive, so reading to the end is bounded whatever the file is.
 		raw, err := io.ReadAll(io.LimitReader(content.Body, MaxExport))
 		if err != nil {
-			return "", wrap(err, "reading "+f.Name)
+			return textWindow{}, wrap(err, "reading "+f.Name)
 		}
 		text = string(raw)
 		if plan.stripDataURIs {
@@ -115,13 +141,14 @@ func (s *Service) readExport(ctx context.Context, res *Resolved, plan readPlan, 
 
 	total := int64(len(text))
 	if in.Offset >= total {
-		return s.renderText(ctx, res, plan, in, "", 0, total, false), nil
+		return textWindow{total: total}, nil
 	}
 	window, used, more, err := readWindow(strings.NewReader(text[in.Offset:]), budget)
 	if err != nil {
-		return "", wrap(err, "reading "+f.Name)
+		return textWindow{}, wrap(err, "reading "+f.Name)
 	}
-	return s.renderText(ctx, res, plan, in, window, used, total, more || in.Offset+used < total), nil
+	return textWindow{text: window, used: used, total: total,
+		more: more || in.Offset+used < total}, nil
 }
 
 // MaxExport is Google's own ceiling on files.export.
@@ -145,7 +172,7 @@ func (s *Service) keepExport(key, text string) {
 // renderText lays out one window under the header that says which part
 // of the file it is.
 func (s *Service) renderText(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput,
-	window string, used, total int64, more bool,
+	w textWindow,
 ) string {
 	return render.FileText(s.Model(ctx, res), render.FileTextOptions{
 		Now:              s.now(),
@@ -153,10 +180,10 @@ func (s *Service) renderText(ctx context.Context, res *Resolved, plan readPlan, 
 		Format:           plan.formatName,
 		Note:             plan.note,
 		Offset:           in.Offset,
-		Bytes:            used,
-		Total:            total,
-		More:             more,
-		Text:             window,
+		Bytes:            w.used,
+		Total:            w.total,
+		More:             w.more,
+		Text:             w.text,
 	})
 }
 
