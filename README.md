@@ -43,6 +43,15 @@ Three things it does differently from the alternatives:
 go install github.com/mmedum/google-drive-mcp/cmd/google-drive-mcp@latest
 ```
 
+That puts the binary in Go's bin directory, which is often not on your
+`PATH`. If the next command says `command not found`, either use the full
+path or add the directory once:
+
+```
+"$(go env GOPATH)/bin/google-drive-mcp" --version    # check it landed
+export PATH="$(go env GOPATH)/bin:$PATH"             # or add it to your shell profile
+```
+
 Or download a release archive from the releases page and put the binary
 on your `PATH`. Every archive carries the binary, `LICENSE` and this
 README; `checksums.txt` is signed with a keyless Sigstore certificate and
