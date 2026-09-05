@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -487,26 +488,21 @@ func TestNothingAModelReadsNamesAToolThatDoesNotExist(t *testing.T) {
 		texts = append(texts, tool.Description, string(raw))
 	}
 
-	// Every result the four tools can produce, including the refusals,
-	// which are where advice is densest.
-	calls := []struct {
-		name string
-		args map[string]any
-	}{
-		{"get_account", map[string]any{}},
-		{"get_file", map[string]any{"file": "id-notes-fixture"}},
-		{"get_file", map[string]any{"file": "id-projects-fixture"}},
-		{"get_file", map[string]any{"file": "1NoSuchFileIdFixtureAAAAAAAAAAAAAAA"}},
-		{"get_file", map[string]any{"file": "https://drive.google.com/drive/shared-drives"}},
-		{"list_folder", map[string]any{"folder": "/Projects"}},
-		{"list_folder", map[string]any{"folder": "id-notes-fixture"}},
-		{"list_folder", map[string]any{"folder": "root", "recursive": true}},
-		{"search_files", map[string]any{"name": "Meeting"}},
-		{"search_files", map[string]any{"name": "nothingmatchesthis"}},
-		{"search_files", map[string]any{}},
-		{"search_files", map[string]any{"kind": "not-a-kind", "name": "x"}},
-	}
-	for _, c := range calls {
+	// Every result every registered tool can produce, including the
+	// refusals, which are where advice is densest. The calls come from
+	// toolArgs rather than a list typed here, and
+	// TestEveryRegisteredToolIsExercised fails when a tool has no entry:
+	// a list typed by hand stops covering the surface the moment the
+	// surface grows, silently, which is exactly how this test came to be
+	// checking four tools out of twenty-four.
+	for _, c := range toolCalls() {
+		// The gated four are in the table because
+		// TestEveryRegisteredToolIsExercised makes them be; this build
+		// does not register them, and their absence is what the loop
+		// below asserts.
+		if !registered[c.name] {
+			continue
+		}
 		texts = append(texts, resultText(t, call(t, cs, c.name, c.args)))
 	}
 
@@ -895,5 +891,133 @@ func TestReadOnlyModeKeepsEveryListingAndNoWrite(t *testing.T) {
 		if registered[gone] {
 			t.Errorf("read-only mode registered the write %q", gone)
 		}
+	}
+}
+
+// toolArgs is one or more representative calls per registered tool: the
+// happy path where there is one, and the refusals, which are where a
+// result's advice is densest and therefore where it is most likely to
+// name something that does not exist.
+//
+// It is a table rather than a list of calls so that the inventory can be
+// checked against the server's own tool list. A hand-typed list of calls
+// decays every time a phase adds a tool, and nothing makes a sound when
+// it does — which is how the test that reads these results came to be
+// exercising four tools out of twenty-four.
+func toolArgs() map[string][]map[string]any {
+	return map[string][]map[string]any{
+		"get_account": {{}},
+		"get_file": {
+			{"file": "id-notes-fixture"},
+			{"file": "id-projects-fixture"},
+			{"file": "1NoSuchFileIdFixtureAAAAAAAAAAAAAAA"},
+			{"file": "https://drive.google.com/drive/shared-drives"},
+		},
+		"list_folder": {
+			{"folder": "/Projects"},
+			{"folder": "id-notes-fixture"},
+			{"folder": "root", "recursive": true},
+		},
+		"search_files": {
+			{"name": "Meeting"},
+			{"name": "nothingmatchesthis"},
+			{},
+			{"kind": "not-a-kind", "name": "x"},
+		},
+		"read_file":      {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"download_file":  {{"file": "id-notes-fixture"}},
+		"upload_file":    {{"local_path": "notes.txt"}},
+		"create_file":    {{"name": "Notes", "kind": "doc"}, {"name": "x"}},
+		"create_folder":  {{"name": "Reports", "parent": "id-projects-fixture"}},
+		"update_content": {{"file": "id-notes-fixture", "content": "no"}},
+		"update_file":    {{"file": "id-notes-fixture", "starred": true}},
+		"move_file":      {{"file": "id-notes-fixture", "to": "root"}, {"file": "id-notes-fixture"}},
+		"copy_file":      {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"create_shortcut": {
+			{"target": "id-notes-fixture", "parent": "id-projects-fixture", "name": "shortcut"},
+		},
+		"trash_file":   {{"file": "id-notes-fixture", "dry_run": true}},
+		"restore_file": {{"file": "id-notes-fixture"}},
+
+		"list_permissions": {{"file": "id-notes-fixture"}},
+		"share_file": {
+			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "reader"},
+			{"file": "id-notes-fixture", "principal": "anyone", "role": "reader"},
+			{"file": "id-notes-fixture", "principal": "not-an-address", "role": "reader"},
+			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "owner"},
+		},
+		"unshare_file": {
+			{"file": "id-notes-fixture", "remove_link": true},
+			{"file": "id-notes-fixture"},
+		},
+		"list_drives": {{}},
+		"manage_drive": {
+			{"action": "create", "name": "Research"},
+			{"action": "restrict", "drive": "Research"},
+			{"action": "not-an-action"},
+		},
+		"list_revisions":  {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"manage_revision": {{"file": "id-notes-fixture", "revision": "id-nothing", "action": "keep"}},
+		"list_changes":    {{}, {"page_token": "not-a-token"}},
+
+		"delete_file":     {{"file": "id-notes-fixture"}},
+		"empty_trash":     {{"dry_run": true}},
+		"delete_drive":    {{"drive": "nothing-of-that-name"}},
+		"delete_revision": {{"file": "id-notes-fixture", "revision": "id-nothing"}},
+	}
+}
+
+// toolCall is one entry of toolArgs, flattened.
+type toolCall struct {
+	name string
+	args map[string]any
+}
+
+// toolCalls flattens toolArgs in a stable order, so a failure names the
+// same call every run.
+func toolCalls() []toolCall {
+	table := toolArgs()
+	names := make([]string, 0, len(table))
+	for name := range table {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]toolCall, 0, len(table))
+	for _, name := range names {
+		for _, args := range table[name] {
+			out = append(out, toolCall{name: name, args: args})
+		}
+	}
+	return out
+}
+
+func TestEveryRegisteredToolIsExercised(t *testing.T) {
+	// The forcing function. Without it, toolArgs is a list somebody typed
+	// once and every later phase quietly leaves its tools out of every
+	// test that reads from it.
+	//
+	// The destructive four are registered here so that the table has to
+	// cover them too: they are the tools whose output most needs reading.
+	cfg := defaultConfig()
+	cfg.EnableDestructive = true
+	cs := session(t, cfg, true)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	table := toolArgs()
+	for _, tool := range res.Tools {
+		if len(table[tool.Name]) == 0 {
+			t.Errorf("%s is registered and toolArgs has no call for it", tool.Name)
+		}
+		delete(table, tool.Name)
+	}
+	extra := make([]string, 0, len(table))
+	for name := range table {
+		extra = append(extra, name)
+	}
+	sort.Strings(extra)
+	for _, name := range extra {
+		t.Errorf("toolArgs has a call for %q, which is not registered", name)
 	}
 }

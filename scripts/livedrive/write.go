@@ -182,10 +182,36 @@ func (w *writeRun) history(m made) {
 	token := tokenFromResult(w.call(call{tool: "list_changes", args: map[string]any{}}))
 	w.needing("update_file", m.text, map[string]any{"file": m.text, "starred": false})
 	if token != "" {
-		w.call(call{tool: "list_changes", args: map[string]any{"page_token": token, "limit": 20}})
+		w.pollChanges(token)
 	}
 	w.call(call{tool: "list_changes", args: map[string]any{"page_token": "not-a-real-token"},
 		expectError: true, why: "a page token from no feed at all"})
+}
+
+// pollChanges reads the feed until it reports the change this run just
+// made, or gives up and says which happened.
+//
+// Drive's changes feed is eventually consistent: two live runs asked for
+// it about a second after a write and were told "0 changes", which reads
+// as a working feed reporting nothing and is indistinguishable from a
+// broken one. Waiting is what tells those apart, and a run that gives up
+// says so rather than printing an empty answer and moving on.
+func (w *writeRun) pollChanges(token string) {
+	const attempts = 6
+	for i := range attempts {
+		if i > 0 {
+			time.Sleep(2 * time.Second)
+		}
+		out := w.call(call{tool: "list_changes", args: map[string]any{"page_token": token, "limit": 20}})
+		if !strings.Contains(out, "0 changes") {
+			return
+		}
+		fmt.Printf("(the feed reports nothing yet; it is eventually consistent, waiting — attempt %d of %d)\n",
+			i+1, attempts)
+	}
+	w.problem("the changes feed never reported the write this run made. That is either Drive's own lag "+
+		"or a real fault, and this run cannot tell which: check it by hand before trusting list_changes",
+		errors.New("the feed stayed empty for "+fmt.Sprint(attempts*2)+" seconds"))
 }
 
 // firstRevision reads a revision id out of a list_revisions result, so

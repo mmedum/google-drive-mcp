@@ -157,3 +157,26 @@ func TestFirstRevisionReadsTheIDOutOfAListing(t *testing.T) {
 		}
 	}
 }
+
+func TestANumericPermissionIDIsRedacted(t *testing.T) {
+	// A permission id for a person is twenty digits with no letter, so
+	// the "a capital and a digit" rule let one through in a live run. It
+	// identifies a Google account, which is an id in every sense that
+	// matters here.
+	r := NewRedactor(false)
+	got := r.Do("owns it  Someone  17839208826236824972  inherited from a folder above it")
+	if strings.Contains(got, "17839208826236824972") {
+		t.Errorf("a numeric permission id survived redaction:\n%s", got)
+	}
+	if !strings.Contains(got, "<ID_") {
+		t.Errorf("it was removed rather than replaced with a placeholder:\n%s", got)
+	}
+
+	// Ordinary long numbers in output must stay readable, or a transcript
+	// becomes one nobody checks: byte counts and years are far shorter
+	// than an id and must not be touched.
+	plain := "bytes: 6291456 (6.0 MiB), modified 2026-09-05 20:04Z"
+	if out := NewRedactor(false).Do(plain); out != plain {
+		t.Errorf("an ordinary number was redacted:\n%s", out)
+	}
+}
