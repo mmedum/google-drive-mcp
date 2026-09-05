@@ -35,7 +35,54 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, id, revi
 			"Only files with binary content can be downloaded. Use Export with Docs Editors files.")
 		return
 	}
+	s.mu.Lock()
+	size, generated := s.Generated[id]
+	s.mu.Unlock()
+	if generated && revisionID == "" {
+		s.serveGenerated(w, r, size, f.MimeType)
+		return
+	}
 	s.serveBytes(w, r, []byte(content), f.MimeType)
+}
+
+// serveGenerated streams a file whose bytes are made up as they go, so a
+// benchmark can pull a gigabyte through the client without a gigabyte
+// existing anywhere. A fake that had to hold the file it serves could
+// only prove the client streams up to whatever the test machine can
+// spare.
+func (s *Server) serveGenerated(w http.ResponseWriter, r *http.Request, total int64, contentType string) {
+	start, end, ranged := parseRange(r.Header.Get("Range"), total)
+	if !ranged {
+		start, end = 0, total-1
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+	if ranged {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	// One block, written over and over: the pattern repeats every 251
+	// bytes, which is prime, so a client that dropped or duplicated a
+	// chunk would not land back on the same bytes by accident.
+	block := make([]byte, 64<<10)
+	for i := range block {
+		block[i] = byte((int64(i) + start) % 251)
+	}
+	for left := end - start + 1; left > 0; {
+		n := int64(len(block))
+		if left < n {
+			n = left
+		}
+		if _, err := w.Write(block[:n]); err != nil {
+			return
+		}
+		left -= n
+	}
 }
 
 // handleExport serves files.export: a Google-native document converted

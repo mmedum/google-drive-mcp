@@ -19,7 +19,11 @@ import (
 //
 // Pass overrides to change one field; anything left zero keeps the
 // test-friendly default.
-func Client(t *testing.T, s *Server, overrides ...func(*gapi.Options)) *gapi.Client {
+//
+// It takes a testing.TB rather than a *testing.T so a benchmark can use
+// the same wiring: a benchmark measuring this client against production
+// limiters would be measuring the limiters.
+func Client(t testing.TB, s *Server, overrides ...func(*gapi.Options)) *gapi.Client {
 	t.Helper()
 	o := gapi.Options{
 		BaseURL:        s.BaseURL(),
@@ -40,7 +44,7 @@ func Client(t *testing.T, s *Server, overrides ...func(*gapi.Options)) *gapi.Cli
 
 // NoCredentials returns a client wired to this fake whose token source
 // always fails, for testing what a server without a login answers.
-func NoCredentials(t *testing.T, s *Server) *gapi.Client {
+func NoCredentials(t testing.TB, s *Server) *gapi.Client {
 	t.Helper()
 	o := gapi.Options{
 		BaseURL:     s.BaseURL(),

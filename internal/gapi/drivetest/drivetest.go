@@ -70,6 +70,10 @@ type Server struct {
 	// Content is a file's bytes: what alt=media returns, what an export
 	// converts, and what fullText searches.
 	Content map[string]string
+	// Generated is a file whose bytes are made up as they are served,
+	// keyed by id and holding its size. It is how a transfer of a size
+	// nobody wants to hold in memory is exercised at all.
+	Generated map[string]int64
 	// Revisions are a file's versions, oldest first.
 	Revisions map[string][]*gdrive.Revision
 	// RevisionContent is each revision's bytes.
@@ -128,6 +132,7 @@ func New() *Server {
 		RootID:          RootFolderID,
 		Files:           map[string]*gdrive.File{},
 		Content:         map[string]string{},
+		Generated:       map[string]int64{},
 		Revisions:       map[string][]*gdrive.Revision{},
 		RevisionContent: map[string]string{},
 		Permissions:     map[string][]*gdrive.Permission{},
@@ -276,6 +281,23 @@ func (s *Server) SetContent(id, text string) {
 		return
 	}
 	s.setContentLocked(f, []byte(text))
+}
+
+// AddGeneratedContent gives a file a size without giving it bytes: the
+// fake makes them up as it serves them. Drive's own md5 is left unset,
+// because a checksum of bytes nobody stored would have to be computed by
+// generating them all, which is the thing this exists to avoid.
+func (s *Server) AddGeneratedContent(id string, size int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.Files[id]
+	if f == nil {
+		return
+	}
+	f.Size = strconv.FormatInt(size, 10)
+	f.QuotaBytesUsed = f.Size
+	f.MD5Checksum = ""
+	s.Generated[id] = size
 }
 
 // AddShortcut adds a shortcut pointing at target.
