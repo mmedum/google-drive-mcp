@@ -1,0 +1,4 @@
+My Drive/Projects — 3 items, folders first
+folder      2026           id-2026-fixture    modified 2026-03-01 11:00Z (5 days ago) by Test Person (you)
+Google Doc  Meeting notes  id-notes-fixture   modified 2026-03-05 16:45Z (19 hours ago) by Other Person <other@example.com>  shared
+PDF         Report.pdf     id-report-fixture  modified 2026-02-20 09:15Z (14 days ago) by Test Person (you)                  starred, link-shared
