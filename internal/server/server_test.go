@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/config"
 	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/internal/mediatype"
 	"github.com/mmedum/google-drive-mcp/internal/render"
 	"github.com/mmedum/google-drive-mcp/internal/server"
 	"github.com/mmedum/google-drive-mcp/internal/service"
@@ -433,6 +435,45 @@ func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
 	for _, order := range service.OrderBys() {
 		if !strings.Contains(schemas["search_files"], order) {
 			t.Errorf("search_files does not offer the order %q that the service accepts", order)
+		}
+	}
+	// The download formats are the same shape of promise: a list typed
+	// into a struct tag, and a registry that decides what the code will
+	// take. A format in the schema that the registry does not know is
+	// the worse half — a model would ask for it and be refused.
+	formats := regexp.MustCompile(`\b[a-z0-9]{2,5}\b`)
+	offered := map[string]bool{}
+	for _, tool := range res.Tools {
+		if tool.Name != "download_file" {
+			continue
+		}
+		raw, _ := json.Marshal(tool.InputSchema)
+		var schema struct {
+			Properties map[string]struct {
+				Description string `json:"description"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(raw, &schema); err != nil {
+			t.Fatalf("download_file schema does not decode: %v", err)
+		}
+		described := schema.Properties["format"].Description
+		if described == "" {
+			t.Fatal("download_file's format argument carries no description")
+		}
+		// The comma-separated run is the list; the sentences around it
+		// are prose, so only the words that are export names count.
+		for _, word := range formats.FindAllString(described, -1) {
+			if mediatype.ExportMime(word) != "" {
+				offered[word] = true
+			}
+		}
+	}
+	if len(offered) == 0 {
+		t.Fatal("no export format was read out of download_file's schema, so the check below is looking at nothing")
+	}
+	for _, name := range mediatype.ExportNames() {
+		if !offered[name] {
+			t.Errorf("download_file does not offer the export format %q that the registry accepts", name)
 		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/internal/mediatype"
 	"github.com/mmedum/google-drive-mcp/internal/model"
 	"github.com/mmedum/google-drive-mcp/internal/render"
 )
@@ -177,19 +178,25 @@ type readPlan struct {
 // result.
 func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 	format = strings.ToLower(strings.TrimSpace(format))
+	// The export media type comes from internal/mediatype, so the format
+	// a read takes and the format a download defaults to are two fields
+	// of one entry rather than two tables that agree by hand. What stays
+	// here is what the registry cannot say: which alternatives a caller
+	// may ask for, and what the result has to warn about.
 	switch f.MimeType {
 	case gdrive.MimeDocument:
 		if format != "" && format != "md" && format != "markdown" {
 			return readPlan{}, Errorf(ClassInvalid, "read_file returns a Google Doc as markdown; "+
 				"download_file writes it as %s.", format)
 		}
-		return readPlan{exportMime: "text/markdown", formatName: "markdown", stripDataURIs: true}, nil
+		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "markdown",
+			stripDataURIs: true}, nil
 	case gdrive.MimeSheet:
-		mime, name := "text/csv", "csv"
+		mime, name := mediatype.ReadAs(f.MimeType), "csv"
 		switch format {
 		case "", "csv":
 		case "tsv":
-			mime, name = "text/tab-separated-values", "tsv"
+			mime, name = mediatype.ExportMime("tsv"), "tsv"
 		default:
 			return readPlan{}, Errorf(ClassInvalid, "a spreadsheet reads as csv or tsv, not %q. "+
 				"download_file writes it as xlsx or pdf.", format)
@@ -198,10 +205,10 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 			"Another sheet, or one range of cells, is a Sheets API read, which this server does not offer; " +
 			"download_file writes the whole workbook as xlsx."}, nil
 	case gdrive.MimeSlides:
-		return readPlan{exportMime: "text/plain", formatName: "plain text",
+		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "plain text",
 			note: "the text of the slides, without their layout"}, nil
 	case gdrive.MimeScript:
-		return readPlan{exportMime: "application/vnd.google-apps.script+json", formatName: "JSON"}, nil
+		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "JSON"}, nil
 	case gdrive.MimeShortcut:
 		return readPlan{}, Errorf(ClassInvalid, "%s is a shortcut whose target could not be read", f.Name)
 	}
@@ -374,12 +381,12 @@ func (s *Service) exportRevision(ctx context.Context, f *gdrive.File, revisionID
 	if link == "" {
 		have := make([]string, 0, len(rev.ExportLinks))
 		for m := range rev.ExportLinks {
-			if name := gapi.ExportFormatName(m); name != "" {
+			if name := mediatype.ExportName(m); name != "" {
 				have = append(have, name)
 			}
 		}
 		return nil, Errorf(ClassUnsupported, "that revision of %s cannot be exported as %s%s",
-			f.Name, gapi.ExportFormatName(mime), listOrNothing(have, ". It offers: ", ""))
+			f.Name, mediatype.ExportName(mime), listOrNothing(have, ". It offers: ", ""))
 	}
 	c, err := s.api.DownloadURL(ctx, link)
 	if err != nil {
@@ -394,33 +401,22 @@ func (s *Service) exportRevision(ctx context.Context, f *gdrive.File, revisionID
 func (s *Service) exportFormat(f *gdrive.File, name string) (mime, ext string, err error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
-		name = defaultExport[f.MimeType]
+		name = mediatype.DownloadAs(f.MimeType)
 	}
 	if name == "" {
 		return "", "", Errorf(ClassUnsupported, "%s is %s, which Drive does not export. get_file lists "+
 			"the formats a file offers.", f.Name, model.KindWithArticle(f))
 	}
-	mime = gapi.ExportMime(name)
+	mime = mediatype.ExportMime(name)
 	if mime == "" {
 		return "", "", Errorf(ClassInvalid, "%q is not an export format. Drive offers: %s",
-			name, strings.Join(gapi.ExportFormatNames(), ", "))
+			name, strings.Join(mediatype.ExportNames(), ", "))
 	}
 	if _, ok := f.ExportLinks[mime]; !ok && len(f.ExportLinks) > 0 {
 		return "", "", Errorf(ClassUnsupported, "%s cannot be exported as %s. It offers: %s",
-			f.Name, name, strings.Join(gapi.ExportFormats(f), ", "))
+			f.Name, name, strings.Join(model.ExportFormats(f), ", "))
 	}
 	return mime, name, nil
-}
-
-// defaultExport is the format each Google-native kind comes back as when
-// the caller names none: the Office format it converts to and from, and
-// png for a drawing, which has no document form.
-var defaultExport = map[string]string{
-	gdrive.MimeDocument: "docx",
-	gdrive.MimeSheet:    "xlsx",
-	gdrive.MimeSlides:   "pptx",
-	gdrive.MimeDrawing:  "png",
-	gdrive.MimeScript:   "json",
 }
 
 // downloadBuffer is the block a download is copied in. io.Copy's own
@@ -485,7 +481,7 @@ func extensionFor(f *gdrive.File) string {
 	if ext := strings.TrimPrefix(filepath.Ext(f.Name), "."); ext != "" {
 		return ext
 	}
-	return gapi.ExportFormatName(f.MimeType)
+	return mediatype.ExportName(f.MimeType)
 }
 
 // contentError explains the refusals a transfer meets that a metadata

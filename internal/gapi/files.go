@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 )
@@ -271,53 +269,6 @@ func (c *Client) rememberKeys(f *gdrive.File) {
 	}
 }
 
-// ExportFormats turns the exportLinks map Drive returns into the short
-// format names the tools speak, without exposing the links themselves.
-func ExportFormats(f *gdrive.File) []string {
-	if f == nil || len(f.ExportLinks) == 0 {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	for mime := range f.ExportLinks {
-		if name := ExportFormatName(mime); name != "" && !seen[name] {
-			seen[name] = true
-			out = append(out, name)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
-// exportMimeToName maps the export MIME types Drive offers to the short
-// names used in tool arguments and output.
-var exportMimeToName = map[string]string{
-	"application/pdf": "pdf",
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   "docx",
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         "xlsx",
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-	"application/vnd.oasis.opendocument.text":                                   "odt",
-	"application/vnd.oasis.opendocument.spreadsheet":                            "ods",
-	"application/vnd.oasis.opendocument.presentation":                           "odp",
-	"application/rtf":           "rtf",
-	"text/plain":                "txt",
-	"text/html":                 "html",
-	"text/markdown":             "md",
-	"text/csv":                  "csv",
-	"text/tab-separated-values": "tsv",
-	"application/zip":           "zip",
-	"application/epub+zip":      "epub",
-	"image/jpeg":                "jpg",
-	"image/png":                 "png",
-	"image/svg+xml":             "svg",
-	"application/vnd.google-apps.script+json": "json",
-}
-
-// ExportFormatName returns the short name for an export MIME type, or "".
-func ExportFormatName(mime string) string {
-	return exportMimeToName[strings.TrimSpace(mime)]
-}
-
 // WriteOptions are the parameters a metadata write shares.
 type WriteOptions struct {
 	// Fields overrides FileFields on the response.
@@ -433,32 +384,6 @@ func (c *Client) CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta,
 	}
 	u := c.base + "/files/" + segment + "/copy?" + o.values().Encode()
 	return c.writeFile(ctx, http.MethodPost, u, meta, o.withFile(id))
-}
-
-// exportNameToMime inverts exportMimeToName, so a tool can take the
-// short name a person writes and send the MIME type Drive expects.
-var exportNameToMime = sync.OnceValue(func() map[string]string {
-	out := make(map[string]string, len(exportMimeToName))
-	for mime, name := range exportMimeToName {
-		out[name] = mime
-	}
-	return out
-})
-
-// ExportMime returns the MIME type for a short format name, or "".
-func ExportMime(name string) string {
-	return exportNameToMime()[strings.ToLower(strings.TrimSpace(name))]
-}
-
-// ExportFormatNames lists every short format name, for tool descriptions
-// and error messages.
-func ExportFormatNames() []string {
-	names := make([]string, 0, len(exportMimeToName))
-	for _, name := range exportMimeToName {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
 }
 
 // AcceptsGeneratedID reports whether a file of this type may be created
