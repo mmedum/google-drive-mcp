@@ -208,7 +208,22 @@ func (s Sharing) Summary() string {
 		if s.Viewers > 0 {
 			who = append(who, fmt.Sprintf("%d can view", s.Viewers))
 		}
-		parts = append(parts, fmt.Sprintf("shared with %s: %s", Plural(s.People, "person", "people"), strings.Join(who, ", ")))
+		line := fmt.Sprintf("shared with %s: %s", Plural(s.People, "person", "people"), strings.Join(who, ", "))
+		// Where the grants come from decides what can be done about
+		// them: an inherited one is removed at the drive, not here. Said
+		// as a separate count it read as a second set of people — a file
+		// in a shared drive with four inherited editors reported "shared
+		// with 4 people ... 4 inherited from the shared drive", which
+		// invites the arithmetic 4 + 4.
+		switch {
+		case s.Inherited >= s.People && s.SharedDrive != "":
+			line += ", all of them through the shared drive " + s.SharedDrive
+		case s.Inherited > 0 && s.SharedDrive != "":
+			line += fmt.Sprintf(" (%d of them through the shared drive %s)", s.Inherited, s.SharedDrive)
+		case s.Inherited > 0:
+			line += fmt.Sprintf(" (%d inherited from the shared drive)", s.Inherited)
+		}
+		parts = append(parts, line)
 	}
 	for _, d := range s.Domains {
 		line := "everyone at " + d.Who + " " + RoleWords(d.Role)
@@ -237,10 +252,12 @@ func (s Sharing) Summary() string {
 		}
 	}
 	if s.SharedDrive != "" {
-		parts = append(parts, "plus everyone with access to the shared drive "+s.SharedDrive)
-	}
-	if s.Inherited > 0 {
-		parts = append(parts, fmt.Sprintf("%d inherited from the shared drive", s.Inherited))
+		// Naming the drive twice in one line reads as two drives.
+		if s.Inherited > 0 {
+			parts = append(parts, "and everyone else with access to that drive can see it")
+		} else {
+			parts = append(parts, "plus everyone with access to the shared drive "+s.SharedDrive)
+		}
 	}
 	if s.PendingOwner != "" {
 		parts = append(parts, "ownership transfer to "+s.PendingOwner+" waiting to be accepted")

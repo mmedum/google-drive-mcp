@@ -224,6 +224,26 @@ func TestSharingPublicAndInherited(t *testing.T) {
 			t.Error("the inherited grant lost its source")
 		}
 	}
+	// A file living in a shared drive, where every grant is the drive's:
+	// the shape a live move into one produces. Counting the people and
+	// then counting the inherited grants separately read as two sets —
+	// "shared with 4 people ... 4 inherited from the shared drive"
+	// invites the arithmetic 4 + 4.
+	inDrive := NewSharing(true, []*gdrive.Permission{
+		{Type: "user", Role: "writer", EmailAddress: "a@example.com",
+			Details: []*gdrive.PermissionDetails{{Inherited: true, InheritedFrom: "id-drive-marketing"}}},
+		{Type: "user", Role: "writer", EmailAddress: "b@example.com",
+			Details: []*gdrive.PermissionDetails{{Inherited: true, InheritedFrom: "id-drive-marketing"}}},
+	}, true)
+	inDrive.SharedDrive = "Marketing"
+	got := inDrive.Summary()
+	if strings.Count(got, "Marketing") != 1 {
+		t.Errorf("the drive is named %d times in %q", strings.Count(got, "Marketing"), got)
+	}
+	if !strings.Contains(got, "all of them through the shared drive Marketing") {
+		t.Errorf("summary = %q, want it to say where the grants come from", got)
+	}
+
 	if NewSharing(true, []*gdrive.Permission{}, true).Public() {
 		t.Error("no grants is not public")
 	}

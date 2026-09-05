@@ -1,20 +1,20 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 1 written (2026-09-05), awaiting its live run and then
-its release as v0.1.0. Phase 0 (v0.0.1) built the scaffolding, every
-gate, `login/logout/status/doctor`, the `gapi` core, the `drivetest` fake
-beneath it, `ref`, `model`, `render`, and the four read tools. Phase 1
-adds the other twelve: `read_file` and `download_file`, `create_file`,
-`upload_file` and `update_content`, and `create_folder`, `update_file`,
-`move_file`, `copy_file`, `create_shortcut`, `trash_file` and
-`restore_file`, with local-directory confinement, the duplicate-name
-guard, and the transfer half of `gapi` — streaming downloads with a byte
-range, exports, and resumable uploads that recover through the protocol.
-All of it is green against the fake, including a forced interruption
-mid-upload and a session that stores only part of a chunk; **none of it
-is confirmed against Drive yet.** Spikes C and the write half of E run
-with the live driver's `-write` mode before the release (§16). §16 has
-the phase plan, §17 the decisions that are not to be reopened, §17a the
+**Status:** phase 1 complete (2026-09-05), released as v0.1.0. Sixteen
+tools: phase 0's four reads plus `read_file`, `download_file`,
+`create_file`, `upload_file`, `update_content`, `create_folder`,
+`update_file`, `move_file`, `copy_file`, `create_shortcut`, `trash_file`
+and `restore_file`, with local-directory confinement, the duplicate-name
+guard, and the transfer half of `gapi` — ranged streaming downloads,
+exports, and resumable uploads that recover through the protocol.
+Verified live against a Workspace account: 67 calls covering every tool,
+including a 6 MiB upload through the resumable path returning
+byte-identical, and ten refusals. That run is spike C, and with a shared
+drive named it is the write half of spike E as well: a file moved in and
+back out, and the folder-move refusal seen for real. The live runs
+refuted five things this document asserted, two of them making a tool
+fail outright (§18). Phase 2 begins on an explicit go. §16 has the
+phase plan, §17 the decisions that are not to be reopened, §17a the
 deferred cleanups, §17b where this repository differs from the shared
 standard, and §18 the evidence log.
 
@@ -901,8 +901,8 @@ spike that gets skipped and then forgotten. So:
 - **B (Google's Drive MCP)** needs a Cloud project in the Developer
   Preview Programme. Nothing depends on it.
 
-**Phase 1 — content and organisation (v0.1.0). Written 2026-09-05;
-not yet verified live.** `read_file`,
+**Phase 1 — content and organisation (v0.1.0). Done 2026-09-05.**
+`read_file`,
 `download_file`, `create_file`, `upload_file`, `update_content`,
 `create_folder`, `update_file`, `move_file`, `copy_file`,
 `create_shortcut`, `trash_file`, `restore_file`; local-dir confinement;
@@ -910,17 +910,14 @@ not yet verified live.** `read_file`,
 driver covers every tool; `docs/configuration.md` and the README tool
 table match the code (the staleness gate enforces it).
 
-What is left before the tag:
-
-- **The live run.** `go run ./scripts/livedrive -bin ./google-drive-mcp
-  -write -parent <a scratch folder>` makes one scratch folder, exercises
-  every write tool inside it, and trashes it again. That run is spike C
-  (a 6 MiB upload takes the resumable path) and the write half of spike
-  E if the scratch folder is in a shared drive. Whatever it refutes goes
-  into §18 and is fixed before the release commit.
-- Then the release: the status line and this entry updated, the
-  `CHANGELOG.md` notes moved under `[0.1.0]`, a "Release 0.1.0" commit, a
-  pull request, CI green on three platforms, the merge, and the tag.
+The live driver grew a `-write` mode for this: it makes one scratch
+folder, exercises every tool inside it, and trashes it again, so a run
+touches nothing else. Seven runs closed the phase; the last four found
+the four refutations in §18, including two tools that had never worked
+at all. With `-drive NAME_OR_ID` it also runs the write half of spike E: one
+file into a shared drive and back out, and the folder-move refusal. That
+part says loudly if the move back fails, because it is the only thing
+trashing the scratch folder cannot clean up.
 
 **Phase 2 — access, shared drives, history (v0.2.0).** `list_permissions`,
 `share_file`, `unshare_file` with the policy; `list_drives`,
@@ -1146,6 +1143,8 @@ was checked rather than assumed.
 | A file too large to hold in memory is too large to read (the "up to 20 MB" in §7.1 as written) | Refuted in the phase-1 review: `read_file` fetches a byte range, so the file's size never reaches the process. The guard refused a 200 MB log and advised retrying with `max_chars` and `offset`, which the guard ignored — a refusal whose own advice leads back to itself. The tool description, written from the design's other half, had promised the opposite | The limit is gone; a range request is bounded by the window, not by the file |
 | A create cannot invalidate a cached path (my reasoning when narrowing the cache flush) | Refuted in the phase-1 review, and it was the more dangerous half: a create *makes* a path ambiguous. A second `notes.txt` beside the first leaves the cached `(folder, name)` entry answering with the older file's id, which is exactly what §4.1 exists to prevent, and for the full 60 s of the path cache | A write evicts the entry for its own `(parent, name)` whatever it did; only a rename, move or trash also evicts by value. The cache key is built in one function so an eviction cannot spell it differently from a lookup |
 | A resumable upload makes progress or fails (implied by the protocol) | Refuted in the phase-1 review: a `308` whose `Range` header is absent reads as "nothing stored", which is also what a proxy that strips the header produces. Neither the backwards guard nor the too-far guard fires, so the same chunk is sent for as long as the deadline allows | A no-progress counter, tested against a fake session that answers 308 and stores nothing |
+| A file moved into a shared drive keeps its own sharing (never stated, and what the summary implied) | **Confirmed refuted live, spike E's write half, 2026-09-05**: a file with no grants of its own arrived in a shared drive reporting four editors, all inherited, and lost its `owner` line — the drive owns it now, not a person. Moving it back restored both. This is phase 0's shared-drive row proven rather than reasoned | The card was right about the exposure and clumsy about saying it: "shared with 4 people: 4 can edit … 4 inherited from the shared drive" invites the arithmetic 4 + 4, and named the drive twice. Where the grants come from is now part of the same clause |
+| A My Drive folder cannot move into a shared drive (§18, from the reference) | **Confirmed live in the same run**, and with it the `[unsupported]` mapping made earlier in this phase: Drive answers 403 `teamDrivesFolderMoveInNotSupported`, and the tool says what to do instead | Spike E's write half is done. Its read half was already covered by `list_drives` in phase 0's live run |
 | A Google-native document's `size` is worth showing | Refuted live: a new, empty Google Doc reports `size: 1 B`, and so does a long one — the field is the metadata Drive keeps, not the size of anything a person can get. The card said "size: 1 B" beside "export formats: docx, epub, …", inviting a reading the number cannot support | `model` fills in a size only for a file with bytes of its own. The export formats line already says what can actually be had |
 | The coverage floor covers the packages that matter (phase 0's hand-written list) | Refuted when the list was replaced by `go list ./internal/...`: `internal/userconfig` — the profile file that records the account, the token location and the scopes — had never been under the floor at all, at 70%. A list maintained by hand omits a package silently, and the omission looks exactly like a package that does not exist | The list is derived, with three packages exempt by name and reason (wire types, a version string, the test fake). A package added in a later phase is under the floor from the day it exists. The gap it exposed was closed with tests for the paths a person has to trust: where a profile's files live, that a save replaces the file whole at `0600`, and that every path reports a machine with no config directory rather than returning an empty one |
 | Pinning `goreleaser-action` by SHA pins the release (phase 0's release workflow) | Refuted, and by this repository's own earlier finding: the action was pinned by commit and then handed `version: "~> v2"`, so the binary that decides what the artifacts are floated across a whole major version. The `cosign`/`syft` sweep after the v0.0.1 signing failure pinned the tools those actions install and did not come back for this one | `version: "~> v2.18.0"`, beside the SHA, with a comment saying which half of the pin matters. A step that installs a tool has two versions, and this is the third time that has cost something |
