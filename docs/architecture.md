@@ -1,10 +1,15 @@
 # Architecture — google-drive-mcp
 
-**Status:** design v0.2 (2026-09-05). No code yet. All design decisions
-are resolved (§17); Phase 0 begins on an explicit go. Every convention
-here was checked against primary sources on 2026-09-05; §18 lists what
-was confirmed, what was refuted, and what a Phase 0 spike still has to
-verify live.
+**Status:** phase 0 built (2026-09-05), awaiting its v0.0.1 release. In:
+the scaffolding and every gate, `login/logout/status/doctor`, `config`,
+`credentials`, `userconfig`, `auth`, the `gapi` core with `about.get`,
+`files.get`, `files.list`, `drives.list`, `permissions.list` and
+`generateIds`, the `drivetest` fake beneath it, `ref`, `model`, `render`,
+and the four read tools `get_account`, `get_file`, `search_files` and
+`list_folder`. **The six phase-0 spikes (§16 A-F) have not run**: each
+needs a live Google account, and none of them is a dependency of the code
+that is in. Phase 1 begins on an explicit go. §16 has the phase plan,
+§17 the decisions that are not to be reopened, §18 the evidence log.
 
 This document is the plan. It is written so that whoever picks the work
 up can start from the repository alone: read the status line above, §16
@@ -799,7 +804,8 @@ Each phase ends in a tagged release and waits for an explicit "go".
 How a phase is closed is written down at the end of this section, so
 that whoever picks the work up next starts from the repository alone.
 
-**Phase 0 — skeleton and spikes (v0.0.1).** Scaffolding (§5, §12):
+**Phase 0 — skeleton and spikes (v0.0.1). Code done 2026-09-05; spikes
+outstanding.** Scaffolding (§5, §12):
 Makefile, golangci, govulncheck, go-licenses, gitleaks, goreleaser, the
 CI, CodeQL and release workflows with pinned actions and scoped tokens,
 Dependabot, templates, the pull request flow in `CONTRIBUTING.md`.
@@ -831,6 +837,10 @@ of the four tools. Spikes, results into §18:
   move a file in and out, the folder-move refusal.
 - **F. Ownership transfer**: Workspace direct transfer live; consumer
   `pendingOwner` only if a consumer test account exists.
+
+None of A-F has run. They need `login` against a real account, and the
+results belong in §18 before phase 2 designs against them; A and C are
+the two that a later phase actually depends on.
 
 **Phase 1 — content and organisation (v0.1.0).** `read_file`,
 `download_file`, `create_file`, `upload_file`, `update_content`,
@@ -907,7 +917,45 @@ here so they are not reopened.
 
 ## 17a. Deferred cleanups
 
-None yet.
+Raised by the phase-0 review passes and deliberately not done in phase 0.
+
+- The six phase-0 spikes (§16 A-F) are unrun. Nothing in the code depends
+  on their outcome, but A (search semantics) and C (resumable upload)
+  should land before phase 1 designs `upload_file` against assumptions.
+- `internal/gapi/drivetest` implements the semantics of `name contains`
+  from the reference. Spike A is what confirms the fake and Drive agree.
+- **One MIME registry.** Three tables carry MIME knowledge in three
+  layers: `model.googleKinds`/`blobKinds` (mime to display name),
+  `service.kindMimes` (kind name to query clause, which retypes the six
+  Office types), and `gapi.exportMimeToName` (export mime to short name).
+  Adding a kind is three edits in three packages and a typo shows up as a
+  search that silently matches nothing. One registry keyed by MIME,
+  carrying display name, kind group and export name, would remove that;
+  it is a phase-3 job, once phases 1 and 2 have shown which of the three
+  shapes the registry actually needs.
+- **Schema descriptions from one source.** A Go struct tag cannot be
+  composed from a constant, so the paragraph describing what a `file`
+  argument accepts is written out per tool, and so are the kind and order
+  lists. A templated tag that nothing expanded once shipped `${…}` to the
+  model. Tests now assert that no schema carries a placeholder and that
+  the kind and order lists match `service.Kinds()` and
+  `service.OrderBys()`, which closes the hole; composing the descriptions
+  after `mcp.AddTool` would close the duplication as well, and is worth
+  doing once several more tools take a `file`.
+- **Bounded concurrency for listings.** A tree walk issues one
+  `files.list` per folder in series and a search page up to twenty
+  `files.get` in series, with no data dependency between siblings. Quota
+  is unchanged; the cost is wall-clock, roughly 2-3 s per call at 100 ms
+  round trip. A fan-out of 4-8 stays inside the read limiter and would
+  cut that. It belongs with the phase-3 benchmarks (§11), not before
+  them: the shared item budget becomes shared mutable state the moment
+  the walk is concurrent.
+- **`model.Account`.** `render.Account` is the only place outside
+  `internal/gdrive`'s own users that touches a wire type, and it parses
+  Drive's stringified int64 storage counts itself. The tool-surface half
+  of that problem is fixed (`get_account` now reports the names
+  `tools.Register` actually registered), but the storage arithmetic still
+  wants a model type.
 
 ## 18. Evidence log: conventions checked, changed, or rejected
 
@@ -954,4 +1002,16 @@ was checked rather than assumed.
 | Declaring `permissions` once at the top of a workflow is least privilege | Refined: Scorecard's Token-Permissions wants the top level read-only and write raised per job ([Scorecard checks](https://github.com/ossf/scorecard/blob/main/docs/checks.md)) | Top level `contents: read` everywhere; the release job raises `contents`, `id-token` and `attestations`; the CodeQL job raises `security-events` |
 | A checkout may leave its token on disk for later steps | Rejected: nothing in these workflows pushes with it, and GitHub's guide treats persisted credentials as avoidable exposure | `persist-credentials: false` on every checkout |
 | Tests and vulnerability scanning are enough static analysis | Refuted by Scorecard's SAST check, which names CodeQL | A CodeQL workflow on pushes, pull requests and weekly, so a rule added after a merge still reaches old code |
+| go-sdk v1.7.0 negotiates protocol `2026-07-28` when a client asks for it (assumed from the release notes) | Refuted by reading `mcp/shared.go` and by driving the built binary: `negotiatedVersion` caps every `initialize` handshake at `2025-11-25`, because `initialize` is itself deprecated in `2026-07-28`. The newer version is reachable only through the newer handshake. | The stdio smoke test asks for both versions and asserts a working session, not a particular number; the version the server answers with is `2025-11-25` either way |
+| A Drive id can be told from a file name by shape (assumed) | Refined: ids use the URL-safe base64 alphabet and run 28-44 characters for files and 19 for shared drives, so a floor of 15 separates them from names, which almost always carry a space, a dot or punctuation. The residue is real though: a name like `QuarterlyReviewNotes` clears the bar. | `internal/ref` treats a 15+ character word in that alphabet as an id; `internal/service` retries it as a name under My Drive when no file has that id, and an id lifted out of a URL is never retried that way |
+| A truncated folder path can be shown with a trailing ellipsis (my first cut) | Rejected in review: `My Drive/2026/…` states that 2026 sits directly under My Drive, which is exactly the wrong claim to make when the ancestors are the part that is unknown | `model.Location` carries `Above`, and an unread ancestor renders where it actually is: `My Drive/…/2026` |
+| A file in a shared drive with no permissions of its own is private (implied by the permission list) | Refuted: it is reachable by everyone with access to the drive. A summary reading "private to you" would be wrong in the direction that matters | `model.Sharing` carries the drive name and says "everyone with access to the shared drive X can see it" |
+| A read tool's location line can be truncated with a trailing ellipsis when the walk runs out of budget (my first cut) | Rejected in the phase-0 review: `My Drive/2026/…` asserts that 2026 sits directly under My Drive, and the unknown part is the ancestors, not the descendants | `model.Location.Above` puts the gap where it is: `My Drive/…/2026` |
+| A not-found path should report how many items the folder holds (§6 as written) | Refined in the phase-0 review: the extra listing costs 100 units and a bare count only prompts a second lookup. The same one call can name the siblings | `notFoundInFolder` names up to 12 siblings, folders marked, and points at `list_folder` beyond that |
+| Falling back from an unknown id to a name lookup is free (my first cut) | Refuted by measurement: a 5-unit 404 became 205 units, and a stale or mistyped id is the commonest bad input a model produces. Drive ids are base64 of random bytes, so one with no digit essentially does not occur | The fallback fires only for a word with no digit in it, which is the shape a file name has and an id does not |
+| A shared-drive listing may filter hidden drives in the client | Rejected in the phase-0 review: hiding a drive is a sidebar setting with no API equivalent, and the fiction had already propagated into the fake, which invented a query-string meaning for it | `gapi.ListDrives` returns what Drive returned; `internal/service` decides what `Drive.Hidden` means |
+| A path is resolved by following whatever it names, shortcuts included (my first cut) | Refuted in the phase-0 review: a shortcut part-way along a path is a way through to a folder, but the last segment is the thing the caller named. Following it made `get_file "/Projects/Budget shortcut"` describe the target, silently, and cached the target's id for that path, so a later `trash_file` on that path would have destroyed the wrong file | `walk` follows only the intermediate segments; the final one obeys `ResolveOptions.FollowShortcut`, and the two answers are cached separately |
+| An empty permission list means the file has no grants (implied by the API's shape) | Refuted in the phase-0 review: a list that was read and is empty, and one this account may not read, were the same `nil`. A shared-drive file with no grants of its own was reported as "sharing unknown" instead of "everyone with access to the drive can see it", understating exposure — the one direction §9 exists to prevent | `permissionsFor` returns whether the list was read at all, and `NewSharing` takes it as an argument |
+| Rate limiting only has to gate the first attempt of a call | Refuted in the phase-0 review: retries are triggered by 429 and by Google's three rate-limit reasons, so exempting them pushes hardest exactly when Drive has asked for less. Four of five attempts bypassed the limiter | The limiter is taken inside the retry loop, once per attempt |
+| An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
 | Direct pushes to `main` by the maintainer are fine for a one-person project | Rejected: `main` is released code, and a rule with an exception for the person who releases is not a rule; Scorecard's Branch-Protection asks for pull requests gated by a passing check, and its two-reviewer tier cannot apply to a single maintainer | Pull requests required with CI green on three platforms as the gate; the review count does not apply; tags pushed directly, one at a time |

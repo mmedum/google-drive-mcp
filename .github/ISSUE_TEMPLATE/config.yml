@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Setting up Google (project, consent screen, OAuth client)
+    url: https://github.com/mmedum/google-drive-mcp#set-up-google-once-per-person
+    about: Most first-run problems are a missing API, a scope, or a consent screen. Try `google-drive-mcp doctor` first — it names what is missing.
+  - name: Security vulnerability
+    url: https://github.com/mmedum/google-drive-mcp/security/policy
+    about: Report privately, not as a public issue.
