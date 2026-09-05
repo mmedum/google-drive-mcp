@@ -104,3 +104,33 @@ func TestSyntheticIdsSaySoInTheirOwnText(t *testing.T) {
 		t.Error("the marker must not exempt an address")
 	}
 }
+
+func TestLinkPatternDoesNotMatchLookalikeHosts(t *testing.T) {
+	id := sample("1a2B3c4D5e", "6F7g8H9i0J", "kLmNoPqRsTuVw")
+	// A host that merely starts with Drive's is a different host.
+	for _, notALink := range []string{
+		"https://drive.google.com.example.invalid/file/d/" + id,
+		"xhttps://drive.google.com/file/d/" + id,
+	} {
+		for _, f := range scanForLeaks("f.go", notALink) {
+			if strings.Contains(f, "Drive link") {
+				t.Errorf("matched a lookalike host: %q -> %s", notALink, f)
+			}
+		}
+	}
+	// The real thing still matches, wherever it sits in the line.
+	for _, link := range []string{
+		"https://drive.google.com/file/d/" + id + "/view",
+		`link: "https://docs.google.com/document/d/` + id + `/edit"`,
+	} {
+		var sawLink bool
+		for _, f := range scanForLeaks("f.go", link) {
+			if strings.Contains(f, "Drive link") {
+				sawLink = true
+			}
+		}
+		if !sawLink {
+			t.Errorf("a real link went undetected: %q", link)
+		}
+	}
+}

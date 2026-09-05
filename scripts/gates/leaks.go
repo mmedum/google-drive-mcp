@@ -33,8 +33,13 @@ var (
 	addressPattern = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})`)
 	// A Drive id: base64url, 19 characters or more. Requiring a capital
 	// and a digit keeps prose and kebab-case identifiers out of it.
-	idPattern   = regexp.MustCompile(`[A-Za-z0-9_\-]{19,}={0,2}`)
-	linkPattern = regexp.MustCompile(`https://(?:drive|docs)\.google\.com/\S+`)
+	idPattern = regexp.MustCompile(`[A-Za-z0-9_\-]{19,}={0,2}`)
+	// The host is spelled out in full and must be followed by a slash, so
+	// drive.google.com.example.invalid does not match; the leading \b
+	// stops it matching inside a longer token. This searches text for a
+	// link — it never decides whether a host may be talked to. That
+	// decision is in internal/gapi, against a parsed URL.
+	linkPattern = regexp.MustCompile(`\bhttps://(?:drive|docs)\.google\.com/\S+`)
 	hasCapital  = regexp.MustCompile(`[A-Z]`)
 	hasNumber   = regexp.MustCompile(`[0-9]`)
 )
@@ -59,9 +64,9 @@ var allowedIDs = map[string]string{
 	// invented for tests and name nothing.
 	"1NoSuchFileIdAAAAAAAAAAAAAAAAAAAAAA":          "fixture id in the history, before synthetic ids declared themselves",
 	"0AZzyzxSyntheticDriveIdAAA":                   "fixture shared-drive id in the history, same",
-	"1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms": "the id in Google's own published API documentation",
+	"1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms": "an id Google publishes in its own developer documentation",
 	"1ZzzMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms": "that documentation id with its head changed, to have a second value",
-	"0AKl3lQ5UUqptUk9PVA":                          "the shared-drive id in Google's own published API documentation",
+	"0AKl3lQ5UUqptUk9PVA":                          "a shared-drive id Google publishes in its own developer documentation",
 	"0ABcdEFghIJklMNop":                            "synthetic shared-drive id in the ref tests",
 }
 

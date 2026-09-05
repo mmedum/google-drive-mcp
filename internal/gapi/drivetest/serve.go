@@ -117,10 +117,26 @@ func (s *Server) handleAbout(w http.ResponseWriter) {
 	writeJSON(w, about)
 }
 
+// maxGeneratedIDs is Drive's own ceiling for files.generateIds. The fake
+// enforces it because a fake that accepts what Drive refuses lets a bug
+// through, and because sizing an allocation from a query parameter is
+// how a test server becomes a way to exhaust memory.
+const maxGeneratedIDs = 1000
+
 func (s *Server) handleGenerateIDs(w http.ResponseWriter, r *http.Request) {
-	count, _ := strconv.Atoi(r.URL.Query().Get("count"))
+	raw := r.URL.Query().Get("count")
+	count, err := strconv.Atoi(raw)
+	if raw != "" && err != nil {
+		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid Value for count")
+		return
+	}
 	if count <= 0 {
 		count = 10
+	}
+	if count > maxGeneratedIDs {
+		s.errorJSON(w, http.StatusBadRequest, "invalid",
+			fmt.Sprintf("count must be at most %d", maxGeneratedIDs))
+		return
 	}
 	s.mu.Lock()
 	ids := make([]string, count)
