@@ -43,6 +43,11 @@ var patterns = []pattern{
 	// words — google-drive-mcp, modified_before — readable, which
 	// matters because an unreadable transcript is one nobody checks
 	// before pasting it.
+	//
+	// A permission id for a person is the exception: it is twenty digits
+	// with no letter at all, so that rule let one through in a live run.
+	// It identifies a Google account, so it is an id in every sense that
+	// matters here.
 	{"ID", regexp.MustCompile(`[A-Za-z0-9_\-]{19,}={0,2}`)},
 }
 
@@ -75,7 +80,7 @@ func (r *Redactor) Do(text string) string {
 	}
 	for _, p := range patterns {
 		text = p.re.ReplaceAllStringFunc(text, func(match string) string {
-			if p.name == "ID" && (!hasUpper.MatchString(match) || !hasDigit.MatchString(match)) {
+			if p.name == "ID" && !looksLikeID(match) {
 				// A long lower-case word is prose, not an id.
 				return match
 			}
@@ -123,3 +128,18 @@ func (r *Redactor) Summary() string {
 		".\nFile and folder names are NOT redacted — nothing distinguishes them from prose. " +
 		"Read the transcript before sharing it."
 }
+
+// looksLikeID separates an id from an ordinary long word. A Drive file
+// id mixes case and digits; a permission id for a person is all digits.
+// Neither shape occurs in prose at this length, and a word that is
+// neither is left readable on purpose.
+func looksLikeID(v string) bool {
+	if allDigits.MatchString(v) {
+		return true
+	}
+	return hasUpper.MatchString(v) && hasDigit.MatchString(v)
+}
+
+// allDigits matches the numeric form, which is what a permission id for
+// a person looks like.
+var allDigits = regexp.MustCompile(`^[0-9]+$`)
