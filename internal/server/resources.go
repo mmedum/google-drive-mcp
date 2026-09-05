@@ -139,8 +139,11 @@ func resourceError(uri string, err error) error {
 	var se *service.Error
 	if errors.As(err, &se) {
 		if se.Class == service.ClassNotFound {
+			// CodeInvalidParams is what SEP-2164 gives a resource that is
+			// not there, and what the SDK's own deprecated
+			// CodeResourceNotFound is an alias for.
 			return &jsonrpc.Error{
-				Code:    mcp.CodeResourceNotFound,
+				Code:    jsonrpc.CodeInvalidParams,
 				Message: se.Error(),
 				Data:    json.RawMessage(fmt.Sprintf(`{"uri":%q}`, uri)),
 			}

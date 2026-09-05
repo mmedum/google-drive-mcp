@@ -19,7 +19,7 @@ type ReadFileInput struct {
 // DownloadFileInput selects a file to write to the local directory.
 type DownloadFileInput struct {
 	File             string `json:"file" jsonschema:"a file id, any Drive or Docs URL, a path from My Drive like /Projects/2026/Budget.xlsx, or a shared-drive path like drive:Marketing/Campaigns. A name or path matching more than one item is refused with the candidates listed, so pass an id when you have one. A shortcut is followed to what it points at."`
-	Format           string `json:"format,omitempty" jsonschema:"for a Google Doc, Sheet, Slides deck or Drawing only, which Drive converts as it exports them: docx, xlsx, pptx, pdf, odt, ods, odp, rtf, txt, html, md, csv, tsv, epub, png, jpg or svg. The default is the Office format for the kind, or png for a drawing."`
+	Format           string `json:"format,omitempty" jsonschema:"for a Google Doc, Sheet, Slides deck or Drawing only, which Drive converts as it exports them: docx, xlsx, pptx, pdf, odt, ods, odp, rtf, txt, html, md, csv, tsv, epub, zip, json, png, jpg or svg. Not every kind offers every one; get_file lists what a file offers. The default is the Office format for the kind, png for a drawing, and json for an Apps Script project."`
 	Revision         string `json:"revision,omitempty" jsonschema:"a revision id, to fetch an older version instead of the current one"`
 	AcknowledgeAbuse bool   `json:"acknowledge_abuse,omitempty" jsonschema:"download a file Google has flagged as malware or spam. Only pass this after a refusal that named the flag, and only when you know what the file is."`
 }

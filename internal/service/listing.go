@@ -103,11 +103,7 @@ func kindClause(kind string) (string, error) {
 	if kind == "" || kind == "any" {
 		return "", nil
 	}
-	clause, ok := kindMimes[kind]
-	if !ok {
-		return "", Errorf(ClassInvalid, "kind %q is not one of %s", kind, strings.Join(Kinds(), ", "))
-	}
-	return clause, nil
+	return kindClauseFor(kind)
 }
 
 // childQuery builds the query for one folder's direct children, with an
