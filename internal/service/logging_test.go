@@ -66,7 +66,7 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 		Type: "user", Role: "writer", EmailAddress: secretEmail, DisplayName: secretPerson,
 	})
 	fake.AddComment(secretFileID, "id-comment-fixture", secretComment,
-		drivetest.ByOther(secretPerson), drivetest.AssignedTo(secretEmail),
+		drivetest.ByOther(secretPerson),
 		drivetest.WithReply("id-reply-fixture", secretPerson, secretReply, ""))
 	proposal := fake.AddProposal(secretFileID, "id-request-fixture", secretEmail, "writer")
 	proposal.RequestMessage = secretRequest

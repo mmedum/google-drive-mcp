@@ -545,10 +545,16 @@ type Comment struct {
 	// Anchor is an opaque JSON string naming the region of the document
 	// the comment sits on. This server reads it to say a comment is
 	// pinned; it never writes one.
-	Anchor               string             `json:"anchor,omitempty"`
-	QuotedFileContent    *QuotedFileContent `json:"quotedFileContent,omitempty"`
-	AssigneeEmailAddress string             `json:"assigneeEmailAddress,omitempty"`
-	Replies              []*Reply           `json:"replies,omitempty"`
+	Anchor            string             `json:"anchor,omitempty"`
+	QuotedFileContent *QuotedFileContent `json:"quotedFileContent,omitempty"`
+	Replies           []*Reply           `json:"replies,omitempty"`
+
+	// The reference gives a Comment an assigneeEmailAddress as well, for
+	// the action items a Doc's editor makes. It is not here, and not in
+	// gapi.CommentFields, because Drive REFUSES it in a field selection:
+	// asking for it answers 400 "Invalid field selection
+	// assignee_email_address" and the whole call fails. A field that
+	// exists and cannot be requested is a field nothing can receive.
 }
 
 // CommentList is one page of comments.list.
