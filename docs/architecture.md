@@ -1,7 +1,6 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 2 code complete (2026-09-05), not yet released or
-verified live. Twenty-four registered tools: phase 1's sixteen plus
+**Status:** phase 2 verified live (2026-09-05), not yet released. Twenty-four registered tools: phase 1's sixteen plus
 `list_permissions`, `share_file`, `unshare_file`, `list_drives`,
 `manage_drive`, `list_revisions`, `manage_revision` and `list_changes`,
 with four more — `delete_file`, `empty_trash`, `delete_drive`,
@@ -14,15 +13,26 @@ notification mail by default, and Google's policy refusals mapped to
 `[blocked]`. The fake grew the sharing matrix, inherited shared-drive
 grants and a changes feed.
 
-**What phase 2 still owes:** the live run against a scratch folder and a
-scratch shared drive, including spike F (ownership transfer) and a share
-the organisation's policy blocks; then the release. Checking the Drive v3
-discovery document before writing the client corrected four things this
-document and the code had from memory, and a review from outside found
-five more, three of which were live defects (§18). §16 has the phase
-plan, §17 the decisions that are not to be reopened, §17a the deferred
-cleanups, §17b where this repository differs from the shared standard,
-and §18 the evidence log.
+Three live runs against a Workspace account closed it: every new tool,
+the write half of spike E (a file into a shared drive and back out, and
+the folder-move refusal), and every refusal. The first two runs reported
+"all calls behaved as expected" while three results were wrong — the
+driver checks whether a call succeeded, not whether it told the truth —
+which is the finding worth carrying into phase 3 (§18).
+
+**What phase 2 still owes:** spike F (ownership transfer), which needs a
+second account to transfer to, and one share that an organisation's
+policy blocks, which needs an administrator to arrange. Both are
+recorded in §17a rather than holding the release. Then the release
+itself.
+
+Checking the Drive v3 discovery document before writing the client
+corrected four things this document and the code had from memory; a
+review from outside found five more, three of them live defects; and the
+live runs found five more again (§18). §16 has the phase plan, §17 the
+decisions that are not to be reopened, §17a the deferred cleanups, §17b
+where this repository differs from the shared standard, and §18 the
+evidence log.
 
 This document is the plan. It is written so that whoever picks the work
 up can start from the repository alone: read the status line above, §16
@@ -925,8 +935,8 @@ file into a shared drive and back out, and the folder-move refusal. That
 part says loudly if the move back fails, because it is the only thing
 trashing the scratch folder cannot clean up.
 
-**Phase 2 — access, shared drives, history (v0.2.0). Code complete
-2026-09-05; live run and release outstanding.** `list_permissions`,
+**Phase 2 — access, shared drives, history (v0.2.0). Verified live
+2026-09-05; release outstanding.** `list_permissions`,
 `share_file`, `unshare_file` with the policy; `list_drives`,
 `manage_drive`; `list_revisions`, `manage_revision`, `list_changes`;
 gated `delete_file`, `empty_trash`, `delete_drive`, `delete_revision`.
@@ -942,21 +952,26 @@ delete into an unbounded one, a rate-limit reason that had silently
 stopped matching, and a token refresh with no deadline behind a security
 claim that said otherwise.
 
-Still owed before the release:
+Three live runs closed it. The last one confirmed the five fixes the
+first two produced, including the changes feed reporting a write and
+handing back a fresh token — which the earlier runs could not
+distinguish from a broken feed, because Drive's feed is eventually
+consistent and the driver asked once.
 
-- The live run against a scratch folder and a scratch shared drive,
-  covering every new tool, plus **spike F** (ownership transfer):
-  Workspace direct transfer, and `pendingOwner` on a consumer account if
-  a test account exists.
-- One share that the organisation's policy blocks — an external address
-  on an organisational unit with external sharing off, if the admin can
-  set one up — so the `[blocked]` mapping in §7.4 is built from a real
-  response rather than from an injected one.
-- A destructive run behind `GDRIVE_ENABLE_DESTRUCTIVE=true` inside the
-  scratch folder only, so `delete_file`, `delete_revision` and
-  `empty_trash` are seen against Drive. `empty_trash` is the one that
-  cannot be scoped to the scratch folder: it takes the whole account's
-  trash, so it runs only against a scratch shared drive, or not at all.
+What was NOT verified live, and is deferred rather than holding the
+release (§17a):
+
+- **Spike F** (ownership transfer). It needs a second account to
+  transfer to, and the transfer cannot be undone from this side, so it
+  is not something to run against a colleague to satisfy a checklist.
+- **A share the organisation's policy blocks**, so the `[blocked]`
+  mapping in §7.4 is built from a real response rather than an injected
+  one. It needs an administrator to put an external address out of
+  bounds on an organisational unit.
+- **The destructive four against Drive.** They are gated off by default
+  and the live driver does not enable them: `empty_trash` cannot be
+  scoped to a scratch folder — it takes the whole account's trash — so
+  it runs only against a scratch shared drive, or not at all.
 
 **Phase 3 — collaboration, resources, evals, performance (v0.3.0).**
 Comments and access requests; `gdrive://` resources; `copy_file
@@ -1036,6 +1051,25 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   `pendingOwner` case and the forced notification, but no fake can prove
   Drive agrees. It runs with the live driver against a scratch folder,
   and needs a second account to transfer to.
+- **Spike F (ownership transfer) is unrun, and deliberately so.** The
+  code exists and behaves against `drivetest`, including the forced
+  notification and the `pendingOwner` case. Running it live needs a
+  second account, and it cannot be undone from this side: the file lands
+  in somebody else's Drive and only they can remove it. That is not
+  something to do to a colleague to close a checklist. The live driver
+  has `-share`, which does it on a file created for the purpose and says
+  loudly what it has done. Until it runs, `share_file`'s note describes
+  only the consequence that is certain — this account becomes a writer —
+  and reads a pending transfer off Drive's answer rather than asserting
+  one.
+- **A policy-blocked share is unseen live.** The `[blocked]` mapping is
+  built from Google's documented reasons and exercised against an
+  injected refusal, not a real one. It needs an administrator to put an
+  external address out of bounds on an organisational unit.
+- **The destructive four are unseen live.** They are gated off by
+  default and the live driver does not enable them. `empty_trash` is the
+  reason it does not: it cannot be scoped to a scratch folder, so
+  exercising it means emptying a real trash.
 - **A `POST` that only reads would take the wrong limiter.** Not a
   defect here — every `POST` in `internal/gapi` genuinely writes, and the
   limiter is named per call site rather than derived from the method, so
@@ -1134,6 +1168,8 @@ invisible until a real call failed.**
 
 | Convention | Verdict | Effect |
 |---|---|---|
+| A live run that reports "all calls behaved as expected" has verified the tool surface | **Refuted, and it is the most useful thing phase 2 learned.** Two runs said exactly that while three results were wrong: a file card reporting `sharing: private to you` in the same result whose change line said the file was now public, a removal reporting "shared, but no grants are visible" instead of "private to you", and every My Drive file blaming an inherited grant on a shared drive it had never been near. The driver checks whether a call *succeeded*, not whether it *told the truth*, and those are different questions | The transcript is read, not just its verdict. Phase 3's evals are the mechanised version of this: a result that is wrong while succeeding is the class of defect no status code catches |
+| The changes feed answering "0 changes" straight after a write is a bug | Neither confirmed nor refuted for two runs, which was the problem: Drive's feed is eventually consistent, so a feed that works and reports nothing is indistinguishable from a broken one when you ask once. The third run reported the change and a fresh token | The live driver polls the feed and says which happened rather than printing an empty answer. **The general rule: where a system is eventually consistent, a single read cannot be evidence of absence** |
 | `permissions.create` and `permissions.update` take the same parameters (assumed; one options struct was written for both) | Refuted by the discovery document: create has `sendNotificationEmail`, `emailMessage` and `moveToNewOwnersRoot`; update has none of those and has `removeExpiration` instead | Two option types in `internal/gapi`, so a parameter cannot be offered on a call that ignores it |
 | An empty `expirationTime` clears a permission's expiry (assumed) | Refuted: clearing it is the `removeExpiration` query parameter on update. Drive does not read `""` as "remove this" | `PermissionMeta.ExpirationTime` is a plain string that only sets; `UpdateShareOptions.RemoveExpiration` clears |
 | `sendNotificationEmail` may be sent on any grant, so send it explicitly every time (assumed, and it is the safer-looking habit) | Refuted: the reference says it "defaults to `true` for users and groups, and **is not allowed for other requests**", and "must not be disabled for ownership transfers". Sending it for a `domain` or `anyone` grant is a 400 either way | The parameter is a `*bool`: omitted entirely for those principal types, explicit for a user or group, forced true for a transfer with the result saying so |
