@@ -607,3 +607,20 @@ func TestEveryAttemptTakesALimiterToken(t *testing.T) {
 		t.Errorf("four attempts took %s; retries appear to bypass the limiter", elapsed)
 	}
 }
+
+func TestGenerateIDsRefusesMoreThanDriveAllows(t *testing.T) {
+	s := fixture(t)
+	c := newClient(t, s)
+	// The client clamps to Drive's own ceiling, so a caller asking for
+	// more gets the maximum rather than an error.
+	ids, err := c.GenerateIDs(context.Background(), 5000)
+	if err != nil {
+		t.Fatalf("GenerateIDs: %v", err)
+	}
+	if len(ids) != 1000 {
+		t.Errorf("got %d ids, want the 1000 Drive allows", len(ids))
+	}
+	if _, err := c.GenerateIDs(context.Background(), 0); err != nil {
+		t.Errorf("a count of zero should mean the default, not an error: %v", err)
+	}
+}

@@ -66,6 +66,10 @@ account and reference machinery, and the four read tools.
   template ask a reporter for a debug log without also asking them to
   audit it. Ids appear only as a six-character prefix, for correlating
   the lines of one call.
+- CI on Linux, macOS and Windows, CodeQL, gitleaks and the leak check all
+  green on the first run. Between them they caught two things the local
+  gates did not: a slice sized from a query parameter in the in-memory
+  Drive, and an unanchored host pattern in the leak check. Both fixed.
 - Integration tests (`make integration`, build tag `integration`) that
   run against the signed-in account and assert the search rules the whole
   addressing design rests on — that `name contains` is a prefix match and
