@@ -68,6 +68,21 @@ type API interface {
 	StartPageToken(ctx context.Context, driveID string) (string, error)
 	ListChanges(ctx context.Context, o gapi.ListChangesOptions) (*gdrive.ChangeList, error)
 
+	// Comments and their replies.
+	ListComments(ctx context.Context, fileID string, o gapi.ListCommentsOptions) (*gdrive.CommentList, error)
+	GetComment(ctx context.Context, fileID, commentID string, includeDeleted bool) (*gdrive.Comment, error)
+	CreateComment(ctx context.Context, fileID string, meta *gdrive.CommentMeta) (*gdrive.Comment, error)
+	UpdateComment(ctx context.Context, fileID, commentID string, meta *gdrive.CommentMeta) (*gdrive.Comment, error)
+	DeleteComment(ctx context.Context, fileID, commentID string) error
+	CreateReply(ctx context.Context, fileID, commentID string, meta *gdrive.ReplyMeta) (*gdrive.Reply, error)
+	UpdateReply(ctx context.Context, fileID, commentID, replyID string, meta *gdrive.ReplyMeta) (*gdrive.Reply, error)
+	DeleteReply(ctx context.Context, fileID, commentID, replyID string) error
+
+	// Access requests. There is no create: only somebody who was refused
+	// can ask.
+	ListAccessProposals(ctx context.Context, fileID string) ([]*gdrive.AccessProposal, error)
+	ResolveAccessProposal(ctx context.Context, fileID, proposalID string, body *gdrive.ResolveProposal) error
+
 	// Permanent removal, registered only with GDRIVE_ENABLE_DESTRUCTIVE.
 	DeleteFile(ctx context.Context, fileID string) error
 	EmptyTrash(ctx context.Context, driveID string) error

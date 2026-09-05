@@ -122,6 +122,12 @@ func (s *Server) serveFileChild(w http.ResponseWriter, r *http.Request, path, re
 		s.handleExport(w, r, strings.TrimSuffix(rest, "/export"))
 	case strings.HasSuffix(path, "/copy") && r.Method == http.MethodPost:
 		s.handleCopy(w, r, strings.TrimSuffix(rest, "/copy"))
+	case commentPath.MatchString(path):
+		m := commentPath.FindStringSubmatch(path)
+		s.serveComments(w, r, m[1], m[2])
+	case proposalPath.MatchString(path):
+		m := proposalPath.FindStringSubmatch(path)
+		s.serveProposals(w, r, m[1], m[2])
 	case revisionPath.MatchString(path):
 		m := revisionPath.FindStringSubmatch(path)
 		switch {
@@ -139,6 +145,17 @@ func (s *Server) serveFileChild(w http.ResponseWriter, r *http.Request, path, re
 
 // revisionPath matches /files/{fileId}/revisions/{revisionId}.
 var revisionPath = regexp.MustCompile(`^/files/([^/]+)/revisions/([^/]+)$`)
+
+// commentPath matches everything under one file's comments: the
+// collection, one thread, its replies and one reply. The tail is passed
+// on whole, because the comment routing has to tell four shapes apart
+// and doing it with four regexps here would put half of that decision in
+// this file and half in the other.
+var commentPath = regexp.MustCompile(`^/files/([^/]+)/comments(?:/(.*))?$`)
+
+// proposalPath matches a file's access proposals, including the
+// colon-suffixed :resolve verb, which is not a path segment of its own.
+var proposalPath = regexp.MustCompile(`^/files/([^/]+)/accessproposals(?:/(.*))?$`)
 
 // permissionPath matches /files/{fileId}/permissions/{permissionId}.
 var permissionPath = regexp.MustCompile(`^/files/([^/]+)/permissions/([^/]+)$`)
