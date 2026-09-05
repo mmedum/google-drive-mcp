@@ -77,6 +77,18 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
+// folderLocation is where a folder's contents live: the folder's own
+// location with its name added, unless it is the top of a drive, whose
+// name the location already carries. Every result that names a folder
+// goes through it, because a listing and a tree of the same folder that
+// disagree about where it is are worse than either alone.
+func (s *Service) folderLocation(ctx context.Context, folder *gdrive.File, loc model.Location) model.Location {
+	if s.isDriveRoot(ctx, folder) {
+		return loc
+	}
+	return loc.Child(folder.Name)
+}
+
 // isDriveRoot reports whether the folder is the top of My Drive or of a
 // shared drive, whose name is the drive's own.
 func (s *Service) isDriveRoot(ctx context.Context, f *gdrive.File) bool {
@@ -134,10 +146,7 @@ func (s *Service) page(ctx context.Context, folder *gdrive.File, loc model.Locat
 	// Children of one folder share its location exactly, so no per-file
 	// parent lookup is needed here at all. A drive's own root contributes
 	// no name of its own: it is already the head of the path.
-	childLoc := loc
-	if !s.isDriveRoot(ctx, folder) {
-		childLoc.Folders = append(append([]string{}, loc.Folders...), folder.Name)
-	}
+	childLoc := s.folderLocation(ctx, folder, loc)
 	files := make([]*model.File, 0, len(list.Files))
 	for _, f := range list.Files {
 		files = append(files, model.New(f, model.Options{Location: childLoc, SharedDriveName: loc.Drive}))
@@ -231,8 +240,12 @@ func (s *Service) tree(ctx context.Context, folder *gdrive.File, loc model.Locat
 			model.Plural(len(skipped), "folder", "folders"), strings.Join(uniqueStrings(skipped), ", "))
 	}
 	return render.Tree(root, render.TreeOptions{
-		Title: fmt.Sprintf("%s — tree, depth %d, %s shown", loc.String(), depth, model.Plural(shown, "item", "items")),
-		Note:  note,
+		// The folder being listed, not the folder it sits in: a tree
+		// headed with its parent's path names something other than what
+		// it shows.
+		Title: fmt.Sprintf("%s — tree, depth %d, %s shown",
+			s.folderLocation(ctx, folder, loc).String(), depth, model.Plural(shown, "item", "items")),
+		Note: note,
 	}), nil
 }
 

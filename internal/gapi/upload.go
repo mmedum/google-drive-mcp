@@ -117,7 +117,7 @@ func (c *Client) UploadMultipart(ctx context.Context, r UploadRequest, content [
 	resp, err := c.doResponse(ctx, request{
 		kind: kindWrite, method: method, url: c.uploadURL(path, r.uploadParams("multipart")),
 		body: body.Bytes(), contentType: "multipart/related; boundary=" + mw.Boundary(),
-		resourceIDs: idsOf(r), unsafeToRepeat: createsWithoutID(method, r.Meta),
+		resourceIDs: idsOf(r), idempotent: carriesID(r.Meta),
 	})
 	if err != nil {
 		return nil, err
@@ -279,7 +279,7 @@ func (c *Client) startResumable(ctx context.Context, r UploadRequest, size int64
 	resp, err := c.doResponse(ctx, request{
 		kind: kindWrite, method: method, url: c.uploadURL(path, r.uploadParams("resumable")),
 		body: meta, contentType: "application/json; charset=UTF-8",
-		unsafeToRepeat: createsWithoutID(method, r.Meta),
+		idempotent: carriesID(r.Meta),
 		header: http.Header{
 			"X-Upload-Content-Type":   {contentType},
 			"X-Upload-Content-Length": {strconv.FormatInt(size, 10)},

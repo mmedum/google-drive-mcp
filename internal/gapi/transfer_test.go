@@ -428,3 +428,29 @@ func TestACreateThatCannotCarryAnIDIsNeverRepeated(t *testing.T) {
 		s.Close()
 	}
 }
+
+func TestRepeatabilityDefaultsToTheSafeAnswer(t *testing.T) {
+	t.Parallel()
+	// The rule has to be safe when nobody thought about it. A POST added
+	// in a later phase and given no flag must not inherit permission to
+	// retry, which is what the previous version of this rule did: its
+	// flag's zero value meant "safe to repeat".
+	cases := []struct {
+		method string
+		want   bool
+	}{
+		{http.MethodGet, true},
+		{http.MethodPatch, true},
+		{http.MethodPut, true},
+		{http.MethodDelete, true},
+		{http.MethodPost, false},
+	}
+	for _, c := range cases {
+		if got := gapi.RepeatableForTest(c.method, false); got != c.want {
+			t.Errorf("a bare %s is repeatable=%v, want %v", c.method, got, c.want)
+		}
+	}
+	if !gapi.RepeatableForTest(http.MethodPost, true) {
+		t.Error("a POST that says it is idempotent should be repeatable")
+	}
+}

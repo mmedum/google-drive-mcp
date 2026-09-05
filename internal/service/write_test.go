@@ -362,3 +362,60 @@ func TestGeneratedIDsGoOnlyWhereDriveTakesThem(t *testing.T) {
 		}
 	})
 }
+
+func TestAnUnsupportedConversionSaysWhatTheFileCanBecome(t *testing.T) {
+	// Drive answers "The requested conversion is not supported", which
+	// leaves a model to guess which half of the pair was wrong. A csv
+	// becomes a Sheet and not a Doc, and the account's own importFormats
+	// says so.
+	svc, _ := setup(t, service.Options{})
+
+	_, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "rows.csv", Content: "a,b\n", MimeType: "text/csv", ConvertTo: "doc",
+	})
+	if err == nil {
+		t.Fatal("a csv was accepted for conversion to a Google Doc")
+	}
+	for _, want := range []string{"[invalid]", "CSV file", "Google Doc", "sheet"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not mention %q: %v", want, err)
+		}
+	}
+
+	// The conversion Drive does offer goes through.
+	if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "rows as a sheet", Content: "a,b\n", MimeType: "text/csv", ConvertTo: "sheet",
+	}); err != nil {
+		t.Errorf("csv to a Sheet was refused: %v", err)
+	}
+}
+
+func TestAConversionCheckThatCannotRunDoesNotBlockTheCall(t *testing.T) {
+	// A check that cannot read its table must not refuse work that would
+	// have succeeded: Drive is still the authority.
+	svc, fake := setup(t, service.Options{})
+	fake.About.ImportFormats = nil
+
+	if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "notes.md", Content: "# Notes\n", MimeType: "text/markdown", ConvertTo: "doc",
+	}); err != nil {
+		t.Errorf("the call was refused with no table to check against: %v", err)
+	}
+}
+
+func TestCopyRefusesAConversionDriveWillNotDo(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-rows-fixture", "rows.csv", "text/csv", "id-2026-fixture")
+	fake.SetContent("id-rows-fixture", "a,b\n")
+
+	if _, err := svc.CopyFile(t.Context(), service.CopyFileInput{
+		File: "id-rows-fixture", ConvertTo: "doc",
+	}); err == nil {
+		t.Error("copying a csv as a Google Doc was accepted")
+	}
+	if _, err := svc.CopyFile(t.Context(), service.CopyFileInput{
+		File: "id-rows-fixture", ConvertTo: "sheet", Name: "rows as a sheet",
+	}); err != nil {
+		t.Errorf("copying a csv as a Sheet was refused: %v", err)
+	}
+}

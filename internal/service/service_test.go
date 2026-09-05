@@ -892,3 +892,45 @@ func TestAPathResolvesRegardlessOfCase(t *testing.T) {
 		t.Errorf("resolved to %q", res.File.ID)
 	}
 }
+
+func TestATreeIsHeadedWithTheFolderItShows(t *testing.T) {
+	// A tree headed with its parent's path names something other than
+	// what it lists, and the flat listing of the same folder got it
+	// right, so the two disagreed.
+	svc, _ := setup(t, service.Options{})
+
+	flat, err := svc.ListFolder(context.Background(), service.ListFolderInput{Folder: "/Projects/2026"})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	tree, err := svc.ListFolder(context.Background(), service.ListFolderInput{
+		Folder: "/Projects/2026", Recursive: true,
+	})
+	if err != nil {
+		t.Fatalf("ListFolder recursive: %v", err)
+	}
+	const want = "My Drive/Projects/2026"
+	for name, out := range map[string]string{"listing": flat, "tree": tree} {
+		head, _, _ := strings.Cut(out, "\n")
+		if !strings.HasPrefix(head, want) {
+			t.Errorf("the %s is headed %q, want it to start with %q", name, head, want)
+		}
+	}
+}
+
+func TestATreeOfADriveRootIsHeadedWithTheDrive(t *testing.T) {
+	// A drive's root contributes no name of its own: it is already the
+	// head of the path, and adding it would read as a folder inside
+	// itself.
+	svc, _ := setup(t, service.Options{})
+	out, err := svc.ListFolder(context.Background(), service.ListFolderInput{
+		Folder: "root", Recursive: true, MaxDepth: 1,
+	})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	head, _, _ := strings.Cut(out, "\n")
+	if !strings.HasPrefix(head, "My Drive — tree") {
+		t.Errorf("the tree is headed %q", head)
+	}
+}

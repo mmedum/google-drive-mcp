@@ -34,9 +34,11 @@ func main() {
 	raw := flag.Bool("raw", false, "print results without redaction (never in a shared terminal)")
 	write := flag.Bool("write", false, "also exercise every tool that changes Drive, in one scratch folder that is trashed afterwards")
 	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
+	drive := flag.String("drive", "", "a shared drive to move a file into and out of, by name; empty skips that half")
 	flag.Parse()
 
-	if err := run(options{binary: *binary, file: *file, raw: *raw, write: *write, parent: *parent}); err != nil {
+	if err := run(options{binary: *binary, file: *file, raw: *raw, write: *write,
+		parent: *parent, drive: *drive}); err != nil {
 		fmt.Fprintln(os.Stderr, "livedrive: "+err.Error())
 		os.Exit(1)
 	}
@@ -59,6 +61,7 @@ type options struct {
 	raw    bool
 	write  bool
 	parent string
+	drive  string
 }
 
 func run(o options) error {
@@ -128,7 +131,7 @@ func run(o options) error {
 		fmt.Println("\n(pass -file REF to also exercise get_file and a recursive listing)")
 	}
 	if o.write {
-		failures, err := runWrites(session, redact, dir, o.parent)
+		failures, err := runWrites(session, redact, dir, o.parent, o.drive)
 		unexpected += failures
 		if err != nil {
 			return err

@@ -84,6 +84,25 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The coverage floor derives its own package list from `go list
+  ./internal/...` instead of a hand-written one, with three packages
+  exempt by name and reason. The hand-written list had silently omitted
+  `internal/userconfig` — the profile file recording the account, the
+  token location and the scopes — which had never been under the floor
+  since phase 0. Its untested paths now have tests.
+- `goreleaser-action` was pinned by commit SHA while the goreleaser
+  binary it installs was left to float across a major version. Pinned
+  beside the SHA, as `cosign` and `syft` already were.
+- A recursive listing was headed with the folder's parent rather than
+  the folder it shows, so a tree and a flat listing of the same folder
+  named different places. Both now build the location the same way.
+- `copy_file`, `create_file` and `upload_file` refuse a conversion Drive
+  will not perform, naming what the file can become instead. Drive's own
+  answer is "The requested conversion is not supported", which leaves a
+  model to guess which half of the pair was wrong — a csv becomes a
+  Sheet, not a Doc. The check reads the account's own importFormats and
+  fails open, so a table that cannot be read never refuses a legal call.
+
 - Drive answers `teamDrivesFolderMoveInNotSupported` with a 403, which
   the error mapping read as a plain refusal. Moving a My Drive folder
   into a shared drive is now `[unsupported]` — a thing that cannot be
@@ -142,10 +161,12 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   it: "Notes is a Google Doc", not "Notes is Google Doc".
 - A create that cannot carry a pre-generated id is no longer retried
   after a 5xx. A 500 proves Google answered, not that it did nothing, so
-  repeating one of those creates could leave two files. The retry rule
-  now reads a flag set where the request is built rather than the
-  request's kind, so a write added later cannot inherit permission to
-  repeat without someone deciding that it may.
+  repeating one of those creates could leave two files. Whether a
+  request may be repeated is now derived from its HTTP method — GET,
+  PATCH, PUT and DELETE mean the same thing applied twice, a POST does
+  not unless it carries an id that collapses the second attempt into the
+  first — so a write added in a later phase and given no thought fails
+  closed rather than inheriting permission to retry.
 
 ## [0.0.1] - 2026-09-05
 

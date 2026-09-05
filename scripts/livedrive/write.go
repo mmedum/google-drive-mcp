@@ -23,6 +23,8 @@ type writeRun struct {
 	dir string
 	// scratchID is the folder everything happens in.
 	scratchID string
+	// drive is the shared drive to move a file through, or empty.
+	drive string
 	// failures counts calls that did not behave as expected.
 	failures int
 }
@@ -33,8 +35,8 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 
 // runWrites drives the whole write surface and reports how many calls
 // behaved unexpectedly.
-func runWrites(s *session, redact *Redactor, dir, parent string) (int, error) {
-	w := &writeRun{session: s, redact: redact, dir: dir}
+func runWrites(s *session, redact *Redactor, dir, parent, drive string) (int, error) {
+	w := &writeRun{session: s, redact: redact, dir: dir, drive: drive}
 	name := fmt.Sprintf("%s %s", scratchPrefix, time.Now().UTC().Format("2006-01-02 15:04:05"))
 	args := map[string]any{"name": name}
 	if parent != "" {
@@ -57,13 +59,30 @@ func runWrites(s *session, redact *Redactor, dir, parent string) (int, error) {
 // not the first. Only the calls that need an id a failed create never
 // produced are skipped, and the skip says so.
 func (w *writeRun) exercise() {
-	folderID := w.createAndKeepID("create_folder", map[string]any{
+	ids := w.create()
+	w.readBack(ids)
+	w.organise(ids)
+	w.refusals(ids)
+	w.sharedDrive(ids)
+}
+
+// made are the ids the create phase produced. An empty one means that
+// create failed, and the calls needing it say they were skipped.
+type made struct {
+	folder, doc, sheet, text, blob, small string
+}
+
+// create makes one of everything, because several of Drive's rules turn
+// out to be per format rather than per kind of thing.
+func (w *writeRun) create() made {
+	var m made
+	m.folder = w.createAndKeepID("create_folder", map[string]any{
 		"name": "Reports", "parent": w.scratchID, "description": "made by the live driver",
 	})
-	docID := w.createAndKeepID("create_file", map[string]any{
+	m.doc = w.createAndKeepID("create_file", map[string]any{
 		"name": "Notes", "kind": "doc", "parent": w.scratchID,
 	})
-	textID := w.createAndKeepID("create_file", map[string]any{
+	m.text = w.createAndKeepID("create_file", map[string]any{
 		"name": "rows.csv", "parent": w.scratchID,
 		"content": "name,amount\nfirst,1\nsecond,2\n", "mime_type": "text/csv",
 	})
@@ -75,65 +94,189 @@ func (w *writeRun) exercise() {
 	// One of every Google kind, because the id rule is per format and a
 	// run that tries one of five proves one of five.
 	for _, kind := range []string{"sheet", "slides", "drawing", "form"} {
-		w.createAndKeepID("create_file", map[string]any{
+		id := w.createAndKeepID("create_file", map[string]any{
 			"name": "New " + kind, "kind": kind, "parent": w.scratchID,
 		})
+		if kind == "sheet" {
+			m.sheet = id
+		}
 	}
+	// A duplicate name, asked for explicitly: the guard has to be a
+	// guard and not a wall.
+	w.createAndKeepID("create_folder", map[string]any{
+		"name": "Reports", "parent": w.scratchID, "allow_duplicate": true,
+	})
 
-	// A local file large enough to force the resumable path, which is
-	// the half of upload_file no fake can prove.
+	// Both upload paths. The small one goes in a single request; the
+	// large one is chunked and is the half no fake can prove.
+	small := filepath.Join(w.dir, "livedrive-small.csv")
+	if err := os.WriteFile(small, []byte("name,amount\nfirst,1\n"), 0o600); err != nil {
+		w.problem("could not write the small file to upload", err)
+	} else {
+		defer func() { _ = os.Remove(small) }()
+		m.small = w.createAndKeepID("upload_file", map[string]any{
+			"local_path": "livedrive-small.csv", "parent": w.scratchID, "name": "small upload.csv",
+		})
+	}
 	big := filepath.Join(w.dir, "livedrive-upload.bin")
 	if err := writeFiller(big, 6<<20); err != nil {
-		fmt.Println("!! could not write the file to upload:", err)
-		w.failures++
+		w.problem("could not write the file to upload", err)
 	} else {
 		defer func() { _ = os.Remove(big) }()
-		w.createAndKeepID("upload_file", map[string]any{
+		m.blob = w.createAndKeepID("upload_file", map[string]any{
 			"local_path": "livedrive-upload.bin", "parent": w.scratchID, "name": "large upload.bin",
 		})
 	}
+	return m
+}
 
-	w.needing("read_file", textID, map[string]any{"file": textID})
-	w.needing("read_file", textID, map[string]any{"file": textID, "max_chars": 12})
-	w.needing("read_file", docID, map[string]any{"file": docID})
-	w.needing("download_file", textID, map[string]any{"file": textID})
-	w.needing("download_file", docID, map[string]any{"file": docID, "format": "pdf"})
+// readBack asks for everything that was just written, which is the only
+// way to see that a write did what its result claimed.
+func (w *writeRun) readBack(m made) {
+	w.needing("get_file", m.text, map[string]any{"file": m.text})
+	w.needing("get_file", m.doc, map[string]any{"file": m.doc})
+	w.call(call{tool: "list_folder", args: map[string]any{"folder": w.scratchID}})
+	w.call(call{tool: "list_folder", args: map[string]any{
+		"folder": w.scratchID, "recursive": true, "max_depth": 3,
+	}})
+	w.call(call{tool: "search_files", args: map[string]any{"in_folder": w.scratchID, "kind": "any"}})
+	w.call(call{tool: "search_files", args: map[string]any{"in_folder": w.scratchID, "name": "rows"}})
 
-	w.needing("update_content", textID, map[string]any{
-		"file": textID, "content": "name,amount\nfirst,10\n", "keep_previous_revision": true,
+	w.needing("read_file", m.text, map[string]any{"file": m.text})
+	// A window, then the continuation it offered: paging is the part a
+	// model actually has to use, and an offset that does not line up is
+	// invisible until someone follows it.
+	w.needing("read_file", m.text, map[string]any{"file": m.text, "max_chars": 12})
+	w.needing("read_file", m.text, map[string]any{"file": m.text, "offset": 12, "max_chars": 12})
+	w.needing("read_file", m.text, map[string]any{"file": m.text, "offset": 9000})
+	w.needing("read_file", m.doc, map[string]any{"file": m.doc})
+	w.needing("read_file", m.sheet, map[string]any{"file": m.sheet})
+	w.needing("read_file", m.sheet, map[string]any{"file": m.sheet, "format": "tsv"})
+
+	w.needing("download_file", m.text, map[string]any{"file": m.text})
+	w.needing("download_file", m.doc, map[string]any{"file": m.doc, "format": "pdf"})
+	w.needing("download_file", m.doc, map[string]any{"file": m.doc})
+	w.needing("download_file", m.sheet, map[string]any{"file": m.sheet})
+	w.needing("download_file", m.blob, map[string]any{"file": m.blob})
+}
+
+// organise runs everything that changes a file without replacing it.
+func (w *writeRun) organise(m made) {
+	w.needing("update_content", m.text, map[string]any{
+		"file": m.text, "content": "name,amount\nfirst,10\n", "keep_previous_revision": true,
 	})
-	w.expecting("update_content", docID, map[string]any{"file": docID, "content": "no"},
-		"a Google Doc's content belongs to the Docs API")
-
-	w.needing("update_file", textID, map[string]any{
-		"file": textID, "name": "rows renamed.csv", "starred": true,
-		"properties": map[string]any{"livedrive": "yes"},
-	})
-	w.needing("update_file", folderID, map[string]any{"file": folderID, "color": "#4986e7"})
-
-	if textID != "" && folderID != "" {
-		w.call(call{tool: "move_file", args: map[string]any{"file": textID, "to": folderID, "dry_run": true}})
-		w.call(call{tool: "move_file", args: map[string]any{"file": textID, "to": folderID}})
+	// The other half of update_content: new bytes from a local file.
+	replacement := filepath.Join(w.dir, "livedrive-replacement.csv")
+	if err := os.WriteFile(replacement, []byte("name,amount\nfirst,100\nsecond,200\n"), 0o600); err != nil {
+		w.problem("could not write the replacement file", err)
+	} else {
+		defer func() { _ = os.Remove(replacement) }()
+		w.needing("update_content", m.small, map[string]any{
+			"file": m.small, "local_path": "livedrive-replacement.csv",
+		})
 	}
 
-	w.needing("copy_file", textID, map[string]any{"file": textID, "name": "rows copy.csv", "to": w.scratchID})
+	w.needing("update_file", m.text, map[string]any{
+		"file": m.text, "name": "rows renamed.csv", "starred": true,
+		"properties": map[string]any{"livedrive": "yes"},
+	})
+	// An empty value deletes a property, and an empty description clears
+	// it: the two places where "" means something.
+	w.needing("update_file", m.text, map[string]any{
+		"file": m.text, "description": "written by the live driver",
+	})
+	w.needing("update_file", m.text, map[string]any{
+		"file": m.text, "description": "", "properties": map[string]any{"livedrive": ""},
+	})
+	// A patch that changes nothing has to say so rather than reporting a
+	// write that did not happen.
+	w.needing("update_file", m.text, map[string]any{"file": m.text, "name": "rows renamed.csv"})
+	w.needing("update_file", m.folder, map[string]any{"file": m.folder, "color": "#4986e7"})
+
+	if m.text != "" && m.folder != "" {
+		w.call(call{tool: "move_file", args: map[string]any{"file": m.text, "to": m.folder, "dry_run": true}})
+		w.call(call{tool: "move_file", args: map[string]any{"file": m.text, "to": m.folder}})
+		// Moving it where it already is changes nothing, and says so.
+		w.call(call{tool: "move_file", args: map[string]any{"file": m.text, "to": m.folder}})
+	}
+
+	w.needing("copy_file", m.text, map[string]any{"file": m.text, "name": "rows copy.csv", "to": w.scratchID})
 	// Copying a Google Doc is the case where the copy is a Doc too, and
 	// so cannot carry a generated id either.
-	w.needing("copy_file", docID, map[string]any{"file": docID, "name": "Notes copy", "to": w.scratchID})
-	w.needing("create_shortcut", textID, map[string]any{
-		"target": textID, "parent": w.scratchID, "name": "rows shortcut",
+	w.needing("copy_file", m.doc, map[string]any{"file": m.doc, "name": "Notes copy", "to": w.scratchID})
+	// The import route: a csv becomes a Sheet, which is the conversion
+	// Drive offers for it. Asking for a Doc is refused before the call,
+	// with what it can become instead.
+	w.needing("copy_file", m.text, map[string]any{
+		"file": m.text, "name": "rows as a sheet", "to": w.scratchID, "convert_to": "sheet",
+	})
+	w.expecting("copy_file", m.text, map[string]any{
+		"file": m.text, "name": "rows as a doc", "to": w.scratchID, "convert_to": "doc",
+	}, "Google imports a csv as a Sheet, not as a Doc")
+	w.needing("create_shortcut", m.text, map[string]any{
+		"target": m.text, "parent": w.scratchID, "name": "rows shortcut",
 	})
 
+	w.needing("trash_file", m.text, map[string]any{"file": m.text, "dry_run": true})
+	w.needing("trash_file", m.text, map[string]any{"file": m.text})
+	w.needing("restore_file", m.text, map[string]any{"file": m.text})
+	// Restoring what is not in the trash changes nothing.
+	w.needing("restore_file", m.text, map[string]any{"file": m.text})
+}
+
+// refusals are the calls that must not work. A refusal that is expected
+// proves as much as a success: it is how the server says no to something
+// it should not do.
+func (w *writeRun) refusals(m made) {
 	w.call(call{tool: "create_folder", args: map[string]any{"name": "Reports", "parent": w.scratchID},
-		expectError: true, why: "a second folder of the same name needs allow_duplicate"})
+		expectError: true, why: "two folders of that name are already there, so the guard cannot pick one"})
 	w.call(call{tool: "upload_file", args: map[string]any{"local_path": "/etc/hostname"},
 		expectError: true, why: "a path outside the local directory"})
+	w.call(call{tool: "upload_file", args: map[string]any{"local_path": "../../etc/hostname"},
+		expectError: true, why: "a relative path that climbs out of it"})
 	w.call(call{tool: "read_file", args: map[string]any{"file": w.scratchID},
 		expectError: true, why: "a folder has no text"})
+	w.expecting("read_file", m.blob, map[string]any{"file": m.blob},
+		"a binary file is not text, and the refusal names the two ways forward")
+	w.expecting("update_content", m.doc, map[string]any{"file": m.doc, "content": "no"},
+		"a Google Doc's content belongs to the Docs API")
+	w.expecting("update_content", m.text, map[string]any{
+		"file": m.text, "content": "no", "expect_head_revision": "a-revision-that-was-never-current",
+	}, "the file is not at the revision the caller expected")
+	w.expecting("copy_file", m.folder, map[string]any{"file": m.folder},
+		"Drive has no copy for a folder")
+	w.expecting("update_file", m.text, map[string]any{"file": m.text, "color": "#4986e7"},
+		"a colour belongs to a folder")
+	w.expecting("download_file", m.text, map[string]any{"file": m.text, "format": "docx"},
+		"format applies to a Google document, not to a file with bytes of its own")
+}
 
-	w.needing("trash_file", textID, map[string]any{"file": textID, "dry_run": true})
-	w.needing("trash_file", textID, map[string]any{"file": textID})
-	w.needing("restore_file", textID, map[string]any{"file": textID})
+// sharedDrive is the half of the shared-drive work that writes: moving a
+// file in and out, and the refusal that a My Drive folder cannot follow
+// it. It is opt-in (-drive) because it is the only part of this run that
+// touches anything outside the scratch folder.
+func (w *writeRun) sharedDrive(m made) {
+	if w.drive == "" {
+		fmt.Println("\n(pass -drive NAME to also exercise moving a file into a shared drive and back)")
+		return
+	}
+	if m.small == "" || m.folder == "" {
+		fmt.Println("\n=== shared drive: skipped, the files it needs were never created ===")
+		return
+	}
+	target := "drive:" + w.drive
+	w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target, "dry_run": true}})
+	w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target}})
+	// And back, so the run leaves nothing behind in the drive.
+	w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": w.scratchID}})
+	w.call(call{tool: "move_file", args: map[string]any{"file": m.folder, "to": target},
+		expectError: true, why: "a My Drive folder cannot move into a shared drive"})
+}
+
+// problem records something that went wrong outside a tool call.
+func (w *writeRun) problem(what string, err error) {
+	fmt.Printf("!! %s: %v\n", what, err)
+	w.failures++
 }
 
 // needing runs a call that depends on an id an earlier create produced,

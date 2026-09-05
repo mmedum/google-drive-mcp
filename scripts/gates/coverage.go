@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,13 +15,47 @@ import (
 // carries in a coverage profile.
 const modulePath = "github.com/mmedum/google-drive-mcp"
 
-// corePackages carry the rules worth testing, and each has to clear the
-// floor on its own: an average would let a well-tested renderer hide an
-// untested policy.
-var corePackages = []string{
-	"internal/config", "internal/credentials", "internal/auth", "internal/gapi",
-	"internal/ref", "internal/model", "internal/render", "internal/service",
-	"internal/tools", "internal/server",
+// exemptPackages are the packages under internal/ that carry no rules of
+// their own, and so no floor. Each has to earn its place here by name:
+// the list of what is measured is derived, so a package added in a later
+// phase is under the floor from the day it exists rather than from the
+// day someone remembers to add it.
+var exemptPackages = map[string]string{
+	// Wire types and a few accessors over them, exercised through every
+	// package that speaks to Drive.
+	"internal/gdrive": "types, no behaviour of its own",
+	// One constant and its formatting.
+	"internal/version": "a version string",
+	// The in-memory Drive the tests run against. It is test scaffolding:
+	// holding it to a floor would mean writing tests for the thing that
+	// exists to make tests possible.
+	"internal/gapi/drivetest": "test scaffolding",
+}
+
+// corePackages are the packages under internal/ that carry rules worth
+// testing, and each has to clear the floor on its own: an average would
+// let a well-tested renderer hide an untested policy.
+func corePackages() ([]string, error) {
+	// By module path rather than by "./internal/...", so the answer does
+	// not depend on which directory the gate was started from: its own
+	// test runs from scripts/gates.
+	out, err := exec.Command("go", "list", modulePath+"/internal/...").Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing the internal packages: %w", err)
+	}
+	var pkgs []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		pkg := strings.TrimPrefix(strings.TrimSpace(line), modulePath+"/")
+		if pkg == "" || pkg == line || exemptPackages[pkg] != "" {
+			continue
+		}
+		pkgs = append(pkgs, pkg)
+	}
+	if len(pkgs) == 0 {
+		return nil, fmt.Errorf("found no packages under internal/ to measure")
+	}
+	sort.Strings(pkgs)
+	return pkgs, nil
 }
 
 // block identifies one basic block in a coverage profile. The profile is
@@ -43,8 +78,12 @@ func coverage(out io.Writer, args []string) error {
 		return err
 	}
 
+	packages, err := corePackages()
+	if err != nil {
+		return err
+	}
 	var failed []string
-	for _, pkg := range corePackages {
+	for _, pkg := range packages {
 		prefix := modulePath + "/" + pkg + "/"
 		var total, covered int
 		for b, n := range statements {
