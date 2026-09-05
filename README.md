@@ -15,8 +15,11 @@ to any particular organisation or account.
 **Status: v0.2.0, phase 2 of the plan in
 [docs/architecture.md](docs/architecture.md).** The tools below work, and
 every one of them is verified against a real Google Workspace account as
-well as against the in-memory Drive the tests use. Comments, access
-requests and resources arrive in v0.3.0.
+well as against the in-memory Drive the tests use. Two paths are not:
+handing over ownership of a file, and a share an organisation's policy
+refuses — both need a second account or an administrator to exercise, and
+[docs/architecture.md](docs/architecture.md) §17a says what stands in for
+them. Comments, access requests and resources arrive in v0.3.0.
 
 ## What it does today
 
