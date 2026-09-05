@@ -49,8 +49,6 @@ func (s *Server) serveProposals(w http.ResponseWriter, r *http.Request, fileID, 
 		s.handleListProposals(w, fileID)
 	case strings.HasSuffix(rest, ":resolve") && r.Method == http.MethodPost:
 		s.handleResolveProposal(w, r, fileID, strings.TrimSuffix(rest, ":resolve"))
-	case r.Method == http.MethodGet:
-		s.handleGetProposal(w, fileID, rest)
 	default:
 		s.errorJSON(w, http.StatusNotFound, "notFound",
 			"the fake does not implement "+r.Method+" on an access proposal")
@@ -62,17 +60,6 @@ func (s *Server) handleListProposals(w http.ResponseWriter, fileID string) {
 	out := gdrive.AccessProposalList{AccessProposals: append([]*gdrive.AccessProposal{}, s.Proposals[fileID]...)}
 	s.mu.Unlock()
 	writeJSON(w, out)
-}
-
-func (s *Server) handleGetProposal(w http.ResponseWriter, fileID, proposalID string) {
-	s.mu.Lock()
-	p := s.proposalLocked(fileID, proposalID)
-	s.mu.Unlock()
-	if p == nil {
-		s.errorJSON(w, http.StatusNotFound, "notFound", "Access proposal not found: "+proposalID+".")
-		return
-	}
-	writeJSON(w, p)
 }
 
 // handleResolveProposal accepts or denies a request. Accepting grants
@@ -102,7 +89,6 @@ func (s *Server) handleResolveProposal(w http.ResponseWriter, r *http.Request, f
 		return
 	}
 	if body.Action == gdrive.ProposalAccept {
-		s.nextID++
 		s.grantLocked(fileID, &gdrive.Permission{
 			Type: "user", Role: body.Role[0], EmailAddress: p.RecipientEmailAddress,
 		})

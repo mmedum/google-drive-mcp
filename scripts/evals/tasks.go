@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
 )
 
 // task is one thing a person might ask for, and how to tell whether it
@@ -45,7 +47,7 @@ func (s *taskState) makeFile(key, name, content string) error {
 		return err
 	}
 	s.set(key, name)
-	s.set(key+"_id", idIn(card))
+	s.set(key+"_id", mcpstdio.IDIn(card))
 	return nil
 }
 
@@ -56,7 +58,7 @@ func (s *taskState) makeFolder(key, name string) error {
 		return err
 	}
 	s.set(key, name)
-	s.set(key+"_id", idIn(card))
+	s.set(key+"_id", mcpstdio.IDIn(card))
 	return nil
 }
 
@@ -96,7 +98,7 @@ func findingTasks() []task {
 					out = append(out, "never asked who can see it")
 				}
 				if !mentionsAny(run.Answer, "private", "only you", "nobody else", "just you") {
-					out = append(out, "the answer does not say the file is private: "+firstLine(run.Answer))
+					out = append(out, "the answer does not say the file is private: "+mcpstdio.FirstLine(run.Answer))
 				}
 				return out
 			},
@@ -114,7 +116,7 @@ func findingTasks() []task {
 			prompt: "What does the last line of \"server.log\" in the folder with id {folder} say?",
 			check: func(_ *taskState, run agentRun) []string {
 				if !strings.Contains(strings.ToUpper(run.Answer), "THE LAST LINE IS THIS ONE") {
-					return []string{"did not find the last line: " + firstLine(run.Answer)}
+					return []string{"did not find the last line: " + mcpstdio.FirstLine(run.Answer)}
 				}
 				return nil
 			},
@@ -128,7 +130,7 @@ func findingTasks() []task {
 					return []string{"never called list_changes"}
 				}
 				if !mentionsAny(run.Answer, "token", "since", "start") {
-					return []string{"the answer does not explain the token: " + firstLine(run.Answer)}
+					return []string{"the answer does not explain the token: " + mcpstdio.FirstLine(run.Answer)}
 				}
 				return nil
 			},
@@ -195,7 +197,7 @@ func organisingTasks() []task {
 					out = append(out, "starred one of two files with that name without saying there were two")
 				}
 				if starred == 0 && !mentionsAny(run.Answer, "two", "both", "which", "ambiguous", "more than one") {
-					out = append(out, "did nothing and did not say why: "+firstLine(run.Answer))
+					out = append(out, "did nothing and did not say why: "+mcpstdio.FirstLine(run.Answer))
 				}
 				return out
 			},
@@ -500,8 +502,9 @@ func nestedUnder(listing, parent, child string) bool {
 }
 
 func taskNames() []string {
-	out := make([]string, 0, len(tasks()))
-	for _, t := range tasks() {
+	all := tasks()
+	out := make([]string, 0, len(all))
+	for _, t := range all {
 		out = append(out, t.name)
 	}
 	return out

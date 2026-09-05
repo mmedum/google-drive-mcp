@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
@@ -22,7 +21,7 @@ import (
 // (targets_test.go) rather than left to a benchmark nobody runs.
 
 func BenchmarkGetFile(b *testing.B) {
-	svc, _ := benchSetup(b)
+	svc, _ := setup(b, service.Options{})
 	for b.Loop() {
 		if _, err := svc.GetFile(b.Context(), service.GetFileInput{File: "id-budget-fixture"}); err != nil {
 			b.Fatal(err)
@@ -35,7 +34,7 @@ func BenchmarkResolvePathCold(b *testing.B) {
 	// is what the first call of a session costs.
 	for b.Loop() {
 		b.StopTimer()
-		svc, _ := benchSetup(b)
+		svc, _ := setup(b, service.Options{})
 		b.StartTimer()
 		if _, err := svc.Resolve(b.Context(), "/Projects/2026/Budget.xlsx", service.ResolveOptions{}); err != nil {
 			b.Fatal(err)
@@ -44,7 +43,7 @@ func BenchmarkResolvePathCold(b *testing.B) {
 }
 
 func BenchmarkResolvePathWarm(b *testing.B) {
-	svc, _ := benchSetup(b)
+	svc, _ := setup(b, service.Options{})
 	if _, err := svc.Resolve(b.Context(), "/Projects/2026/Budget.xlsx", service.ResolveOptions{}); err != nil {
 		b.Fatal(err)
 	}
@@ -56,7 +55,7 @@ func BenchmarkResolvePathWarm(b *testing.B) {
 }
 
 func BenchmarkSearchPage(b *testing.B) {
-	svc, fake := benchSetup(b)
+	svc, fake := setup(b, service.Options{})
 	for i := range 100 {
 		fake.AddFile(fmt.Sprintf("id-bench-hit-%03d", i), fmt.Sprintf("Report %03d", i),
 			gdrive.MimeDocument, "id-2026-fixture")
@@ -69,7 +68,7 @@ func BenchmarkSearchPage(b *testing.B) {
 }
 
 func BenchmarkListFolderTree(b *testing.B) {
-	svc, fake := benchSetup(b)
+	svc, fake := setup(b, service.Options{})
 	benchTree(fake, "id-projects-fixture", 3, 8)
 	for b.Loop() {
 		if _, err := svc.ListFolder(b.Context(), service.ListFolderInput{
@@ -89,7 +88,7 @@ func BenchmarkListFolderTree(b *testing.B) {
 func BenchmarkDownloadStream(b *testing.B) {
 	const size = 256 << 20
 	dir := b.TempDir()
-	svc, fake := benchSetup(b, func(o *service.Options) { o.LocalDir = dir; o.MaxDownload = 2 * size })
+	svc, fake := setup(b, service.Options{LocalDir: dir, MaxDownload: 2 * size})
 	fake.AddFile("id-benchmark-blob-fixture", "big.bin", "application/octet-stream", "id-2026-fixture")
 	fake.AddGeneratedContent("id-benchmark-blob-fixture", size)
 	b.SetBytes(size)
@@ -167,21 +166,6 @@ func TestADownloadDoesNotHoldTheFile(t *testing.T) {
 	if info.Size() != size {
 		t.Errorf("wrote %d bytes, want %d", info.Size(), int64(size))
 	}
-}
-
-// benchSetup is setup for a benchmark: the same fake and the same
-// synthetic tree, with the clock fixed so nothing in the output depends
-// on when the run happened.
-func benchSetup(b *testing.B, overrides ...func(*service.Options)) (*service.Service, *drivetest.Server) {
-	b.Helper()
-	fake := drivetest.New()
-	b.Cleanup(fake.Close)
-	drivetest.SmallTree(fake)
-	o := service.Options{Now: func() time.Time { return testNow }}
-	for _, f := range overrides {
-		f(&o)
-	}
-	return service.New(drivetest.Client(b, fake), o), fake
 }
 
 // benchTree fills a folder with a synthetic tree: width children per

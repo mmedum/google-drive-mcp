@@ -149,13 +149,6 @@ func init() {
 	}
 }
 
-// Lookup returns the entry for a media type, ignoring any parameters on
-// it, and whether there was one.
-func Lookup(mime string) (Entry, bool) {
-	e, ok := byMime[gdrive.MimeOnly(mime)]
-	return e, ok
-}
-
 // Name is what the Drive interface calls this media type. Everything not
 // in the registry is described from the type itself rather than shown as
 // a media type, because "MP4 video" says more to a reader than
@@ -219,16 +212,6 @@ func GroupMimes(group string) []string {
 // "" for a filter that names its types.
 func GroupPrefix(group string) string {
 	return prefixGroups[strings.ToLower(strings.TrimSpace(group))]
-}
-
-// IsGroup reports whether a word names a kind filter.
-func IsGroup(group string) bool {
-	group = strings.ToLower(strings.TrimSpace(group))
-	if _, ok := prefixGroups[group]; ok {
-		return true
-	}
-	_, ok := groups[group]
-	return ok
 }
 
 // ExportName is the short name a media type goes by as an export format,

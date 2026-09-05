@@ -44,15 +44,19 @@ const (
 	ScopeSharedWithMe = "shared_with_me"
 )
 
-// kindClauseFor turns a kind filter into the Drive query clause that
-// selects it. The types come from internal/mediatype, so a kind is added
+// kindClause turns a kind filter into the Drive query clause that
+// selects it; the empty filter and "any" select everything. The types come from internal/mediatype, so a kind is added
 // there and every layer — the filter, the display name, the export
 // format — learns about it at once.
 //
 // Two shapes of filter: one that names its media types, and one Drive
 // matches by prefix because the list is open-ended. A group that somehow
 // had neither would silently match everything, so it is refused.
-func kindClauseFor(group string) (string, error) {
+func kindClause(kind string) (string, error) {
+	group := strings.ToLower(strings.TrimSpace(kind))
+	if group == "" || group == "any" {
+		return "", nil
+	}
 	if prefix := mediatype.GroupPrefix(group); prefix != "" {
 		return "mimeType contains " + quote(prefix), nil
 	}

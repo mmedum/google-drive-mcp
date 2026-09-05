@@ -11,14 +11,6 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/render"
 )
 
-// Comment page sizes. Drive coerces anything above its own ceiling; this
-// server refuses it instead, so a caller who asked for 500 learns that
-// they did not get 500.
-const (
-	DefaultCommentPageSize = 20
-	MaxCommentPageSize     = 100
-)
-
 // ListCommentsInput selects a file's threads.
 type ListCommentsInput struct {
 	File string
@@ -39,16 +31,18 @@ func (s *Service) ListComments(ctx context.Context, in ListCommentsInput) (strin
 		return "", err
 	}
 	f := res.File
-	if f.IsFolder() {
-		return "", Errorf(ClassInvalid, "%s is a folder, and Drive has no comments on a folder.", f.Name)
+	if err := noCommentsOnFolder(f); err != nil {
+		return "", err
 	}
 	size := in.PageSize
 	switch {
 	case size <= 0:
-		size = DefaultCommentPageSize
-	case size > MaxCommentPageSize:
+		size = gapi.DefaultCommentPageSize
+	case size > gapi.MaxCommentPageSize:
+		// Drive would coerce it; a caller who asked for 500 should learn
+		// that they did not get 500.
 		return "", Errorf(ClassInvalid, "page_size %d is above Drive's ceiling of %d for comments",
-			size, MaxCommentPageSize)
+			size, gapi.MaxCommentPageSize)
 	}
 	since := ""
 	if raw := strings.TrimSpace(in.Since); raw != "" {
@@ -81,7 +75,7 @@ func (s *Service) ListComments(ctx context.Context, in ListCommentsInput) (strin
 		Subject:         commentSubject(f, len(threads), open),
 		Location:        s.Location(ctx, f).String(),
 		Now:             s.now(),
-		CanComment:      f.Capabilities == nil || f.Capabilities.CanComment,
+		CanComment:      model.CanComment(f),
 		Workspace:       f.IsWorkspaceDoc(),
 		NextPageToken:   page.NextPageToken,
 		IncludedDeleted: in.IncludeDeleted,
@@ -220,27 +214,37 @@ func (s *Service) replyTo(ctx context.Context, res *Resolved, commentID, action,
 		return nil, Errorf(ClassInvalid, "content is required to reply. To close the thread without saying "+
 			"anything, use action resolve.")
 	}
-	before, err := s.api.GetComment(ctx, f.ID, commentID, false)
-	if err != nil {
-		return nil, s.commentError(err, f, commentID)
-	}
 	meta := &gdrive.ReplyMeta{Content: content}
-	switch action {
-	case CommentResolve:
-		if before.Resolved {
+	// The thread is read only by the two actions that need to know its
+	// state. A plain reply — the default, and the common one — has
+	// nothing to learn from it, and a round trip it does not need is a
+	// round trip on the tool whose whole job is one write.
+	if action == CommentResolve || action == CommentReopen {
+		before, err := s.api.GetComment(ctx, f.ID, commentID, false)
+		if err != nil {
+			return nil, s.commentError(err, f, commentID)
+		}
+		switch {
+		case action == CommentResolve && before.Resolved:
 			return s.report(ctx, res, outcome{Action: render.ActionUnchanged, Note: fmt.Sprintf(
 				"comment %s on %s is already resolved.", commentID, f.Name)}), nil
-		}
-		meta.Action = gdrive.ReplyActionResolve
-	case CommentReopen:
-		if !before.Resolved {
+		case action == CommentReopen && !before.Resolved:
 			return s.report(ctx, res, outcome{Action: render.ActionUnchanged, Note: fmt.Sprintf(
 				"comment %s on %s is already open.", commentID, f.Name)}), nil
+		case action == CommentResolve:
+			meta.Action = gdrive.ReplyActionResolve
+		default:
+			meta.Action = gdrive.ReplyActionReopen
 		}
-		meta.Action = gdrive.ReplyActionReopen
 	}
 	reply, err := s.api.CreateReply(ctx, f.ID, commentID, meta)
 	if err != nil {
+		if gapi.Class(err) == ClassNotFound {
+			// The read that used to happen first is what named the
+			// missing thread; now that a plain reply skips it, the create
+			// has to.
+			return nil, s.commentError(err, f, commentID)
+		}
 		return nil, s.commentWriteError(err, f, "replying to a comment on")
 	}
 	out := outcome{Action: render.ActionReplied, Note: fmt.Sprintf(
@@ -336,12 +340,23 @@ func (s *Service) DeleteComment(ctx context.Context, in DeleteCommentInput) (*Re
 // capabilities.canComment is Drive's own answer, and a reader on a file
 // shared read-only has it false.
 func (s *Service) commentable(f *gdrive.File) error {
-	if f.IsFolder() {
-		return Errorf(ClassInvalid, "%s is a folder, and Drive has no comments on a folder.", f.Name)
+	if err := noCommentsOnFolder(f); err != nil {
+		return err
 	}
-	if f.Capabilities != nil && !f.Capabilities.CanComment {
+	if !model.CanComment(f) {
 		return Errorf(ClassForbidden, "this account cannot comment on %s. Commenting needs at least the "+
 			"commenter role; get_file shows what this account may do with it.", f.Name)
+	}
+	return nil
+}
+
+// noCommentsOnFolder is the refusal a folder gets from every comment
+// tool. One sentence in one place: the goldens pin the wording, and two
+// copies of it three hundred lines apart is one copy waiting to be
+// edited alone.
+func noCommentsOnFolder(f *gdrive.File) error {
+	if f.IsFolder() {
+		return Errorf(ClassInvalid, "%s is a folder, and Drive has no comments on a folder.", f.Name)
 	}
 	return nil
 }

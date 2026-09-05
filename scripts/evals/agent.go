@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 )
@@ -138,7 +139,7 @@ func ask(ctx context.Context, o options, config, prompt string) (agentRun, error
 // rather than failed on, because the stream gains event types over time
 // and an eval harness that breaks on a new one is an eval harness nobody
 // runs.
-func parseStream(r interface{ Read([]byte) (int, error) }) (agentRun, error) {
+func parseStream(r io.Reader) (agentRun, error) {
 	var out agentRun
 	lines := bufio.NewScanner(r)
 	lines.Buffer(make([]byte, 0, 64*1024), 16<<20)

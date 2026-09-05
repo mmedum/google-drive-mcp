@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/mmedum/google-drive-mcp/internal/service"
 )
 
 // smokeTimeout bounds one session with the server.
@@ -56,7 +58,7 @@ func smoke(out io.Writer, args []string) error {
 				"name": "get_file", "arguments": map[string]any{"file": syntheticFileID},
 			}),
 			request(4, "resources/templates/list", nil),
-			request(5, "resources/read", map[string]any{"uri": "gdrive://" + syntheticFileID}),
+			request(5, "resources/read", map[string]any{"uri": service.Scheme + syntheticFileID}),
 		}
 		replies, err := drive(binary, env, frames, []int{1, 2, 3, 4, 5})
 		if err != nil {

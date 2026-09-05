@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mmedum/google-drive-mcp/internal/service"
 	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
 	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
 )
@@ -718,17 +719,7 @@ func (w *writeRun) call(c call) string {
 // and the calls that needed it say they were skipped rather than the run
 // stopping there. The id is read before redaction and never printed.
 func (w *writeRun) createAndKeepID(tool string, args map[string]any) string {
-	return idFromResult(w.call(call{tool: tool, args: args}))
-}
-
-// idFromResult reads the "id:" line of a file card.
-func idFromResult(out string) string {
-	for _, line := range strings.Split(out, "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "id: "); ok {
-			return strings.TrimSpace(rest)
-		}
-	}
-	return ""
+	return mcpstdio.IDIn(w.call(call{tool: tool, args: args}))
 }
 
 // writeFiller writes n bytes of compressible filler, which is enough to
@@ -756,22 +747,27 @@ func writeFiller(path string, n int) error {
 // method with a different failure shape, so a driver that only calls
 // tools would never have found out whether they work at all.
 func (w *writeRun) resources(m made) {
-	for _, r := range []struct{ uri, why string }{
-		{"gdrive://" + m.text, ""},
-		{"gdrive://" + m.text + "/meta", ""},
-		{"gdrive://" + w.scratchID + "/children", ""},
-		{"gdrive://" + w.scratchID, "a folder has no text of its own"},
-		{"gdrive://" + m.text + "/children", "a file is not a folder"},
-		{"gdrive://1SyntheticFixtureFileIdAAAAAAAAAAAA", "an id that names nothing"},
+	for _, r := range []struct{ id, suffix, why string }{
+		{m.text, "", ""},
+		{m.text, "meta", ""},
+		{w.scratchID, "children", ""},
+		{w.scratchID, "", "a folder has no text of its own"},
+		{m.text, "children", "a file is not a folder"},
+		{"1SyntheticFixtureFileIdAAAAAAAAAAAA", "", "an id that names nothing"},
 	} {
-		if strings.HasSuffix(r.uri, "gdrive://") || strings.Contains(r.uri, "gdrive:///") {
+		// The same guard every other call in this file gets from
+		// needing: an id an earlier create never produced is a skip that
+		// says so, not a silent one.
+		if r.id == "" {
+			fmt.Println("\n=== resource: skipped, the file it needs was never created ===")
 			continue
 		}
-		fmt.Printf("\n=== resource %s ===\n", w.red.Do(r.uri))
+		uri := service.ResourceURI(r.id, r.suffix)
+		fmt.Printf("\n=== resource %s ===\n", w.red.Do(uri))
 		if r.why != "" {
 			fmt.Printf("(expecting a refusal: %s)\n", r.why)
 		}
-		text, mime, err := w.sess.ReadResource(r.uri)
+		text, mime, err := w.sess.ReadResource(uri)
 		var refused *mcpstdio.RPCError
 		switch {
 		case errors.As(err, &refused):

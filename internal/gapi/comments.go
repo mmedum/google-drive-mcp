@@ -29,9 +29,17 @@ const ReplyFields = "id,createdTime,modifiedTime,author(displayName,me),content,
 const CommentFields = "id,createdTime,modifiedTime,author(displayName,me),content,deleted,resolved," +
 	"anchor,quotedFileContent,replies(" + ReplyFields + ")"
 
-// maxCommentPageSize is Drive's ceiling for comments.list and
-// replies.list. It coerces anything larger, and the fake refuses it.
-const maxCommentPageSize = 100
+// Drive's own page sizes for comments.list and replies.list: it returns
+// twenty when asked for none and coerces anything above a hundred. They
+// are exported because three layers need the same two numbers — this
+// client, the service that refuses an oversized request rather than
+// letting it be coerced, and the fake that has to agree with both — and
+// a Google-imposed number written down three times is three edits when
+// Google changes it.
+const (
+	DefaultCommentPageSize = 20
+	MaxCommentPageSize     = 100
+)
 
 // The comment endpoints are the one corner of this API that REQUIRES the
 // fields parameter: comments.list, get, create and update all answer 400
@@ -66,9 +74,9 @@ func (c *Client) ListComments(ctx context.Context, fileID string, o ListComments
 	size := o.PageSize
 	switch {
 	case size <= 0:
-		size = 20
-	case size > maxCommentPageSize:
-		size = maxCommentPageSize
+		size = DefaultCommentPageSize
+	case size > MaxCommentPageSize:
+		size = MaxCommentPageSize
 	}
 	v.Set("pageSize", strconv.Itoa(size))
 	v.Set("includeDeleted", boolText(o.IncludeDeleted))
@@ -79,7 +87,7 @@ func (c *Client) ListComments(ctx context.Context, fileID string, o ListComments
 		v.Set("startModifiedTime", o.StartModifiedTime)
 	}
 	u := c.base + "/files/" + segment + "/comments?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +107,7 @@ func (c *Client) GetComment(ctx context.Context, fileID, commentID string, inclu
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +130,7 @@ func (c *Client) CreateComment(ctx context.Context, fileID string, meta *gdrive.
 		return nil, err
 	}
 	u := c.base + "/files/" + segment + "/comments?fields=" + url.QueryEscape(CommentFields)
-	body, err := c.do(ctx, request{kind: kindWrite, method: http.MethodPost, url: u,
+	body, err := c.do(ctx, request{method: http.MethodPost, url: u,
 		body: payload, resourceIDs: []string{fileID}})
 	if err != nil {
 		return nil, err
@@ -140,7 +148,7 @@ func (c *Client) UpdateComment(ctx context.Context, fileID, commentID string, me
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.do(ctx, request{kind: kindWrite, method: http.MethodPatch, url: u,
+	body, err := c.do(ctx, request{method: http.MethodPatch, url: u,
 		body: payload, resourceIDs: []string{fileID}})
 	if err != nil {
 		return nil, err
@@ -156,7 +164,7 @@ func (c *Client) DeleteComment(ctx context.Context, fileID, commentID string) er
 	if err != nil {
 		return err
 	}
-	_, err = c.do(ctx, request{kind: kindWrite, method: http.MethodDelete, url: u,
+	_, err = c.do(ctx, request{method: http.MethodDelete, url: u,
 		resourceIDs: []string{fileID}})
 	return err
 }
@@ -173,7 +181,7 @@ func (c *Client) CreateReply(ctx context.Context, fileID, commentID string, meta
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.do(ctx, request{kind: kindWrite, method: http.MethodPost, url: u,
+	body, err := c.do(ctx, request{method: http.MethodPost, url: u,
 		body: payload, resourceIDs: []string{fileID}})
 	if err != nil {
 		return nil, err
@@ -191,7 +199,7 @@ func (c *Client) UpdateReply(ctx context.Context, fileID, commentID, replyID str
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.do(ctx, request{kind: kindWrite, method: http.MethodPatch, url: u,
+	body, err := c.do(ctx, request{method: http.MethodPatch, url: u,
 		body: payload, resourceIDs: []string{fileID}})
 	if err != nil {
 		return nil, err
@@ -205,7 +213,7 @@ func (c *Client) DeleteReply(ctx context.Context, fileID, commentID, replyID str
 	if err != nil {
 		return err
 	}
-	_, err = c.do(ctx, request{kind: kindWrite, method: http.MethodDelete, url: u,
+	_, err = c.do(ctx, request{method: http.MethodDelete, url: u,
 		resourceIDs: []string{fileID}})
 	return err
 }

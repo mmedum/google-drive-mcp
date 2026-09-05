@@ -328,3 +328,21 @@ func Ago(t, now time.Time) string {
 	}
 	return out
 }
+
+// CanShare reports whether this account may change who can see a file.
+//
+// Absent capabilities mean yes: Drive omits the field when it was not
+// asked for, and refusing on a field that was never requested would fail
+// a call Drive would have allowed. The polarity is written once here
+// because every sharing gate and every hint about one has to agree —
+// three call sites had it by hand, and a fourth was added by remembering
+// to.
+func CanShare(f *gdrive.File) bool {
+	return f == nil || f.Capabilities == nil || f.Capabilities.CanShare
+}
+
+// CanComment reports whether this account may comment on a file, on the
+// same reading of an absent capability.
+func CanComment(f *gdrive.File) bool {
+	return f == nil || f.Capabilities == nil || f.Capabilities.CanComment
+}

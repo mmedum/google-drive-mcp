@@ -150,12 +150,12 @@ func TestGroupsAreEitherAListOrAPrefix(t *testing.T) {
 		case len(mimes) > 0 && prefix != "":
 			t.Errorf("the kind %q is both a list and a prefix", group)
 		}
-		if !mediatype.IsGroup(group) {
-			t.Errorf("%q is listed as a kind and is not recognised as one", group)
-		}
 	}
-	if mediatype.IsGroup("not-a-kind") {
-		t.Error("a word that is not a kind was recognised as one")
+	// A word that names no kind matches nothing, which is what makes
+	// service.kindClause able to refuse it rather than search for
+	// everything.
+	if len(mediatype.GroupMimes("not-a-kind")) != 0 || mediatype.GroupPrefix("not-a-kind") != "" {
+		t.Error("a word that is not a kind matched something")
 	}
 	// The office filter is the one that names several types; the others
 	// name one or match a prefix.

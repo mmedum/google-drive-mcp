@@ -33,7 +33,7 @@ func (c *Client) ListAccessProposals(ctx context.Context, fileID string) ([]*gdr
 			v.Set("pageToken", pageToken)
 		}
 		u := c.base + "/files/" + segment + "/accessproposals?" + v.Encode()
-		body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u,
+		body, err := c.do(ctx, request{method: http.MethodGet, url: u,
 			resourceIDs: []string{fileID}})
 		if err != nil {
 			return nil, err
@@ -82,7 +82,7 @@ func (c *Client) ResolveAccessProposal(ctx context.Context, fileID, proposalID s
 	// one place this API departs from plain REST: ":resolve" below is a
 	// literal this client appends, never part of the id.
 	u := c.base + "/files/" + segment + "/accessproposals/" + url.PathEscape(proposalID) + ":resolve"
-	_, err = c.do(ctx, request{kind: kindSharing, method: http.MethodPost, url: u,
+	_, err = c.do(ctx, request{sharing: true, method: http.MethodPost, url: u,
 		body: payload, resourceIDs: []string{fileID}})
 	return err
 }

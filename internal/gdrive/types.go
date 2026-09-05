@@ -563,11 +563,11 @@ type CommentList struct {
 	NextPageToken string     `json:"nextPageToken,omitempty"`
 }
 
-// ReplyList is one page of replies.list.
-type ReplyList struct {
-	Replies       []*Reply `json:"replies"`
-	NextPageToken string   `json:"nextPageToken,omitempty"`
-}
+// There is no ReplyList here. replies.list exists in the API and this
+// server never calls it: Drive returns a comment's replies inline with
+// the comment, so a listing of threads already has them. A wire type
+// nothing decodes is a type that drifts from the API with nothing to
+// notice.
 
 // CommentMeta is the body of comments.create and comments.update. Only
 // the content is ever sent: resolved is output only — a reply resolves a
