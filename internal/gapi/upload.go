@@ -279,7 +279,12 @@ func (c *Client) startResumable(ctx context.Context, r UploadRequest, size int64
 	resp, err := c.doResponse(ctx, request{
 		kind: kindWrite, method: method, url: c.uploadURL(path, r.uploadParams("resumable")),
 		body: meta, contentType: "application/json; charset=UTF-8",
-		idempotent: carriesID(r.Meta),
+		// Opening a session allocates a URI, not a file: nothing exists
+		// until the chunks are committed, so a second attempt abandons
+		// the first session and creates nothing. Without this a 503 on
+		// the opening request would abort a whole large upload before a
+		// byte was sent.
+		idempotent: true,
 		header: http.Header{
 			"X-Upload-Content-Type":   {contentType},
 			"X-Upload-Content-Length": {strconv.FormatInt(size, 10)},

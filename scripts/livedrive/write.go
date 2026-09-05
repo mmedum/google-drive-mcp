@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -266,11 +267,34 @@ func (w *writeRun) sharedDrive(m made) {
 	}
 	target := "drive:" + w.drive
 	w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target, "dry_run": true}})
-	w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target}})
-	// And back, so the run leaves nothing behind in the drive.
-	w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": w.scratchID}})
+	if out := w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target}}); out != "" {
+		// The file is now outside the scratch folder, so trashing the
+		// scratch folder will not take it. Bringing it back is the only
+		// cleanup there is, and a failure here is the one thing this run
+		// can leave behind in somebody's shared drive: say so loudly,
+		// with the id, rather than counting it and moving on.
+		w.recover(m.small)
+	}
 	w.call(call{tool: "move_file", args: map[string]any{"file": m.folder, "to": target},
 		expectError: true, why: "a My Drive folder cannot move into a shared drive"})
+}
+
+// recover brings a file back out of the shared drive. It is the only
+// cleanup in this run that is not covered by trashing the scratch
+// folder, so it says exactly what to do if it fails.
+func (w *writeRun) recover(id string) {
+	back := w.call(call{tool: "move_file", args: map[string]any{"file": id, "to": w.scratchID}})
+	if strings.Contains(back, "moved:") {
+		return
+	}
+	// A second attempt: the usual reason is a rate limit, and this is
+	// worth one retry before asking a person to do it by hand.
+	if again := w.call(call{tool: "move_file", args: map[string]any{"file": id, "to": w.scratchID}}); strings.Contains(again, "moved:") {
+		return
+	}
+	w.problem("A FILE IS STILL IN THE SHARED DRIVE "+w.drive+
+		" and this run cannot get it back. Its id is in the result above; move or trash it by hand",
+		errors.New("the move back out failed twice"))
 }
 
 // problem records something that went wrong outside a tool call.

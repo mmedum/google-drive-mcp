@@ -405,3 +405,43 @@ func TestReadFilePastTheEndOfABlobSaysSo(t *testing.T) {
 		t.Errorf("a read past the end of a blob did not say so:\n%s", out)
 	}
 }
+
+func TestAFolderWithNoVisibleParentIsNotGivenOne(t *testing.T) {
+	// Three different things look alike on the wire, and Drive shows the
+	// third as "Orphaned". A listing of one must not report it at the
+	// root of My Drive, and the tree's header and its first line have to
+	// agree — they are two renderings of the same fact.
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-orphanage-fixture", "Orphan", gdrive.MimeFolder, "")
+	fake.AddFile("id-orphanchild-fixture", "kid.txt", "text/plain", "id-orphanage-fixture")
+
+	flat, err := svc.ListFolder(t.Context(), service.ListFolderInput{Folder: "id-orphanage-fixture"})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	tree, err := svc.ListFolder(t.Context(), service.ListFolderInput{
+		Folder: "id-orphanage-fixture", Recursive: true,
+	})
+	if err != nil {
+		t.Fatalf("ListFolder recursive: %v", err)
+	}
+	for name, out := range map[string]string{"listing": flat, "tree": tree} {
+		head, _, _ := strings.Cut(out, "\n")
+		if strings.HasPrefix(head, "My Drive/Orphan") {
+			t.Errorf("the %s puts an orphaned folder at the root of My Drive: %q", name, head)
+		}
+		if !strings.Contains(head, "…") {
+			t.Errorf("the %s does not say the folders above are unknown: %q", name, head)
+		}
+	}
+	// The tree's header and its root line describe the same folder.
+	lines := strings.SplitN(tree, "\n", 3)
+	if len(lines) < 2 {
+		t.Fatalf("tree:\n%s", tree)
+	}
+	header, _, _ := strings.Cut(lines[0], " — tree")
+	root, _, _ := strings.Cut(lines[1], "  [")
+	if header != strings.TrimSuffix(root, "/") {
+		t.Errorf("the tree is headed %q and starts at %q", header, root)
+	}
+}

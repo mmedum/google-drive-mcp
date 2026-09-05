@@ -432,3 +432,39 @@ func TestKindWithArticle(t *testing.T) {
 		}
 	}
 }
+
+func TestChildKeepsWhatIsUnknownUnknown(t *testing.T) {
+	// The three forms that are not paths must not become paths by having
+	// a name added to them: a folder inside an orphaned one has a folder,
+	// but what is above it is still nobody's guess.
+	cases := map[string]struct {
+		from Location
+		want string
+	}{
+		"an orphaned parent": {
+			Location{Drive: "My Drive", Orphaned: true}, "My Drive/…/Reports",
+		},
+		"a shared-with-me parent": {
+			Location{Drive: "My Drive", SharedWithMe: true}, "My Drive/…/Reports",
+		},
+		"a known path": {
+			Location{Drive: "My Drive", Folders: []string{"Projects"}}, "My Drive/Projects/Reports",
+		},
+		"a drive root": {
+			Location{Drive: "Marketing", SharedDrive: true}, "Marketing (shared drive)/Reports",
+		},
+	}
+	for name, c := range cases {
+		if got := c.from.Child("Reports").String(); got != c.want {
+			t.Errorf("%s: Child = %q, want %q", name, got, c.want)
+		}
+	}
+
+	// The parent is left alone: two siblings built from one location must
+	// not share a backing array.
+	parent := Location{Drive: "My Drive", Folders: []string{"Projects"}}
+	a, b := parent.Child("A"), parent.Child("B")
+	if len(parent.Folders) != 1 || a.Folders[1] != "A" || b.Folders[1] != "B" {
+		t.Errorf("Child aliased its parent: parent=%v a=%v b=%v", parent.Folders, a.Folders, b.Folders)
+	}
+}

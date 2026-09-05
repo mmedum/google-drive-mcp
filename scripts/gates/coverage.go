@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,6 +42,13 @@ func corePackages() ([]string, error) {
 	// test runs from scripts/gates.
 	out, err := exec.Command("go", "list", modulePath+"/internal/...").Output()
 	if err != nil {
+		// go list puts the compiler's message on stderr, which Output
+		// captures but does not print: without this the gate says
+		// "exit status 1" and hides the file that would not build.
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+			return nil, fmt.Errorf("listing the internal packages: %w\n%s", err, exit.Stderr)
+		}
 		return nil, fmt.Errorf("listing the internal packages: %w", err)
 	}
 	var pkgs []string

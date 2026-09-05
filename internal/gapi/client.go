@@ -346,8 +346,13 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 // a new rate-limit reason must not have to be added twice.
 func classify(status int, header http.Header, method, path string, body []byte) error {
 	apiErr := parseAPIError(status, method, path, body)
-	if status == 429 || status >= 500 || (status == 403 && isRateReason(apiErr.Reason)) {
-		return &transientError{err: apiErr, after: parseRetryAfter(header.Get("Retry-After"))}
+	rateLimited := status == 429 || (status == 403 && isRateReason(apiErr.Reason))
+	if rateLimited || status >= 500 {
+		return &transientError{
+			err:     apiErr,
+			after:   parseRetryAfter(header.Get("Retry-After")),
+			refused: rateLimited,
+		}
 	}
 	return apiErr
 }
@@ -359,10 +364,18 @@ type attemptResult struct {
 	elapsed time.Duration
 }
 
-// transientError carries a Retry-After hint alongside an APIError.
+// transientError carries a Retry-After hint alongside an APIError, and
+// says which kind of transient it is. The distinction decides whether a
+// write may be tried again: a 429 or one of Google's rate-limit reasons
+// is a refusal to begin the work, so nothing was applied and repeating
+// it is exactly as safe as repeating a read. A 5xx is the ambiguous one
+// — Google answered, but the answer does not say whether the file was
+// created before it failed.
 type transientError struct {
 	err   error
 	after time.Duration
+	// refused marks the answers that prove nothing happened.
+	refused bool
 }
 
 func (t *transientError) Error() string { return t.err.Error() }
@@ -459,7 +472,11 @@ func isRateReason(reason string) bool {
 func retryable(r request, err error) (bool, time.Duration) {
 	var te *transientError
 	if errors.As(err, &te) {
-		return r.repeatable(), te.after
+		// Being turned away is not the same as not knowing. A rate limit
+		// says the work was never begun, so backing off and asking again
+		// is safe whatever the request is; only the ambiguous answers
+		// need the request to be repeatable.
+		return te.refused || r.repeatable(), te.after
 	}
 	if errors.Is(err, ErrNetwork) {
 		return r.kind == kindRead, 0

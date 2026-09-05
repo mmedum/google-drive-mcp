@@ -454,3 +454,65 @@ func TestRepeatabilityDefaultsToTheSafeAnswer(t *testing.T) {
 		t.Error("a POST that says it is idempotent should be repeatable")
 	}
 }
+
+func TestARateLimitIsRetriedWhateverTheRequestIs(t *testing.T) {
+	t.Parallel()
+	// Being turned away is not the same as not knowing. A 429 says the
+	// work was never begun, so backing off and asking again is safe even
+	// for a create that could not carry a pre-generated id — the case
+	// the no-retry rule exists for. Treating the two alike made every
+	// Docs-format create fail on the first rate limit instead of waiting.
+	for _, c := range []struct {
+		name    string
+		failure drivetest.Failure
+		want    int
+	}{
+		{"a rate limit", drivetest.Failure{
+			Status: http.StatusTooManyRequests, Reason: "userRateLimitExceeded", Message: "slow down",
+		}, 2},
+		{"a server error", drivetest.Failure{
+			Status: http.StatusInternalServerError, Reason: "internalError", Message: "try again",
+		}, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := drivetest.New()
+			defer s.Close()
+			s.Fail = drivetest.FailTimes(1, "/files", c.failure)
+			client := drivetest.Client(t, s)
+
+			// A Docs Editors create: it cannot carry an id, so it is the
+			// request the repeatability rule refuses to repeat.
+			_, _ = client.CreateFile(t.Context(), &gdrive.FileMeta{
+				Name: "Plan", MimeType: gdrive.MimeDocument,
+			}, gapi.WriteOptions{})
+			if got := s.Count("POST"); got != c.want {
+				t.Errorf("%s: the create was attempted %d times, want %d", c.name, got, c.want)
+			}
+		})
+	}
+}
+
+func TestOpeningAResumableSessionIsRetried(t *testing.T) {
+	t.Parallel()
+	// A session is a URI, not a file: nothing exists until chunks are
+	// committed, so a failure opening one must not abort a large upload
+	// before a byte has been sent.
+	s := drivetest.New()
+	defer s.Close()
+	s.Fail = drivetest.FailTimes(1, "/upload/", drivetest.Failure{
+		Status: http.StatusServiceUnavailable, Reason: "backendError", Message: "try again",
+	})
+	c := drivetest.Client(t, s)
+
+	body := randomBytes(2 * gapi.ChunkAlignment)
+	// No pre-generated id, which is what a converted upload looks like.
+	f, err := c.UploadResumable(t.Context(), gapi.UploadRequest{
+		Meta: &gdrive.FileMeta{Name: "scan.pdf", MimeType: gdrive.MimeDocument, Parents: []string{s.RootID}},
+	}, bytes.NewReader(body), int64(len(body)), gapi.ResumableOptions{ChunkSize: gapi.ChunkAlignment})
+	if err != nil {
+		t.Fatalf("the upload gave up when the session could not be opened: %v", err)
+	}
+	if f.Name != "scan.pdf" {
+		t.Errorf("uploaded %q", f.Name)
+	}
+}
