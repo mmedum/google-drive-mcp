@@ -202,11 +202,13 @@ A release, once the phase's work is merged:
    ```
    sha256sum -c checksums.txt
    gh attestation verify google-drive-mcp_*.tar.gz --repo mmedum/google-drive-mcp
-   cosign verify-blob checksums.txt \
-     --certificate checksums.txt.pem --signature checksums.txt.sig \
+   cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
      --certificate-identity-regexp '^https://github.com/mmedum/google-drive-mcp' \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com
    ```
+
+   The signature and the certificate travel together in the bundle;
+   cosign 3 no longer writes them as separate files.
 
 Before the repository is made public, run `go run ./scripts/gates leaks
 history`. It walks every blob in every commit, not just the working
