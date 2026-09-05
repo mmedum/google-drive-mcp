@@ -84,81 +84,25 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- The coverage floor derives its own package list from `go list
-  ./internal/...` instead of a hand-written one, with three packages
-  exempt by name and reason. The hand-written list had silently omitted
-  `internal/userconfig` — the profile file recording the account, the
-  token location and the scopes — which had never been under the floor
-  since phase 0. Its untested paths now have tests.
-- `goreleaser-action` was pinned by commit SHA while the goreleaser
-  binary it installs was left to float across a major version. Pinned
-  beside the SHA, as `cosign` and `syft` already were.
-- A recursive listing was headed with the folder's parent rather than
-  the folder it shows, so a tree and a flat listing of the same folder
-  named different places. Both now build the location the same way.
-- `copy_file`, `create_file` and `upload_file` refuse a conversion Drive
-  will not perform, naming what the file can become instead. Drive's own
-  answer is "The requested conversion is not supported", which leaves a
-  model to guess which half of the pair was wrong — a csv becomes a
-  Sheet, not a Doc. The check reads the account's own importFormats and
-  fails open, so a table that cannot be read never refuses a legal call.
+Two of these were found on the first two live writes, and neither could
+have been caught here: the in-memory Drive the tests run against had been
+agreeing with the design rather than with Google.
 
-- Drive answers `teamDrivesFolderMoveInNotSupported` with a 403, which
-  the error mapping read as a plain refusal. Moving a My Drive folder
-  into a shared drive is now `[unsupported]` — a thing that cannot be
-  done — rather than `[forbidden]`, which would have sent a model
-  looking for permissions to change.
-- The host allowlist stripped the port before matching, so an access
-  token would have gone to `www.googleapis.com:8443`. It now refuses a
-  host carrying a port. Phase 1 is where this began to matter: fetching
-  a revision's export link means sending credentials to a URL that
-  arrived in a response body.
-- A file that grew between being measured and being read was uploaded
-  truncated, and reported as complete. It is now measured again and sent
-  from the beginning.
-- `read_file` refused a text file over 20 MB while advising the caller to
-  retry with `max_chars` and `offset` — which changed nothing, so a
-  model following the advice looped on the same refusal. The read is a
-  byte range and always was: a file's size no longer decides whether it
-  can be read, and the head of a 200 MB log is one small request, as the
-  description said all along.
-- A create no longer leaves a cached path answering for the wrong file.
-  Putting a second `notes.txt` beside the first makes that path
-  ambiguous, and the cached entry went on resolving to the older file —
-  the one thing the id-is-the-contract rule exists to prevent.
-- A resumable upload whose session answered `308` while storing nothing
-  — what a proxy that strips the `Range` header looks like — sent the
-  same chunk for as long as the deadline allowed. It now gives up after
-  eight rounds with no progress and says why.
-- `keep_previous_revision` pinned the outgoing revision *before* the
-  upload, so a failed upload left a revision kept forever that nothing
-  had replaced and nothing would unpin. The pin happens after the
-  content is replaced, and the result says so if it fails.
-- An upload's response no longer drops the resource keys it carried, so
-  a later call on a link-shared file still sends them.
-- Reading past the end of a text file said so; reading past the end of a
-  *blob* returned Google's bare `416`. Both now say the same thing.
 - **Creating a Google Doc, Sheet, Slides deck, Drawing or Form failed
   outright.** Drive refuses a pre-generated id for those formats
   ("Generated IDs are not supported for Docs Editors formats"), which
-  the design had assumed since phase 0 and no test could have caught: a
-  fake that accepts what Drive refuses agrees with the bug. Found on the
-  first live write. Ids are now sent only where Drive takes them, the
-  fake refuses one with Google's own sentence, and a test covers all
-  five formats.
+  the design had asserted since phase 0. Ids are now sent only where
+  Drive takes them, and a test covers all five formats.
 - **Creating a shortcut failed outright**, for the same reason one step
   further out: Drive refuses a pre-generated id for a shortcut too, with
-  a different message and a different status ("The provided file ID is
-  not usable"). The first fix had enumerated the formats known to
-  refuse; the rule now names the two that are known to accept — a folder,
-  and anything that is not one of Drive's own types — so a Google-native
-  type nobody has tried costs idempotency rather than the whole call.
-- A Google Doc, Sheet or Slides deck no longer reports a size. Drive
-  says one byte for a new empty document and one byte for a long one:
-  the field is metadata, not the size of anything that can be fetched,
-  and it sat next to the list of formats that can be.
-- A file's kind now reads with its article in every message that names
-  it: "Notes is a Google Doc", not "Notes is Google Doc".
+  a different message and status ("The provided file ID is not usable").
+  The first fix had enumerated the formats known to refuse; the rule now
+  names the two known to accept — a folder, and anything that is not one
+  of Drive's own types — so a Google-native type nobody has tried costs
+  idempotency rather than the whole call.
+- A file that grew between being measured and being read was uploaded
+  truncated, and reported as complete. It is measured again and sent
+  from the beginning.
 - A create that cannot carry a pre-generated id is no longer retried
   after a 5xx. A 500 proves Google answered, not that it did nothing, so
   repeating one of those creates could leave two files. Whether a
@@ -167,6 +111,75 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   not unless it carries an id that collapses the second attempt into the
   first — so a write added in a later phase and given no thought fails
   closed rather than inheriting permission to retry.
+- A create no longer leaves a cached path answering for the wrong file.
+  Putting a second `notes.txt` beside the first makes that path
+  ambiguous, and the cached entry went on resolving to the older file —
+  the one thing the id-is-the-contract rule exists to prevent.
+- A resumable upload whose session answered `308` while storing nothing
+  — what a proxy that strips the `Range` header looks like — sent the
+  same chunk for as long as the deadline allowed. It gives up after
+  eight rounds with no progress and says why.
+- `keep_previous_revision` pinned the outgoing revision *before* the
+  upload, so a failed upload left a revision kept forever that nothing
+  had replaced and nothing would unpin. The pin happens after the
+  content is replaced, and the result says so if it fails.
+- An upload's response no longer drops the resource keys it carried, so
+  a later call on a link-shared file still sends them.
+- The host allowlist stripped the port before matching, so an access
+  token would have gone to `www.googleapis.com:8443`. It refuses a host
+  carrying a port. Phase 1 is where this began to matter: fetching a
+  revision's export link means sending credentials to a URL that arrived
+  in a response body.
+
+Refusals that were wrong, or right but useless:
+
+- Drive answers `teamDrivesFolderMoveInNotSupported` with a 403, which
+  the error mapping read as a plain refusal. Moving a My Drive folder
+  into a shared drive is `[unsupported]` — a thing that cannot be done —
+  rather than `[forbidden]`, which would have sent a model looking for
+  permissions to change.
+- `read_file` refused a text file over 20 MB while advising the caller
+  to retry with `max_chars` and `offset` — which changed nothing, so a
+  model following the advice looped on the same refusal. The read is a
+  byte range and always was: a file's size no longer decides whether it
+  can be read.
+- `copy_file`, `create_file` and `upload_file` refuse a conversion Drive
+  will not perform, naming what the file can become instead. Drive's own
+  answer is "The requested conversion is not supported", which leaves a
+  model to guess which half of the pair was wrong — a csv becomes a
+  Sheet, not a Doc. The check reads the account's own `importFormats`
+  and fails open, so a table that cannot be read never refuses a legal
+  call.
+- Reading past the end of a text file said so; reading past the end of a
+  *blob* returned Google's bare `416`. Both now say the same thing.
+
+Output that misled:
+
+- A Google Doc, Sheet or Slides deck no longer reports a size. Drive
+  says one byte for a new empty document and one byte for a long one:
+  the field is metadata, not the size of anything that can be fetched,
+  and it sat next to the list of formats that can be.
+- A recursive listing was headed with the folder's parent rather than
+  the folder it shows, so a tree and a flat listing of the same folder
+  named different places. Both build the location the same way now.
+- A file's kind reads with its article in every message that names it:
+  "Notes is a Google Doc", not "Notes is Google Doc".
+
+The gates themselves:
+
+- The coverage floor derives its package list from the module rather
+  than a hand-written one, with three packages exempt by name and
+  reason. The hand-written list had silently omitted
+  `internal/userconfig` — the profile file recording the account, the
+  token location and the scopes — which had never been under the floor
+  since phase 0, because an omission from such a list looks exactly like
+  a package that does not exist. The gap it exposed is now tested.
+- `goreleaser-action` was pinned by commit SHA while the goreleaser
+  binary it installs floated across a major version. Pinned beside the
+  SHA, as `cosign` and `syft` already were after the v0.0.1 signing
+  failure taught the same lesson.
+- The stdio smoke test checks that read-only mode *removes* the write
+  tools, not only that it keeps the read ones.
 
 ## [0.0.1] - 2026-09-05
 
