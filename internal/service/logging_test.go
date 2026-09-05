@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +39,7 @@ const (
 	secretPerson   = "Bartholomew Quimby"
 	secretQuery    = "Kwyjibo"
 	secretContent  = "the numbers nobody outside this room has seen"
+	secretLocalOne = "Kwyjibo-restructuring-notes.txt"
 )
 
 func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
@@ -48,7 +51,7 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	fake.AddFile(secretFileID, secretFileName,
 		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", secretFolderID,
 		drivetest.Owner(secretPerson, secretEmail))
-	fake.Content[secretFileID] = secretContent
+	fake.SetContent(secretFileID, secretContent)
 	fake.AddDrive(secretDriveID, secretDrive)
 	fake.Grant(secretFileID, &gdrive.Permission{
 		Type: "user", Role: "writer", EmailAddress: secretEmail, DisplayName: secretPerson,
@@ -57,12 +60,18 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	// Debug is the loudest this server goes, so it is what has to be safe.
 	// Both loggers are captured: the client logs the request, the service
 	// logs the decision, and either could leak.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, secretLocalOne), []byte(secretContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	var log bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	api := drivetest.Client(t, fake, func(o *gapi.Options) { o.Logger = logger })
 	svc := service.New(api, service.Options{
-		Logger: logger,
-		Now:    func() time.Time { return testNow },
+		Logger:   logger,
+		LocalDir: dir,
+		Now:      func() time.Time { return testNow },
 	})
 
 	ctx := context.Background()
@@ -80,9 +89,31 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	_, _ = svc.Search(ctx, service.SearchInput{Owner: secretEmail, Name: secretQuery})
 	_, _ = svc.Resolve(ctx, secretFileID, service.ResolveOptions{FollowShortcut: true})
 
+	// The writes: content in and out, and everything that organises.
+	_, _ = svc.ReadFile(ctx, service.ReadFileInput{File: secretFileID})
+	_, _ = svc.DownloadFile(ctx, service.DownloadFileInput{File: secretFileID})
+	_, _ = svc.CreateFolder(ctx, service.CreateFolderInput{Name: secretFolder + " (archive)"})
+	_, _ = svc.CreateFile(ctx, service.CreateFileInput{Name: secretFileName, Content: secretContent})
+	_, _ = svc.UploadFile(ctx, service.UploadFileInput{LocalPath: secretLocalOne, Parent: secretFolderID})
+	_, _ = svc.UpdateContent(ctx, service.UpdateContentInput{File: secretFileID, Content: secretContent})
+	_, _ = svc.UpdateFile(ctx, service.UpdateFileInput{File: secretFileID, Name: secretFileName + " v2",
+		Properties: map[string]string{secretPerson: secretEmail}})
+	_, _ = svc.CopyFile(ctx, service.CopyFileInput{File: secretFileID, Name: secretFileName + " copy"})
+	_, _ = svc.CreateShortcut(ctx, service.CreateShortcutInput{Target: secretFileID, Name: secretFileName})
+	_, _ = svc.MoveFile(ctx, service.MoveFileInput{File: secretFileID, To: "root"})
+	_, _ = svc.TrashFile(ctx, service.TrashInput{File: secretFileID})
+	_, _ = svc.RestoreFile(ctx, service.TrashInput{File: secretFileID})
+
 	got := log.String()
 	if strings.TrimSpace(got) == "" {
 		t.Fatal("nothing was logged at debug level; this test would pass vacuously")
+	}
+	// The writes have to have reached the network, or this test proves
+	// only that calls which never happened logged nothing.
+	for _, method := range []string{"method=GET", "method=POST", "method=PATCH"} {
+		if !strings.Contains(got, method) {
+			t.Fatalf("no %s reached the log, so the write surface was not exercised:\n%s", method, got)
+		}
 	}
 
 	forbidden := map[string]string{
@@ -96,6 +127,8 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 		secretPerson:   "a person's name",
 		secretQuery:    "a search term",
 		secretContent:  "file content",
+		secretLocalOne: "a local file name",
+		dir:            "a local path",
 	}
 	for value, what := range forbidden {
 		if strings.Contains(got, value) {

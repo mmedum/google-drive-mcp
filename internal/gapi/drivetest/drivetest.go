@@ -67,8 +67,13 @@ type Server struct {
 	RootID string
 	// Files is every file, folder and shortcut by id.
 	Files map[string]*gdrive.File
-	// Content is the searchable body text of a file, for fullText.
+	// Content is a file's bytes: what alt=media returns, what an export
+	// converts, and what fullText searches.
 	Content map[string]string
+	// Revisions are a file's versions, oldest first.
+	Revisions map[string][]*gdrive.Revision
+	// RevisionContent is each revision's bytes.
+	RevisionContent map[string]string
 	// Permissions are the grants on a file or shared drive id.
 	Permissions map[string][]*gdrive.Permission
 	// Drives are the shared drives the account can see.
@@ -82,6 +87,19 @@ type Server struct {
 	// Requests records everything served, for assertions.
 	Requests []Recorded
 
+	// ChunkLimit, when set, makes a resumable upload store at most that
+	// many bytes per request, which is how Drive is allowed to behave and
+	// what forces the client to continue from mid-chunk.
+	ChunkLimit int64
+	// StallUploads makes every chunk answer 308 while storing nothing, as
+	// a proxy that strips the Range header looks to the client. Nothing
+	// in the protocol forbids it, and a client that trusts it to make
+	// progress sends the same chunk for ever.
+	StallUploads bool
+
+	// sessions are the resumable uploads in progress.
+	sessions map[string]*uploadSession
+
 	// nextID numbers generated ids.
 	nextID int
 	// now is the clock the fake stamps times with.
@@ -91,12 +109,15 @@ type Server struct {
 // New starts a fake Drive holding an empty My Drive.
 func New() *Server {
 	s := &Server{
-		RootID:      RootFolderID,
-		Files:       map[string]*gdrive.File{},
-		Content:     map[string]string{},
-		Permissions: map[string][]*gdrive.Permission{},
-		Drives:      map[string]*gdrive.Drive{},
-		now:         time.Now,
+		RootID:          RootFolderID,
+		Files:           map[string]*gdrive.File{},
+		Content:         map[string]string{},
+		Revisions:       map[string][]*gdrive.Revision{},
+		RevisionContent: map[string]string{},
+		Permissions:     map[string][]*gdrive.Permission{},
+		Drives:          map[string]*gdrive.Drive{},
+		sessions:        map[string]*uploadSession{},
+		now:             time.Now,
 	}
 	s.About = &gdrive.About{
 		User: &gdrive.User{DisplayName: AccountName, EmailAddress: AccountEmail, Me: true, PermissionID: "id-permission-self"},
@@ -205,6 +226,19 @@ func (s *Server) AddFile(id, name, mime, parent string, opts ...FileOpt) *gdrive
 	}
 	s.Files[id] = f
 	return f
+}
+
+// SetContent gives a file bytes: what a download returns, what an export
+// converts, and what a content search matches. It records the revision
+// those bytes created, as an upload does.
+func (s *Server) SetContent(id, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.Files[id]
+	if f == nil {
+		return
+	}
+	s.setContentLocked(f, []byte(text))
 }
 
 // AddShortcut adds a shortcut pointing at target.
@@ -341,7 +375,8 @@ func defaultCapabilities(mime string) *gdrive.Capabilities {
 	c := &gdrive.Capabilities{
 		CanEdit: true, CanComment: true, CanShare: true, CanCopy: true, CanDownload: true,
 		CanRename: true, CanTrash: true, CanUntrash: true, CanDelete: true,
-		CanModifyContent: true, CanReadRevisions: true, CanMoveItemWithinDrive: true,
+		CanModifyContent: true, CanReadRevisions: true,
+		CanMoveItemWithinDrive: true, CanMoveItemOutOfDrive: true,
 	}
 	if mime == gdrive.MimeFolder {
 		c.CanListChildren = true

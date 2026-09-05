@@ -4,11 +4,17 @@
 //
 // Every result is printed with ids, links and addresses replaced by
 // stable placeholders, so a transcript can go into an issue or a commit
-// message without leaking anything. Nothing here writes to Drive: this
-// phase registers only read tools.
+// message without leaking anything.
 //
 //	go run ./scripts/livedrive -bin ./google-drive-mcp
 //	go run ./scripts/livedrive -bin ./google-drive-mcp -file /Projects
+//
+// The read calls change nothing. -write adds the other half: it makes
+// one scratch folder, exercises every tool that changes Drive inside it,
+// and trashes it again. Nothing outside that folder is touched. Give
+// -parent to say where the scratch folder goes.
+//
+//	go run ./scripts/livedrive -bin ./google-drive-mcp -write -parent /Scratch
 //
 // -raw turns redaction off. Do not use it in a terminal you are sharing.
 package main
@@ -24,9 +30,11 @@ func main() {
 	binary := flag.String("bin", "./google-drive-mcp", "the server binary to drive")
 	file := flag.String("file", "", "a file or folder reference to exercise get_file and a recursive listing against")
 	raw := flag.Bool("raw", false, "print results without redaction (never in a shared terminal)")
+	write := flag.Bool("write", false, "also exercise every tool that changes Drive, in one scratch folder that is trashed afterwards")
+	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
 	flag.Parse()
 
-	if err := run(*binary, *file, *raw); err != nil {
+	if err := run(options{binary: *binary, file: *file, raw: *raw, write: *write, parent: *parent}); err != nil {
 		fmt.Fprintln(os.Stderr, "livedrive: "+err.Error())
 		os.Exit(1)
 	}
@@ -42,13 +50,31 @@ type call struct {
 	why         string
 }
 
-func run(binary, file string, raw bool) error {
-	redact := NewRedactor(raw)
-	session, err := start(binary)
+// options are what one run of the driver was asked to do.
+type options struct {
+	binary string
+	file   string
+	raw    bool
+	write  bool
+	parent string
+}
+
+func run(o options) error {
+	redact := NewRedactor(o.raw)
+	// The transfer tools need a local directory, and an MCP client passes
+	// one only through the environment.
+	dir, err := os.MkdirTemp("", "livedrive-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	session, err := start(o.binary, "GDRIVE_LOCAL_DIR="+dir)
 	if err != nil {
 		return err
 	}
 	defer session.close()
+	file := o.file
 
 	proto, tools, err := session.initialize()
 	if err != nil {
@@ -76,7 +102,7 @@ func run(binary, file string, raw bool) error {
 	}
 
 	unexpected := 0
-	for _, c := range calls {
+	for _, c := range calls { //nolint:dupl // the read loop and the write loop print differently on purpose
 		fmt.Printf("\n=== %s %s ===\n", c.tool, encode(c.args))
 		if c.why != "" {
 			fmt.Printf("(expecting a refusal: %s)\n", c.why)
@@ -98,6 +124,15 @@ func run(binary, file string, raw bool) error {
 
 	if file == "" {
 		fmt.Println("\n(pass -file REF to also exercise get_file and a recursive listing)")
+	}
+	if o.write {
+		failures, err := runWrites(session, redact, dir, o.parent)
+		unexpected += failures
+		if err != nil {
+			return err
+		}
+	} else {
+		fmt.Println("(pass -write to exercise the tools that change Drive, in a scratch folder)")
 	}
 	if logs := session.stderrTail(20); len(logs) > 0 {
 		fmt.Println("\n=== stderr ===")

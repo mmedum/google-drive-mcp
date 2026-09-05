@@ -80,8 +80,16 @@ func smoke(out io.Writer, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read-only mode: %w", err)
 	}
-	if _, ok := toolNames(replies[2])["get_file"]; !ok {
+	names := toolNames(replies[2])
+	if _, ok := names["get_file"]; !ok {
 		return fmt.Errorf("read-only mode dropped a read tool")
+	}
+	// The gate is really about the other direction: a mode that removes
+	// tools must actually remove them.
+	for _, write := range []string{"create_file", "upload_file", "trash_file", "move_file"} {
+		if _, ok := names[write]; ok {
+			return fmt.Errorf("read-only mode registered %s", write)
+		}
 	}
 
 	if err := checkAbruptDisconnect(binary, env); err != nil {

@@ -1,0 +1,17 @@
+updated: Budget.xlsx — Excel spreadsheet
+id: id-budget-fixture
+location: My Drive/Projects/2026
+link: https://drive.google.com/file/d/id-budget-fixture/view
+size: 4.0 KiB (md5 d41d8cd98f00b204e9800998ecf8427e)
+created: 2026-01-02 10:00Z (2 months ago)
+modified: 2026-03-04 09:00Z (2 days ago) by Other Person <other@example.com>
+owner: Test Person (you)
+sharing: shared with 2 people: 1 can edit, 1 can view; anyone with the link can view
+you can: edit, comment, share, download, rename, trash
+starred: yes
+description: the quarterly numbers
+properties: review=2026-Q1, team=finance
+changed:
+  name: Budget.xlsx → Budget 2026.xlsx
+  description: (empty) → the quarterly numbers
+note: the content is unchanged; update_content replaces that.

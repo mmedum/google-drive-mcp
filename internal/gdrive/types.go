@@ -10,6 +10,11 @@
 // and patches are built from explicit request structs.
 package gdrive
 
+import (
+	"strconv"
+	"strings"
+)
+
 // MIME types Drive gives its own kinds of file.
 const (
 	MimeFolder   = "application/vnd.google-apps.folder"
@@ -333,4 +338,89 @@ type About struct {
 type GeneratedIDs struct {
 	IDs   []string `json:"ids"`
 	Space string   `json:"space,omitempty"`
+}
+
+// FileMeta is the metadata body of files.create, files.update and
+// files.copy. It is a separate type from File because a patch means
+// "change exactly the fields present": every field Drive treats as
+// optional is a pointer, so that clearing a description (an empty
+// string) and leaving it alone (absent) are different requests. File
+// itself is a response type, where that distinction cannot be made.
+type FileMeta struct {
+	// ID is a pre-generated id from files.generateIds, which makes a
+	// create or a copy idempotent. Ignored by files.update.
+	ID       string   `json:"id,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	MimeType string   `json:"mimeType,omitempty"`
+	Parents  []string `json:"parents,omitempty"`
+
+	Description    *string `json:"description,omitempty"`
+	Starred        *bool   `json:"starred,omitempty"`
+	Trashed        *bool   `json:"trashed,omitempty"`
+	FolderColorRgb *string `json:"folderColorRgb,omitempty"`
+
+	WritersCanShare              *bool `json:"writersCanShare,omitempty"`
+	CopyRequiresWriterPermission *bool `json:"copyRequiresWriterPermission,omitempty"`
+
+	// Properties are public custom properties. A nil value deletes the
+	// key, which is what the reference means by "entries with null values
+	// are cleared in update and copy requests".
+	Properties map[string]*string `json:"properties,omitempty"`
+
+	// ShortcutDetails carries the target of a shortcut being created.
+	ShortcutDetails *ShortcutDetails `json:"shortcutDetails,omitempty"`
+}
+
+// Revision is one version of a file's content. Drive keeps blob
+// revisions for 30 days unless KeepForever pins them; Docs editors files
+// keep their own history and expose it through ExportLinks.
+type Revision struct {
+	ID                string            `json:"id,omitempty"`
+	MimeType          string            `json:"mimeType,omitempty"`
+	ModifiedTime      string            `json:"modifiedTime,omitempty"`
+	KeepForever       bool              `json:"keepForever,omitempty"`
+	Published         bool              `json:"published,omitempty"`
+	LastModifyingUser *User             `json:"lastModifyingUser,omitempty"`
+	OriginalFilename  string            `json:"originalFilename,omitempty"`
+	MD5Checksum       string            `json:"md5Checksum,omitempty"`
+	Size              string            `json:"size,omitempty"`
+	ExportLinks       map[string]string `json:"exportLinks,omitempty"`
+}
+
+// RevisionList is one page of revisions.list.
+type RevisionList struct {
+	Revisions     []*Revision `json:"revisions"`
+	NextPageToken string      `json:"nextPageToken,omitempty"`
+}
+
+// String returns a pointer to s, for the optional fields of FileMeta.
+func String(s string) *string { return &s }
+
+// Bool returns a pointer to b, for the optional fields of FileMeta.
+func Bool(b bool) *bool { return &b }
+
+// SizeBytes reads the byte count Drive sends as JSON text, and reports
+// whether the field was there at all. A folder, a shortcut and a
+// Google-native document have no size, and zero is a different answer
+// from "no size": every caller that renders one needs to tell them apart.
+func (f *File) SizeBytes() (int64, bool) {
+	if f == nil || f.Size == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(f.Size, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// MimeOnly drops the parameters from a media type, so that
+// "text/plain; charset=UTF-8" compares equal to "text/plain". It lives
+// here because every layer that reads a Content-Type needs it and this
+// package is the one they all already import.
+func MimeOnly(v string) string {
+	if i := strings.IndexByte(v, ';'); i >= 0 {
+		v = v[:i]
+	}
+	return strings.TrimSpace(v)
 }

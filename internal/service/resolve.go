@@ -180,12 +180,7 @@ func (s *Service) walk(ctx context.Context, rootID, rootName string, segments []
 }
 
 func (s *Service) child(ctx context.Context, parent, name, rootName string, walked []string, followShortcut bool) (string, error) {
-	key := parent + "\x00" + name
-	if followShortcut {
-		// The two answers differ for a shortcut, so they cannot share a
-		// cache entry.
-		key += "\x00through"
-	}
+	key := pathKey(parent, name, followShortcut)
 	s.mu.Lock()
 	id, ok := cacheGet(s.paths, key, s.now(), s.opts.PathTTL)
 	s.mu.Unlock()
@@ -301,6 +296,10 @@ func (s *Service) fetch(ctx context.Context, id string, o ResolveOptions) (*gdri
 	}
 	s.mu.Lock()
 	s.files[key] = cached[*gdrive.File]{value: f, at: s.now()}
+	// A full read carries every field a parent lookup wants, so it fills
+	// that entry too: without this, moving a file into a folder read it,
+	// and then the location walk read the same folder again.
+	s.files[parentKey(id)] = cached[*gdrive.File]{value: f, at: s.now()}
 	s.mu.Unlock()
 	return f, nil
 }
@@ -374,6 +373,11 @@ func (s *Service) climb(ctx context.Context, f *gdrive.File, root string, inShar
 		if seen[parent] || (inSharedDrive && parent == f.DriveID) {
 			break
 		}
+		if parent == root || parent == RootAlias {
+			// The root of My Drive is the head of the path already, and
+			// reading it would spend a call to learn its own id.
+			break
+		}
 		seen[parent] = true
 		p, ok := s.cachedParent(parent)
 		if !ok {
@@ -385,10 +389,6 @@ func (s *Service) climb(ctx context.Context, f *gdrive.File, root string, inShar
 				return reverse(names), true
 			}
 			*budget--
-		}
-		if p.ID == root || p.ID == RootAlias {
-			// The root of My Drive is the head of the path already.
-			break
 		}
 		names = append(names, p.Name)
 		parent = p.Parent()
@@ -453,6 +453,19 @@ func (s *Service) fetchParent(ctx context.Context, id string) (*gdrive.File, err
 // parentKey namespaces the cache entry for a parent read, which asks for
 // fewer fields than a full file read and must not be mistaken for one.
 func parentKey(id string) string { return "parent\x00" + id }
+
+// pathKey identifies one (folder, name) lookup. A shortcut resolves to
+// two different answers depending on whether the walk was passing
+// through it, so the two cannot share an entry. Every reader and every
+// writer of the path cache builds its key here: an eviction that spelled
+// the key differently would silently evict nothing.
+func pathKey(parent, name string, through bool) string {
+	key := parent + "\x00" + name
+	if through {
+		key += "\x00through"
+	}
+	return key
+}
 
 // drivesList returns the shared drives this account can see, cached.
 func (s *Service) drivesList(ctx context.Context) ([]*gdrive.Drive, error) {

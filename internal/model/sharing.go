@@ -299,3 +299,33 @@ func Can(c *gdrive.Capabilities) []string {
 	}
 	return out
 }
+
+// ChecksumState is what came of comparing a downloaded file with the
+// checksum Drive publishes for it.
+type ChecksumState int
+
+// The four outcomes of a checksum comparison. They are distinct because
+// "there was nothing to compare against" and "it matched" must never
+// read the same way: one is a guarantee and the other is its absence.
+const (
+	// ChecksumNotPublished means Drive holds no md5 for this file, which
+	// is the case for every Google-native document.
+	ChecksumNotPublished ChecksumState = iota
+	// ChecksumNotComparable means a checksum exists but is not this
+	// content's: an export, or an older revision.
+	ChecksumNotComparable
+	ChecksumMatch
+	ChecksumMismatch
+)
+
+// Checksum is the verdict on a downloaded file, as facts rather than as
+// a sentence: internal/render decides how to say it.
+type Checksum struct {
+	State ChecksumState
+	// Expected is what Drive published, Actual what the bytes on disk
+	// hash to. Both are empty unless the comparison happened.
+	Expected string
+	Actual   string
+	// Why explains a ChecksumNotComparable in the caller's terms.
+	Why string
+}

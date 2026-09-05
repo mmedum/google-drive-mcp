@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mmedum/google-drive-mcp/internal/config"
+	"github.com/mmedum/google-drive-mcp/internal/render"
 	"github.com/mmedum/google-drive-mcp/internal/service"
 )
 
@@ -30,7 +31,12 @@ func Register(s *mcp.Server, d Deps) []string {
 	if d.Logger == nil {
 		d.Logger = slog.New(slog.DiscardHandler)
 	}
-	return registerRead(s, d)
+	names := registerRead(s, d)
+	names = append(names, registerContent(s, d)...)
+	if !d.Config.ReadOnly {
+		names = append(names, registerWrite(s, d)...)
+	}
+	return names
 }
 
 // text wraps a string as the tool's unstructured content. Read tools
@@ -39,6 +45,16 @@ func Register(s *mcp.Server, d Deps) []string {
 // when both are present, so prose goes in the one form every client shows.
 func text(s string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
+}
+
+// result turns a write's outcome into the two forms a client may show:
+// the prose and the structured record. Both carry the same facts,
+// because a client shows one or the other and never both.
+func result(r *service.Result, err error) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	if err != nil {
+		return nil, nil, fail(err)
+	}
+	return text(r.Text), r.JSON, nil
 }
 
 // fail returns an error whose text is the LLM-facing "[class] message".
@@ -53,4 +69,9 @@ func fail(err error) error {
 
 var (
 	readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)}
+	// write adds something without removing anything.
+	write = &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}
+	// idempotentWrite sets a state rather than adding to one, so calling
+	// it twice with the same arguments leaves the same result.
+	idempotentWrite = &mcp.ToolAnnotations{IdempotentHint: true, OpenWorldHint: new(false)}
 )

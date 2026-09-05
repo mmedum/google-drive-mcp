@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 	"sync"
@@ -28,7 +29,25 @@ type API interface {
 	ListFiles(ctx context.Context, q gapi.ListQuery) (*gdrive.FileList, error)
 	ListPermissions(ctx context.Context, fileID string) ([]*gdrive.Permission, error)
 	ListDrives(ctx context.Context, o gapi.ListDrivesOptions) (*gdrive.DriveList, error)
+	GenerateIDs(ctx context.Context, count int) ([]string, error)
 	RememberResourceKey(id, key string)
+
+	// Content in and out.
+	Download(ctx context.Context, fileID string, o gapi.DownloadOptions) (*gapi.Content, error)
+	Export(ctx context.Context, fileID, mimeType string) (*gapi.Content, error)
+	DownloadURL(ctx context.Context, url string) (*gapi.Content, error)
+	UploadMultipart(ctx context.Context, r gapi.UploadRequest, content []byte) (*gdrive.File, error)
+	UploadResumable(ctx context.Context, r gapi.UploadRequest, content io.Reader, size int64, o gapi.ResumableOptions) (*gdrive.File, error)
+
+	// Organising.
+	CreateFile(ctx context.Context, meta *gdrive.FileMeta, o gapi.WriteOptions) (*gdrive.File, error)
+	UpdateFile(ctx context.Context, id string, meta *gdrive.FileMeta, o gapi.UpdateOptions) (*gdrive.File, error)
+	CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta, o gapi.WriteOptions) (*gdrive.File, error)
+
+	// History, as far as phase 1 needs it: pinning the revision an
+	// update is about to replace.
+	GetRevision(ctx context.Context, fileID, revisionID string) (*gdrive.Revision, error)
+	UpdateRevision(ctx context.Context, fileID, revisionID string, keepForever bool) (*gdrive.Revision, error)
 }
 
 // Options configure the service.
@@ -45,7 +64,13 @@ type Options struct {
 	PathTTL time.Duration
 	// FileTTL coalesces repeated reads of one file. Default 5s.
 	FileTTL time.Duration
-	Now     func() time.Time
+	// ExportTTL is how long one exported document is kept so that a model
+	// can page through it. It is longer than FileTTL because paging
+	// happens across turns, and it is safe to be: the cache key carries
+	// the revision and the modification time, so a document that changed
+	// misses the entry rather than serving a stale one. Default 5m.
+	ExportTTL time.Duration
+	Now       func() time.Time
 }
 
 // Service is the orchestrator for one authenticated account.
@@ -69,6 +94,14 @@ type Service struct {
 	// per file.
 	root      string
 	rootTried bool
+	// export holds the last document exported for a read. Drive takes no
+	// byte range on an export, so without this every window of a long
+	// document costs a full re-export: reading a 1 MB Doc a page at a
+	// time was 53 exports and 28 MB on the wire to deliver 1 MB. One
+	// entry is enough, because continuation is what makes the second
+	// call happen and continuation is sequential. Google caps an export
+	// at 10 MB, which bounds what it can hold.
+	export exported
 	// tools are the names the server registered, for get_account.
 	tools []string
 }
@@ -76,6 +109,14 @@ type Service struct {
 type cached[T any] struct {
 	value T
 	at    time.Time
+}
+
+// exported is one document's exported text, kept only long enough for a
+// model to page through it.
+type exported struct {
+	key  string
+	text string
+	at   time.Time
 }
 
 // New builds a service.
@@ -93,6 +134,9 @@ func New(api API, o Options) *Service {
 	}
 	if s.opts.FileTTL == 0 {
 		s.opts.FileTTL = 5 * time.Second
+	}
+	if s.opts.ExportTTL == 0 {
+		s.opts.ExportTTL = 5 * time.Minute
 	}
 	return s
 }

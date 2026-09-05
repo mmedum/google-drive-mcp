@@ -1,0 +1,275 @@
+package service_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mmedum/google-drive-mcp/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/internal/service"
+)
+
+func TestCreateFileMakesAnEmptyGoogleDoc(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+
+	got, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "Plan", Kind: "doc", Parent: "/Projects/2026",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	if got.JSON.File.Kind != "Google Doc" {
+		t.Errorf("created %q", got.JSON.File.Kind)
+	}
+	if !strings.Contains(got.Text, "created: Plan — Google Doc") {
+		t.Errorf("the text does not lead with what happened:\n%s", got.Text)
+	}
+	if got.JSON.Summary != got.Text {
+		t.Error("the structured result does not carry the text a client may not show")
+	}
+	f := fake.Files[got.JSON.File.ID]
+	if f == nil || f.Parent() != "id-2026-fixture" {
+		t.Errorf("the file landed at %v", f)
+	}
+}
+
+func TestCreateFileWritesInlineTextAndConverts(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+
+	got, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "notes.md", Content: "# Notes\n\nsomething\n", MimeType: "text/markdown",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	if fake.Content[got.JSON.File.ID] != "# Notes\n\nsomething\n" {
+		t.Errorf("stored %q", fake.Content[got.JSON.File.ID])
+	}
+
+	converted, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "Notes as a doc", Content: "# Notes\n", MimeType: "text/markdown", ConvertTo: "doc",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile converting: %v", err)
+	}
+	if converted.JSON.File.MimeType != gdrive.MimeDocument {
+		t.Errorf("converted to %q, want a Google Doc", converted.JSON.File.MimeType)
+	}
+}
+
+func TestCreateFileRefusesAmbiguousArguments(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	cases := map[string]service.CreateFileInput{
+		"neither kind nor content": {Name: "x"},
+		"both kind and content":    {Name: "x", Kind: "doc", Content: "hello"},
+		"no name":                  {Kind: "doc"},
+		"an unknown kind":          {Name: "x", Kind: "novel"},
+		"an unknown conversion":    {Name: "x", Content: "hello", ConvertTo: "novel"},
+	}
+	for name, in := range cases {
+		if _, err := svc.CreateFile(t.Context(), in); err == nil {
+			t.Errorf("create_file with %s succeeded", name)
+		}
+	}
+}
+
+func TestCreateRefusesADuplicateNameUnlessAsked(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+
+	_, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "Budget.xlsx", Kind: "sheet", Parent: "/Projects/2026",
+	})
+	if err == nil {
+		t.Fatal("a second Budget.xlsx was created beside the first")
+	}
+	if !strings.Contains(err.Error(), "[exists]") || !strings.Contains(err.Error(), "id-budget-fixture") {
+		t.Errorf("the refusal should name the file that is already there: %v", err)
+	}
+
+	if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "Budget.xlsx", Kind: "sheet", Parent: "/Projects/2026", AllowDuplicate: true,
+	}); err != nil {
+		t.Fatalf("allow_duplicate did not permit it: %v", err)
+	}
+}
+
+func TestCreateFileCarriesAPreGeneratedID(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{Name: "Plan", Kind: "doc"}); err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	if fake.Count("/files/generateIds") == 0 {
+		t.Error("the create did not ask for an id, so a retry could make a second file")
+	}
+}
+
+func TestUploadFileSendsALocalFile(t *testing.T) {
+	svc, fake, dir := withLocalDir(t, service.Options{})
+	if err := os.WriteFile(filepath.Join(dir, "rows.csv"), []byte("a,b\n1,2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.UploadFile(t.Context(), service.UploadFileInput{LocalPath: "rows.csv", Parent: "/Projects"})
+	if err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	if got.JSON.File.Name != "rows.csv" {
+		t.Errorf("uploaded as %q", got.JSON.File.Name)
+	}
+	if got.JSON.File.MimeType != "text/csv" {
+		t.Errorf("type = %q, want text/csv from the extension", got.JSON.File.MimeType)
+	}
+	if fake.Content[got.JSON.File.ID] != "a,b\n1,2\n" {
+		t.Errorf("stored %q", fake.Content[got.JSON.File.ID])
+	}
+}
+
+func TestUploadFileChunksALargeFile(t *testing.T) {
+	svc, fake, dir := withLocalDir(t, service.Options{})
+	body := strings.Repeat("x", gapi.MaxMultipartUpload+1024)
+	if err := os.WriteFile(filepath.Join(dir, "big.bin"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.UploadFile(t.Context(), service.UploadFileInput{LocalPath: "big.bin"})
+	if err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	if fake.Content[got.JSON.File.ID] != body {
+		t.Error("the uploaded bytes are not the bytes on disk")
+	}
+	if fake.Count("/sessions/") == 0 {
+		t.Error("a file above the multipart limit did not go through a resumable session")
+	}
+}
+
+func TestUploadFileRefusesAMissingFile(t *testing.T) {
+	svc, _, _ := withLocalDir(t, service.Options{})
+	_, err := svc.UploadFile(t.Context(), service.UploadFileInput{LocalPath: "nothing.txt"})
+	if err == nil || !strings.Contains(err.Error(), "[not_found]") {
+		t.Fatalf("err = %v, want not_found", err)
+	}
+}
+
+func TestUpdateContentReplacesBytesAndKeepsTheOldRevision(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-serverlog-fixture", "server.log", "text/plain", "id-2026-fixture")
+	fake.SetContent("id-serverlog-fixture", "old")
+	before := fake.Files["id-serverlog-fixture"].HeadRevisionID
+
+	got, err := svc.UpdateContent(t.Context(), service.UpdateContentInput{
+		File: "id-serverlog-fixture", Content: "new content", KeepPreviousRevision: true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateContent: %v", err)
+	}
+	if fake.Content["id-serverlog-fixture"] != "new content" {
+		t.Errorf("stored %q", fake.Content["id-serverlog-fixture"])
+	}
+	if !strings.Contains(got.Text, "replaced the content") {
+		t.Errorf("the result does not say what happened:\n%s", got.Text)
+	}
+	if !strings.Contains(got.Text, "pinned") {
+		t.Errorf("keep_previous_revision was not reported:\n%s", got.Text)
+	}
+	if !fake.Revisions["id-serverlog-fixture"][0].KeepForever {
+		t.Error("the previous revision was not pinned")
+	}
+	if fake.Files["id-serverlog-fixture"].HeadRevisionID == before {
+		t.Error("the head revision did not move")
+	}
+}
+
+func TestUpdateContentChecksTheRevisionItWasGiven(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-serverlog-fixture", "server.log", "text/plain", "id-2026-fixture")
+	fake.SetContent("id-serverlog-fixture", "old")
+
+	_, err := svc.UpdateContent(t.Context(), service.UpdateContentInput{
+		File: "id-serverlog-fixture", Content: "new", ExpectHeadRevision: "id-revision-that-moved-on",
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed since you read it") {
+		t.Fatalf("err = %v, want a refusal that the file moved on", err)
+	}
+	if fake.Content["id-serverlog-fixture"] != "old" {
+		t.Error("the content was replaced anyway")
+	}
+}
+
+func TestUpdateContentRefusesWhatHasNoBytes(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	cases := map[string]string{
+		"a Google Doc": "id-notes-fixture",
+		"a folder":     "id-2026-fixture",
+		"a shortcut":   "id-shortcut-fixture",
+	}
+	for what, ref := range cases {
+		_, err := svc.UpdateContent(t.Context(), service.UpdateContentInput{File: ref, Content: "x"})
+		if err == nil {
+			t.Errorf("update_content on %s succeeded", what)
+			continue
+		}
+		if what == "a Google Doc" && !strings.Contains(err.Error(), "Docs, Sheets or Slides API") {
+			t.Errorf("the refusal does not say where a Doc is edited: %v", err)
+		}
+	}
+}
+
+func TestWritesAreRefusedInReadOnlyMode(t *testing.T) {
+	svc, _ := setup(t, service.Options{ReadOnly: true})
+	if _, err := svc.CreateFolder(t.Context(), service.CreateFolderInput{Name: "Reports"}); err == nil ||
+		!strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("err = %v, want a read-only refusal", err)
+	}
+}
+
+func TestACreateMakesThePathItAmbiguatesAmbiguous(t *testing.T) {
+	// Hard rule 3: a path that matches two items is refused with the
+	// candidates. A cached (folder, name) entry from before the second
+	// file existed would go on answering with the first one's id, which
+	// is the failure the rule exists to prevent.
+	svc, _ := setup(t, service.Options{})
+	if _, err := svc.GetFile(t.Context(), service.GetFileInput{File: "/Projects/2026/Budget.xlsx"}); err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+
+	if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{
+		Name: "Budget.xlsx", Kind: "sheet", Parent: "/Projects/2026", AllowDuplicate: true,
+	}); err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+
+	_, err := svc.GetFile(t.Context(), service.GetFileInput{File: "/Projects/2026/Budget.xlsx"})
+	if err == nil {
+		t.Fatal("the path still resolved to one file after a second of that name was created")
+	}
+	if !strings.Contains(err.Error(), "[ambiguous]") {
+		t.Errorf("err = %v, want the ambiguous refusal with both candidates", err)
+	}
+}
+
+func TestUpdateContentPinsOnlyAfterTheContentIsReplaced(t *testing.T) {
+	// Pinning first left a revision kept forever behind a write that
+	// never happened, and nothing unpins it.
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-serverlog-fixture", "server.log", "text/plain", "id-2026-fixture")
+	fake.SetContent("id-serverlog-fixture", "old")
+	fake.Fail = drivetest.FailTimes(9, "/upload/", drivetest.Failure{
+		Status: 403, Reason: "insufficientFilePermissions", Message: "no",
+	})
+
+	if _, err := svc.UpdateContent(t.Context(), service.UpdateContentInput{
+		File: "id-serverlog-fixture", Content: "new", KeepPreviousRevision: true,
+	}); err == nil {
+		t.Fatal("the upload was refused but update_content reported success")
+	}
+	if fake.Revisions["id-serverlog-fixture"][0].KeepForever {
+		t.Error("a revision was pinned forever by a write that failed")
+	}
+	if fake.Content["id-serverlog-fixture"] != "old" {
+		t.Error("the content changed anyway")
+	}
+}

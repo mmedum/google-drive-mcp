@@ -443,7 +443,16 @@ func TestAllowsGoogleHosts(t *testing.T) {
 			t.Errorf("%s should be allowed", host)
 		}
 	}
-	for _, host := range []string{"https://evil.example.com/drive/v3", "http://www.googleapis.com/drive/v3"} {
+	for _, host := range []string{
+		"https://evil.example.com/drive/v3",
+		"http://www.googleapis.com/drive/v3",
+		// A lookalike that ends in a Google host rather than being one.
+		"https://www.googleapis.com.evil.example/drive/v3",
+		// An explicit port is refused rather than stripped: Google's
+		// endpoints do not use one, and this check is what decides
+		// whether an access token leaves the machine.
+		"https://www.googleapis.com:8443/drive/v3",
+	} {
 		c := gapi.New(gapi.NoCredentials{}, gapi.Options{BaseURL: host, Retry: gapi.RetryPolicy{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}})
 		_, err := c.GetFile(context.Background(), "id", gapi.GetFileOptions{})
 		if err == nil || !strings.Contains(err.Error(), "refusing to send credentials") {
