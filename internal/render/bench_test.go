@@ -63,22 +63,58 @@ func BenchmarkTree10000(b *testing.B) {
 	}
 }
 
-// TestATenThousandItemTreeRendersUnderFiftyMilliseconds is the target of
-// §11 in a form make check runs. It is a wide margin on purpose: a
-// shared runner is slower than a laptop, and the failure worth catching
-// is a renderer that became quadratic, not one that got ten per cent
-// slower.
-func TestATenThousandItemTreeRendersUnderFiftyMilliseconds(t *testing.T) {
-	root := benchTree(10000)
+// TestATenThousandItemTreeStaysLinear is the §11 target in a form make
+// check can run.
+//
+// It does not assert the 50 ms, because make check runs the tests under
+// the race detector and coverage counters, and 10 000 items take about
+// 4.7 ms uninstrumented and over 60 ms with both on. A wall-clock
+// ceiling there would be measuring the instrumentation. The failure
+// worth catching is a renderer that became quadratic, and that shows up
+// as a ratio however slow the machine is: ten times the items should
+// cost about ten times the work, and the allowance below is double that.
+//
+// The absolute number is in the benchmark, where nothing is instrumented.
+func TestATenThousandItemTreeStaysLinear(t *testing.T) {
+	small := time.Duration(0)
+	large := time.Duration(0)
+	// Three runs each, taking the fastest: a shared runner will stall one
+	// of them, and a flaky performance test is a test people delete.
+	for range 3 {
+		small = fastest(small, timeTree(t, 1000))
+		large = fastest(large, timeTree(t, 10000))
+	}
+	t.Logf("1 000 items in %s, 10 000 in %s", small, large)
+	if small <= 0 {
+		t.Fatal("the smaller tree took no measurable time, so the ratio below means nothing")
+	}
+	if ratio := float64(large) / float64(small); ratio > 20 {
+		t.Errorf("ten times the items cost %.1f times the work; the renderer is not linear any more", ratio)
+	}
+	// A backstop far above anything instrumentation explains, so a
+	// change that made every size equally slow is still caught.
+	if large > 500*time.Millisecond {
+		t.Errorf("rendering 10 000 items took %s", large)
+	}
+}
+
+func timeTree(t *testing.T, n int) time.Duration {
+	t.Helper()
+	root := benchTree(n)
 	start := time.Now()
 	out := Tree(root, TreeOptions{Title: "Everything — tree"})
 	took := time.Since(start)
-	if lines := strings.Count(out, "\n"); lines < 10000 {
-		t.Fatalf("the tree rendered %d lines, so it is not the tree this measured", lines)
+	if lines := strings.Count(out, "\n"); lines < n {
+		t.Fatalf("the tree rendered %d lines for %d items, so it is not the tree this measured", lines, n)
 	}
-	if took > 50*time.Millisecond {
-		t.Errorf("rendering 10 000 items took %s, over the 50ms target", took)
+	return took
+}
+
+func fastest(best, got time.Duration) time.Duration {
+	if best == 0 || got < best {
+		return got
 	}
+	return best
 }
 
 func BenchmarkFileCard(b *testing.B) {
