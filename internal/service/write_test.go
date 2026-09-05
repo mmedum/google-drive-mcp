@@ -301,3 +301,64 @@ func TestUpdateContentPinsOnlyAfterTheContentIsReplaced(t *testing.T) {
 		t.Error("the content changed anyway")
 	}
 }
+
+func TestGeneratedIDsGoOnlyWhereDriveTakesThem(t *testing.T) {
+	// Two refusals, live, with different messages: a Docs Editors format
+	// says "Generated IDs are not supported for Docs Editors formats" and
+	// a shortcut says "The provided file ID is not usable". Two
+	// acceptances: a folder and anything with bytes. Nothing states the
+	// rule, so this is the table of what was observed.
+	svc, fake := setup(t, service.Options{})
+
+	create := func(t *testing.T, run func() error) int {
+		t.Helper()
+		fake.Requested()
+		if err := run(); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		return fake.Count("/files/generateIds")
+	}
+
+	t.Run("a folder takes one", func(t *testing.T) {
+		if n := create(t, func() error {
+			_, err := svc.CreateFolder(t.Context(), service.CreateFolderInput{Name: "Reports"})
+			return err
+		}); n == 0 {
+			t.Error("a folder create asked for no id")
+		}
+	})
+	t.Run("a blob takes one", func(t *testing.T) {
+		if n := create(t, func() error {
+			_, err := svc.CreateFile(t.Context(), service.CreateFileInput{Name: "rows.csv", Content: "a,b\n"})
+			return err
+		}); n == 0 {
+			t.Error("a blob create asked for no id")
+		}
+	})
+	t.Run("a shortcut does not", func(t *testing.T) {
+		if n := create(t, func() error {
+			_, err := svc.CreateShortcut(t.Context(), service.CreateShortcutInput{
+				Target: "id-budget-fixture", Name: "Budget link",
+			})
+			return err
+		}); n != 0 {
+			t.Error("a shortcut create asked Drive for an id it will refuse")
+		}
+	})
+	t.Run("a Docs Editors format does not", func(t *testing.T) {
+		if n := create(t, func() error {
+			_, err := svc.CreateFile(t.Context(), service.CreateFileInput{Name: "Plan", Kind: "doc"})
+			return err
+		}); n != 0 {
+			t.Error("a Docs Editors create asked Drive for an id it will refuse")
+		}
+	})
+	t.Run("a copy of a Google document does not", func(t *testing.T) {
+		if n := create(t, func() error {
+			_, err := svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-notes-fixture"})
+			return err
+		}); n != 0 {
+			t.Error("copying a Google Doc asked for an id the copy cannot carry")
+		}
+	})
+}

@@ -127,6 +127,19 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   first live write. Ids are now sent only where Drive takes them, the
   fake refuses one with Google's own sentence, and a test covers all
   five formats.
+- **Creating a shortcut failed outright**, for the same reason one step
+  further out: Drive refuses a pre-generated id for a shortcut too, with
+  a different message and a different status ("The provided file ID is
+  not usable"). The first fix had enumerated the formats known to
+  refuse; the rule now names the two that are known to accept — a folder,
+  and anything that is not one of Drive's own types — so a Google-native
+  type nobody has tried costs idempotency rather than the whole call.
+- A Google Doc, Sheet or Slides deck no longer reports a size. Drive
+  says one byte for a new empty document and one byte for a long one:
+  the field is metadata, not the size of anything that can be fetched,
+  and it sat next to the list of formats that can be.
+- A file's kind now reads with its article in every message that names
+  it: "Notes is a Google Doc", not "Notes is Google Doc".
 - A create that cannot carry a pre-generated id is no longer retried
   after a 5xx. A 500 proves Google answered, not that it did nothing, so
   repeating one of those creates could leave two files. The retry rule

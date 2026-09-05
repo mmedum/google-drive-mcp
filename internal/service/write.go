@@ -286,7 +286,7 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 	case f.IsWorkspaceDoc():
 		return nil, Errorf(ClassUnsupported, "%s is %s. Its content is edited through the Docs, Sheets or "+
 			"Slides API, which this server does not offer. To replace it wholesale, upload a new file with "+
-			"convert_to and trash this one.", f.Name, model.Kind(f))
+			"convert_to and trash this one.", f.Name, model.KindWithArticle(f))
 	}
 	if in.ExpectHeadRevision != "" && f.HeadRevisionID != in.ExpectHeadRevision {
 		return nil, Errorf(ClassExists, "%s is at revision %s, not the %s you expected: it changed since you "+
@@ -411,7 +411,7 @@ func (s *Service) parentFolder(ctx context.Context, reference string) (*gdrive.F
 		return nil, err
 	}
 	if !res.File.IsFolder() {
-		return nil, Errorf(ClassInvalid, "%s is %s, not a folder", res.File.Name, model.Kind(res.File))
+		return nil, Errorf(ClassInvalid, "%s is %s, not a folder", res.File.Name, model.KindWithArticle(res.File))
 	}
 	return res.File, nil
 }

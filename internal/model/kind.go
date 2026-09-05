@@ -128,6 +128,15 @@ func Article(phrase string) string {
 	return "a"
 }
 
+// KindWithArticle names what a file is, ready to drop into a sentence:
+// "Notes is a Google Doc", not "Notes is Google Doc". Every message that
+// says what something is goes through it, because the article depends on
+// the kind and no caller should have to work that out.
+func KindWithArticle(f *gdrive.File) string {
+	kind := Kind(f)
+	return Article(kind) + " " + kind
+}
+
 // BoundaryNote says, for a Google-native document, where its content is
 // actually edited. This server stops at the file boundary, and a result
 // that reads a Doc without saying so invites an edit that cannot happen.

@@ -207,13 +207,13 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 	}
 	if f.IsWorkspaceDoc() {
 		return readPlan{}, Errorf(ClassUnsupported, "%s is %s, which has no text form. "+
-			"download_file writes it to disk.", f.Name, model.Kind(f))
+			"download_file writes it to disk.", f.Name, model.KindWithArticle(f))
 	}
 	if !model.IsTextLike(f.MimeType) {
 		return readPlan{}, Errorf(ClassUnsupported, "%s is %s, which is not text. Two ways forward: "+
 			"download_file writes it to disk, or copy_file with convert_to: doc asks Google to import it "+
 			"(which reads the text out of a PDF or an image) and then read_file works on the copy.",
-			f.Name, model.Kind(f))
+			f.Name, model.KindWithArticle(f))
 	}
 	return readPlan{formatName: "text"}, nil
 }
@@ -347,7 +347,7 @@ func (s *Service) openDownload(ctx context.Context, f *gdrive.File, in DownloadF
 	}
 	if in.Format != "" {
 		return nil, "", "", Errorf(ClassInvalid, "%s is %s, and format only applies to a Google Doc, "+
-			"Sheet, Slides deck or Drawing, which Drive converts as it exports them.", f.Name, model.Kind(f))
+			"Sheet, Slides deck or Drawing, which Drive converts as it exports them.", f.Name, model.KindWithArticle(f))
 	}
 	if n := sizeOf(f); n > 0 && s.opts.MaxDownload > 0 && n > s.opts.MaxDownload {
 		return nil, "", "", Errorf(ClassUnsupported, "%s is %s, and this server was started with a limit of %s "+
@@ -398,7 +398,7 @@ func (s *Service) exportFormat(f *gdrive.File, name string) (mime, ext string, e
 	}
 	if name == "" {
 		return "", "", Errorf(ClassUnsupported, "%s is %s, which Drive does not export. get_file lists "+
-			"the formats a file offers.", f.Name, model.Kind(f))
+			"the formats a file offers.", f.Name, model.KindWithArticle(f))
 	}
 	mime = gapi.ExportMime(name)
 	if mime == "" {

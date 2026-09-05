@@ -50,7 +50,7 @@ func (s *Service) ListFolder(ctx context.Context, in ListFolderInput) (string, e
 	}
 	if !res.File.IsFolder() {
 		return "", Errorf(ClassInvalid, "%s is %s, not a folder. get_file describes it.",
-			res.File.Name, model.Kind(res.File))
+			res.File.Name, model.KindWithArticle(res.File))
 	}
 	kindClause, err := kindClause(in.Kind)
 	if err != nil {

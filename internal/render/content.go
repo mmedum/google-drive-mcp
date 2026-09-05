@@ -68,7 +68,7 @@ func showing(o FileTextOptions) string {
 	end := o.Offset + o.Bytes
 	switch {
 	case o.Bytes == 0 && o.Offset == 0:
-		return format + ", and the file is empty"
+		return format + " — the file is empty"
 	case o.Bytes == 0:
 		return fmt.Sprintf("%s, nothing at offset %d: the file ends before it", format, o.Offset)
 	case !o.More && o.Offset == 0:

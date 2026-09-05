@@ -172,7 +172,7 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput) (query, descr
 			return "", "", err
 		}
 		if !res.File.IsFolder() {
-			return "", "", Errorf(ClassInvalid, "in_folder must name a folder; %q is %s", folder, model.Kind(res.File))
+			return "", "", Errorf(ClassInvalid, "in_folder must name a folder; %q is %s", folder, model.KindWithArticle(res.File))
 		}
 		clauses = append(clauses, quote(res.File.ID)+" in parents")
 		described = append(described, "directly inside "+res.File.Name)

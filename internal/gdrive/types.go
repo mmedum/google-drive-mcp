@@ -196,10 +196,22 @@ func (f *File) IsFolder() bool { return f != nil && f.MimeType == MimeFolder }
 // IsShortcut reports whether the file is a shortcut to another item.
 func (f *File) IsShortcut() bool { return f != nil && f.MimeType == MimeShortcut }
 
+// googleMimePrefix marks the types Drive owns rather than stores: they
+// have no bytes of their own, and several of the API's rules apply to
+// them and to nothing else.
+const googleMimePrefix = "application/vnd.google-apps."
+
+// IsGoogleMime reports whether a media type is one of Drive's own.
+func IsGoogleMime(mime string) bool {
+	return strings.HasPrefix(strings.TrimSpace(mime), googleMimePrefix)
+}
+
 // IsWorkspaceDoc reports whether the file is a Google-native document
-// whose bytes exist only through export.
+// whose bytes exist only through export. A folder and a shortcut are
+// Google types too, but neither is a document.
 func (f *File) IsWorkspaceDoc() bool {
-	return f != nil && len(f.MimeType) > 28 && f.MimeType[:28] == "application/vnd.google-apps."
+	return f != nil && IsGoogleMime(f.MimeType) &&
+		f.MimeType != MimeFolder && f.MimeType != MimeShortcut
 }
 
 // Parent returns the file's single parent, or "" when it has none. Drive
