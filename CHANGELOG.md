@@ -6,6 +6,16 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-05
+
+Access, shared drives and history — and the run that found what the tests
+could not. Twelve new tools, four of them registered only when the
+deployer asks and each needing `confirm: true` on the call as well.
+Verified against a real Google Workspace account over three runs: the
+first two reported "all calls behaved as expected" while three results
+were wrong, because a call succeeding and a call telling the truth are
+different questions.
+
 ### Added
 
 - `list_permissions`: who can see a file or a shared drive, with each

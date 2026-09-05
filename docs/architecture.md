@@ -1,6 +1,6 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 2 verified live (2026-09-05), not yet released. Twenty-four registered tools: phase 1's sixteen plus
+**Status:** phase 2 complete (2026-09-05), released as v0.2.0. Twenty-four registered tools: phase 1's sixteen plus
 `list_permissions`, `share_file`, `unshare_file`, `list_drives`,
 `manage_drive`, `list_revisions`, `manage_revision` and `list_changes`,
 with four more — `delete_file`, `empty_trash`, `delete_drive`,
@@ -20,11 +20,14 @@ the folder-move refusal), and every refusal. The first two runs reported
 driver checks whether a call succeeded, not whether it told the truth —
 which is the finding worth carrying into phase 3 (§18).
 
-**What phase 2 still owes:** spike F (ownership transfer), which needs a
-second account to transfer to, and one share that an organisation's
-policy blocks, which needs an administrator to arrange. Both are
-recorded in §17a rather than holding the release. Then the release
-itself.
+**What phase 2 does not have:** spike F (ownership transfer), which needs
+a second Google account nobody here has, and one share that an
+organisation's policy blocks, which needs an administrator to arrange.
+Both are recorded in §17a with what stands in for them. Neither holds
+the release: the paths are exercised against the fake, their parameters
+come from the reference rather than from memory, and nothing shipped
+asserts what either would do — a pending transfer is read off Drive's
+own field, never predicted.
 
 Checking the Drive v3 discovery document before writing the client
 corrected four things this document and the code had from memory; a
@@ -935,8 +938,7 @@ file into a shared drive and back out, and the folder-move refusal. That
 part says loudly if the move back fails, because it is the only thing
 trashing the scratch folder cannot clean up.
 
-**Phase 2 — access, shared drives, history (v0.2.0). Verified live
-2026-09-05; release outstanding.** `list_permissions`,
+**Phase 2 — access, shared drives, history (v0.2.0). Done 2026-09-05.** `list_permissions`,
 `share_file`, `unshare_file` with the policy; `list_drives`,
 `manage_drive`; `list_revisions`, `manage_revision`, `list_changes`;
 gated `delete_file`, `empty_trash`, `delete_drive`, `delete_revision`.
@@ -961,9 +963,9 @@ consistent and the driver asked once.
 What was NOT verified live, and is deferred rather than holding the
 release (§17a):
 
-- **Spike F** (ownership transfer). It needs a second account to
-  transfer to, and the transfer cannot be undone from this side, so it
-  is not something to run against a colleague to satisfy a checklist.
+- **Spike F** (ownership transfer). Blocked: it needs a second Google
+  account, and there is not one to hand. It cannot be undone from this
+  side either, so a colleague's account is not a substitute.
 - **A share the organisation's policy blocks**, so the `[blocked]`
   mapping in §7.4 is built from a real response rather than an injected
   one. It needs an administrator to put an external address out of
@@ -1051,17 +1053,26 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   `pendingOwner` case and the forced notification, but no fake can prove
   Drive agrees. It runs with the live driver against a scratch folder,
   and needs a second account to transfer to.
-- **Spike F (ownership transfer) is unrun, and deliberately so.** The
-  code exists and behaves against `drivetest`, including the forced
-  notification and the `pendingOwner` case. Running it live needs a
-  second account, and it cannot be undone from this side: the file lands
-  in somebody else's Drive and only they can remove it. That is not
-  something to do to a colleague to close a checklist. The live driver
-  has `-share`, which does it on a file created for the purpose and says
-  loudly what it has done. Until it runs, `share_file`'s note describes
-  only the consequence that is certain — this account becomes a writer —
-  and reads a pending transfer off Drive's answer rather than asserting
-  one.
+- **Spike F (ownership transfer) is unrun, and blocked rather than
+  postponed.** It needs a second Google account to transfer to, and the
+  maintainer has none. The transfer cannot be undone from this side —
+  the file lands in the other person's Drive and only they can remove
+  it — so running it against a colleague to close a checklist is not an
+  option either.
+
+  What stands in for it: the path behaves against `drivetest`, including
+  the forced notification and the `pendingOwner` case; the parameters
+  come from the discovery document rather than from memory (§18); and
+  nothing shipped asserts what a transfer does. `share_file`'s note
+  states only the consequence the reference makes certain — this account
+  becomes a writer — and every mention of a pending transfer is read off
+  Drive's own `pendingOwner` field rather than predicted. So the code is
+  as honest as an unverified path can be, and the first person to run it
+  will be told what actually happened rather than what was expected.
+
+  When an account is available: `livedrive -write -share ADDRESS` makes
+  a file for the purpose, records its owner, transfers, reads it back and
+  compares. It reports three outcomes, two of which are failures.
 - **A policy-blocked share is unseen live.** The `[blocked]` mapping is
   built from Google's documented reasons and exercised against an
   injected refusal, not a real one. It needs an administrator to put an
