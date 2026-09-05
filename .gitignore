@@ -11,3 +11,9 @@ schemas.json
 client_secret*.json
 token.json
 .env
+# The editor writes its settings and its temporary copies of them into
+# the working tree while a session runs, so a wildcard `git add` takes
+# whatever exists at that instant. A tool that writes here needs its rule
+# before the first wildcard add, not after the first one is committed.
+.claude/settings.local.json
+.claude/settings.local.json.tmp.*
