@@ -940,6 +940,19 @@ here so they are not reopened.
 5. **Go directive.** `go 1.27.1`, the current point release.
    `GOTOOLCHAIN=auto` fetches it where an older 1.27 is installed.
 
+## 17b. Deviations from the shared Go MCP server standard
+
+The standard the sibling Go MCP servers run on was adopted here on
+2026-09-05. Almost all of it was already true or has been made true;
+what follows is where this repository deliberately differs, so that a
+difference is a decision rather than a drift.
+
+| The standard says | Here | Why |
+|---|---|---|
+| A test fails if **an id** appears in a log | Full ids never appear; a **six-character prefix** does, at debug level | A retry, its backoff and its outcome are separate log lines, and without a correlation key a failure cannot be traced to the call that caused it. Six characters of a 33-character id cannot be looked up, cannot be pasted into a URL, and identify nothing on their own. Everything else the standard names — names, titles, addresses, queries, content, and whole ids — is absent and stays absent: `TestLogsCarryNoTraceOfWhatWasTouched` runs the whole surface at debug level against unmistakable fixtures and fails on any of them |
+| The staleness gate **deliberately fails** between the release commit and the tag | It passes, by accepting notes under an untagged version heading | Our release flow (§12) puts the release commit on a topic branch and requires CI green *before* the merge and therefore before the tag exists. A gate that fails there fails the release pull request. The gate still refuses an undocumented change: with the notes removed it fails, which is tested |
+| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Thirteen classes, including `ambiguous`, `blocked`, `rate_limited` and `ambiguous_outcome` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organisation's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next |
+
 ## 17a. Deferred cleanups
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.

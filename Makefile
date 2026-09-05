@@ -6,6 +6,11 @@ VERSION  ?= dev
 PKG       = github.com/mmedum/google-drive-mcp
 LDFLAGS   = -s -w -X $(PKG)/internal/version.Version=$(VERSION)
 COVER_MIN ?= 80
+# Tool versions are pinned: @latest means today's green build cannot be
+# reproduced tomorrow. CI installs exactly these.
+GOLANGCI_VERSION    ?= v2.13.2
+GOVULNCHECK_VERSION ?= v1.7.0
+GO_LICENSES_VERSION ?= v1.6.0
 GOBIN    := $(shell $(GO) env GOPATH)/bin
 # Prefer tools installed with the current Go (go install ...@latest) over distro packages.
 export PATH := $(GOBIN):$(PATH)
@@ -31,8 +36,8 @@ vet: ## go vet, including the integration-tagged tests so they keep compiling
 	$(GO) vet -tags=integration ./...
 
 .PHONY: lint
-lint:
-	golangci-lint run
+lint: ## golangci-lint, at the version CI pins
+	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run
 
 .PHONY: test
 test: ## Unit tests with race detector and coverage
@@ -55,12 +60,12 @@ bench: ## Benchmarks over the in-memory Drive
 	$(GO) test -run XXX -bench . -benchmem ./internal/ref ./internal/render ./internal/service
 
 .PHONY: vuln
-vuln:
-	govulncheck ./...
+vuln: ## Known vulnerabilities in anything we actually call
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 .PHONY: licenses
-licenses:
-	go-licenses check ./... --allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC
+licenses: ## Dependencies must carry a licence we can redistribute under
+	$(GO) run github.com/google/go-licenses@$(GO_LICENSES_VERSION) check ./... 		--allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC
 
 .PHONY: schemas
 schemas: build ## Dump tool schemas
@@ -83,7 +88,7 @@ staleness: build ## Docs must match the code
 	$(GO) run ./scripts/gates staleness $(BIN)
 
 .PHONY: check
-check: fmt vet lint cover vuln leaks smoke staleness ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks smoke staleness ## Everything CI runs
 
 .PHONY: clean
 clean:

@@ -139,6 +139,17 @@ Dependency direction runs one way: `tools` → `service` → `gapi` →
 `gdrive`. Nothing under `internal/gapi` imports MCP, and nothing imports
 `google.golang.org/api`.
 
+## Branch protection
+
+`main` should carry a ruleset that requires a pull request, requires the
+CI checks, and forbids force-push and deletion. Zero required approvals
+is right for a solo maintainer: the CI gate is the point, not a second
+pair of eyes that does not exist.
+
+**Do not add a required status check before the workflow producing it is
+on `main`.** A check that has never run blocks every pull request opened
+before it existed, including the one that would introduce it.
+
 ## Branches, pull requests and releases
 
 `main` is released code and is never pushed to directly, release commits
@@ -152,8 +163,9 @@ A release, once the phase's work is merged:
 2. Update the status line and the phase table in `docs/architecture.md`,
    and add what was verified live to its evidence log.
 3. Commit as `Release N.N.N`, open a pull request, wait for CI, merge.
-4. Push the tag **on its own**, and only one at a time — GitHub drops tag
-   events past the third in a single push:
+4. Push the tag **on its own**, and only one at a time. GitHub drops tag
+   events past the third in a single push, and the release then silently
+   never runs:
 
    ```
    git switch main && git pull
@@ -166,6 +178,22 @@ A release, once the phase's work is merged:
    SBOM per archive and a build provenance attestation, and publishes.
    `workflow_dispatch` re-runs it against a tag if it fails for a reason
    unrelated to the code.
+6. **Verify the release from outside**, as somebody downloading it would.
+   A release that only the workflow believes in is not evidence:
+
+   ```
+   sha256sum -c checksums.txt
+   gh attestation verify google-drive-mcp_*.tar.gz --repo mmedum/google-drive-mcp
+   cosign verify-blob checksums.txt \
+     --certificate checksums.txt.pem --signature checksums.txt.sig \
+     --certificate-identity-regexp '^https://github.com/mmedum/google-drive-mcp' \
+     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+   ```
+
+Before the repository is made public, run `go run ./scripts/gates leaks
+history`. It walks every blob in every commit, not just the working
+tree: something removed from the tip is still in the log, and still
+public the moment the repository is.
 
 ## Adding a tool
 
