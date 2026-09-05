@@ -203,10 +203,17 @@ func abbreviate(s string) string {
 	return s[:4] + "…" + s[len(s)-2:]
 }
 
-// leaksInHistory walks every blob in every commit. It is slower than the
-// working-tree scan and is not on the make check path; it is what runs
-// before the repository is made public, and after anything is removed
-// from it in a hurry.
+// leaksInHistory walks every blob and every message in every commit. It
+// is slower than the working-tree scan and is not on the make check
+// path; it is what runs before the repository is made public, and after
+// anything is removed from it in a hurry.
+//
+// What it scans is deliberate. A blob is scanned whole. A commit or tag
+// is scanned from its message down, because the lines above it are the
+// author, committer and tagger that git writes itself: an identity is
+// public in every commit of every repository by construction, and
+// scanning it made this check fail on its own tags and pass on nothing
+// — a gate that always fails is a gate that gets ignored.
 func leaksInHistory(out io.Writer) error {
 	revs, err := exec.Command("git", "rev-list", "--all", "--objects").Output()
 	if err != nil {
@@ -214,32 +221,69 @@ func leaksInHistory(out io.Writer) error {
 	}
 	seen := map[string]bool{}
 	var found []string
-	scanned := 0
+	blobs, messages := 0, 0
+
 	for _, line := range strings.Split(strings.TrimSpace(string(revs)), "\n") {
-		hash, path, ok := strings.Cut(line, " ")
-		if !ok || path == "" || !isText(path) || skipFiles[filepath.Base(path)] || seen[hash] {
+		hash, path, _ := strings.Cut(line, " ")
+		if hash == "" || seen[hash] {
 			continue
 		}
 		seen[hash] = true
-		body, err := exec.Command("git", "cat-file", "-p", hash).Output()
+		kind, body, err := object(hash)
 		if err != nil {
 			continue
 		}
-		scanned++
-		if isBinary(body) {
-			found = append(found, path+"@"+hash[:8]+": a compiled binary is in the history")
-			continue
+		switch kind {
+		case "blob":
+			if path == "" || !isText(path) || skipFiles[filepath.Base(path)] {
+				continue
+			}
+			blobs++
+			where := path + "@" + hash[:8]
+			if isBinary(body) {
+				found = append(found, where+": a compiled binary is in the history")
+				continue
+			}
+			found = append(found, scanForLeaks(where, string(body))...)
+		case "commit", "tag":
+			messages++
+			found = append(found, scanForLeaks(kind+" "+hash[:8], gitMessage(string(body)))...)
 		}
-		found = append(found, scanForLeaks(path+"@"+hash[:8], string(body))...)
 	}
+
 	if len(found) > 0 {
 		for _, f := range found {
 			_, _ = fmt.Fprintln(out, f)
 		}
 		return fmt.Errorf("%d thing(s) in this repository's history look like they came from a real Drive", len(found))
 	}
-	_, _ = fmt.Fprintf(out, "history leak check ok (%d blobs)\n", scanned)
+	_, _ = fmt.Fprintf(out, "history leak check ok (%d blobs, %d messages)\n", blobs, messages)
 	return nil
+}
+
+// object reads one git object's type and contents.
+func object(hash string) (kind string, body []byte, err error) {
+	t, err := exec.Command("git", "cat-file", "-t", hash).Output()
+	if err != nil {
+		return "", nil, err
+	}
+	body, err = exec.Command("git", "cat-file", "-p", hash).Output()
+	if err != nil {
+		return "", nil, err
+	}
+	return strings.TrimSpace(string(t)), body, nil
+}
+
+// gitMessage is what a person wrote in a commit or tag: everything after
+// the headers git generates. Those headers carry the author, committer
+// and tagger identities, which are not content anyone chose to publish
+// here — they are how git records who made a commit, in every repository
+// there is.
+func gitMessage(body string) string {
+	if _, message, ok := strings.Cut(body, "\n\n"); ok {
+		return message
+	}
+	return ""
 }
 
 func trackedFiles() ([]string, error) {
