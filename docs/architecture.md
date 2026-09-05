@@ -91,7 +91,7 @@ Verified against the Drive API v3 reference and guides on 2026-09-05.
 | Constraint | Consequence |
 |---|---|
 | A file has **one parent** (since 2020). A move is `files.update` with `addParents` and `removeParents`. A folder cannot be moved from My Drive into a shared drive (`teamDrivesFolderMoveInNotSupported`); a file can. My Drive allows 100 levels of nesting and 500 000 items per folder. | `move_file` is one call and reports old and new location; the folder-into-shared-drive case is refused up front with the alternative spelled out. |
-| **Search is not substring search.** `name contains 'x'` matches names whose words *start* with x; `fullText contains` matches whole tokens, or a phrase in double quotes inside the single quotes. Single quotes and backslashes are escaped with a backslash. `name = 'x'` is an exact match. | `search_files` builds the query from typed fields and says in its description and in an empty result what "contains" means. Path resolution uses `name =`. |
+| **Search is not substring search.** `name contains 'x'` matches names whose words *start* with x. Verified live (spike A, §18): the match ignores case, every word of x must prefix *some* word of the name, and **their order is irrelevant** — "Decentralized Identity" and "Identity Decentralized" return the same set. `name = 'x'` matches the whole name and **also ignores case**. `fullText contains` is looser than whole-token matching. Single quotes and backslashes are escaped with a backslash. | `search_files` builds the query from typed fields and says in its description and in an empty result what "contains" means. Path resolution uses `name =`, so two siblings differing only in case are `[ambiguous]`, not a coin toss. |
 | Shared drives need `supportsAllDrives=true` on nearly every method, `includeItemsFromAllDrives` plus `corpora` on listings, and `driveId` for one drive. `corpora=allDrives` can return `incompleteSearch=true`. A shared drive's root folder id is the drive id. | Every request carries `supportsAllDrives`. Listings default to `allDrives` and report `incomplete_search`. |
 | **Quota is in units**: a read costs 5, a list 100, a download 200, an edit 50; 325 000 units per minute per user, 1 000 000 per minute per project. Over the limit Google answers 403 `userRateLimitExceeded` / `rateLimitExceeded` or 429; the guide says truncated exponential backoff. Sharing has its own `sharingRateLimitExceeded`. | A list is twenty reads. Listings are paged and budgeted; path resolution is cached; sharing has its own limiter; retries honour the reasons above. |
 | **Uploads**: simple or multipart up to 5 MB; resumable above that, in chunks that are multiples of 256 KiB, resumed with `Content-Range: bytes */total` and a `308` carrying the received `Range`. 5 TB per file, 750 GB per user per day. Import conversion is asked for with `mimeType` in the metadata: Word, ODT, HTML, RTF, plain text and Markdown to a Doc; Excel, ODS, CSV, TSV to a Sheet; PowerPoint, ODP to Slides; images and PDF to a Doc with OCR. | `create_file` (inline text) uses multipart; `upload_file` streams from disk, multipart under 5 MB and resumable above, and recovers from a cut connection inside the call. `convert_to` is one field. |
@@ -800,15 +800,14 @@ before and after summaries.
 ## 15. Reliability of the plan itself: what must be verified live
 
 Everything in §2 comes from the reference. Five things have behaviour
-the reference does not pin down and are spiked in Phase 0 (§16) before a
-tool depends on them: the exact prefix semantics of `name contains`; how
-often `incompleteSearch` fires on a real account with `allDrives`; the
-resumable upload's recovery path against the real endpoint; resource keys
-on a link-shared file; and shared-drive creation and the folder-move
-refusal on a Workspace account. Ownership transfer on a consumer
-account is verified only if a consumer test account is available;
-otherwise it is implemented from the reference and marked unverified in
-§18.
+the reference does not pin down. The first — the exact semantics of
+`name contains` and `name =` — was spiked on 2026-09-05 and **refuted
+two claims this document made** (§18); the rest run at the start of the
+phase that builds the code they test (§16). The lesson is recorded
+rather than smoothed over: a documented API can be wrong about itself,
+and a fake built from the documentation inherits the error. Every rule in
+the fake that a live run has not confirmed is a rule the tests are only
+agreeing with themselves about.
 
 ## 16. Delivery phases
 
@@ -816,8 +815,8 @@ Each phase ends in a tagged release and waits for an explicit "go".
 How a phase is closed is written down at the end of this section, so
 that whoever picks the work up next starts from the repository alone.
 
-**Phase 0 — skeleton and spikes (v0.0.1). Code done 2026-09-05; spikes
-outstanding.** Scaffolding (§5, §12):
+**Phase 0 — skeleton and spikes (v0.0.1). Code done 2026-09-05; spike A
+done, B-F moved (see below).** Scaffolding (§5, §12):
 Makefile, golangci, govulncheck, go-licenses, gitleaks, goreleaser, the
 CI, CodeQL and release workflows with pinned actions and scoped tokens,
 Dependabot, templates, the pull request flow in `CONTRIBUTING.md`.
@@ -829,10 +828,7 @@ listings; `drivetest` with files, parents and listings; tools
 dump, staleness, coverage floor all green on three platforms; a live run
 of the four tools. Spikes, results into §18:
 
-- **A. Search semantics**, live: `name contains` at word starts versus
-  the middle of a word; `name =` case sensitivity; `fullText` tokens and
-  phrases; `incompleteSearch` with `allDrives`; whether `pageSize`
-  changes the quota cost of a list.
+- **A. Search semantics**, live: **done 2026-09-05**, results in §18.
 - **B. Google's Drive MCP**, only where a Cloud project enrolled in the
   Developer Preview Program is available, otherwise skipped: connect a
   client once, dump its tools and schemas, and record
@@ -850,9 +846,26 @@ of the four tools. Spikes, results into §18:
 - **F. Ownership transfer**: Workspace direct transfer live; consumer
   `pendingOwner` only if a consumer test account exists.
 
-None of A-F has run. They need `login` against a real account, and the
-results belong in §18 before phase 2 designs against them; A and C are
-the two that a later phase actually depends on.
+A ran on 2026-09-05 and is recorded in §18; it refuted two things this
+document asserted, and the fake and a tool description were wrong with
+them.
+
+B-F are **moved to the phase that builds the code they test**, because
+they cannot be run here: C needs `upload_file`, the write half of E needs
+`manage_drive` and `move_file`, and F needs `permissions.create` — none
+of which phase 0 builds. A spike whose subject does not exist yet is a
+spike that gets skipped and then forgotten. So:
+
+- **C (resumable upload)** and the write half of **E (shared drives)**
+  run at the start of phase 1, before `upload_file` and `move_file` are
+  designed against assumptions.
+- **F (ownership transfer)** runs at the start of phase 2, before
+  `share_file` is.
+- **D (resource keys)** runs whenever a link-shared file from a second
+  account is available; the client already sends the header, and the
+  test in `internal/gapi` covers the mechanism.
+- **B (Google's Drive MCP)** needs a Cloud project in the Developer
+  Preview Programme. Nothing depends on it.
 
 **Phase 1 — content and organisation (v0.1.0).** `read_file`,
 `download_file`, `create_file`, `upload_file`, `update_content`,
@@ -982,7 +995,11 @@ was checked rather than assumed.
 | Google has an official Drive MCP (my assumption: no) | Refuted: `drivemcp.googleapis.com/mcp/v1`, Developer Preview, eight tools, remote HTTP, Web OAuth client with the host's callback, `drive.readonly` + `drive.file` | §1 states what it does; spike B records its schemas; this server stays stdio, per-user, full-scope |
 | The Drive API has no preview-only features this server would want (my assumption) | Confirmed for everything in §8: files, permissions, drives, revisions, comments, changes, access proposals, labels and approvals are GA methods in the v3 reference | No preview enrolment in the setup guide; an enrolled project is needed only for spike B, which is skipped without one |
 | Quotas are per-request counts (inherited from the Docs limits) | Refuted: Drive charges units per method (read 5, list 100, download 200, edit 50; 325 000 per minute per user) | Listings are the expensive call; budgets and caches in §7.1 and §11 |
-| `name contains` is substring search (a common assumption in the OSS servers) | Refuted by the reference: prefix matching on the name; `fullText contains` matches whole tokens; exact prefix boundaries to be observed in spike A | Typed fields with the semantics in the description; `name =` for paths |
+| `name contains` is substring search (a common assumption in the OSS servers) | **Confirmed refuted, live (spike A, 2026-09-05)**: `name contains 'nferences'` returns 0 against an account where `name contains 'Conferences'` returns 6. A prefix match on words, not a substring match | Typed fields with the semantics in the description; `name =` for paths |
+| `name contains` requires its words to be consecutive and in order (my reading of the reference, and what `drivetest` implemented) | **Refuted live (spike A)**: "Decentralized Identity" and "Identity Decentralized" return the same 28 items, and "Decentralized Ide" returns 48. Every word must prefix *some* word of the name; order and adjacency are irrelevant | `drivetest` corrected; the `search_files` description had told the model the opposite, and was corrected with it |
+| `name = 'x'` is an exact, case-sensitive match (§2 as written, and what `drivetest` implemented) | **Refuted live (spike A)**: Conferences, conferences and CONFERENCES each return the same single item. It matches the whole name and ignores case | `drivetest` corrected. It matters beyond the fake: path resolution uses `name =`, so two siblings differing only in case both match one lookup and are `[ambiguous]` rather than one silently winning. The fake had been returning one, so that path was never tested |
+| `fullText contains` matches whole tokens only | **Refuted live (spike A)**: `fullText contains 'nferences'` returns 4. Drive's content index is looser than whole-token matching, in a way the reference does not describe | `drivetest` keeps the stricter whole-token rule deliberately: a fake that matches *less* than Drive fails a test production would pass, which gets noticed, while one that matches more hides a query that finds nothing |
+| `incompleteSearch` fires often enough with `allDrives` to need handling (my assumption) | Refined live (spike A): it did not fire once, including on a 200-result search across 21 shared drives. Rare, not absent | The handling stays — Google documents it and it is one line of output — but it is not a common path |
 | A file can have several parents (older Drive) | Refuted: single parent since 2020; `addParents`/`removeParents`; a My Drive folder cannot move into a shared drive | `move_file` design in §7.3 |
 | Uploads of any size go in one request | Refuted: 5 MB for simple and multipart; resumable above, 256 KiB multiples, `308` recovery | `upload_file` in §7.2; spike C |
 | Exports have no size limit | Refuted: 10 MB for `files.export`; `files.download` (long-running, 24 h) exists for Vids and for revisions of Docs and Sheets | `download_file` chooses the method by kind and revision |

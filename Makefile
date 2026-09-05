@@ -74,12 +74,16 @@ schema-diff: build ## Diff tool schemas against the last tag
 smoke: build ## Drive the binary over stdio
 	$(GO) run ./scripts/gates smoke $(BIN)
 
+.PHONY: leaks
+leaks: ## Nothing from a real Drive may be in the repository
+	$(GO) run ./scripts/gates leaks
+
 .PHONY: staleness
 staleness: build ## Docs must match the code
 	$(GO) run ./scripts/gates staleness $(BIN)
 
 .PHONY: check
-check: fmt vet lint cover vuln smoke staleness ## Everything CI runs
+check: fmt vet lint cover vuln leaks smoke staleness ## Everything CI runs
 
 .PHONY: clean
 clean:

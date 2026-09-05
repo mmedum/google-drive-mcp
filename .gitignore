@@ -1,5 +1,9 @@
 /google-drive-mcp
 /google-drive-mcp.exe
+# `go build ./scripts/X` drops its output here under the package name.
+# Use `go run` instead; these are so a slip cannot be committed.
+/gates
+/livedrive
 /dist/
 cov.out
 schemas.json

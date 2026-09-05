@@ -30,6 +30,14 @@ func precommit(out io.Writer, _ []string) error {
 		problems = append(problems, "go vet:\n"+strings.TrimSpace(string(vetted)))
 	}
 
+	// The rule this repository is most likely to break by accident is
+	// not a leaked credential but a leaked file name, address or id, and
+	// that arrives through a person, not through a build.
+	var leakReport strings.Builder
+	if err := leaks(&leakReport, nil); err != nil {
+		problems = append(problems, strings.TrimSpace(leakReport.String()))
+	}
+
 	if _, err := exec.LookPath("gitleaks"); err != nil {
 		_, _ = fmt.Fprintln(out, "gitleaks is not installed; skipping the secret scan (CI still runs it)")
 	} else {

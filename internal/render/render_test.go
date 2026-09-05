@@ -251,6 +251,24 @@ func TestAccountLockedDown(t *testing.T) {
 	}
 }
 
+func TestStoragePercentageNeverReadsAsZeroForARealAmount(t *testing.T) {
+	// 670 GiB of a 150 TiB Workspace allowance rounds to 0%, which looks
+	// like a broken number rather than like plenty of room.
+	cases := map[string]struct{ usage, limit int64 }{
+		"0.5%":       {719 << 30, 150 << 40},
+		"under 0.1%": {1 << 30, 150 << 40},
+		"27%":        {4 << 30, 15 << 30},
+	}
+	for want, c := range cases {
+		if got := percentUsed(c.usage, c.limit); got != want {
+			t.Errorf("percentUsed(%d, %d) = %q, want %q", c.usage, c.limit, got, want)
+		}
+	}
+	if got := percentUsed(1, 0); got != "unknown" {
+		t.Errorf("percentUsed with no limit = %q", got)
+	}
+}
+
 func TestAccountWithoutASignIn(t *testing.T) {
 	if got := Account(nil, AccountOptions{}); !strings.Contains(got, "not signed in") {
 		t.Errorf("Account(nil) = %q", got)

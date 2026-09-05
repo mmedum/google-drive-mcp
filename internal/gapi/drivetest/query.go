@@ -342,11 +342,15 @@ func matchString(field, op string, f *gdrive.File, want string, s *Server) bool 
 	case "name":
 		switch op {
 		case "=":
-			// Drive's `name =` is an exact, case-sensitive match, which
-			// is why path resolution uses it.
-			return f.Name == want
+			// Observed live (spike A): `name =` is a whole-name match but
+			// it is NOT case-sensitive. Conferences, conferences and
+			// CONFERENCES all return the same single item. Path
+			// resolution depends on this: a folder holding both "Budget"
+			// and "budget" makes `name = 'Budget'` return two, which is
+			// how the ambiguity guard is reached.
+			return strings.EqualFold(f.Name, want)
 		case "!=":
-			return f.Name != want
+			return !strings.EqualFold(f.Name, want)
 		case "contains":
 			return wordPrefixMatch(f.Name, want)
 		}
@@ -390,11 +394,26 @@ func windowMatch(hay, want []string, eq func(have, want string) bool) bool {
 	return false
 }
 
-// wordPrefixMatch implements `name contains 'x'`: every word of x must
-// prefix a consecutive word of the name. "Bud" matches "Budget 2026";
-// "udget" does not.
+// wordPrefixMatch implements `name contains 'x'`. Observed live (spike
+// A): every word of x must prefix SOME word of the name, and the order
+// is irrelevant — "Decentralized Identity" and "Identity Decentralized"
+// return the same set. "Bud" matches "Budget 2026"; "udget" matches
+// nothing, because it is a prefix match and not a substring one.
 func wordPrefixMatch(name, want string) bool {
-	return windowMatch(words(name), words(want), strings.HasPrefix)
+	haystack := words(name)
+	for _, w := range words(want) {
+		found := false
+		for _, have := range haystack {
+			if strings.HasPrefix(have, w) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // fullTextMatch implements `fullText contains 'x'`: whole tokens, or a

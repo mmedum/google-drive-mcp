@@ -48,12 +48,22 @@ account and reference machinery, and the four read tools.
   provenance.
 - `scripts/gates`, the repository's own checks as Go: the coverage floor,
   the tool-schema diff against the last tag, the stdio smoke test, the
-  staleness check, and the pre-commit hook `make hooks` installs. Go is
-  the only toolchain a contributor needs, and the code holding the gates
-  shut is built, vetted, linted and tested like everything else.
+  staleness check, a leak check, and the pre-commit hook `make hooks`
+  installs. Go is the only toolchain a contributor needs, and the code
+  holding the gates shut is built, vetted, linted and tested like
+  everything else.
+- The leak check turns this project's first rule into something a build
+  can enforce: no addresses outside the documentation domains, no
+  strings shaped like a Drive id, and no Drive links carrying one. It
+  runs in `make check`, in the pre-commit hook and in CI. gitleaks
+  covers credentials; this covers what a live run against a real Drive
+  can drag in.
 - `scripts/livedrive`, which drives the built binary over stdio against a
-  real account and replaces ids, links and addresses with stable
-  placeholders before printing anything.
+  real account and replaces ids, links, addresses and the names beside
+  them with stable placeholders. It says on every run that file and
+  folder names are not redacted, because nothing distinguishes them from
+  prose and a transcript believed to be clean and is not is worse than
+  one nobody trusts.
 
 [Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v0.0.1...HEAD
 [0.0.1]: https://github.com/mmedum/google-drive-mcp/releases/tag/v0.0.1
