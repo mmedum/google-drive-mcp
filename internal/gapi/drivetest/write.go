@@ -94,10 +94,16 @@ func (s *Server) createFile(meta *gdrive.FileMeta, contentType string, content [
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
-	// Drive's own words, observed live on 2026-09-05. A fake that
-	// accepts what Drive refuses lets the bug through; this one refused
-	// nothing until a real account said no.
+	// Drive's own words, observed live on 2026-09-05, and there are two
+	// of them: the Docs Editors formats and a shortcut refuse a
+	// pre-generated id with different messages and different statuses. A
+	// fake that accepts what Drive refuses lets the bug through, and this
+	// one accepted both until a real account said no — twice.
 	if meta.ID != "" && !gapi.AcceptsGeneratedID(mimeType) {
+		if mimeType == gdrive.MimeShortcut {
+			return nil, &apiFailure{http.StatusBadRequest, "invalid",
+				"The provided file ID is not usable."}
+		}
 		return nil, &apiFailure{http.StatusForbidden, "insufficientFilePermissions",
 			"Generated IDs are not supported for Docs Editors formats."}
 	}

@@ -89,7 +89,7 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 		return nil, err
 	}
 	if colour != "" && !f.IsFolder() && !f.IsShortcut() {
-		return nil, Errorf(ClassInvalid, "colour is a folder's, and %s is %s", f.Name, model.Kind(f))
+		return nil, Errorf(ClassInvalid, "colour is a folder's, and %s is %s", f.Name, model.KindWithArticle(f))
 	}
 
 	meta, changes, err := metaPatch(f, in, colour)

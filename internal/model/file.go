@@ -185,7 +185,14 @@ func New(f *gdrive.File, o Options) *File {
 			m.ShortcutTargetKind = KindName(t)
 		}
 	}
-	m.Size, m.HasSize = f.SizeBytes()
+	// A Google-native document's "size" is the metadata Drive keeps for
+	// it, not the size of anything a person can get: a new, empty Doc
+	// reports one byte, and so does a long one. Showing it invites a
+	// reading it cannot support, and the export formats line already says
+	// what can actually be had.
+	if !f.IsWorkspaceDoc() {
+		m.Size, m.HasSize = f.SizeBytes()
+	}
 	m.Created = parseTime(f.CreatedTime)
 	m.Modified = parseTime(f.ModifiedTime)
 	m.TrashedAt = parseTime(f.TrashedTime)

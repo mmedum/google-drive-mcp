@@ -391,3 +391,44 @@ func TestSharedDriveItemIsNeverCalledPrivate(t *testing.T) {
 		t.Errorf("My Drive summary = %q", got)
 	}
 }
+
+func TestAGoogleDocumentReportsNoSize(t *testing.T) {
+	// Drive reports one byte for a new, empty Doc and for a long one:
+	// the number is the metadata it keeps, not the size of anything a
+	// person can get. Showing it invites a reading it cannot support.
+	doc := New(&gdrive.File{
+		ID: "id-notes-fixture", Name: "Notes", MimeType: gdrive.MimeDocument, Size: "1",
+	}, Options{})
+	if doc.HasSize {
+		t.Errorf("a Google Doc reported a size of %d bytes", doc.Size)
+	}
+
+	blob := New(&gdrive.File{
+		ID: "id-log-fixture", Name: "server.log", MimeType: "text/plain", Size: "4096",
+	}, Options{})
+	if !blob.HasSize || blob.Size != 4096 {
+		t.Errorf("a file with bytes reported size %d (known: %v)", blob.Size, blob.HasSize)
+	}
+
+	// A folder and a shortcut are Google types but not documents, and
+	// neither claims a size of its own anyway.
+	for _, mime := range []string{gdrive.MimeFolder, gdrive.MimeShortcut} {
+		if got := New(&gdrive.File{MimeType: mime}, Options{}); got.HasSize {
+			t.Errorf("%s reported a size", mime)
+		}
+	}
+}
+
+func TestKindWithArticle(t *testing.T) {
+	cases := map[string]string{
+		gdrive.MimeDocument: "a Google Doc",
+		gdrive.MimeFolder:   "a folder",
+		"application/pdf":   "a PDF",
+		"image/svg+xml":     "an SVG image",
+	}
+	for mime, want := range cases {
+		if got := KindWithArticle(&gdrive.File{MimeType: mime}); got != want {
+			t.Errorf("KindWithArticle(%s) = %q, want %q", mime, got, want)
+		}
+	}
+}

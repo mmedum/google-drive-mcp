@@ -194,6 +194,13 @@ func (c *Client) GenerateIDs(ctx context.Context, count int) ([]string, error) {
 	v.Set("space", "drive")
 	v.Set("type", "files")
 	u := c.base + "/files/generateIds?" + v.Encode()
+	// kindRead, and kindRead now grants a retry, so this is the one call
+	// worth justifying: it is the only request here that is not a plain
+	// read, because it allocates. Repeating it is still safe — a second
+	// attempt hands back different ids and the unused ones cost nothing,
+	// since an id becomes a file only when a create carries it. A later
+	// call that allocates something with a cost must not borrow the
+	// label.
 	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
@@ -436,28 +443,26 @@ func ExportFormatNames() []string {
 	return names
 }
 
-// docsEditorFormats are the Google-native formats that refuse a
-// pre-generated id: "Generated IDs are not supported for Docs Editors
-// formats", observed live on 2026-09-05. Folders take one — also
-// observed — and so, structurally, does everything with bytes of its
-// own. The list is the Docs Editors set from Google's own vocabulary,
-// not a guess about which of them were tried.
-var docsEditorFormats = map[string]bool{
-	gdrive.MimeDocument: true,
-	gdrive.MimeSheet:    true,
-	gdrive.MimeSlides:   true,
-	gdrive.MimeDrawing:  true,
-	gdrive.MimeForm:     true,
-	gdrive.MimeScript:   true,
-	gdrive.MimeSite:     true,
-	gdrive.MimeJam:      true,
-	gdrive.MimeVid:      true,
-}
-
 // AcceptsGeneratedID reports whether a file of this type may be created
-// with an id from files.generateIds. A create that cannot carry one is
-// not idempotent: a retry after an ambiguous failure can make a second
-// file, which is why the duplicate-name guard exists.
+// with an id from files.generateIds.
+//
+// Four answers are confirmed live, 2026-09-05, and they do not follow
+// one rule that Google states anywhere:
+//
+//   - a file with bytes of its own takes an id;
+//   - a folder takes one;
+//   - the Docs Editors formats refuse it — "Generated IDs are not
+//     supported for Docs Editors formats";
+//   - a shortcut refuses it too, with a different message — "The
+//     provided file ID is not usable".
+//
+// So this names what is known to work rather than enumerating the
+// refusals, and every Google-native type nobody has tried — Sites, Maps,
+// Vids, Jamboards, Apps Script — falls on the safe side by default.
+// Withholding an id costs idempotency, which the duplicate-name guard
+// then has to catch; sending one where Drive refuses it costs the whole
+// call, as it did twice.
 func AcceptsGeneratedID(mime string) bool {
-	return !docsEditorFormats[strings.TrimSpace(mime)]
+	mime = strings.TrimSpace(mime)
+	return mime == gdrive.MimeFolder || !gdrive.IsGoogleMime(mime)
 }
