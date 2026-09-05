@@ -6,7 +6,88 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `list_permissions`: who can see a file or a shared drive, with each
+  grant's role in plain words, when it expires, whether it reaches people
+  by link or by search, and where it came from. An inherited shared-drive
+  grant says so and names its source, because that is the only place it
+  can be removed.
+- `share_file`: grant or change one principal's access, reporting who
+  could see the file before and who can see it after — the grant is the
+  small half of the answer. Granting to somebody who already has access
+  changes their role rather than adding a second grant. A link anyone can
+  open needs `allow_anyone: true`; handing over ownership needs
+  `transfer_ownership: true`. No notification mail unless `notify` is
+  set, which is the opposite of Drive's own default; where Google forces
+  it on, the result says so. An organisation's policy refusal comes back
+  as `[blocked]` with Google's own words and who set it.
+- `unshare_file`: revoke one grant, or the link that let anybody open it,
+  and say what access is left. An inherited grant is refused with its
+  source named, and an owner's access is not revoked but transferred.
+- `list_drives` and `manage_drive`: the shared drives this account can
+  see with what it may do in each, and create, rename, hide, unhide or
+  restrict one. Membership is not here — a member is a permission on the
+  drive, so `share_file` does it and one place decides who sees what.
+- `list_revisions` and `manage_revision`: a file's version history newest
+  first with the current version marked, and pinning so Drive does not
+  discard a version after thirty days. For a Google document the result
+  repeats Google's own caveat that the list can be incomplete.
+- `list_changes`: the changes feed. With no token it hands back the
+  starting point and says the feed has no beginning; with one it lists
+  what happened and carries the token for next time. A trashed file and
+  one that is gone for good read differently, because only one can be
+  undone.
+- Gated behind `GDRIVE_ENABLE_DESTRUCTIVE=true`: `delete_file`,
+  `empty_trash`, `delete_drive` and `delete_revision`. Each also needs
+  `confirm: true` on the call, because a registered tool is one a model
+  will reach for eventually. `empty_trash` is the only one that names no
+  item, so it reports how much is in the trash before destroying it.
+
 ### Fixed
+
+- **A file id spelling a sibling endpoint could turn a bounded delete
+  into an unbounded one.** Drive puts non-id endpoints under `/files` as
+  sibling segments, so `delete_file` on an id of `trash` would have built
+  `DELETE /files/trash` — `files.emptyTrash`, destroying an entire trash
+  instead of one file. `url.PathEscape` does not prevent it, because
+  every character in the word is legal in a path segment. Every
+  `/files/{id}` path now goes through one guard that refuses the reserved
+  segments; it was unreachable before only because a lookup two layers
+  above happened to fail first.
+- **Deleting the top of a drive is refused by this server, not only by
+  Google.** `root` is Drive's alias for My Drive's root folder and a
+  shared drive's id is its own root folder's id, so either could be
+  passed where a file was expected. Google refuses both through
+  `capabilities.canDelete`; a bounded call becoming an unbounded one must
+  not rest on a field the other side computes, so it is now refused here
+  as well, and a test asserts the refusal holds with the capabilities
+  stripped off.
+- **A throttled request could be classified as a permission error.**
+  Google spells one condition two ways — `rateLimitExceeded` in the
+  legacy error envelope and `RATE_LIMIT_EXCEEDED` in a
+  `google.rpc.ErrorInfo` detail — and this client prefers the detail
+  while comparing the camelCase spelling exactly, so every reason that
+  arrived the modern way missed. Reasons are now compared in a form that
+  folds both spellings. The in-memory Drive used to send the same string
+  in both places, which is why no test caught it; it now sends each in
+  its own spelling, as Google does.
+- **`dailyLimitExceeded` is recognised, and deliberately not retried.**
+  It is a 403 quota reason like the others, but backing off cannot free a
+  daily quota, so retrying only spent attempts and the advice "wait a
+  minute and try again" was false. It is reported as rate limiting with
+  what actually happened.
+- **A token refresh could hang for the life of the process.** The refresh
+  runs inside the oauth2 transport against the context the token source
+  was built with, so the per-request deadline never reached it, and
+  without a client of our own it used `http.DefaultClient`, which has no
+  timeout. `docs/security.md` claimed every token refresh ran under a
+  deadline; it does now, and so does `login`'s code exchange.
+- **`goreleaser-action` was still not pinned.** `~> v2.18.0` reads like a
+  pin and is not: the action's own README says the input takes "a max
+  satisfying semver one", so any 2.18.x could decide what the release
+  artifacts are. It is `v2.18.0` now, with no operator. The narrowing
+  from `~> v2` had been recorded in the evidence log as a fix.
 
 - `gates leaks history` had never done the job its own documentation
   describes, in either direction. It scanned annotated tag objects

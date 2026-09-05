@@ -154,7 +154,7 @@ func (p *profile) tokenSource(ctx context.Context) (oauth2.TokenSource, credenti
 	if err != nil {
 		return nil, "", err
 	}
-	return auth.TokenSource(ctx, oc, tok), src, nil
+	return auth.TokenSource(ctx, oc, tok, p.cfg.HTTPTimeout), src, nil
 }
 
 // newClient builds the Drive client for this profile's settings.
