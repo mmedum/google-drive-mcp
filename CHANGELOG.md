@@ -142,7 +142,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   artifacts are. It is `v2.18.0` now, with no operator. The narrowing
   from `~> v2` had been recorded in the evidence log as a fix.
 
-### Fixed (found by the live run)
+### Fixed (found by the live runs, and confirmed fixed by a third)
 
 - **A file card showed the exposure the call had just changed.** The card
   was rendered from the file read before the write, so `share_file` on a
@@ -166,7 +166,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   one.** Drive's feed is eventually consistent, and asking a second after
   a write returned "0 changes" on two runs — which reads as a feed
   working and reporting nothing. It now polls, and says which happened
-  rather than printing an empty answer and moving on.
+  rather than printing an empty answer and moving on. The feed does
+  work: the third run reported the change and handed back a fresh token.
 - **The live driver left a permission id unredacted.** A permission id
   for a person is twenty digits with no letter, and the redactor's rule
   required a capital and a digit. It identifies a Google account.
