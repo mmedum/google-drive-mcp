@@ -79,7 +79,7 @@ func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput)
 		return s.report(ctx, res, outcome{Action: render.ActionCopied, DryRun: true,
 			Note: plan.words(name, destName) + " Nothing was copied."}), nil
 	}
-	return s.runCopy(ctx, source, plan, name, destination, destName)
+	return s.runCopy(ctx, source, plan, name, destination, destName, in.KeepRevisionForever)
 }
 
 // treePlan is everything the walk found, in the order it has to be
@@ -169,7 +169,7 @@ func (s *Service) planCopy(ctx context.Context, root *gdrive.File, maxItems int)
 // copies already made are real files — so the honest thing is to finish
 // and say exactly what did not make it.
 func (s *Service) runCopy(ctx context.Context, source *gdrive.File, plan *treePlan,
-	name, destination, destName string,
+	name, destination, destName string, keepRevision bool,
 ) (*Result, error) {
 	ids := s.idPool(ctx, plan)
 	rootMeta := &gdrive.FileMeta{Name: name, MimeType: gdrive.MimeFolder, ID: ids.take(gdrive.MimeFolder)}
@@ -192,7 +192,7 @@ func (s *Service) runCopy(ctx context.Context, source *gdrive.File, plan *treePl
 			// once per orphan would bury the failure that caused them.
 			continue
 		}
-		newID, err := s.copyOne(ctx, item, parent, ids)
+		newID, err := s.copyOne(ctx, item, parent, ids, keepRevision)
 		if err != nil {
 			failed = append(failed, fmt.Sprintf("%s (%s)", item.Name, gapi.Message(err)))
 			continue
@@ -209,7 +209,9 @@ func (s *Service) runCopy(ctx context.Context, source *gdrive.File, plan *treePl
 
 // copyOne writes one item of the tree and returns the new id. A folder
 // is created, a shortcut is made again, and everything else is copied.
-func (s *Service) copyOne(ctx context.Context, item *gdrive.File, parent string, ids *idPool) (string, error) {
+func (s *Service) copyOne(ctx context.Context, item *gdrive.File, parent string, ids *idPool,
+	keepRevision bool,
+) (string, error) {
 	switch {
 	case item.IsFolder():
 		made, err := s.api.CreateFile(ctx, &gdrive.FileMeta{
@@ -243,9 +245,13 @@ func (s *Service) copyOne(ctx context.Context, item *gdrive.File, parent string,
 		}
 		return made.ID, nil
 	default:
+		// keep_revision_forever applies to the files, not to the folders
+		// that hold them: a folder has no content and so no revision to
+		// pin. Passing it here rather than ignoring it is the difference
+		// between honouring an argument and accepting one.
 		made, err := s.api.CopyFile(ctx, item.ID, &gdrive.FileMeta{
 			Name: item.Name, Parents: []string{parent}, ID: ids.take(item.MimeType),
-		}, gapi.WriteOptions{ResourceIDs: []string{item.ID, parent}})
+		}, gapi.WriteOptions{ResourceIDs: []string{item.ID, parent}, KeepRevisionForever: keepRevision})
 		if err != nil {
 			return "", err
 		}

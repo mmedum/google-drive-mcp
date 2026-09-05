@@ -195,3 +195,29 @@ func TestOnlyAnApproverIsToldWhoIsWaiting(t *testing.T) {
 		t.Fatal("a non-approver answered an access request")
 	}
 }
+
+// TestAProposalAskingForOwnershipIsRefusedEvenWhenItIsTheOnlyRole is a
+// review finding. The role a caller passes was validated and the role
+// read off the proposal was not, so a proposal whose sole role was
+// `owner` would have handed the file over on a call naming no role at
+// all — the exact thing the explicit branch refuses. The reference says
+// a proposal can only ask for writer, commenter or reader; "the other
+// side says it cannot" is not a check.
+func TestAProposalAskingForOwnershipIsRefusedEvenWhenItIsTheOnlyRole(t *testing.T) {
+	for _, role := range []string{"owner", "organizer"} {
+		t.Run(role, func(t *testing.T) {
+			svc, fake := setup(t, service.Options{})
+			fake.AddProposal("id-budget-fixture", "id-request-1", "alice@example.com", role)
+
+			_, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+				File: "id-budget-fixture", Request: "id-request-1", Action: "accept",
+			})
+			if err == nil {
+				t.Fatalf("a proposal asking for %s was accepted", role)
+			}
+			if len(fake.Permissions["id-budget-fixture"]) != 0 {
+				t.Errorf("the refusal still granted something: %+v", fake.Permissions["id-budget-fixture"])
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mmedum/google-drive-mcp/internal/model"
 )
@@ -143,10 +144,17 @@ func writeQuotedText(b *buf, text, indent string) {
 func oneLine(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	const limit = 120
-	if len(s) > limit {
-		return s[:limit] + "…"
+	if len(s) <= limit {
+		return s
 	}
-	return s
+	// On a rune boundary. A quoted passage is arbitrary text from a
+	// document, so byte 120 lands inside a character often enough, and
+	// half a rune in the output is a broken line for every reader of it.
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 func writeCommentNotes(b *buf, o CommentsOptions) {

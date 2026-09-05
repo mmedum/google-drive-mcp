@@ -180,20 +180,17 @@ func (s *Service) roleForRequest(request *model.AccessRequest, asked string) (st
 		if err != nil {
 			return "", err
 		}
-		switch role {
-		case model.RoleOwner:
-			return "", Errorf(ClassUnsupported, "an access request cannot hand over ownership. share_file "+
-				"with role owner and transfer_ownership: true is the only way to do that, and it is its own "+
-				"decision.")
-		case model.RoleReader, model.RoleCommenter, model.RoleWriter:
-			return role, nil
-		default:
-			return "", Errorf(ClassInvalid, "an access request can be accepted as reader, commenter or "+
-				"writer; %s is not one of them.", role)
-		}
+		return grantableRole(role)
 	}
 	if role, ok := request.SoleRole(); ok {
-		return role, nil
+		// Through the same gate as a role the caller named. The role
+		// comes off the proposal, and a proposal is written by whoever
+		// was refused: the reference says it can only ask for writer,
+		// commenter or reader, but "the other side says it cannot" is
+		// not a check. Without this, a proposal whose sole role was
+		// `owner` would hand the file over on a call that names no role
+		// at all — the exact thing the branch above refuses.
+		return grantableRole(role)
 	}
 	if len(request.Roles) == 0 {
 		return "", Errorf(ClassInvalid, "%s asked for access without naming a role, so this call has to "+
@@ -201,6 +198,22 @@ func (s *Service) roleForRequest(request *model.AccessRequest, asked string) (st
 	}
 	return "", Errorf(ClassAmbiguous, "%s asked for %s, and accepting has to grant exactly one of them. "+
 		"Pass role to say which.", request.By, strings.Join(request.Roles, " or "))
+}
+
+// grantableRole is the one place that decides what an acceptance may
+// grant, whether the role came from the caller or from the proposal.
+func grantableRole(role string) (string, error) {
+	switch role {
+	case model.RoleReader, model.RoleCommenter, model.RoleWriter:
+		return role, nil
+	case model.RoleOwner:
+		return "", Errorf(ClassUnsupported, "an access request cannot hand over ownership. share_file "+
+			"with role owner and transfer_ownership: true is the only way to do that, and it is its own "+
+			"decision.")
+	default:
+		return "", Errorf(ClassInvalid, "an access request can be accepted as reader, commenter or "+
+			"writer; %s is not one of them.", role)
+	}
 }
 
 // requestResult renders what answering the request did, with the

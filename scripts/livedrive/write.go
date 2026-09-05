@@ -74,6 +74,7 @@ func (w *writeRun) exercise() {
 	w.access(ids)
 	w.history(ids)
 	w.collaboration(ids)
+	w.resources(ids)
 	w.refusals(ids)
 	w.sharedDrive(ids)
 }
@@ -748,4 +749,57 @@ func writeFiller(path string, n int) error {
 		written += size
 	}
 	return f.Close()
+}
+
+// resources reads the three gdrive:// templates, which is the half of
+// phase 3's surface no tool call reaches. A resource read is a different
+// method with a different failure shape, so a driver that only calls
+// tools would never have found out whether they work at all.
+func (w *writeRun) resources(m made) {
+	for _, r := range []struct{ uri, why string }{
+		{"gdrive://" + m.text, ""},
+		{"gdrive://" + m.text + "/meta", ""},
+		{"gdrive://" + w.scratchID + "/children", ""},
+		{"gdrive://" + w.scratchID, "a folder has no text of its own"},
+		{"gdrive://" + m.text + "/children", "a file is not a folder"},
+		{"gdrive://1SyntheticFixtureFileIdAAAAAAAAAAAA", "an id that names nothing"},
+	} {
+		if strings.HasSuffix(r.uri, "gdrive://") || strings.Contains(r.uri, "gdrive:///") {
+			continue
+		}
+		fmt.Printf("\n=== resource %s ===\n", w.red.Do(r.uri))
+		if r.why != "" {
+			fmt.Printf("(expecting a refusal: %s)\n", r.why)
+		}
+		text, mime, err := w.sess.ReadResource(r.uri)
+		var refused *mcpstdio.RPCError
+		switch {
+		case errors.As(err, &refused):
+			fmt.Println(w.red.Do(refused.Detail))
+			if r.why == "" {
+				fmt.Println("!! unexpected refusal")
+				w.failures++
+			}
+			continue
+		case err != nil:
+			fmt.Println("!! transport failure:", err)
+			w.failures++
+			continue
+		}
+		if r.why != "" {
+			fmt.Println("!! expected a refusal and did not get one")
+			w.failures++
+		}
+		fmt.Printf("mime: %s\n%s\n", mime, strings.TrimRight(w.red.Do(head(text, 12)), "\n"))
+	}
+}
+
+// head keeps the first n lines, so a transcript shows the shape of a
+// resource without printing a whole file.
+func head(text string, n int) string {
+	lines := strings.Split(text, "\n")
+	if len(lines) <= n {
+		return text
+	}
+	return strings.Join(lines[:n], "\n") + "\n… (" + fmt.Sprint(len(lines)-n) + " more lines)"
 }

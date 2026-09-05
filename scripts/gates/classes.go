@@ -170,6 +170,12 @@ func classValue(constant string) string {
 	if !ok || rest == "" {
 		return ""
 	}
+	// Classes() is the list, not a member of it. Without this, a tool
+	// description that joined gapi.Classes() into its prose would be read
+	// as emitting a class called "es" and fail this gate for it.
+	if constant == "Classes" {
+		return ""
+	}
 	var b strings.Builder
 	for i, r := range rest {
 		if r >= 'A' && r <= 'Z' && i > 0 {

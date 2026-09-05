@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/internal/model"
@@ -648,5 +649,25 @@ func TestAReplyThatOnlyResolvedSaysNothingRatherThanNothingInQuotes(t *testing.T
 	}
 	if !strings.Contains(got, "(resolved the thread)") {
 		t.Errorf("the reply does not say what it did:\n%s", got)
+	}
+}
+
+// TestAQuotedPassageIsCutOnARuneBoundary is a review finding: the
+// passage a comment is pinned to is arbitrary text from a document, and
+// cutting it at byte 120 put half a character in the output.
+func TestAQuotedPassageIsCutOnARuneBoundary(t *testing.T) {
+	// Three-byte runes, so a byte cut at 120 lands inside one.
+	long := strings.Repeat("あ", 100)
+	threads := []*model.Comment{model.NewComment(&gdrive.Comment{
+		ID: "id-comment-1", Content: "look at this", CreatedTime: "2026-03-04T09:00:00Z",
+		Author:            &gdrive.User{DisplayName: "Other Person"},
+		QuotedFileContent: &gdrive.QuotedFileContent{Value: long},
+	})}
+	got := Comments(threads, CommentsOptions{Now: now, CanComment: true})
+	if !utf8.ValidString(got) {
+		t.Error("the rendering is not valid UTF-8, so a passage was cut inside a character")
+	}
+	if !strings.Contains(got, "…") {
+		t.Errorf("a long passage was not shortened:\n%s", got)
 	}
 }

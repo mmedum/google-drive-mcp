@@ -234,3 +234,35 @@ func TestConvertingAFolderIsRefused(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// TestKeepRevisionForeverReachesTheCopiedFiles is a review finding: the
+// argument was accepted and silently dropped for a recursive copy, so a
+// caller asking for the copies to be pinned got copies that were not.
+func TestKeepRevisionForeverReachesTheCopiedFiles(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	copyTree(fake)
+	fake.Requested()
+
+	if _, err := svc.CopyFile(t.Context(), service.CopyFileInput{
+		File: "id-source-folder-fixture", To: "id-destination-fixture",
+		Recursive: true, KeepRevisionForever: true,
+	}); err != nil {
+		t.Fatalf("CopyFile: %v", err)
+	}
+	copies, pinned := 0, 0
+	for _, r := range fake.Requested() {
+		if !strings.HasSuffix(r.Path, "/copy") {
+			continue
+		}
+		copies++
+		if r.Query.Get("keepRevisionForever") == "true" {
+			pinned++
+		}
+	}
+	if copies == 0 {
+		t.Fatal("nothing was copied, so this test is looking at nothing")
+	}
+	if pinned != copies {
+		t.Errorf("%d of %d copies asked Drive to keep the revision", pinned, copies)
+	}
+}
