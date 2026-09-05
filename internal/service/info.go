@@ -38,7 +38,7 @@ func (s *Service) Model(ctx context.Context, res *Resolved) *model.File {
 		Location:         s.Location(ctx, f),
 		Permissions:      perms,
 		PermissionsKnown: known,
-		ExportFormats:    gapi.ExportFormats(f),
+		ExportFormats:    model.ExportFormats(f),
 		SharedDriveName:  res.DriveName,
 	})
 }
