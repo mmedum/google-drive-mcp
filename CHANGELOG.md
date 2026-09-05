@@ -6,6 +6,25 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `gates leaks history` had never done the job its own documentation
+  describes, in either direction. It scanned annotated tag objects
+  including the `tagger` line git writes itself, so it failed on this
+  repository's own tags — and a gate that always fails is a gate that
+  gets ignored. It also skipped commit objects entirely, so "an id in a
+  commit message", the case the gate's comment names, was never checked
+  at all. A blob is now scanned whole; a commit or tag is scanned from
+  its message down, because an identity is public in every repository by
+  construction and is not something anyone chose to publish here. Three
+  tests cover it, including the same address in a header and in a
+  message with two different verdicts.
+- `.claude/settings.local.json` and the editor's temporary copies of it
+  are ignored. One reached a commit through `git add -A`; its content is
+  a permission allowlist — public documentation domains and shell command
+  patterns — and it is out of the working tree now, though the blob
+  remains in the history (see below).
+
 ## [0.1.0] - 2026-09-05
 
 Content and organising: a file's text out, a file in, and everything
