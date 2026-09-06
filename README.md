@@ -148,6 +148,21 @@ gh attestation verify google-drive-mcp_*.tar.gz --repo mmedum/google-drive-mcp
 Every archive also ships an SBOM, so you can see what is inside a binary
 you did not build.
 
+### Claude Desktop
+
+Every release also carries a `.mcpb` bundle. Open it and Claude Desktop
+installs the server and asks for your OAuth client JSON — no config file
+to edit. It covers macOS, Windows and Linux on both architectures each:
+macOS through a universal binary, Windows through amd64, and Linux
+through a small launcher that picks the right binary at start, because a
+bundle manifest names a command per platform and has no key for the
+architecture. Its SHA-256 is in the same signed `checksums.txt`.
+
+The bundle does not log you in. Install the binary as well, run
+`google-drive-mcp login` once, and the bundle picks up the same
+credentials. Claude Code does not install `.mcpb` files, so it uses the
+command below.
+
 ## Set up Google, once per person
 
 You need your own Google Cloud project and your own OAuth client. This
