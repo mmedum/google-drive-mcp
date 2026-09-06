@@ -31,6 +31,13 @@ import (
 // in neither list and why this reads `check`'s own prerequisites rather
 // than every target in the file.
 func parity(out io.Writer, _ []string) error {
+	return parityAgainst(out, gateNames())
+}
+
+// parityAgainst is parity with the list of gates that ought to run given
+// rather than read from the registry, so a test can present a small
+// repository without restating every gate this program implements.
+func parityAgainst(out io.Writer, want []string) error {
 	makeGates, err := gatesInCheck("Makefile")
 	if err != nil {
 		return err
@@ -45,26 +52,41 @@ func parity(out io.Writer, _ []string) error {
 			"one of the two files is not being read as expected", len(makeGates), len(ciGates))
 	}
 
+	// Three directions, not two. Two derived lists compared only with
+	// each other are both silent about a gate that is in NEITHER, which
+	// is the same hole `gates classes` closes by checking against the
+	// code: a check invented and then wired up nowhere reads exactly
+	// like a check nobody wrote.
 	var problems []string
-	for _, g := range makeGates {
-		if !slices.Contains(ciGates, g) {
-			problems = append(problems, fmt.Sprintf(
-				"%s runs in `make check` and not in ci.yml, so it guards nothing on a pull request", g))
+	for _, g := range want {
+		inMake, inCI := slices.Contains(makeGates, g), slices.Contains(ciGates, g)
+		switch {
+		case inMake && inCI:
+		case inMake:
+			problems = append(problems, g+" runs in `make check` and not in ci.yml, "+
+				"so it guards nothing on a pull request")
+		case inCI:
+			problems = append(problems, g+" runs in ci.yml and not in `make check`, "+
+				"so it can only fail after a push")
+		default:
+			problems = append(problems, g+" is a gate this program implements and nothing runs it; "+
+				"add it to both, or drop `gate: true` if it is not one")
 		}
 	}
-	for _, g := range ciGates {
-		if !slices.Contains(makeGates, g) {
-			problems = append(problems, fmt.Sprintf(
-				"%s runs in ci.yml and not in `make check`, so it can only fail after a push", g))
+	for _, g := range append(slices.Clone(makeGates), ciGates...) {
+		if !slices.Contains(want, g) && !slices.Contains(problems, g) {
+			problems = append(problems, g+" is run as a gate but is not marked one in commands; "+
+				"either it belongs in both lists or the marking is wrong")
 		}
 	}
 	if len(problems) > 0 {
+		slices.Sort(problems)
 		for _, p := range problems {
 			_, _ = fmt.Fprintln(out, "  "+p)
 		}
-		return fmt.Errorf("%d gate(s) run in one place and not the other", len(problems))
+		return fmt.Errorf("%d gate(s) are not run in both places", len(problems))
 	}
-	_, _ = fmt.Fprintf(out, "gate parity ok (%d gates, in both `make check` and ci.yml)\n", len(makeGates))
+	_, _ = fmt.Fprintf(out, "gate parity ok (%d gates, in both `make check` and ci.yml)\n", len(want))
 	return nil
 }
 
@@ -88,32 +110,54 @@ func gatesInCheck(path string) ([]string, error) {
 		return nil, fmt.Errorf("%s has no `check:` target; has it been renamed?", path)
 	}
 
-	// Each prerequisite is a target whose recipe may call this program.
-	// The recipe is the indented block after `name:`, so the target is
-	// found by name and read to the next unindented line.
+	// Prerequisites are followed transitively. `cover` depends on `test`,
+	// and a gate added to a second-level target would otherwise be
+	// invisible on the Make side — reported as running only in CI, which
+	// is a false failure on a repository that is actually correct.
 	var gates []string
-	for _, target := range strings.Fields(m[1]) {
-		recipe, err := makeRecipe(text, target)
+	seen := map[string]bool{}
+	var walk func(target string) error
+	walk = func(target string) error {
+		if seen[target] {
+			return nil
+		}
+		seen[target] = true
+		recipe, prereqs, err := makeTarget(text, target)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		for _, call := range gateCall.FindAllStringSubmatch(recipe, -1) {
 			if !slices.Contains(gates, call[1]) {
 				gates = append(gates, call[1])
 			}
 		}
+		for _, next := range prereqs {
+			// A prerequisite may be a file rather than a target; those
+			// have no recipe here and are not gates.
+			if err := walk(next); err != nil && !strings.Contains(err.Error(), "not a target") {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, target := range strings.Fields(m[1]) {
+		if err := walk(target); err != nil {
+			return nil, err
+		}
 	}
 	slices.Sort(gates)
 	return gates, nil
 }
 
-// makeRecipe returns the recipe lines of one target.
-func makeRecipe(text, target string) (string, error) {
-	rule := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(target) + `:[^\n]*\n`)
-	loc := rule.FindStringIndex(text)
+// makeTarget returns one target's recipe lines and its own prerequisites.
+func makeTarget(text, target string) (recipe string, prereqs []string, err error) {
+	// Prerequisites run to a `##` help comment or to the end of the line.
+	rule := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(target) + `:([^\n#]*)(?:#[^\n]*)?\n`)
+	loc := rule.FindStringSubmatchIndex(text)
 	if loc == nil {
-		return "", fmt.Errorf("`check` depends on %q, which is not a target in the Makefile", target)
+		return "", nil, fmt.Errorf("%q is not a target in the Makefile", target)
 	}
+	prereqs = strings.Fields(text[loc[2]:loc[3]])
 	rest := text[loc[1]:]
 	var b strings.Builder
 	for line := range strings.SplitSeq(rest, "\n") {
@@ -124,7 +168,7 @@ func makeRecipe(text, target string) (string, error) {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	return b.String(), nil
+	return b.String(), prereqs, nil
 }
 
 // gatesInWorkflow reports the gates a workflow runs.

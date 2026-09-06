@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // The five tools that remove something for good are registered only
@@ -54,12 +55,9 @@ type destroyRun struct {
 
 // makeFile creates a file in the scratch drive and remembers it.
 func (d *destroyRun) makeFile(name, content string) string {
-	args := map[string]any{"name": name, "parent": d.driveID, "content": content}
-	if content == "" {
-		delete(args, "content")
-		args["kind"] = "doc"
-	}
-	id := d.createAndKeepID("create_file", args)
+	id := d.createAndKeepID("create_file", map[string]any{
+		"name": name, "parent": d.driveID, "content": content,
+	})
 	if id != "" {
 		d.living = append(d.living, id)
 	}
@@ -67,9 +65,14 @@ func (d *destroyRun) makeFile(name, content string) string {
 }
 
 // destroyFile deletes one for good and stops counting it as living, so
-// cleanup does not try again and count a not_found as a failure.
-func (d *destroyRun) destroyFile(id string) {
-	d.call(call{tool: "delete_file", args: map[string]any{"file": id, "confirm": true}})
+// cleanup does not try again.
+//
+// tolerant is for the cleanup pass, where emptying the drive's trash may
+// already have taken the file — that is what the empty is for — and a
+// refusal is the run working rather than failing.
+func (d *destroyRun) destroyFile(id string, tolerant bool) {
+	d.call(call{tool: "delete_file", args: map[string]any{"file": id, "confirm": true},
+		tolerant: tolerant})
 	d.living = slices.DeleteFunc(d.living, func(v string) bool { return v == id })
 }
 
@@ -152,7 +155,7 @@ func (d *destroyRun) refusalsWithoutConfirm() {
 	// otherwise show up as nothing at all.
 	d.needing("get_file", id, map[string]any{"file": id})
 	if id != "" {
-		d.destroyFile(id)
+		d.destroyFile(id, false)
 	}
 }
 
@@ -165,7 +168,7 @@ func (d *destroyRun) deleteAFile() {
 		fmt.Println("\n=== delete_file: skipped, the file it needs was never created ===")
 		return
 	}
-	d.destroyFile(id)
+	d.destroyFile(id, false)
 	d.call(call{tool: "get_file", args: map[string]any{"file": id},
 		expectError: true, why: "a permanently deleted file is not there any more"})
 }
@@ -184,44 +187,42 @@ func (d *destroyRun) deleteARevision() {
 	d.call(call{tool: "update_content", args: map[string]any{
 		"file": id, "content": "second\n", "keep_previous_revision": true,
 	}})
-	first := d.olderRevision(id)
+	first := d.revisionID(id, true)
 	if first == "" {
-		fmt.Println("\n=== delete_revision: skipped, no earlier revision to remove ===")
+		// The listing lags the write that made the second revision, so a
+		// run can find only the current one and skip the whole section —
+		// which is how delete_revision came to be "verified" by a run
+		// that never called it. A pause is fine here: this is a driver,
+		// not a tool call somebody is waiting on.
+		fmt.Println("\n(only the current revision is listed yet; waiting for Drive to catch up)")
+		time.Sleep(10 * time.Second)
+		first = d.revisionID(id, true)
+	}
+	if first == "" {
+		d.problem("delete_revision was not exercised: no revision but the current one is listed, "+
+			"even after waiting", errors.New("no older revision to delete"))
 		return
 	}
 	d.call(call{tool: "delete_revision", args: map[string]any{
 		"file": id, "revision": first, "dry_run": true, "confirm": true,
 	}})
-	d.call(call{tool: "delete_revision", args: map[string]any{
+	gone := d.call(call{tool: "delete_revision", args: map[string]any{
 		"file": id, "revision": first, "confirm": true,
-	}})
+	}, tolerant: true})
+	if !strings.Contains(gone, "gone for good") {
+		// The dry run above found this revision and the delete did not,
+		// which is Drive disagreeing with itself for a moment after a
+		// write. One retry after a pause, the same treatment the drive
+		// delete gets and for the same reason.
+		fmt.Println("\n(the revision was there for the dry run and not for the delete; waiting)")
+		time.Sleep(10 * time.Second)
+		d.call(call{tool: "delete_revision", args: map[string]any{
+			"file": id, "revision": first, "confirm": true,
+		}})
+	}
 	// The content the file is at now must have survived it.
 	d.call(call{tool: "read_file", args: map[string]any{"file": id}})
 	d.call(call{tool: "list_revisions", args: map[string]any{"file": id}})
-}
-
-// olderRevision reads the id of a revision that is NOT the current one.
-//
-// writeRun.firstRevision takes the first row of the listing, which is
-// what pinning wants and is exactly wrong here: Drive lists the current
-// revision first, and refuses to delete the one a file is at now. The
-// first destructive run asked for that one twice and got two refusals it
-// had counted as failures.
-func (d *destroyRun) olderRevision(id string) string {
-	if id == "" {
-		return ""
-	}
-	out, isError, err := d.sess.CallTool("list_revisions", map[string]any{"file": id})
-	if err != nil || isError {
-		return ""
-	}
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && looksLikeDate(fields[1]) && !strings.Contains(line, "current") {
-			return fields[0]
-		}
-	}
-	return ""
 }
 
 // deleteAComment removes a thread, which is the one destructive tool
@@ -318,7 +319,7 @@ func (d *destroyRun) approvalLock() {
 	// The reference says a content restriction stops content, comments
 	// and renames, and says nothing about removal. If that is wrong this
 	// is where the run finds out, and the drive would not delete below.
-	d.destroyFile(id)
+	d.destroyFile(id, false)
 }
 
 // emptyTheDriveTrash puts something in the scratch drive's trash and
@@ -334,16 +335,19 @@ func (d *destroyRun) emptyTheDriveTrash() {
 	d.emptyTrash(call{args: map[string]any{"dry_run": true, "confirm": true}})
 	d.emptyTrash(call{args: map[string]any{"confirm": true}})
 	// Whether the file survived is the whole question — files.emptyTrash
-	// has no response, so a look is the only evidence there is. This
-	// asks rather than expects, because a live run found the answer is
-	// "sometimes": Drive's view of its own trash lags, and a file
-	// trashed seconds earlier came back.
+	// has no response, so a look is the only evidence there is. Marked
+	// tolerant because both answers are the server behaving correctly:
+	// a refusal means the empty took, a card means Drive's view of its
+	// own trash has not caught up. Expecting either one counted a
+	// failure exactly when the other happened.
 	//
 	// It must NOT be restore_file. Restoring un-trashes the file, and an
 	// untrashed file is exactly what stops the drive being deleted at
 	// the end — the first run of this checked with a restore and
 	// stranded a shared drive in a real Workspace doing it.
-	d.needing("get_file", id, map[string]any{"file": id})
+	if id != "" {
+		d.call(call{tool: "get_file", args: map[string]any{"file": id}, tolerant: true})
+	}
 }
 
 // deleteTheDrive destroys the scratch drive, which is this run's whole
@@ -363,8 +367,13 @@ func (d *destroyRun) deleteTheDrive() {
 	// with revisions. The first two runs of this stranded a shared drive
 	// in a real Workspace precisely because cleanup assumed they had
 	// tidied up after themselves.
-	for _, id := range slices.Clone(d.living) {
-		d.destroyFile(id)
+	// Taken and cleared before the loop: destroyFile drops each id from
+	// d.living, and shortening a slice while ranging over it reads
+	// shifted elements.
+	left := d.living
+	d.living = nil
+	for _, id := range left {
+		d.destroyFile(id, true)
 	}
 	d.emptyTrash(call{args: map[string]any{"confirm": true}})
 	out := d.call(call{tool: "delete_drive", args: map[string]any{
@@ -373,9 +382,13 @@ func (d *destroyRun) deleteTheDrive() {
 	if strings.Contains(out, "gone for good") {
 		return
 	}
-	// One retry: the usual reason is Drive not yet agreeing the trash is
-	// empty, which is the same eventual consistency the changes feed and
-	// the property index both needed patience for.
+	// One retry, AFTER a pause. The reason for the first refusal is
+	// Drive not yet agreeing the trash is empty, and an immediate retry
+	// is the one thing least likely to help something that is waiting to
+	// catch up — two early runs retried instantly, failed twice, and
+	// left a shared drive behind that a hand-run delete took minutes
+	// later without complaint.
+	time.Sleep(10 * time.Second)
 	again := d.call(call{tool: "delete_drive", args: map[string]any{
 		"drive": d.driveID, "confirm": true,
 	}})

@@ -125,11 +125,7 @@ described from memory. They discover what to probe with at run time from
 the account's own contents rather than hard-coding anything.
 
 While the server has only read tools they write nothing, so there is
-nothing to clean up. When phase 1 adds writes they gain a scratch folder
-named "google-drive-mcp test (safe to delete)", created in My Drive,
-worked in, and trashed at the end; `GDRIVE_TEST_WORKSPACE=1` will add a
-scratch shared drive and `GDRIVE_TEST_SHARE_WITH` a second address for
-the sharing tests.
+nothing to clean up.
 
 ### The live driver
 
@@ -145,10 +141,40 @@ message. `-raw` turns that off; do not use it in a terminal you are
 sharing. A phase is not done until this has run.
 
 **Read the transcript, not its verdict.** Two runs in phase 2 reported
-"all calls behaved as expected" while three results were wrong, and one
-in phase 3 reported it while every `add_comment` was failing. The driver
-checks whether a call succeeded and whether an expected refusal arrived;
-whether the answer was *true* is still a person's job.
+"all calls behaved as expected" while three results were wrong, one in
+phase 3 reported it while every `add_comment` was failing, and one in
+phase 5 reported it while `list_activity` was announcing a Drive API
+change that had not happened. The driver checks whether a call succeeded
+and whether an expected refusal arrived; whether the answer was *true* is
+still a person's job.
+
+Its modes, each off unless asked for:
+
+| Flag | What it adds |
+|---|---|
+| `-write` | Every tool that changes Drive, in one scratch folder in My Drive that is trashed at the end |
+| `-drive NAME_OR_ID` | Moves a file into an existing shared drive and back out, and the folder-move refusal |
+| `-share ADDRESS` | The half of sharing that needs a second person, ownership transfer included |
+| `-blocked ADDRESS` | Attempts a share the organisation's policy should refuse, and reports Google's reason beside this server's class |
+| `-labels` | The label tools; needs `GDRIVE_LABELS`, the Labels API enabled and its scopes granted |
+| `-activity` | `list_activity`; needs `GDRIVE_ACTIVITY`, the Drive Activity API enabled and its scope granted |
+| `-destructive` | The five tools that remove something for good — see below |
+
+**`-destructive` creates a shared drive and destroys it again.** It is
+the only way to run `empty_trash` safely: that tool cannot be scoped to a
+folder, so without a drive of its own it takes the whole signed-in
+account's trash. Every call the mode makes is scoped to the drive it
+made, `empty_trash` is named in exactly one method that cannot run before
+the drive exists, and `TestEmptyTrashIsNamedInOnePlace` walks the
+driver's syntax tree and fails if a second mention appears — the first
+draft named it in four places, one of which would have emptied the
+account.
+
+The run deletes every id it created before deleting the drive, because
+Drive refuses to remove one still holding anything untrashed. If it
+cannot, it says so with the drive's name and what to do by hand; two
+early runs stranded a scratch shared drive that way. It needs an account
+that may create shared drives, which `get_account` reports.
 
 ### The agent evals
 
@@ -157,7 +183,7 @@ make evals                                          # or:
 go run ./scripts/evals -bin ./google-drive-mcp -only share-as-commenter-quietly
 ```
 
-Thirteen tasks through `claude -p` with only this server's tools, scored
+Sixteen tasks through `claude -p` with only this server's tools, scored
 on the end state read back through the server and on the trace: an id no
 result ever handed the agent is a failure, and so is `allow_anyone` on a
 task that asked for one person. Everything happens in one scratch folder,

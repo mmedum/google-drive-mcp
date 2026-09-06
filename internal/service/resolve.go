@@ -557,6 +557,14 @@ func (s *Service) findDrive(ctx context.Context, nameOrID string) (*gdrive.Drive
 		return nil, wrap(err, "listing shared drives")
 	}
 	if len(drives) == 0 {
+		// Not before the id fallback below. An account whose only shared
+		// drive was created moments ago has an EMPTY listing, which is
+		// exactly the case the fallback exists for — returning here
+		// first would tell the caller it has no shared drives while it
+		// is holding the id of one.
+		if d, err := s.api.GetDrive(ctx, nameOrID); err == nil {
+			return d, nil
+		}
 		return nil, &Error{Class: ClassNotFound, Message: "this account can see no shared drives. " +
 			"Shared drives are a Google Workspace feature; get_account says whether this account has them."}
 	}

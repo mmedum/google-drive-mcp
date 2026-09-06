@@ -271,8 +271,15 @@ func TestRestrictWithNothingToRestrictSaysSo(t *testing.T) {
 func TestAFreshlyCreatedDriveIsReachableByID(t *testing.T) {
 	svc, fake := setup(t, service.Options{Destructive: true})
 	fake.AddDrive("id-drive-fresh", "Fresh campaigns")
-	// Exists, answers by id, and the listing has not caught up.
+	// Exists, answers by id, and the listing has not caught up. Every
+	// other drive is hidden from the listing too, so the listing comes
+	// back EMPTY: an account whose only shared drive is the one just
+	// created is the exact case this is for, and a fixture with another
+	// drive in it would take a different branch.
 	fake.UnlistedDrives = map[string]bool{"id-drive-fresh": true}
+	for id := range fake.Drives {
+		fake.UnlistedDrives[id] = true
+	}
 
 	out, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{
 		Drive: "id-drive-fresh", Confirm: true,
@@ -292,6 +299,25 @@ func TestAFreshlyCreatedDriveIsReachableByID(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("a name absent from the listing resolved anyway")
+	}
+	if !strings.Contains(err.Error(), "can see no shared drives") {
+		t.Errorf("an empty listing was not reported as one:\n%v", err)
+	}
+}
+
+// TestANameStillNeedsTheListing keeps the fallback from being read as a
+// general escape: only the listing carries names, and the refusal must
+// not claim it looked for a name when it was handed something else.
+func TestANameStillNeedsTheListing(t *testing.T) {
+	svc, fake := setup(t, service.Options{Destructive: true})
+	fake.AddDrive("id-drive-fresh", "Fresh campaigns")
+	fake.UnlistedDrives = map[string]bool{"id-drive-fresh": true}
+
+	_, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{
+		Drive: "Nowhere", Confirm: true,
+	})
+	if err == nil {
+		t.Fatal("a name that is in no listing resolved anyway")
 	}
 	if !strings.Contains(err.Error(), "no drive with that id either") {
 		t.Errorf("the refusal does not say both readings were tried:\n%v", err)
