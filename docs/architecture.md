@@ -1529,44 +1529,53 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   offered. That is the drift this entry predicted, found the first time
   something looked.
 
-- **The live driver's transcript is redacted by habit, not by
-  construction.** Phase 4 found the difference: the driver echoed each
-  call's ARGUMENTS unredacted. That was arguably nobody's problem while
-  the only address there was one the operator had typed as `-share`, and
-  became one the moment starting an approval put the SIGNED-IN account's
-  own address into the arguments of every write run. Fixed, with a test
-  that an encoded argument list survives the redactor.
+- ~~The live driver's transcript is redacted by habit, not by
+  construction.~~ **Done.** `scripts/internal/transcript` is now the only
+  way the live driver and the eval harness write anything, and `gates
+  transcript` refuses every other route to a terminal: `fmt.Print*`, any
+  mention of `os.Stdout` or `os.Stderr`, and the builtins `print` and
+  `println`.
 
-  What is not fixed is the shape of it. Every line happening to go
-  through `red.Do` is not the same as every line having to, and the next
-  print somebody adds while debugging will look exactly like the two
-  beside it that are safe. A sibling repository built a gate for this
-  over its own driver's syntax tree, and the idea is right.
+  The entry stood for three phases and the estimate in it was right: the
+  version with teeth is a rewrite of every print in the program, about
+  eighty call sites, and it wanted a moment with nothing else in flight.
+  What the estimate got wrong is which programs. The eval harness has the
+  same shape — same account, same kinds of thing printed, same `red`
+  field used by habit — and a rule covering one of two identical programs
+  is a rule waiting to be drifted around. Both go through the one type
+  now.
 
-  It was attempted here and abandoned deliberately. A gate that allows an
-  expression by its spelling needs an allowlist that grows with every
-  count and tool name printed — fifteen on the first run — and an
-  allowlist that long is a gate nobody trusts. The version with teeth
-  forbids `fmt.Print*` in the driver outside one redacting helper, so the
-  rule is structural. That is a rewrite of some forty call sites in a
-  file phase 4 had just changed heavily, on the eve of a live run, which
-  is the wrong moment. It wants a phase of its own and no other changes
-  in flight.
+  Three things about the gate are worth keeping, because each was a
+  choice that could have gone the other way.
 
-  **What has changed since: it is no longer a design, it is a thing that
-  works and has caught something.** The shared standard now names
-  `transcript` for every repository with a live driver, on the strength
-  of a run where it found a section header printing straight to the
-  terminal — one refactor away from carrying a document title with it.
-  So the argument for deferring is now only the timing, and the estimate
-  is no longer a guess. `TestEmptyTrashIsNamedInOnePlace` in this
-  repository is the same technique at one call site and took an hour; the
-  general form is that shape over `fmt.Print*` with one exemption.
+  It forbids a DESTINATION rather than a function. `fmt.Fprintf` into a
+  `bytes.Buffer` is how an eval task builds its fixture and reaches
+  nobody; a gate that banned the function would have needed an exception
+  for it on day one, and an allowlist is how a gate stops being believed.
+  A terminal is `os.Stdout` and `os.Stderr`, and `fmt.Print*` is a write
+  to `os.Stdout` with the name left out, so naming those three names
+  every way out.
 
-  The standard also names `live-cover` — the driver's source against the
-  binary's published schema, failing on any tool option no step sends.
-  This repository has never measured that number, and phase 5 grew the
-  driver a lot. The one place it was measured elsewhere it read 14 of 28.
+  It refuses a HOLLOW exemption. Every other check here is about WHERE
+  printing happens and says nothing about what is printed: moving each
+  `fmt.Println` into a passthrough helper would satisfy all of them and
+  leak exactly as much. So the exempt package must pass what it writes
+  through the redactor, and what comes out of it is asserted in a test
+  rather than argued for here.
+
+  It redacts the whole formatted LINE, not the arguments somebody
+  remembered to wrap. That is what makes the property structural instead
+  of careful: an address arriving through a format string nobody thought
+  about is redacted by the same code that redacts one somebody did. It
+  also removed about fifteen hand-written `red.Do` calls at print sites,
+  which were the habit this entry was about.
+
+  The line that had never been redacted at all was the run's own failure.
+  It is printed after the session, from `main`, and it carries whatever
+  the error carried — a file name, an address, a path. Six ways to a
+  terminal are watched being refused in tests, and the failure line is
+  one of the three addresses `TestEveryLinePrintedIsRedacted` sends
+  through.
 
 - **`manage_labels` is unverified live, and `list_labels` is not.** The
   Drive Labels API answers (`doctor` calls `labels.list` and it
