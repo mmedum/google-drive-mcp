@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,4 +110,100 @@ func TestAHollowExemptionIsRefused(t *testing.T) {
 	if len(found) != 0 {
 		t.Fatalf("a passthrough helper is not itself a terminal write: %v", found)
 	}
+}
+
+// The three checks below run the GATE rather than the helper under it.
+//
+// A sibling repository named the pattern that makes this worth doing: a
+// partially tested mechanism reads as a tested one. Their `isBinary` had
+// a unit test since phase 0 and the branch using it had none, so the
+// area looked covered while what the scan actually DID with a binary was
+// answerable only by reading — which is how three of us came to describe
+// it wrongly. The helper was tested; the wiring was the whole claim.
+//
+// Each of these was watched failing by hand when it was written, in a
+// shell, and that proof went away when the shell did.
+
+// TestTheGateReportsAHollowExemption. exemptionRedacts is tested on its
+// own above; this is the branch that acts on it.
+func TestTheGateReportsAHollowExemption(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeDriver(t, "scripts/livedrive")
+	writePackage(t, "scripts/internal/transcript",
+		"package transcript\n\nimport (\n\t\"fmt\"\n\t\"io\"\n)\n\n"+
+			"func write(w io.Writer, text string) {\n\t_, _ = fmt.Fprintln(w, text)\n}\n")
+
+	defer restore(transcriptPackages, transcriptPackage)
+	transcriptPackages = []string{filepath.Join("scripts", "livedrive")}
+	transcriptPackage = filepath.Join("scripts", "internal", "transcript")
+
+	var out bytes.Buffer
+	if err := transcript(&out, nil); err == nil {
+		t.Fatalf("a transcript package that redacts nothing was accepted:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "hollow") {
+		t.Errorf("the report does not name the problem:\n%s", out.String())
+	}
+}
+
+// TestTheGateReportsAnUnlistedDriver. A program that prints what a real
+// account answered, and is covered by nothing, is the worst way for this
+// check to go quiet: the new program is the one nobody has thought about.
+func TestTheGateReportsAnUnlistedDriver(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeDriver(t, "scripts/livedrive")
+	writePackage(t, "scripts/internal/transcript",
+		"package transcript\n\nimport (\n\t\"fmt\"\n\t\"io\"\n)\n\n"+
+			"func write(w io.Writer, text string, r redactor) {\n\t_, _ = fmt.Fprintln(w, r.Do(text))\n}\n")
+	writePackage(t, "scripts/newdriver",
+		"package main\n\nimport \"github.com/x/y/scripts/internal/redact\"\n\n"+
+			"func main() { _ = redact.NewRedactor(false) }\n")
+
+	defer restore(transcriptPackages, transcriptPackage)
+	transcriptPackages = []string{filepath.Join("scripts", "livedrive")}
+	transcriptPackage = filepath.Join("scripts", "internal", "transcript")
+
+	var out bytes.Buffer
+	if err := transcript(&out, nil); err == nil {
+		t.Fatalf("a driver covered by nothing was accepted:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "newdriver") {
+		t.Errorf("the report does not name the program:\n%s", out.String())
+	}
+}
+
+func writePackage(t *testing.T, dir, source string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeDriver is writePackage with enough files to clear the gate's own
+// floor. The floor exists because a scan that read too little reports a
+// clean tree for ever — and it fires before everything else, so a
+// fixture below it makes a test pass for the wrong reason, which is what
+// the first draft of these two did.
+func writeDriver(t *testing.T, dir string) {
+	t.Helper()
+	writePackage(t, dir, "package main\n\nfunc run() {}\n")
+	for i := range 5 {
+		name := filepath.Join(dir, fmt.Sprintf("part%d.go", i))
+		body := fmt.Sprintf("package main\n\nfunc part%d() {}\n", i)
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// restore puts the package lists back, so one test's fixture is not the
+// next test's subject.
+func restore(packages []string, exempt string) {
+	transcriptPackages = packages
+	transcriptPackage = exempt
 }
