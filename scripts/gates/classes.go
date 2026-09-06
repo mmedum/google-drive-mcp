@@ -40,6 +40,20 @@ func classes(out io.Writer, _ []string) error {
 			"code it is meant to", files)
 	}
 
+	var problems []string
+
+	// The published vocabulary is a third list, and until a sibling
+	// repository reported the same class of hole in its own gate,
+	// nothing here read it. Classes() is what a model is told the
+	// vocabulary is; a constant emitted by the code and missing from it
+	// is a class nobody can look up, and a name listed twice is a list
+	// that has been edited without being read.
+	listed, err := listedClasses(declared)
+	if err != nil {
+		return err
+	}
+	problems = append(problems, listed...)
+
 	// Only one direction needs checking: a constant this file does not
 	// declare is not recorded as emitted at all, so "emitted but not
 	// declared" cannot arise. What can is a class nothing uses.
@@ -47,7 +61,6 @@ func classes(out io.Writer, _ []string) error {
 	for _, value := range declared {
 		values[value] = true
 	}
-	var problems []string
 	for _, value := range sorted(values) {
 		if _, ok := emitted[value]; !ok {
 			problems = append(problems, fmt.Sprintf("gapi.Classes() lists %q and nothing emits it: either "+
@@ -186,4 +199,66 @@ func sorted[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// listedClasses holds gapi.Classes() to the constants.
+//
+// It is a third list and nothing read it: the gate above checks that
+// every declared class is emitted somewhere, and the code could emit a
+// class the published vocabulary never mentions. Classes() is what a
+// model is told the vocabulary is — it is what `doctor` prints and what
+// the documentation is generated from — so a class missing from it is
+// one nobody can look up, and one listed twice is a list that has been
+// edited without being read.
+//
+// A sibling repository found the same class of hole in its own version:
+// its duplicate check used slices.Compact, which removes only ADJACENT
+// equals, so a name written twice anywhere but beside itself passed. The
+// check here counts occurrences rather than comparing lengths, which
+// cannot be fooled by order.
+func listedClasses(declared map[string]string) ([]string, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filepath.Join("internal", "gapi", "errors.go"), nil, 0)
+	if err != nil {
+		return nil, fmt.Errorf("parse internal/gapi/errors.go: %w", err)
+	}
+	counts := map[string]int{}
+	found := false
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "Classes" || fn.Body == nil {
+			continue
+		}
+		found = true
+		// The BODY, not the declaration: the function is itself called
+		// Classes, and inspecting the whole node counted its own name as
+		// a class that is not declared.
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && strings.HasPrefix(id.Name, "Class") {
+				counts[id.Name]++
+			}
+			return true
+		})
+	}
+	if !found {
+		return nil, fmt.Errorf("internal/gapi/errors.go has no Classes(); has the vocabulary moved?")
+	}
+
+	var problems []string
+	for _, name := range sorted(counts) {
+		switch {
+		case declared[name] == "":
+			problems = append(problems, fmt.Sprintf("gapi.Classes() lists %s, which is not a declared class", name))
+		case counts[name] > 1:
+			problems = append(problems, fmt.Sprintf("gapi.Classes() lists %s %d times", name, counts[name]))
+		}
+	}
+	for _, name := range sorted(declared) {
+		if counts[name] == 0 {
+			problems = append(problems, fmt.Sprintf(
+				"%s is a declared class and gapi.Classes() does not list it, so nothing tells a caller "+
+					"it exists", name))
+		}
+	}
+	return problems, nil
 }
