@@ -85,6 +85,20 @@ type API interface {
 	ModifyLabels(ctx context.Context, fileID string, req gdrive.ModifyLabelsRequest) (*gdrive.ModifyLabelsResponse, error)
 	ListLabelDefinitions(ctx context.Context, o gapi.ListLabelDefinitionsOptions) (*gdrive.LabelDefinitionList, error)
 
+	// Drive Activity, a separate API behind GDRIVE_ACTIVITY.
+	QueryActivity(ctx context.Context, q gdrive.ActivityQuery) (*gdrive.ActivityResponse, error)
+
+	// Approvals. Every verb mails somebody, and none of them is
+	// idempotent, which is why they are separate methods rather than one
+	// that takes a verb.
+	ListApprovals(ctx context.Context, fileID string, o gapi.ListApprovalsOptions) (*gdrive.ApprovalList, error)
+	StartApproval(ctx context.Context, fileID string, body *gdrive.StartApproval) (*gdrive.Approval, error)
+	ApproveApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ApprovalMessage) (*gdrive.Approval, error)
+	DeclineApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ApprovalMessage) (*gdrive.Approval, error)
+	CancelApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ApprovalMessage) (*gdrive.Approval, error)
+	CommentApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ApprovalMessage) (*gdrive.Approval, error)
+	ReassignApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ReassignApproval) (*gdrive.Approval, error)
+
 	// Access requests. There is no create: only somebody who was refused
 	// can ask.
 	ListAccessProposals(ctx context.Context, fileID string) ([]*gdrive.AccessProposal, error)
@@ -103,6 +117,7 @@ type Options struct {
 	LocalDir    string
 	MaxDownload int64
 	Labels      bool
+	Activity    bool
 	Logger      *slog.Logger
 	// PathTTL is how long a resolved (parent, name) pair is trusted, so
 	// a burst of calls on one path costs one walk. Default 60s.

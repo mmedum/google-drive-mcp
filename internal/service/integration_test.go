@@ -49,7 +49,7 @@ func live(t *testing.T) (*service.Service, *gapi.Client) {
 			t.Fatalf("locate client secret: %v", err)
 		}
 	}
-	oc, err := auth.LoadClientSecret(secret, auth.Scopes(false, false))
+	oc, err := auth.LoadClientSecret(secret, auth.Scopes(auth.Access{}))
 	if err != nil {
 		t.Fatalf("load client secret: %v", err)
 	}
