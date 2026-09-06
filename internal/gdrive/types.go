@@ -2,8 +2,13 @@
 // writes. They are hand-written rather than generated: the generated
 // client drags in gRPC, OpenTelemetry and the cloud auth stack for a
 // binary that only needs JSON and streaming HTTP. The package has no
-// dependencies and no behaviour beyond a few accessors, so it can be
-// compared against the API reference field by field.
+// dependencies outside the standard library, so it can be compared
+// against the API reference field by field.
+//
+// Beyond a few accessors the only behaviour here is decoding, and only
+// where a Go shape cannot hold what the wire said: such a type owns an
+// UnmarshalJSON that keeps the missing fact. Nothing here encodes, and
+// nothing here decides anything — policy belongs to internal/service.
 //
 // Field names match the API exactly. Optional booleans that Drive omits
 // when false are plain bools; a pointer would only matter for a patch,
@@ -11,6 +16,9 @@
 package gdrive
 
 import (
+	"encoding/json"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -949,8 +957,16 @@ type ActivityTimeRange struct {
 	EndTime   string `json:"endTime,omitempty"`
 }
 
-// ActionDetail says what kind of thing happened. Exactly one member is
-// set, and which one IS the answer: the API has no action-type field.
+// ActionDetail says what kind of thing happened. Which member is set IS
+// the answer: the API has no action-type field.
+//
+// Drive also sends this as `{}`, for an activity it records without
+// saying what happened at all. That is ordinary — a probe of 400
+// activities found ten, and not one with the member missing — but an
+// empty object and a member no field below covers decode to the same
+// value, every pointer nil. Members keeps them apart, because the
+// difference is the difference between nothing to do and Google having
+// added a kind.
 type ActionDetail struct {
 	Create             *ActivityCreate     `json:"create,omitempty"`
 	Edit               *struct{}           `json:"edit,omitempty"`
@@ -964,6 +980,35 @@ type ActionDetail struct {
 	Reference          *struct{}           `json:"reference,omitempty"`
 	SettingsChange     *struct{}           `json:"settingsChange,omitempty"`
 	AppliedLabelChange *struct{}           `json:"appliedLabelChange,omitempty"`
+
+	// Members names every member the object carried, sorted. It is
+	// filled by UnmarshalJSON and never sent. A value built in Go rather
+	// than decoded has none, which reads as the empty object it looks
+	// like — the safe way round, since the alternative is claiming a new
+	// kind on the strength of a struct literal.
+	Members []string `json:"-"`
+}
+
+// UnmarshalJSON decodes the detail and records which members arrived.
+// The names are the only evidence that separates an object carrying
+// something no field above names from one carrying nothing at all: both
+// leave every field nil, and the difference between them is the
+// difference between nothing to do and Google having added a kind.
+func (d *ActionDetail) UnmarshalJSON(b []byte) error {
+	// The alias sheds this method; without it the decode below calls it
+	// again on the same bytes, forever.
+	type detail ActionDetail
+	var typed detail
+	if err := json.Unmarshal(b, &typed); err != nil {
+		return err
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(b, &members); err != nil {
+		return err
+	}
+	*d = ActionDetail(typed)
+	d.Members = slices.Sorted(maps.Keys(members))
+	return nil
 }
 
 // ActivityCreate says how an item came to be.

@@ -557,6 +557,14 @@ func (s *Service) findDrive(ctx context.Context, nameOrID string) (*gdrive.Drive
 		return nil, wrap(err, "listing shared drives")
 	}
 	if len(drives) == 0 {
+		// Not before the id fallback below. An account whose only shared
+		// drive was created moments ago has an EMPTY listing, which is
+		// exactly the case the fallback exists for — returning here
+		// first would tell the caller it has no shared drives while it
+		// is holding the id of one.
+		if d, err := s.api.GetDrive(ctx, nameOrID); err == nil {
+			return d, nil
+		}
 		return nil, &Error{Class: ClassNotFound, Message: "this account can see no shared drives. " +
 			"Shared drives are a Google Workspace feature; get_account says whether this account has them."}
 	}
@@ -573,12 +581,28 @@ func (s *Service) findDrive(ctx context.Context, nameOrID string) (*gdrive.Drive
 	case 1:
 		return matches[0], nil
 	case 0:
+		// The listing is eventually consistent and drives.get is not: a
+		// drive created moments ago answers by id while `drives.list`
+		// still does not carry it. Found live — the driver made a scratch
+		// shared drive, wrote files into it by that same id, and then
+		// could not empty its trash or delete it, because everything
+		// taking a `drive` argument came through here. It was told there
+		// was no drive of that NAME, and handed a list of other people's
+		// drive names, for an id it had just been given.
+		//
+		// Asked second so the ordinary paths cost nothing extra: a name
+		// can only be answered by the listing, and an id that is in the
+		// listing is already answered above.
+		if d, err := s.api.GetDrive(ctx, nameOrID); err == nil {
+			return d, nil
+		}
 		names := make([]string, 0, len(drives))
 		for _, d := range drives {
 			names = append(names, d.Name)
 		}
 		return nil, &Error{Class: ClassNotFound, Message: fmt.Sprintf(
-			"no shared drive named %q. This account can see: %s", nameOrID, strings.Join(names, ", "))}
+			"no shared drive %q: nothing of that name, and no drive with that id either. "+
+				"This account can see: %s", nameOrID, strings.Join(names, ", "))}
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d shared drives are named %q. Use drive:<id> with one of these:", len(matches), nameOrID)

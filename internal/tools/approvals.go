@@ -25,7 +25,7 @@ type ManageApprovalInput struct {
 	Reviewers        []string `json:"reviewers,omitempty" jsonschema:"email addresses. With start, the people being asked to approve — at least one is required. With reassign, the people to ADD to the reviewers."`
 	ReplaceReviewers []string `json:"replace_reviewers,omitempty" jsonschema:"with reassign, swaps as \"going@example.com=arriving@example.com\". Drive will not simply remove a reviewer: a replacement, which names who takes their place, is the only way somebody leaves an approval."`
 	Message          string   `json:"message,omitempty" jsonschema:"a message that goes into the notification and into the approval's log. Required for comment, optional elsewhere."`
-	LockFile         bool     `json:"lock_file,omitempty" jsonschema:"with start, lock the file's content while the approval is open so nobody can change it, including you"`
+	LockFile         bool     `json:"lock_file,omitempty" jsonschema:"with start, ask Drive to lock the file's content while the approval is open. Drive does not always apply it — the result says whether it did — but an APPROVED file is locked either way"`
 	Due              string   `json:"due,omitempty" jsonschema:"with start, when the approval is wanted by, as a date like 2026-01-31 or a full RFC 3339 timestamp"`
 }
 
@@ -37,6 +37,12 @@ type ManageApprovalInput struct {
 // who already have it. What it can do is lock the file, which is a
 // restriction rather than an exposure, and the tool says so where it
 // matters.
+//
+// Both descriptions used to promise that lock_file locks the file. A
+// live run found it does not — no content restriction, and the next
+// content change went through — while APPROVING locks it exactly as
+// described. A schema is read before the call rather than after, so an
+// argument that overpromises there is worse than a result that does.
 func registerApprovals(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "list_approvals",
@@ -64,8 +70,9 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 			strings.Join(service.ApprovalActions(), ", ") + ". " +
 			"EVERY ACTION MAILS SOMEBODY — the reviewers, or the person who asked — and there is no way to " +
 			"turn that off, unlike sharing. An approval grants nobody access; what it can do is LOCK the " +
-			"file, either straight away with lock_file or once it is approved, and a locked file cannot be " +
-			"edited by anyone until the approval is finished. Declining completes the approval on its own, " +
+			"file: certainly once it is APPROVED, and lock_file asks for it at the start although Drive " +
+			"does not always apply that — the result says which. A locked file cannot be edited by anyone, " +
+			"and the lock an approval leaves does not come off. Declining completes the approval on its own, " +
 			"where approving waits for every reviewer. A reviewer can be added, or replaced by somebody " +
 			"else, but never simply removed.",
 		Annotations: write,

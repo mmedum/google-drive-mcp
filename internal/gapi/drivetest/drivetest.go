@@ -11,6 +11,7 @@
 package drivetest
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -84,6 +85,11 @@ type Server struct {
 	Permissions map[string][]*gdrive.Permission
 	// Drives are the shared drives the account can see.
 	Drives map[string]*gdrive.Drive
+	// UnlistedDrives are drive ids that drives.get answers for and
+	// drives.list leaves out, which is what Drive really does for a
+	// while after a drive is created. A resolver that only ever reads
+	// the listing cannot see these, and that was a live defect.
+	UnlistedDrives map[string]bool
 	// Comments are the threads on a file id, oldest first, with their
 	// replies inline the way Drive returns them.
 	Comments map[string][]*gdrive.Comment
@@ -97,9 +103,21 @@ type Server struct {
 	Changes []*gdrive.Change
 	// Activity is the Drive Activity feed, newest last.
 	Activity []*gdrive.DriveActivity
+	// RawActivityDetails overrides the action detail served for an
+	// activity, as JSON. See SetActivityDetail: a fake for a wire
+	// protocol has to be able to say things the client's own types
+	// cannot hold, and marshalling gdrive.ActionDetail can only ever
+	// produce what its fields express.
+	RawActivityDetails map[*gdrive.DriveActivity]json.RawMessage
 	// ActivityEnabled stands for the Drive Activity scope having been
 	// granted and the API enabled. Off is where every account starts.
 	ActivityEnabled bool
+	// LockOnApprovalStart makes lockFile apply a content restriction, as
+	// the reference implies and as this fake used to do unconditionally.
+	// Drive did not, on the account this was checked against — but one
+	// account is not every edition, and the server has to be right in
+	// both worlds, so both are reachable from here.
+	LockOnApprovalStart bool
 	// Approvals are the reviews on a file id, oldest first.
 	Approvals map[string][]*gdrive.Approval
 	// FileLabels are the label values applied to a file id, which Drive

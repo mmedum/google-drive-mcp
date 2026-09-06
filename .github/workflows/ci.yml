@@ -110,6 +110,8 @@ jobs:
       # held the code to the list: one could be invented at a call site,
       # or listed and never emitted, and both read as silence.
       - run: go run ./scripts/gates classes
+      - run: go run ./scripts/gates api-coverage
+      - run: go run ./scripts/gates parity
 
   smoke:
     runs-on: ubuntu-latest

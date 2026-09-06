@@ -42,15 +42,19 @@ type Undescribed int
 const (
 	// Described means the activity was converted.
 	Described Undescribed = iota
-	// NoAction is an activity Drive sent with no primaryActionDetail on
-	// it at all. A live query of 400 activities found three, so this is
-	// ordinary rather than exceptional: the entry has a time and a
-	// target and simply does not say what happened.
+	// NoAction is an activity Drive sent without saying what happened:
+	// the detail carried no member at all. A live query of 400 found
+	// ten, so this is ordinary rather than exceptional — the entry has a
+	// time and a target and nothing else.
 	NoAction
-	// UnknownAction is an activity whose action detail carries a member
-	// this server has no words for. That one IS worth acting on: the
-	// discovery document lists twelve kinds and this server names all
+	// UnknownAction is an activity whose detail carries a member this
+	// server has no words for. That one IS worth acting on: the
+	// discovery document lists twelve kinds and actionWords names all
 	// twelve, so seeing it means Google has added a thirteenth.
+	//
+	// The member names are the only thing that can tell these two apart
+	// — both leave every field of ActionDetail nil — which is why
+	// gdrive keeps them. §18 has the phase-4 version that did not.
 	UnknownAction
 )
 
@@ -62,6 +66,9 @@ func NewActivity(a *gdrive.DriveActivity) (*Activity, Undescribed) {
 	}
 	what, detail := actionWords(a.PrimaryActionDetail)
 	if what == "" {
+		if len(UnnamedMembers(a.PrimaryActionDetail)) == 0 {
+			return nil, NoAction
+		}
 		return nil, UnknownAction
 	}
 	out := &Activity{What: what, Detail: detail, Who: actorWords(a.Actors)}
@@ -81,6 +88,37 @@ func NewActivity(a *gdrive.DriveActivity) (*Activity, Undescribed) {
 		}
 	}
 	return out, Described
+}
+
+// UnnamedMembers reports the members of a detail that actionWords below
+// has no word for.
+//
+// It lives here rather than at the call site because the vocabulary is
+// here: a caller that collected the member names itself would be
+// asserting they are unnamed, which is true only by the invariant that
+// exactly one member arrives, and nothing checks that invariant. Asking
+// the vocabulary makes the claim true by construction.
+func UnnamedMembers(d *gdrive.ActionDetail) []string {
+	if d == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range d.Members {
+		if !namedMembers[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// namedMembers is every member actionWords has a word for. The test
+// beside it holds the two together, so a kind added to the switch and
+// not to this map cannot go on being reported as one Google grew.
+var namedMembers = map[string]bool{
+	"create": true, "edit": true, "move": true, "rename": true,
+	"delete": true, "restore": true, "permissionChange": true,
+	"comment": true, "dlpChange": true, "reference": true,
+	"settingsChange": true, "appliedLabelChange": true,
 }
 
 // actionWords names the action. The API has no action-type field: WHICH
