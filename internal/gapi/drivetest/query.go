@@ -26,6 +26,8 @@ const (
 	tokOp
 	tokLParen
 	tokRParen
+	tokLBrace
+	tokRBrace
 )
 
 func lex(q string) ([]token, error) {
@@ -40,6 +42,12 @@ func lex(q string) ([]token, error) {
 			i++
 		case c == ')':
 			out = append(out, token{tokRParen, ")"})
+			i++
+		case c == '{':
+			out = append(out, token{tokLBrace, "{"})
+			i++
+		case c == '}':
+			out = append(out, token{tokRBrace, "}"})
 			i++
 		case c == '\'':
 			// Single quotes and backslashes inside a literal are escaped
@@ -221,6 +229,13 @@ func (p *parser) parseTerm() (predicate, error) {
 	}
 	opText := op.text
 	if op.kind == tokIdent {
+		// `properties has { key='k' and value='v' }`: the collection
+		// matching operator, whose right-hand side is a brace expression
+		// rather than a value. Drive documents the key-only form as well,
+		// and it is the more useful of the two.
+		if strings.EqualFold(opText, "has") {
+			return p.parseHas(field)
+		}
 		if !strings.EqualFold(opText, "contains") {
 			return nil, fmt.Errorf("unsupported operator %q", opText)
 		}
@@ -233,6 +248,66 @@ func (p *parser) parseTerm() (predicate, error) {
 		return nil, fmt.Errorf("operator %q without a value", opText)
 	}
 	return comparePredicate(field, opText, val)
+}
+
+// parseHas reads the brace expression after `has` and builds the
+// predicate for it. Only `properties` is supported: appProperties are
+// private to the app that wrote them, and this server writes none.
+func (p *parser) parseHas(field string) (predicate, error) {
+	if field != "properties" {
+		return nil, fmt.Errorf("`has` is only supported on properties, not on %q", field)
+	}
+	if t, ok := p.next(); !ok || t.kind != tokLBrace {
+		return nil, fmt.Errorf("expected `{` after `has`")
+	}
+	var key, value string
+	haveKey, haveValue := false, false
+	for {
+		name, ok := p.next()
+		if !ok {
+			return nil, fmt.Errorf("`has` expression ended early")
+		}
+		if name.kind == tokRBrace {
+			break
+		}
+		if name.kind != tokIdent {
+			return nil, fmt.Errorf("expected key or value inside `has`, got %q", name.text)
+		}
+		if strings.EqualFold(name.text, "and") {
+			continue
+		}
+		op, ok := p.next()
+		if !ok || op.kind != tokOp || op.text != "=" {
+			return nil, fmt.Errorf("expected `=` after %q inside `has`", name.text)
+		}
+		val, ok := p.next()
+		if !ok || val.kind != tokString {
+			return nil, fmt.Errorf("expected a quoted value after %q inside `has`", name.text)
+		}
+		switch strings.ToLower(name.text) {
+		case "key":
+			key, haveKey = val.text, true
+		case "value":
+			value, haveValue = val.text, true
+		default:
+			return nil, fmt.Errorf("unknown member %q inside `has`", name.text)
+		}
+	}
+	// Drive requires BOTH, whatever its search guide says: the key-only
+	// form the guide gives as an example answers 400 "Invalid Value",
+	// confirmed live in phase 4 twice in each of three spellings. A fake
+	// that accepted it would let a test pass on a query production is
+	// refused.
+	if !haveKey || !haveValue {
+		return nil, fmt.Errorf("`properties has` needs both a key and a value")
+	}
+	return func(f *gdrive.File, _ *Server) bool {
+		got, ok := f.Properties[key]
+		if !ok {
+			return false
+		}
+		return !haveValue || got == value
+	}, nil
 }
 
 func inPredicate(field, value string) (predicate, error) {

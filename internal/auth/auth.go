@@ -29,28 +29,46 @@ import (
 // is not an option: it reaches only files the app created or the user
 // opened with it through the Picker, which a stdio server cannot show.
 const (
-	ScopeDrive          = "https://www.googleapis.com/auth/drive"
-	ScopeDriveReadonly  = "https://www.googleapis.com/auth/drive.readonly"
-	ScopeLabels         = "https://www.googleapis.com/auth/drive.labels"
-	ScopeLabelsReadonly = "https://www.googleapis.com/auth/drive.labels.readonly"
+	ScopeDrive            = "https://www.googleapis.com/auth/drive"
+	ScopeDriveReadonly    = "https://www.googleapis.com/auth/drive.readonly"
+	ScopeLabels           = "https://www.googleapis.com/auth/drive.labels"
+	ScopeLabelsReadonly   = "https://www.googleapis.com/auth/drive.labels.readonly"
+	ScopeActivityReadonly = "https://www.googleapis.com/auth/drive.activity.readonly"
 )
 
-// Scopes returns the scope set for the requested access level. Labels
-// are defined through the separate Drive Labels API, which has its own
-// scopes; they are only asked for when the deployer turned labels on.
-func Scopes(readOnly, labels bool) []string {
+// Access says which scopes to ask for. It is a struct rather than a list
+// of booleans because there are three of them now, and three positional
+// bools at a call site is a swap nobody notices until a consent screen
+// asks for the wrong thing.
+type Access struct {
+	ReadOnly bool
+	// Labels adds the Drive Labels API's scopes: the definitions live in
+	// a separate API. Reading or writing the labels ON a file needs none
+	// of this — that is Drive's own scope.
+	Labels bool
+	// Activity adds the Drive Activity API's scope. It is read-only in
+	// both modes: the API has no write.
+	Activity bool
+}
+
+// Scopes returns the scope set for the requested access.
+func Scopes(a Access) []string {
 	var s []string
-	if readOnly {
+	if a.ReadOnly {
 		s = append(s, ScopeDriveReadonly)
 	} else {
 		s = append(s, ScopeDrive)
 	}
-	if labels {
-		if readOnly {
+	if a.Labels {
+		if a.ReadOnly {
 			s = append(s, ScopeLabelsReadonly)
 		} else {
 			s = append(s, ScopeLabels)
 		}
+	}
+	if a.Activity {
+		// There is no writable activity scope: the API only reads.
+		s = append(s, ScopeActivityReadonly)
 	}
 	return s
 }

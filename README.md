@@ -54,6 +54,19 @@ them. Workspace labels arrive in v0.4.0.
 | `reply_comment` | Answer a thread, resolve it, reopen it, or edit wording already in it |
 | `list_access_requests` | Who has asked to be let into a file, and what they asked for |
 | `resolve_access_request` | Accept or deny one, with who could see the file before and after |
+| `list_approvals` | The reviews on a file: who asked, who has to answer, and whether it is waiting on you |
+| `manage_approval` | Ask people to review a file, answer one, withdraw it, comment on it, or change who is asked |
+
+Three more are registered only when the deployer turns their feature on,
+because each needs a scope the consent screen would otherwise not carry:
+`list_labels` and `manage_labels` with `GDRIVE_LABELS=true`, and
+`list_activity` with `GDRIVE_ACTIVITY=true`.
+
+| Tool | What it does |
+|---|---|
+| `list_labels` | The Workspace labels this account can use, with each field and the values it takes |
+| `manage_labels` | Put a label on a file, set or clear one of its fields, or take it off |
+| `list_activity` | What happened to a file, or to everything in a folder, and when |
 
 Five more are registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and
 each of those also needs `confirm: true` on the call itself:
