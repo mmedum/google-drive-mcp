@@ -28,14 +28,15 @@ type CreateFileInput struct {
 
 // UploadFileInput describes a local file to send to Drive.
 type UploadFileInput struct {
-	LocalPath      string `json:"local_path" jsonschema:"the file to send, inside the server's local directory. Either a bare name in that directory or an absolute path inside it; anything outside is refused."`
-	Name           string `json:"name,omitempty" jsonschema:"the name it gets in Drive, default the local file's own name"`
-	Parent         string `json:"parent,omitempty" jsonschema:"the folder to put it in, as an id, a Drive URL, a path from My Drive, or a shared-drive path like drive:Marketing/Campaigns. Defaults to the root of My Drive."`
-	MimeType       string `json:"mime_type,omitempty" jsonschema:"what the file is; by default this is worked out from the extension and then from the bytes"`
-	ConvertTo      string `json:"convert_to,omitempty" jsonschema:"ask Google to import it as one of its own kinds: doc, sheet, slides or drawing. Importing a PDF or a photograph as a doc reads the text out of it."`
-	OCRLanguage    string `json:"ocr_language,omitempty" jsonschema:"an ISO 639-1 language code hinting what language the text in a scan or photograph is, for convert_to"`
-	Description    string `json:"description,omitempty" jsonschema:"a description stored on the file"`
-	AllowDuplicate bool   `json:"allow_duplicate,omitempty" jsonschema:"upload it even though the folder already holds something of that name"`
+	LocalPath                 string `json:"local_path" jsonschema:"the file to send, inside the server's local directory. Either a bare name in that directory or an absolute path inside it; anything outside is refused."`
+	Name                      string `json:"name,omitempty" jsonschema:"the name it gets in Drive, default the local file's own name"`
+	Parent                    string `json:"parent,omitempty" jsonschema:"the folder to put it in, as an id, a Drive URL, a path from My Drive, or a shared-drive path like drive:Marketing/Campaigns. Defaults to the root of My Drive."`
+	MimeType                  string `json:"mime_type,omitempty" jsonschema:"what the file is; by default this is worked out from the extension and then from the bytes"`
+	ConvertTo                 string `json:"convert_to,omitempty" jsonschema:"ask Google to import it as one of its own kinds: doc, sheet, slides or drawing. Importing a PDF or a photograph as a doc reads the text out of it."`
+	OCRLanguage               string `json:"ocr_language,omitempty" jsonschema:"an ISO 639-1 language code hinting what language the text in a scan or photograph is, for convert_to"`
+	UseContentAsIndexableText bool   `json:"use_content_as_indexable_text,omitempty" jsonschema:"index the uploaded bytes as the file's searchable text, so Drive search can find it by its words. For a type Drive does not read on its own; it does nothing for a type it already indexes."`
+	Description               string `json:"description,omitempty" jsonschema:"a description stored on the file"`
+	AllowDuplicate            bool   `json:"allow_duplicate,omitempty" jsonschema:"upload it even though the folder already holds something of that name"`
 }
 
 // UpdateContentInput replaces a file's bytes.
@@ -67,6 +68,7 @@ type UpdateFileMetaInput struct {
 	Properties                   map[string]string `json:"properties,omitempty" jsonschema:"custom key-value pairs stored on the file and visible to every app. An empty value deletes that key."`
 	CopyRequiresWriterPermission *bool             `json:"copy_requires_writer_permission,omitempty" jsonschema:"true stops viewers and commenters copying, printing or downloading it"`
 	WritersCanShare              *bool             `json:"writers_can_share,omitempty" jsonschema:"false stops editors changing who else can see it"`
+	Viewed                       bool              `json:"viewed,omitempty" jsonschema:"mark the file as opened by you just now, which is what puts it at the top of Drive's Recent view. Only true does anything: Drive stores a timestamp and offers no way to say a file was never opened."`
 }
 
 // MoveFileInput moves one item somewhere else.
@@ -84,6 +86,7 @@ type CopyFileInput struct {
 	ConvertTo           string `json:"convert_to,omitempty" jsonschema:"ask Google to import the copy as one of its own kinds: doc, sheet, slides or drawing. This is how a PDF or a scanned image becomes a document with readable text, which read_file can then return."`
 	OCRLanguage         string `json:"ocr_language,omitempty" jsonschema:"an ISO 639-1 language code hinting what language the text in a scan is, for convert_to"`
 	KeepRevisionForever bool   `json:"keep_revision_forever,omitempty" jsonschema:"pin the copy's first revision so Drive keeps it"`
+	CopyComments        bool   `json:"copy_comments,omitempty" jsonschema:"bring the comment threads along. Off by default: the threads are other people's words, and the copy may end up somewhere they cannot see."`
 	AllowDuplicate      bool   `json:"allow_duplicate,omitempty" jsonschema:"copy it even though the destination folder already holds something of that name"`
 	Recursive           bool   `json:"recursive,omitempty" jsonschema:"required to copy a folder: Drive has no call for it, so it is one listing per folder and one write per item inside"`
 	MaxItems            int    `json:"max_items,omitempty" jsonschema:"how many items a recursive copy may write, default 200, ceiling 2000. A tree larger than this is refused before anything is copied, rather than copied halfway."`
@@ -134,7 +137,8 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UploadFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.UploadFile(ctx, service.UploadFileInput{
 			LocalPath: in.LocalPath, Name: in.Name, Parent: in.Parent, MimeType: in.MimeType,
-			ConvertTo: in.ConvertTo, OCRLanguage: in.OCRLanguage, Description: in.Description,
+			ConvertTo: in.ConvertTo, OCRLanguage: in.OCRLanguage,
+			UseContentAsIndexableText: in.UseContentAsIndexableText, Description: in.Description,
 			AllowDuplicate: in.AllowDuplicate,
 		}))
 	})
@@ -169,8 +173,8 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "update_file",
 		Description: "Change a file's details without touching its content: rename it, describe it, star it, " +
-			"colour a folder, set custom properties, or turn off copying and re-sharing. Only the fields you " +
-			"pass change, and the result shows each one before and after. " +
+			"colour a folder, set custom properties, mark it as opened, or turn off copying and re-sharing. " +
+			"Only the fields you pass change, and the result shows each one before and after. " +
 			"update_content replaces what is inside a file; move_file changes where it is.",
 		Annotations: idempotentWrite,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateFileMetaInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
@@ -179,6 +183,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			Color: in.Color, Properties: in.Properties,
 			CopyRequiresWriterPermission: in.CopyRequiresWriterPermission,
 			WritersCanShare:              in.WritersCanShare,
+			Viewed:                       in.Viewed,
 		}))
 	})
 
@@ -208,6 +213,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		return result(d.Service.CopyFile(ctx, service.CopyFileInput{
 			File: in.File, Name: in.Name, To: in.To, ConvertTo: in.ConvertTo,
 			OCRLanguage: in.OCRLanguage, KeepRevisionForever: in.KeepRevisionForever,
+			CopyComments:   in.CopyComments,
 			AllowDuplicate: in.AllowDuplicate, Recursive: in.Recursive, MaxItems: in.MaxItems,
 			DryRun: in.DryRun,
 		}))

@@ -290,9 +290,20 @@ func (s *Service) fetch(ctx context.Context, id string, o ResolveOptions) (*gdri
 			return f, nil
 		}
 	}
-	f, err := s.api.GetFile(ctx, id, gapi.GetFileOptions{IncludeLabels: o.IncludeLabels})
+	f, err := s.api.GetFile(ctx, id, gapi.GetFileOptions{})
 	if err != nil {
 		return nil, err
+	}
+	// Labels cost a second call. Drive's includeLabels parameter would
+	// fold them into the first, but only for label ids the caller already
+	// knows, and a file card's whole question is which labels are on this
+	// file. files.listLabels answers that, and needs no labels scope.
+	if o.IncludeLabels {
+		labels, err := s.api.AllFileLabels(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		f.LabelInfo = &gdrive.LabelInfo{Labels: labels}
 	}
 	s.mu.Lock()
 	s.files[key] = cached[*gdrive.File]{value: f, at: s.now()}
