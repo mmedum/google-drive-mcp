@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/schemas/mcpb-manifest-v0.3.schema.json",
+  "manifest_version": "0.3",
+  "name": "google-drive-mcp",
+  "display_name": "Google Drive",
+  "version": "0.0.0-dev",
+  "description": "Google Drive as MCP tools: find files and know where they live and who can see them, organise, transfer, share and follow what changed.",
+  "long_description": "A single Go binary that speaks MCP over stdio, on your own machine, against your own Google account. macOS, Windows and Linux, on both architectures each. There is no server to host and no service account.\n\nThe bundle does NOT log you in. You need your own Google OAuth client and one login first: create an OAuth 2.0 Client ID of type Desktop app, download the JSON, and pick it during install. Then run `google-drive-mcp login --client-secret <that file>` once from a terminal; the refresh token goes to your OS keyring. The README has the full setup, which needs the Drive API enabled in a Cloud project you own.\n\nEvery other setting keeps its default, and two of them are worth knowing. File transfer stays off until GDRIVE_LOCAL_DIR names a directory, so download_file and upload_file are not registered until you set it. Nothing that removes something permanently is registered at all unless GDRIVE_ENABLE_DESTRUCTIVE is set: trash and restore are the default surface. Both take the manual client configuration in the README.",
+  "author": {
+    "name": "mmedum",
+    "url": "https://github.com/mmedum"
+  },
+  "homepage": "https://github.com/mmedum/google-drive-mcp",
+  "documentation": "https://github.com/mmedum/google-drive-mcp#readme",
+  "support": "https://github.com/mmedum/google-drive-mcp/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mmedum/google-drive-mcp"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "google-drive",
+    "drive",
+    "google-workspace",
+    "stdio"
+  ],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/google-drive-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/google-drive-mcp",
+      "args": [],
+      "env": {
+        "GDRIVE_CLIENT_SECRET": "${user_config.client_secret}"
+      },
+      "platform_overrides": {
+        "linux": {
+          "command": "${__dirname}/server/linux-launch.sh"
+        },
+        "win32": {
+          "command": "${__dirname}/server/google-drive-mcp.exe"
+        }
+      }
+    }
+  },
+  "user_config": {
+    "client_secret": {
+      "type": "file",
+      "title": "OAuth client JSON",
+      "description": "The client_secret JSON you downloaded when you created the Desktop OAuth client. The same file you passed to `google-drive-mcp login`.",
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  }
+}

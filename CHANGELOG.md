@@ -45,6 +45,25 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   `SECURITY.md` existed and nothing linked to it either; both are in the
   documentation list now.
 
+- **A Claude Desktop bundle on every release.** Open the `.mcpb` and
+  Claude Desktop installs the server and asks for your OAuth client
+  JSON, with no config file to edit — macOS, Windows and Linux on both
+  architectures each.
+
+  The version comes from one place: goreleaser's, which stamps the
+  binary and is written into the manifest as it packs. The committed
+  manifest carries a placeholder and the packer refuses anything else,
+  so a manifest in the tree cannot claim a stale version. Packing runs
+  as the universal binary's post hook — the one point where every binary
+  exists and `checksums.txt` has not been written — which is what puts
+  the bundle in that file and therefore under the same signature as the
+  archives.
+
+  macOS needed a universal binary, which this repository did not build;
+  it is built for the bundle alone and kept out of the ordinary
+  archives. Linux gets a launcher instead, because a manifest names a
+  command per platform and has no key for the architecture.
+
 - **The README now looks like a released project's.** Status badges for
   CI, the latest release, the Go reference and the licence; a link to the
   latest release beside the `go install` line, with `--ignore-missing` on
