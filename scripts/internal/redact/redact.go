@@ -51,17 +51,41 @@ var patterns = []pattern{
 	{"ID", regexp.MustCompile(`[A-Za-z0-9_\-]{19,}={0,2}`)},
 }
 
-// personBesideAddress matches the display name this server prints in
-// front of an address, once the address itself has become a placeholder:
-// "Kim Nørskov <<EMAIL_3>>". Names are the part of a Drive listing people
-// most expect to be hidden, and beside an address they can be found
-// without guessing.
-// A name is capitalised words of two letters or more, with the usual
-// lowercase particles allowed between them. Requiring the capital keeps
-// the match off the words around it — without it, "13:17Z by Kim" was
-// swallowed whole, timestamp and all.
-var personBesideAddress = regexp.MustCompile(
-	`((?:\p{Lu}[\p{L}'\-.]+)(?: (?:\p{Lu}[\p{L}'\-.]+|van|von|der|den|de|del|di|du|la|le|bin|al)){0,4}) (<<EMAIL_\d+>>)`)
+// personName is the shape of a display name: capitalised words of two
+// letters or more, with the usual lowercase particles allowed between
+// them. Requiring the capital keeps the match off the words around it —
+// without it, "13:17Z by Kim" was swallowed whole, timestamp and all.
+//
+// A name has no shape of its own that tells it from a file's, which is
+// why it is never matched on its own. What identifies it is the POSITION
+// this server printed it in, and those positions are a closed set
+// because internal/render wrote every one of them.
+const personName = `(?:\p{Lu}[\p{L}'\-.]+)(?: (?:\p{Lu}[\p{L}'\-.]+|van|von|der|den|de|del|di|du|la|le|bin|al)){0,4}`
+
+// personPositions are those positions. internal/model prints a person in
+// exactly three forms (userWords): "Name (you)", "Name <address>", and
+// the bare "Name" — and only the middle one has an address beside it to
+// be found by, which is all the earlier version of this file could see.
+//
+// The bare form is not an edge case. Drive populates no email on a
+// COMMENT author, so a comment listing carries somebody's name and
+// nothing else; phase 3 added that surface and the redactor did not
+// learn about it. Nor did it ever hide the signed-in account's own name,
+// which prints beside "(you)" in almost every result there is.
+var personPositions = []*regexp.Regexp{
+	// The signed-in account. Nothing else is followed by "(you)".
+	regexp.MustCompile(`(` + personName + `) \(you\)`),
+	// Beside an address, once the address is a placeholder.
+	regexp.MustCompile(`(` + personName + `) <<EMAIL_\d+>>`),
+	// "modified … by Name" ending a field, in a file card, a listing or
+	// a revision. A column break or the end of the line closes it.
+	regexp.MustCompile(`\bby (` + personName + `)(?:  |$)`),
+	// "owner: Name" in a file card.
+	regexp.MustCompile(`(?m)^owner: (` + personName + `)`),
+	// "Name, 2026-03-04 …" — a comment or reply author, which is the
+	// form with nothing else beside it at all.
+	regexp.MustCompile(`(` + personName + `), \d{4}-\d{2}-\d{2}`),
+}
 
 var (
 	hasUpper = regexp.MustCompile(`[A-Z]`)
@@ -87,12 +111,14 @@ func (r *Redactor) Do(text string) string {
 			return r.placeholder(p.name, match)
 		})
 	}
-	// After the addresses are placeholders, the names in front of them
-	// are findable.
-	text = personBesideAddress.ReplaceAllStringFunc(text, func(match string) string {
-		parts := personBesideAddress.FindStringSubmatch(match)
-		return r.placeholder("PERSON", parts[1]) + " " + parts[2]
-	})
+	// Names last: the address patterns above turn "<a@b>" into a
+	// placeholder, and one of the positions below is defined by it.
+	for _, re := range personPositions {
+		text = re.ReplaceAllStringFunc(text, func(match string) string {
+			name := re.FindStringSubmatch(match)[1]
+			return strings.Replace(match, name, r.placeholder("PERSON", name), 1)
+		})
+	}
 	return text
 }
 

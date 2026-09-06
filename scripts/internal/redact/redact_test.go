@@ -1,6 +1,7 @@
 package redact
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -152,5 +153,65 @@ func TestANumericPermissionIDIsRedacted(t *testing.T) {
 	plain := "bytes: 6291456 (6.0 MiB), modified 2026-09-05 20:04Z"
 	if out := NewRedactor(false).Do(plain); out != plain {
 		t.Errorf("an ordinary number was redacted:\n%s", out)
+	}
+}
+
+// TestANameWithNoAddressBesideItIsHidden is the gap phase 3 opened and
+// this file did not notice. internal/model prints a person three ways
+// and only one of them has an address; the redactor could see that one.
+//
+// Every line below is the shape a renderer in internal/render actually
+// emits, with invented names. A live transcript is never the fixture:
+// one copied from a real response is itself the leak.
+func TestANameWithNoAddressBesideItIsHidden(t *testing.T) {
+	r := NewRedactor(false)
+	lines := []struct{ what, in string }{
+		{"the signed-in account in a file card", "owner: Wendell Ashgrove (you)"},
+		{"the signed-in account in a listing", "folder  Reports  modified 2026-03-04 09:00Z (2 days ago) by Wendell Ashgrove (you)"},
+		{"another person, no address", "owner: Perpetua Blackwood"},
+		{"a revision's author", "id-revision-b  2026-03-04 09:05Z (2 days ago) by Perpetua Blackwood  1.2 KiB  current"},
+		{"a comment author, which Drive gives no address for", "id-comment-1  open  Perpetua Blackwood, 2026-03-04 09:00Z (2 days ago)"},
+		{"a reply author", "    id-reply-1  Wendell Ashgrove (you), 2026-03-05 11:00Z (1 day ago)"},
+		{"a name beside an address, which already worked", "owner: Perpetua Blackwood <someone@corp.example.net>"},
+	}
+	for _, line := range lines {
+		got := r.Do(line.in)
+		for _, name := range []string{"Wendell", "Ashgrove", "Perpetua", "Blackwood"} {
+			if strings.Contains(got, name) {
+				t.Errorf("%s: %q survived\n  in:  %s\n  out: %s", line.what, name, line.in, got)
+			}
+		}
+		if !strings.Contains(got, "<PERSON_") {
+			t.Errorf("%s: nothing was redacted\n  in:  %s\n  out: %s", line.what, line.in, got)
+		}
+	}
+	// One person is one placeholder across DIFFERENT positions, or the
+	// transcript stops being readable as a story: the owner of a file and
+	// the author of a comment on it have to be visibly the same person.
+	token := regexp.MustCompile(`<PERSON_\d+>`)
+	fromCard := token.FindString(r.Do("owner: Wendell Ashgrove (you)"))
+	fromComment := token.FindString(r.Do("id-comment-1  open  Wendell Ashgrove (you), 2026-03-04 09:00Z"))
+	if fromCard == "" || fromCard != fromComment {
+		t.Errorf("one person got two placeholders: %q in a card, %q in a comment", fromCard, fromComment)
+	}
+}
+
+// TestRedactionLeavesTheProseAlone is the other half. An unreadable
+// transcript is one nobody checks before pasting it, so a rule that eats
+// the words around a name costs more than it saves.
+func TestRedactionLeavesTheProseAlone(t *testing.T) {
+	r := NewRedactor(false)
+	for _, line := range []string{
+		"Drive discards a revision 30 days after it stops being current unless it is kept forever",
+		"this is a Google Doc. Its text is available through Google's export",
+		"folder  Q3 Planning Documents  modified 2026-03-04 09:00Z (2 days ago)",
+		"note: made by the live driver",
+		"no comments: nobody has commented on this file",
+		"you can: edit, comment, share, download, rename, trash",
+		"NOTHING WAS CHANGED: this was a dry run. Call it again without dry_run to do it.",
+	} {
+		if got := r.Do(line); got != line {
+			t.Errorf("prose was redacted\n  in:  %s\n  out: %s", line, got)
+		}
 	}
 }
