@@ -35,6 +35,10 @@ type writeRun struct {
 	// of the sharing surface that needs a second person, spike F
 	// included.
 	share string
+	// blocked is an address the organisation's own sharing policy
+	// refuses, or empty. It needs a Workspace administrator to have put
+	// it out of bounds; §17a is what it closes.
+	blocked string
 	// failures counts calls that did not behave as expected.
 	failures int
 }
@@ -45,8 +49,8 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 
 // runWrites drives the whole write surface and reports how many calls
 // behaved unexpectedly.
-func runWrites(s *mcpstdio.Session, red *redact.Redactor, dir, parent, drive, share string) (int, error) {
-	w := &writeRun{sess: s, red: red, dir: dir, drive: drive, share: share}
+func runWrites(s *mcpstdio.Session, red *redact.Redactor, dir, parent, drive, share, blocked string) (int, error) {
+	w := &writeRun{sess: s, red: red, dir: dir, drive: drive, share: share, blocked: blocked}
 	name := fmt.Sprintf("%s %s", scratchPrefix, time.Now().UTC().Format("2006-01-02 15:04:05"))
 	args := map[string]any{"name": name}
 	if parent != "" {
@@ -75,6 +79,7 @@ func (w *writeRun) exercise() {
 	w.access(ids)
 	w.history(ids)
 	w.collaboration(ids)
+	w.policyRefusal(ids)
 	w.resources(ids)
 	w.refusals(ids)
 	w.sharedDrive(ids)
@@ -798,4 +803,108 @@ func head(text string, n int) string {
 		return text
 	}
 	return strings.Join(lines[:n], "\n") + "\n… (" + fmt.Sprint(len(lines)-n) + " more lines)"
+}
+
+// policyRefusal is the one check §17a has been waiting for an
+// administrator to make possible: a share that the ORGANISATION refuses,
+// rather than one Drive refuses.
+//
+// The distinction is not cosmetic. A policy refusal maps to [blocked] —
+// "your organisation's sharing policy does not allow this, and no option
+// here can work around it" — and everything else 403 maps to
+// [forbidden], which tells a model its role is wrong and invites it to
+// try something else. §7.4's mapping is built from three reason strings
+// Google documents (domainPolicy, invalidSharingRequest,
+// shareOutNotPermittedForContent) and has never been shown a real one.
+// If Drive answers with a fourth, every policy refusal this server has
+// ever reported has been reported as the wrong kind of failure.
+//
+// The reason itself is not in the tool result — it should not be — so it
+// is read from the server's own debug log, where a request failure logs
+// its class and reason and nothing else about the call.
+func (w *writeRun) policyRefusal(m made) {
+	if w.blocked == "" || m.text == "" {
+		return
+	}
+	fmt.Printf("\n--- the policy refusal of §17a ---\n")
+	fmt.Println("(expecting a refusal: the organisation's sharing policy, not Drive's own rules)")
+	out, isError, err := w.sess.CallTool("share_file", map[string]any{
+		"file": m.text, "principal": w.blocked, "role": "reader",
+	})
+	if err != nil {
+		fmt.Println("!! transport failure:", err)
+		w.failures++
+		return
+	}
+	fmt.Println(strings.TrimRight(w.red.Do(out), "\n"))
+
+	if !isError {
+		w.problem("the share was ALLOWED. Either the admin setting is not in place for this account's "+
+			"organisational unit yet, or "+w.red.Do(w.blocked)+" is inside it or on the allowlist. "+
+			"Nothing was learned about the mapping, and the grant is still on the file",
+			errors.New("no refusal to classify"))
+		// It really did share, inside the scratch folder; take it back.
+		w.call(call{tool: "unshare_file", args: map[string]any{"file": m.text, "principal": w.blocked}})
+		return
+	}
+
+	class, reason := classAndReason(out, w.sess.StderrTail(40))
+	fmt.Printf("\nGoogle's reason: %s\nthis server classified it as: [%s]\n", orUnknown(reason), orUnknown(class))
+	switch {
+	case class == "blocked":
+		fmt.Println("VERDICT: classified as [blocked] — but READ GOOGLE'S MESSAGE ABOVE before recording " +
+			"that as confirmation. This check cannot tell a policy refusal from any other refusal that " +
+			"lands in the same class, and the first run of it was fooled: an address with no Google " +
+			"account behind it came back as invalidSharingRequest and was reported as the organisation's " +
+			"policy, when the fix was notify: true. If the message does not describe the organisation " +
+			"refusing, this is that bug again and not a confirmation.")
+	case reason == "":
+		w.problem("the refusal carried no reason this driver could read out of the debug log, so the "+
+			"mapping is still unverified. Run with GDRIVE_LOG_LEVEL=debug",
+			errors.New("no reason logged"))
+	default:
+		// Two things look the same here and want opposite fixes, so the
+		// message names both rather than prescribing one. -blocked was
+		// given an address believed to be refused by policy; if it was,
+		// the mapping is missing a reason. If it was refused for some
+		// other reason — a typo, an address with no Google account —
+		// then [blocked] would have been the wrong answer and this is
+		// the right one.
+		w.problem("Google's reason "+reason+" mapped to ["+class+"], not [blocked]. Read Google's message "+
+			"above and decide which of these it is: a POLICY refusal, in which case "+reason+" belongs in "+
+			"the blocked reasons in internal/gapi/errors.go; or a refusal the caller can act on, in which "+
+			"case ["+class+"] is correct and the address given to -blocked is not policy-refused",
+			errors.New("reason "+reason+" is not classified as a policy refusal"))
+	}
+}
+
+// classAndReason reads the class out of the tool's own "[class] message"
+// and the reason out of the last logged request failure. The reason is a
+// Google error code — never a name, an address or a file — which is why
+// it is in the log at all.
+func classAndReason(toolError string, logs []string) (class, reason string) {
+	if m := classInResult.FindStringSubmatch(toolError); len(m) > 1 {
+		class = m[1]
+	}
+	for _, line := range logs {
+		if !strings.Contains(line, "drive api error") {
+			continue
+		}
+		if m := reasonInLog.FindStringSubmatch(line); len(m) > 1 && m[1] != "" {
+			reason = m[1]
+		}
+	}
+	return class, reason
+}
+
+var (
+	classInResult = regexp.MustCompile(`^\[([a-z_]+)\]`)
+	reasonInLog   = regexp.MustCompile(`reason=(\S*)`)
+)
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "(not recorded)"
+	}
+	return s
 }
