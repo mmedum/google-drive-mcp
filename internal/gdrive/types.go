@@ -812,3 +812,213 @@ type ResolveProposal struct {
 	View             string   `json:"view,omitempty"`
 	SendNotification bool     `json:"sendNotification"`
 }
+
+// Approval is a review a file is waiting on: who asked, who is to
+// answer, and what they have said so far. Approvals are a Workspace
+// feature and a GA part of the Drive API; whether an edition offers
+// them is answered by the API rather than guessed at here.
+type Approval struct {
+	ApprovalID   string `json:"approvalId,omitempty"`
+	TargetFileID string `json:"targetFileId,omitempty"`
+	Initiator    *User  `json:"initiator,omitempty"`
+	// Status is IN_PROGRESS, APPROVED, CANCELLED or DECLINED. It is
+	// output only: an approval's state follows from the reviewers'
+	// answers rather than being set.
+	Status            string              `json:"status,omitempty"`
+	ReviewerResponses []*ReviewerResponse `json:"reviewerResponses,omitempty"`
+	DueTime           string              `json:"dueTime,omitempty"`
+	CreateTime        string              `json:"createTime,omitempty"`
+	ModifyTime        string              `json:"modifyTime,omitempty"`
+	CompleteTime      string              `json:"completeTime,omitempty"`
+	// FileContentChangeBehavior is RESET_APPROVAL or NO_APPROVAL_ACTION.
+	// RESET_APPROVAL means a content change while the approval is in
+	// progress clears the approvals given — and that once approved, the
+	// file is LOCKED.
+	FileContentChangeBehavior string `json:"fileContentChangeBehavior,omitempty"`
+}
+
+// ReviewerResponse is one reviewer's answer, or the absence of one.
+type ReviewerResponse struct {
+	Reviewer *User `json:"reviewer,omitempty"`
+	// Response is NO_RESPONSE, APPROVED or DECLINED.
+	Response string `json:"response,omitempty"`
+}
+
+// ApprovalList is one page of a file's approvals. The list member is
+// `items`, not `approvals`: the approvals endpoints are older in shape
+// than the rest of v3.
+type ApprovalList struct {
+	Items         []*Approval `json:"items,omitempty"`
+	NextPageToken string      `json:"nextPageToken,omitempty"`
+}
+
+// StartApproval opens a review on a file.
+type StartApproval struct {
+	// ReviewerEmails is required: an approval with nobody to answer it
+	// is not a state the API offers.
+	ReviewerEmails []string `json:"reviewerEmails,omitempty"`
+	Message        string   `json:"message,omitempty"`
+	// LockFile locks the file's content for the duration.
+	LockFile bool   `json:"lockFile,omitempty"`
+	DueTime  string `json:"dueTime,omitempty"`
+	// FileContentChangeBehavior decides what a content change does to
+	// answers already given.
+	FileContentChangeBehavior string `json:"fileContentChangeBehavior,omitempty"`
+}
+
+// ApprovalMessage is the body every other approval verb takes: approve,
+// decline, cancel and comment differ in their endpoint and in nothing
+// else. The message is required only for comment.
+type ApprovalMessage struct {
+	Message string `json:"message,omitempty"`
+}
+
+// ReassignApproval adds reviewers or replaces them. Removing a reviewer
+// is not offered by the API, so it is not offered here.
+type ReassignApproval struct {
+	AddReviewers     []string `json:"addReviewers,omitempty"`
+	ReplaceReviewers []string `json:"replaceReviewers,omitempty"`
+	Message          string   `json:"message,omitempty"`
+}
+
+// Drive Activity is a separate API (driveactivity.googleapis.com, v2)
+// with a scope of its own. It answers "who did what to this" — with one
+// large caveat this server has to carry rather than hide: it names a
+// person by a People API resource name (`people/123456`), never by a
+// display name or an address. Resolving one would mean a third API and a
+// third scope. So an activity can say that something was done by you, or
+// by somebody else, and no more than that.
+
+// ActivityQuery asks the Drive Activity API for a page of activity.
+// Exactly one of ItemName and AncestorName may be set.
+type ActivityQuery struct {
+	// ItemName is `items/{fileId}`: activity on that one item.
+	ItemName string `json:"itemName,omitempty"`
+	// AncestorName is `items/{folderId}`: activity on a folder and
+	// everything under it.
+	AncestorName string `json:"ancestorName,omitempty"`
+	PageSize     int    `json:"pageSize,omitempty"`
+	PageToken    string `json:"pageToken,omitempty"`
+	// Filter is the API's own expression language over `time` and
+	// `detail.action_detail_case`.
+	Filter string `json:"filter,omitempty"`
+}
+
+// ActivityResponse is one page of activity.
+type ActivityResponse struct {
+	Activities    []*DriveActivity `json:"activities,omitempty"`
+	NextPageToken string           `json:"nextPageToken,omitempty"`
+}
+
+// DriveActivity is one thing that happened.
+type DriveActivity struct {
+	PrimaryActionDetail *ActionDetail     `json:"primaryActionDetail,omitempty"`
+	Actors              []*ActivityActor  `json:"actors,omitempty"`
+	Targets             []*ActivityTarget `json:"targets,omitempty"`
+	// Timestamp is set for an activity at one instant; TimeRange is set
+	// for a consolidated one. Exactly one of them arrives.
+	Timestamp string             `json:"timestamp,omitempty"`
+	TimeRange *ActivityTimeRange `json:"timeRange,omitempty"`
+}
+
+// ActivityTimeRange is when a consolidated activity happened.
+type ActivityTimeRange struct {
+	StartTime string `json:"startTime,omitempty"`
+	EndTime   string `json:"endTime,omitempty"`
+}
+
+// ActionDetail says what kind of thing happened. Exactly one member is
+// set, and which one IS the answer: the API has no action-type field.
+type ActionDetail struct {
+	Create             *ActivityCreate     `json:"create,omitempty"`
+	Edit               *struct{}           `json:"edit,omitempty"`
+	Move               *ActivityMove       `json:"move,omitempty"`
+	Rename             *ActivityRename     `json:"rename,omitempty"`
+	Delete             *ActivityTyped      `json:"delete,omitempty"`
+	Restore            *ActivityTyped      `json:"restore,omitempty"`
+	PermissionChange   *ActivityPermission `json:"permissionChange,omitempty"`
+	Comment            *ActivityComment    `json:"comment,omitempty"`
+	DLPChange          *struct{}           `json:"dlpChange,omitempty"`
+	Reference          *struct{}           `json:"reference,omitempty"`
+	SettingsChange     *struct{}           `json:"settingsChange,omitempty"`
+	AppliedLabelChange *struct{}           `json:"appliedLabelChange,omitempty"`
+}
+
+// ActivityCreate says how an item came to be.
+type ActivityCreate struct {
+	New    *struct{} `json:"new,omitempty"`
+	Upload *struct{} `json:"upload,omitempty"`
+	Copy   *struct{} `json:"copy,omitempty"`
+}
+
+// ActivityMove records the parents added and removed.
+type ActivityMove struct {
+	AddedParents   []*ActivityTarget `json:"addedParents,omitempty"`
+	RemovedParents []*ActivityTarget `json:"removedParents,omitempty"`
+}
+
+// ActivityRename records the titles before and after.
+type ActivityRename struct {
+	OldTitle string `json:"oldTitle,omitempty"`
+	NewTitle string `json:"newTitle,omitempty"`
+}
+
+// ActivityTyped is a delete or a restore, whose only detail is its type.
+type ActivityTyped struct {
+	Type string `json:"type,omitempty"`
+}
+
+// ActivityPermission records grants added and removed. The permissions
+// themselves carry no address either, for the same reason as the actor.
+type ActivityPermission struct {
+	AddedPermissions   []map[string]any `json:"addedPermissions,omitempty"`
+	RemovedPermissions []map[string]any `json:"removedPermissions,omitempty"`
+}
+
+// ActivityComment records a comment, and which kind.
+type ActivityComment struct {
+	Post       *struct{} `json:"post,omitempty"`
+	Assignment *struct{} `json:"assignment,omitempty"`
+	Suggestion *struct{} `json:"suggestion,omitempty"`
+}
+
+// ActivityActor is who did it. Only the KnownUser case carries anything,
+// and what it carries is a People API resource name.
+type ActivityActor struct {
+	User          *ActivityUser `json:"user,omitempty"`
+	Anonymous     *struct{}     `json:"anonymous,omitempty"`
+	System        *struct{}     `json:"system,omitempty"`
+	Administrator *struct{}     `json:"administrator,omitempty"`
+	Impersonation *struct{}     `json:"impersonation,omitempty"`
+}
+
+// ActivityUser is a person, as far as this API will say.
+type ActivityUser struct {
+	KnownUser   *ActivityKnownUser `json:"knownUser,omitempty"`
+	DeletedUser *struct{}          `json:"deletedUser,omitempty"`
+	UnknownUser *struct{}          `json:"unknownUser,omitempty"`
+}
+
+// ActivityKnownUser is a person the API will identify only by a People
+// API resource name, plus whether it is the signed-in account.
+type ActivityKnownUser struct {
+	PersonName    string `json:"personName,omitempty"`
+	IsCurrentUser bool   `json:"isCurrentUser,omitempty"`
+}
+
+// ActivityTarget is what the activity was about.
+type ActivityTarget struct {
+	DriveItem   *ActivityDriveItem `json:"driveItem,omitempty"`
+	Drive       map[string]any     `json:"drive,omitempty"`
+	FileComment map[string]any     `json:"fileComment,omitempty"`
+}
+
+// ActivityDriveItem is a file or folder an activity was about. `name` is
+// `items/{fileId}`, so the id has to be cut out of it.
+type ActivityDriveItem struct {
+	Name     string         `json:"name,omitempty"`
+	Title    string         `json:"title,omitempty"`
+	MimeType string         `json:"mimeType,omitempty"`
+	File     *struct{}      `json:"driveFile,omitempty"`
+	Folder   map[string]any `json:"driveFolder,omitempty"`
+}

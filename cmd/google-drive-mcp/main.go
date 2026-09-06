@@ -142,7 +142,11 @@ func openProfile(cfg config.Config, warn func(string)) (*profile, error) {
 }
 
 // scopes are the ones this configuration asks for.
-func (p *profile) scopes() []string { return auth.Scopes(p.cfg.ReadOnly, p.cfg.Labels) }
+func (p *profile) scopes() []string {
+	return auth.Scopes(auth.Access{
+		ReadOnly: p.cfg.ReadOnly, Labels: p.cfg.Labels, Activity: p.cfg.Activity,
+	})
+}
 
 // tokenSource builds the refresh-token-backed source, or reports why not.
 func (p *profile) tokenSource(ctx context.Context) (oauth2.TokenSource, credentials.Source, error) {
@@ -169,7 +173,8 @@ func newClient(ts oauth2.TokenSource, cfg config.Config, logger *slog.Logger) *g
 func newService(api service.API, cfg config.Config, logger *slog.Logger) *service.Service {
 	return service.New(api, service.Options{
 		ReadOnly: cfg.ReadOnly, Destructive: cfg.EnableDestructive, Sharing: cfg.Sharing,
-		LocalDir: cfg.LocalDir, MaxDownload: cfg.MaxDownload, Labels: cfg.Labels, Logger: logger,
+		LocalDir: cfg.LocalDir, MaxDownload: cfg.MaxDownload,
+		Labels: cfg.Labels, Activity: cfg.Activity, Logger: logger,
 	})
 }
 

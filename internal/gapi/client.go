@@ -264,6 +264,19 @@ type request struct {
 	// A forgotten `sharing: true` now costs throughput; a forgotten kind
 	// used to cost idempotency.
 	sharing bool
+	// reads marks a POST that only asks a question. The Drive Activity
+	// API's one method is a POST because its query does not fit in a URL,
+	// and it changes nothing: without this it would spend from the write
+	// budget and, worse, fail closed on a retry after a dropped
+	// connection, because a POST is not repeatable by default.
+	//
+	// Its zero value is the safe one, which is the property that matters:
+	// a write added later and given no thought is still treated as a
+	// write. Section 17a raised this shape as "a POST that only reads
+	// would take the wrong limiter"; deriving from the method alone fixed
+	// the dangerous direction and left this one, which phase 4 met the
+	// first time a read-only POST existed.
+	reads bool
 	// idempotent marks a POST that a second attempt cannot apply twice —
 	// a create carrying a pre-generated id, which Drive collapses into
 	// the first. It is only consulted for a POST: every other method
@@ -286,7 +299,7 @@ func (r request) repeatable() bool {
 	case http.MethodGet, http.MethodHead, http.MethodPatch, http.MethodPut, http.MethodDelete:
 		return true
 	case http.MethodPost:
-		return r.idempotent
+		return r.idempotent || r.reads
 	}
 	return false
 }
@@ -315,7 +328,7 @@ func (c *Client) limiter(r request) *rate.Limiter {
 	switch {
 	case r.sharing:
 		return c.sharingLim
-	case readMethod(r.method):
+	case readMethod(r.method) || r.reads:
 		return c.readLim
 	default:
 		return c.writeLim
@@ -512,7 +525,10 @@ func (c *Client) newRequest(ctx context.Context, r request) (*http.Request, erro
 // reported rather than repeated.
 //
 // A network failure on a write is ambiguous in the other direction: the
-// request may never have arrived. Those are never repeated.
+// request may never have arrived. Those are never repeated — but the
+// question there is whether the request WRITES, not which method it
+// used, and a POST that only asks a question is on the reading side of
+// that line.
 func retryable(r request, err error) (bool, time.Duration) {
 	var te *transientError
 	if errors.As(err, &te) {
@@ -523,7 +539,7 @@ func retryable(r request, err error) (bool, time.Duration) {
 		return te.refused || r.repeatable(), te.after
 	}
 	if errors.Is(err, ErrNetwork) {
-		return readMethod(r.method), 0
+		return readMethod(r.method) || r.reads, 0
 	}
 	return false, 0
 }

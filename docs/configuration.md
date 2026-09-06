@@ -25,7 +25,8 @@ than one per run.
 | `GDRIVE_LOCAL_DIR` | `--local-dir` | unset | The one directory downloads are written to and uploads are read from, as an absolute path. **Unset means no file transfer at all**; inline text still works both ways. |
 | `GDRIVE_MAX_DOWNLOAD` | `--max-download` | `1GiB` | Largest single download. Accepts `1GiB`, `500MB`, `2G` or a plain byte count; IEC units are powers of 1024 and decimal units powers of 1000. |
 | `GDRIVE_HTTP_TIMEOUT` | `--http-timeout` | `60s` | Deadline for one attempt at a Google API call, and for one chunk of a transfer. Between `1s` and `10m`. |
-| `GDRIVE_LABELS` | `--labels` | `false` | Enable Google Workspace labels. Adds the Drive Labels API scopes at login, so turning it on means logging in again. |
+| `GDRIVE_LABELS` | `--labels` | `false` | Enable Google Workspace labels: registers `list_labels` and `manage_labels`. The label DEFINITIONS come from the separate Drive Labels API, so this enables that API's scopes at login and needs the API turned on in the Cloud project. Reading and writing the labels *on a file* needs neither — that is Drive's own scope — but the ids you have to pass live in the definitions, so the two tools go together. |
+| `GDRIVE_ACTIVITY` | `--activity` | `false` | Enable `list_activity`: what happened to a file or to everything in a folder. Drive Activity is a separate API again, with its own scope and its own enablement in the Cloud project. It identifies people only as the signed-in account or not, so it can never say *who* somebody else was. |
 
 ## Settings with no flag
 
@@ -85,6 +86,7 @@ no local directory can still read and write file contents.
 | default | `https://www.googleapis.com/auth/drive` |
 | `GDRIVE_READ_ONLY=true` | `https://www.googleapis.com/auth/drive.readonly` |
 | `GDRIVE_LABELS=true` | the above, plus `.../auth/drive.labels` (or `.../auth/drive.labels.readonly` in read-only mode) |
+| `GDRIVE_ACTIVITY=true` | the above, plus `.../auth/drive.activity.readonly`. There is no writable activity scope: the API only reads. |
 
 `drive` and `drive.readonly` are *restricted* scopes. That is fine for an
 app you own and never publish; it is why the setup asks you to keep the
@@ -96,7 +98,14 @@ which a stdio server has no way to show.
 
 ## Changing a setting that affects scopes
 
-`GDRIVE_READ_ONLY` and `GDRIVE_LABELS` change which scopes the login asks
-for. Changing either means running `google-drive-mcp login` again;
-`doctor` compares the scopes granted with the ones the current
-configuration wants and names any that are missing.
+`GDRIVE_READ_ONLY`, `GDRIVE_LABELS` and `GDRIVE_ACTIVITY` change which
+scopes the login asks for. Changing any of them means running
+`google-drive-mcp login` again; `doctor` compares the scopes granted with
+the ones the current configuration wants and names any that are missing.
+
+The two extra APIs also have to be enabled in the Cloud project — the
+**Drive Labels API** and the **Drive Activity API** — and their scopes
+added to the consent screen. Enabling the scope without enabling the API,
+or the other way round, both end in a 403 saying only that the token had
+insufficient scopes; the tools name the setup step in their refusal so
+that message is not the last word.

@@ -17,7 +17,16 @@ func staleness(out io.Writer, args []string) error {
 	binary := arg(args, 0, "./google-drive-mcp")
 	var problems []string
 
-	dump, _, err := dumpSchemas(binary)
+	// The README documents every tool that can be registered, not only
+	// the ones a default build carries, so the surface it is compared
+	// against is the one with the feature flags on. Without this a tool
+	// behind a flag could be documented and deleted, or added and never
+	// documented, and this gate would say nothing either way.
+	//
+	// The destructive five are deliberately not included: the README
+	// names them in a paragraph rather than in the table, because a row
+	// beside the ordinary tools is exactly the wrong prominence for them.
+	dump, _, err := dumpSchemas(binary, "GDRIVE_LABELS=true", "GDRIVE_ACTIVITY=true")
 	if err != nil {
 		return err
 	}

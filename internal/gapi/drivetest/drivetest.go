@@ -95,6 +95,13 @@ type Server struct {
 	// token is an offset into it, which is enough to exercise what the
 	// client has to get right about an opaque token.
 	Changes []*gdrive.Change
+	// Activity is the Drive Activity feed, newest last.
+	Activity []*gdrive.DriveActivity
+	// ActivityEnabled stands for the Drive Activity scope having been
+	// granted and the API enabled. Off is where every account starts.
+	ActivityEnabled bool
+	// Approvals are the reviews on a file id, oldest first.
+	Approvals map[string][]*gdrive.Approval
 	// FileLabels are the label values applied to a file id, which Drive
 	// serves under the ordinary scope.
 	FileLabels map[string][]*gdrive.Label
@@ -149,6 +156,7 @@ func New() *Server {
 		Drives:          map[string]*gdrive.Drive{},
 		Comments:        map[string][]*gdrive.Comment{},
 		Proposals:       map[string][]*gdrive.AccessProposal{},
+		Approvals:       map[string][]*gdrive.Approval{},
 		FileLabels:      map[string][]*gdrive.Label{},
 		sessions:        map[string]*uploadSession{},
 		driveRequests:   map[string]string{},
@@ -200,6 +208,10 @@ func (s *Server) BaseURL() string { return s.URL + "/drive/v3" }
 // labels URL against Drive's base would 404 here instead of quietly
 // working against a fake that answers everything.
 func (s *Server) LabelsBaseURL() string { return s.URL + "/labels/v2" }
+
+// ActivityBaseURL is where the fake stands in for the Drive Activity
+// API, for the same reason the labels one is separate.
+func (s *Server) ActivityBaseURL() string { return s.URL + "/activity/v2" }
 
 func (s *Server) me() *gdrive.User {
 	return &gdrive.User{DisplayName: AccountName, EmailAddress: AccountEmail, Me: true}

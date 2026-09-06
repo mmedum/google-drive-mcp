@@ -35,8 +35,12 @@ func (d schemaDump) names() []string {
 }
 
 // dumpSchemas runs a build of the server and decodes its tool surface.
-func dumpSchemas(binary string) (schemaDump, []byte, error) {
-	raw, err := exec.Command(binary, "--dump-schemas").Output()
+func dumpSchemas(binary string, env ...string) (schemaDump, []byte, error) {
+	cmd := exec.Command(binary, "--dump-schemas")
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	raw, err := cmd.Output()
 	if err != nil {
 		return schemaDump{}, nil, fmt.Errorf("%s --dump-schemas: %w", binary, err)
 	}
