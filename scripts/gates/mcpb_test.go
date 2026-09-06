@@ -4,8 +4,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -236,5 +239,110 @@ func TestTheStagedNamesAreTheOnesThePackerWrites(t *testing.T) {
 	if len(names) != len(binaries)+len(alongside) {
 		t.Errorf("stagedNames has %d entries and the packer stages %d",
 			len(names), len(binaries)+len(alongside))
+	}
+}
+
+// TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean runs the launcher
+// rather than reading it.
+//
+// It is the one file in the bundle that is not a binary, and it stands
+// where the manifest cannot: a manifest names a command per platform and
+// has no key for the architecture, so Linux gets a shell script and the
+// choice is made at start-up. Two of its properties are load-bearing and
+// neither is visible in a review. It must `exec` rather than call, or a
+// shell sits in the middle of the stdio the MCP session runs over. And
+// on an architecture the bundle does not carry, its complaint must go to
+// STDERR: a line of English on stdout corrupts the JSON-RPC session
+// before the client's first request completes, which reads to the user
+// as the server being broken rather than absent.
+//
+// The architecture is faked with a uname earlier on PATH, so the same
+// three cases run on any machine.
+func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the launcher is /bin/sh, and it is not the Windows entry point")
+	}
+	dir := t.TempDir()
+	launcher := filepath.Join(dir, "linux-launch.sh")
+	body, err := os.ReadFile(filepath.Join("..", "..", alongside["server/linux-launch.sh"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(launcher, body, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The names come from the packer, so a rename that broke the pairing
+	// fails here rather than on somebody's machine.
+	for _, name := range []string{"google-drive-mcp-amd64", "google-drive-mcp-arm64"} {
+		script := "#!/bin/sh\necho ran " + name + "\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake := filepath.Join(dir, "fake")
+	if err := os.Mkdir(fake, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	uname := "#!/bin/sh\necho \"$FAKE_ARCH\"\n"
+	if err := os.WriteFile(filepath.Join(fake, "uname"), []byte(uname), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(arch string) (stdout, stderr string, code int) {
+		cmd := exec.Command("/bin/sh", launcher)
+		cmd.Env = append(os.Environ(), "FAKE_ARCH="+arch, "PATH="+fake+":"+os.Getenv("PATH"))
+		var out, errOut bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &errOut
+		err := cmd.Run()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return out.String(), errOut.String(), exit.ExitCode()
+		}
+		if err != nil {
+			t.Fatalf("running the launcher for %s: %v", arch, err)
+		}
+		return out.String(), errOut.String(), 0
+	}
+
+	for _, c := range []struct{ arch, want string }{
+		{"x86_64", "google-drive-mcp-amd64"},
+		{"amd64", "google-drive-mcp-amd64"},
+		{"aarch64", "google-drive-mcp-arm64"},
+		{"arm64", "google-drive-mcp-arm64"},
+	} {
+		stdout, stderr, code := run(c.arch)
+		if code != 0 {
+			t.Errorf("%s: exit %d, stderr %q", c.arch, code, stderr)
+		}
+		if !strings.Contains(stdout, c.want) {
+			t.Errorf("%s ran %q, want %s", c.arch, strings.TrimSpace(stdout), c.want)
+		}
+	}
+
+	stdout, stderr, code := run("riscv64")
+	if code == 0 {
+		t.Error("an architecture the bundle does not carry exited 0")
+	}
+	if stdout != "" {
+		t.Errorf("the launcher wrote %q to stdout, which is the JSON-RPC channel", stdout)
+	}
+	if !strings.Contains(stderr, "riscv64") {
+		t.Errorf("the complaint does not name the architecture: %q", stderr)
+	}
+
+	// A binary missing from the bundle is the other way this ends, and
+	// it must end the same way: nothing on stdout.
+	if err := os.Remove(filepath.Join(dir, "google-drive-mcp-amd64")); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code = run("x86_64")
+	if code == 0 {
+		t.Error("a missing binary exited 0")
+	}
+	if stdout != "" {
+		t.Errorf("the launcher wrote %q to stdout for a missing binary", stdout)
+	}
+	if !strings.Contains(stderr, "google-drive-mcp-amd64") {
+		t.Errorf("the complaint does not name the missing binary: %q", stderr)
 	}
 }
