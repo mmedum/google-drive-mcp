@@ -920,7 +920,8 @@ before and after summaries.
   `GDRIVE_SHARING`
   value and with `GDRIVE_ENABLE_DESTRUCTIVE` on and off before a phase is
   called done. Every `isError=True` must be an expected refusal.
-- **Agent evals** `scripts/evals` (built in phase 3), thirteen tasks
+- **Agent evals** `scripts/evals` (built in phase 3, sixteen tasks as of
+  phase 4), tasks
   through `claude -p` with only this server's tools: find a file and say
   who can see it; build a folder structure and move a file into it; share
   with someone as commenter without emailing them; share with one person
@@ -1257,10 +1258,20 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   When an account is available: `livedrive -write -share ADDRESS` makes
   a file for the purpose, records its owner, transfers, reads it back and
   compares. It reports three outcomes, two of which are failures.
-- **Ten of the thirteen evals have never been run.** `make evals` needs
-  the `claude` command, a signed-in account and several minutes, and it
-  costs real tokens, so it is not in `make check` and phase 3 ran three
-  tasks rather than thirteen. What that proved is the harness end to end
+- ~~Ten of the thirteen evals have never been run.~~ **Done in phase 4.**
+  All thirteen ran against a real account and all thirteen passed, and
+  three more were added for phase 4's own surface, because the thirteen
+  covered phases 0 to 3 and nothing else — an eval is the only thing that
+  tests a tool DESCRIPTION rather than a code path, and the two warnings
+  that matter most in this server are both in `manage_approval`'s.
+
+  Writing them produced the finding below about how a model reads "ask
+  somebody to review", and one of the three is unreachable on this
+  account (§17a, labels). The original entry follows, because the reason
+  it stood for two phases is still the reason to run them again: `make
+  evals` needs the `claude` command, a signed-in account and several
+  minutes, and it costs real tokens, so it is not in `make check` and
+  phase 3 ran three tasks rather than thirteen. What that proved is the harness end to end
   — an agent reaching this server's tools and nothing else, a task set
   up, scored on the end state and on the trace, and the scratch folder
   trashed — and it found a defect in the harness on its first run. What
@@ -1553,6 +1564,7 @@ own numbers.
 | Adding a name to a location produces a path (`Location.Child`, written for a move destination) | Refuted in review: three of the forms a location takes are not paths, and `Child` cleared `Orphaned`, so a folder whose parent this account cannot see was listed at the root of My Drive. The tree's header and its own first line — built by different routes — then disagreed with each other | `Child` turns "no visible parent" into `Above`, so the gap is shown where it is (`My Drive/…/Orphan`), and the tree's first line is built the same way as its header |
 | Shared-drive creation can be retried freely | Refined: `requestId` is required and makes it idempotent | `manage_drive create` keeps the id for the retry |
 | Shared drives are available to every account | Refuted: Workspace editions only; `about.canCreateDrives` | `get_account` and `doctor` report it; tests skip on consumer accounts |
+| "Ask somebody to review this file" leads a model to the approval tools (the assumption behind `manage_approval`'s description) | **Refuted by an eval in phase 4.** Given exactly that sentence, the model shared the file as a commenter with a "could you review this?" message, and never looked at the approval tools at all — its tool search selected `share_file` and four others, and no approval tool among them. The answer is defensible and arguably the better one for the need, so the task was wrong to demand one of two correct calls, and now names the mechanism | The eval says "start a formal approval", which still does not name the tool. The finding stands on its own though: a surface where two tools answer one sentence is a surface where the more familiar one wins, and `manage_approval` is discoverable only to somebody already looking for approvals |
 | A display name is capitalised, so a capital is what tells it from prose (the redactor, phases 1-3) | **Refuted live in phase 4.** A Workspace account with no display name set shows the address's local part instead — lowercase, dotted — and it survived EVERY position the redactor knows, because the shape refused it before the position was consulted. The transcript carried the maintainer's own name throughout | A dotted lowercase token is a name shape too, safe only because the positions are anchored. The fixtures were the other half of the problem: every invented name in them was capitalised, so the tests agreed with the bug |
 | Labels are a Drive API feature | Refined: applied through the Drive API, defined through the separate Drive Labels API with its own scopes | Phase 4 with `GDRIVE_LABELS` |
 | Reading the labels on a file needs the labels scopes (§10 as written) | **Refuted in phase 4** against the discovery document: `files.listLabels` and `files.modifyLabels` list only `drive`, `drive.file` and `drive.metadata`. The labels scopes belong to the Labels API, which defines labels; Drive alone reads and writes the values ON a file | `GDRIVE_LABELS` still governs both tools, because applying a label needs a label id and a field id and those live in the definitions. But the reason is now stated as it is, and `manage_labels` still applies and removes when the definitions are out of reach — only `set_field` is refused there, since the setter depends on the field's type |

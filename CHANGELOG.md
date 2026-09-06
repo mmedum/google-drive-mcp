@@ -8,6 +8,22 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Three more agent evals, and the thirteen that existed have all run.**
+  Ten of them had never been run since phase 3 built them; all thirteen
+  pass against a real account. The three new ones cover phase 4's own
+  surface, because the thirteen covered phases 0 to 3 and nothing else —
+  and an eval is the only thing that tests a tool DESCRIPTION rather than
+  a code path.
+
+  A task can now say it is **unreachable**: it asks, before the agent
+  runs and before any tokens are spent, whether this account can present
+  the conditions it needs. Applying a label needs an administrator to
+  have published one, and without that the task is unwinnable — a model
+  would be marked down for a rule the server is right to have. An
+  unreachable task is reported as not checked, which is not a pass. The
+  idea came from a sibling repository that found a task of its own that
+  could never have passed.
+
 - **Workspace labels**, behind `GDRIVE_LABELS=true`. `list_labels` shows
   the definitions this account may use, with every field and the values
   it takes; `manage_labels` puts one on a file, sets or clears a field,
