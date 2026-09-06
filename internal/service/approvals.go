@@ -102,8 +102,11 @@ type ManageApprovalInput struct {
 	// Reviewers are the addresses to ask, for start, and to add, for
 	// reassign.
 	Reviewers []string
-	// ReplaceReviewers swaps the reviewers out rather than adding to
-	// them, for reassign.
+	// ReplaceReviewers swaps one reviewer for another, each as
+	// "going@example.com=arriving@example.com". Drive removes a reviewer
+	// only this way — by putting somebody else in their place — so the
+	// pair is the unit, and a bare address could not say which half it
+	// was.
 	ReplaceReviewers []string
 	Message          string
 	// LockFile locks the file's content while the approval is open.
@@ -260,20 +263,47 @@ func (s *Service) reassignApproval(ctx context.Context, f *gdrive.File, in Manag
 		return nil, "", Errorf(ClassInvalid,
 			"approval is required for reassign: the id list_approvals shows")
 	}
-	add, replace := nonEmpty(in.Reviewers), nonEmpty(in.ReplaceReviewers)
-	if len(add) == 0 && len(replace) == 0 {
-		return nil, "", Errorf(ClassInvalid,
-			"reassign needs reviewers to add or replace_reviewers to swap in. Drive does not remove a "+
-				"reviewer at all: cancel the approval and start another one instead")
+	added := nonEmpty(in.Reviewers)
+	replaced, err := reviewerReplacements(in.ReplaceReviewers)
+	if err != nil {
+		return nil, "", err
 	}
-	out, err := s.api.ReassignApproval(ctx, f.ID, id, &gdrive.ReassignApproval{
-		AddReviewers: add, ReplaceReviewers: replace, Message: in.Message,
-	})
+	if len(added) == 0 && len(replaced) == 0 {
+		return nil, "", Errorf(ClassInvalid,
+			"reassign needs reviewers to add, or replace_reviewers to swap one person for another as "+
+				"\"going@example.com=arriving@example.com\". Drive will not simply REMOVE a reviewer — "+
+				"a replacement is the only way somebody leaves, and it needs whoever is taking their place")
+	}
+	body := &gdrive.ReassignApproval{ReplaceReviewers: replaced, Message: in.Message}
+	for _, address := range added {
+		body.AddReviewers = append(body.AddReviewers, gdrive.AddReviewer{AddedReviewerEmail: address})
+	}
+	out, err := s.api.ReassignApproval(ctx, f.ID, id, body)
 	if err != nil {
 		return nil, "", s.approvalError(err, f, "reassigning the approval on")
 	}
-	note := "The reviewers changed and the new ones have been mailed."
-	return out, note, nil
+	return out, "The reviewers changed and the new ones have been mailed.", nil
+}
+
+// reviewerReplacements reads the "going=arriving" pairs a replacement
+// needs. Drive requires both addresses — it removes a reviewer only by
+// naming their replacement — so a pair with a half missing is refused
+// here rather than sent as a body Drive answers 400 to.
+func reviewerReplacements(pairs []string) ([]gdrive.ReplaceReviewer, error) {
+	var out []gdrive.ReplaceReviewer
+	for _, pair := range nonEmpty(pairs) {
+		going, arriving, ok := strings.Cut(pair, "=")
+		going, arriving = strings.TrimSpace(going), strings.TrimSpace(arriving)
+		if !ok || going == "" || arriving == "" {
+			return nil, Errorf(ClassInvalid,
+				"replace_reviewers takes pairs as \"going@example.com=arriving@example.com\"; %q is not one. "+
+					"Both halves are required: Drive replaces a reviewer rather than removing one", pair)
+		}
+		out = append(out, gdrive.ReplaceReviewer{
+			RemovedReviewerEmail: going, AddedReviewerEmail: arriving,
+		})
+	}
+	return out, nil
 }
 
 // approvalState says where the approval stands now, so a result reports
@@ -306,7 +336,11 @@ func approvalOutcome(action string) render.Action {
 	case ApprovalComment:
 		return render.ActionCommented
 	case ApprovalCancel:
-		return render.ActionUnshared
+		// Not ActionUnshared, which is what unshare_file reports and
+		// which a client reads as access having been taken away. An
+		// approval grants nobody access, so withdrawing one removes
+		// nobody's.
+		return render.ActionUpdated
 	default:
 		return render.ActionUpdated
 	}

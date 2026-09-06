@@ -299,11 +299,18 @@ func (s *Service) fetch(ctx context.Context, id string, o ResolveOptions) (*gdri
 	// knows, and a file card's whole question is which labels are on this
 	// file. files.listLabels answers that, and needs no labels scope.
 	if o.IncludeLabels {
+		// Best effort, the way the definitions are. A file whose labels
+		// cannot be read — canReadLabels is false on plenty of
+		// shared-drive items — still has a card worth showing, and
+		// failing the whole read over a decoration would also turn a
+		// label change that LANDED into a reported error, because the
+		// read-back asks for labels.
 		labels, err := s.api.AllFileLabels(ctx, id)
 		if err != nil {
-			return nil, err
+			s.log.DebugContext(ctx, "labels unavailable", "file", gapi.ShortID(id), "class", gapi.Class(err))
+		} else {
+			f.LabelInfo = &gdrive.LabelInfo{Labels: labels}
 		}
-		f.LabelInfo = &gdrive.LabelInfo{Labels: labels}
 	}
 	s.mu.Lock()
 	s.files[key] = cached[*gdrive.File]{value: f, at: s.now()}

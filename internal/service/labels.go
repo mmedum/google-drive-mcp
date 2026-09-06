@@ -359,13 +359,28 @@ func pickDefinition(defs map[string]*model.LabelDefinition, id string) (*model.L
 func (s *Service) cachedLabelDefinitions() (map[string]*model.LabelDefinition, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.labelDefs.value == nil {
-		return nil, false
-	}
-	if s.now().Sub(s.labelDefs.at) > s.opts.LabelTTL {
+	if s.labelDefs.value == nil || s.now().Sub(s.labelDefs.at) > s.opts.LabelTTL {
 		return nil, false
 	}
 	return s.labelDefs.value, true
+}
+
+// labelDefsFailure returns the remembered failure, if the last attempt to
+// read the definitions failed and the memory of it is still fresh.
+//
+// A failure and an empty listing are NOT the same answer, and caching
+// them as the same value was a way to turn one diagnosis into a much
+// worse one: with the Labels API not enabled, the first set_field said
+// "the Drive Labels API refused the token, enable it and log in again"
+// and every one for the next ten minutes said "no published label has
+// that id" — sending a deployer to look for a label that exists.
+func (s *Service) labelDefsFailure() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.labelDefsErr == nil || s.now().Sub(s.labelDefsErrAt) > s.opts.LabelTTL {
+		return nil
+	}
+	return s.labelDefsErr
 }
 
 // allLabelDefinitions reads every page of definitions and keeps them.
@@ -385,6 +400,9 @@ func (s *Service) allLabelDefinitions(ctx context.Context) (map[string]*model.La
 	if defs, ok := s.cachedLabelDefinitions(); ok {
 		return defs, nil
 	}
+	if err := s.labelDefsFailure(); err != nil {
+		return nil, err
+	}
 	out := map[string]*model.LabelDefinition{}
 	token := ""
 	for {
@@ -392,14 +410,17 @@ func (s *Service) allLabelDefinitions(ctx context.Context) (map[string]*model.La
 			PageSize: gapi.MaxLabelPageSize, PageToken: token,
 		})
 		if err != nil {
-			// The failure is cached too, as an empty set. The case this is
-			// for is a deployer who turned labels on without enabling the
-			// Labels API, and without it every labelled file card pays a
-			// fresh failing listing for as long as that lasts.
+			// The failure is remembered AS a failure, so it keeps saying
+			// what went wrong instead of turning into an empty listing.
+			// The case this is for is a deployer who turned labels on
+			// without enabling the Labels API: without it every labelled
+			// file card pays a fresh failing listing for as long as that
+			// lasts.
+			wrapped := s.labelAPIError(err, "reading the label definitions")
 			s.mu.Lock()
-			s.labelDefs = cached[map[string]*model.LabelDefinition]{value: map[string]*model.LabelDefinition{}, at: s.now()}
+			s.labelDefsErr, s.labelDefsErrAt = wrapped, s.now()
 			s.mu.Unlock()
-			return nil, s.labelAPIError(err, "reading the label definitions")
+			return nil, wrapped
 		}
 		for _, d := range page.Labels {
 			if def := model.NewLabelDefinition(d); def != nil {
@@ -413,6 +434,7 @@ func (s *Service) allLabelDefinitions(ctx context.Context) (map[string]*model.La
 	}
 	s.mu.Lock()
 	s.labelDefs = cached[map[string]*model.LabelDefinition]{value: out, at: s.now()}
+	s.labelDefsErr = nil
 	s.mu.Unlock()
 	return out, nil
 }

@@ -164,6 +164,12 @@ type Service struct {
 	// account, not per anything a caller passes. Naming the labels on a
 	// card would otherwise cost a listing per card.
 	labelDefs cached[map[string]*model.LabelDefinition]
+	// labelDefsErr remembers a FAILED attempt to read them, separately,
+	// because a failure and an empty listing are different answers and
+	// storing them as one turns "the API refused the token" into "no such
+	// label" for as long as the entry lasts.
+	labelDefsErr   error
+	labelDefsErrAt time.Time
 	// drives caches the shared drive list, which changes rarely and is
 	// needed to name a location.
 	drivesAt time.Time
