@@ -8,6 +8,30 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`copy_file` claimed the comments came across, and nothing could know
+  that.** With `copy_comments: true` the result said "The comment threads
+  were copied with it, so everybody who can see the copy can read what
+  was said on the original" — asserted from the argument. `files.copy`
+  answers with a File and mentions comments nowhere, so the claim had no
+  source. It is the `lock_file` defect exactly, with somebody else's
+  words in place of a restriction, and the class of claim this server is
+  most careful about everywhere else.
+
+  Three things kept it alive. The live driver has copied with that
+  parameter since phase 4 and never looked at the copy. The test asserted
+  the sentence, so a fixture written from the belief kept the belief. And
+  §18 recorded the overpromise as though it were a feature: "the result
+  says out loud when a copy carried somebody else's words somewhere new."
+
+  It now says what Drive was ASKED to do, says outright that Drive does
+  not report whether it did, and names `list_comments` on the copy as the
+  call that settles it. Reading it back was the other option and was
+  rejected for a reason phase 5 paid for: `comments.list` lags a copy, so
+  an empty answer would report threads as dropped when they were merely
+  late — the `empty_trash` mistake in the opposite direction. The live
+  driver now lists the copy's comments, so the next run answers a
+  question nobody has asked.
+
 - **The parity gate could be defeated by typing one `#`.** It read the
   whole workflow file for `go run ./scripts/gates NAME`, so a step
   commented out to unblock a red build still counted as running — which
@@ -63,6 +87,36 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   it is a person's job.
 
 ### Added
+
+- **The rule against asserting an outcome from the request has a gate,
+  and §17a's proposed version of it was wrong.** The entry said: fail if
+  the field is read in the same function that builds the outcome note.
+  Two CORRECT sites do exactly that — the lock sentence branches on
+  `lock_file` and then reads the file back, and the pinning note branches
+  on `keep_previous_revision` and then asks Drive to pin and words the
+  result from the answer. The function is the wrong unit; the BRANCH is
+  the right one, and what makes a branch honest is that it consults
+  something before it speaks.
+
+  `gates outcomes` fails a branch that tests a boolean the caller sent
+  and then writes prose describing the result without asking Drive
+  anything in between. A dry run and a refusal are excluded by the rule
+  itself rather than by a list: a dry run makes no call by construction
+  and says "would", which is the honest form of exactly this sentence,
+  and a refusal says what this server did, which is true whatever Drive
+  would have answered.
+
+  The other half of §17a's design question — which fields — is answered
+  by deriving rather than choosing. Every boolean field on a service
+  input struct is in scope, because a boolean input asks for a state
+  where a string carries a value, so a new one is covered on the commit
+  that adds it with nothing to remember.
+
+  What the gate cannot do is judge the words: the honest form of the
+  shape parses identically to the dishonest one. A branch that is right
+  anyway carries a row in `testdata/outcome-claims.tsv` with the reason,
+  and a row that stops matching fails, so an excuse cannot outlive the
+  code it excused. There are two.
 
 - **The live driver's option coverage is measured, and it reads 122 of
   188.** §17a has wanted this number since phase 5 grew the driver a

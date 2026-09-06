@@ -119,10 +119,18 @@ func (w *writeRun) phase4Extras(m made) {
 	if m.text != "" {
 		// The comments were made on this file a moment ago, so a copy
 		// asking for them has something to carry.
-		w.needing("copy_file", m.text, map[string]any{
+		copied := w.createAndKeepID("copy_file", map[string]any{
 			"file": m.text, "name": "rows with its comments.csv",
 			"to": w.scratchID, "copy_comments": true, "allow_duplicate": true,
 		})
+		// And then LOOK. The copy was made with copy_comments since phase
+		// 4 and nobody ever asked whether the threads arrived, while the
+		// server told the caller they had — which `gates outcomes` found
+		// and no run here could have, because the run never looked. This
+		// is the call that settles it, and an empty answer settles
+		// nothing on its own: comments.list lags a copy the way every
+		// other Drive listing lags a write.
+		w.needing("list_comments", copied, map[string]any{"file": copied, "include_deleted": false})
 		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
 	}
 
