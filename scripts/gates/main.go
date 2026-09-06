@@ -29,6 +29,10 @@ func main() {
 	switch os.Args[1] {
 	case "coverage":
 		err = coverage(os.Stdout, args)
+	case "api-coverage":
+		err = apiCoverage(os.Stdout, args)
+	case "api-diff":
+		err = apiDiff(os.Stdout, args)
 	case "schema-diff":
 		err = schemaDiff(os.Stdout, args)
 	case "smoke":
@@ -71,6 +75,8 @@ Usage:
   go run ./scripts/gates leaks history             ...nor anywhere in the history
   go run ./scripts/gates pins                      every tool a workflow installs is one exact version
   go run ./scripts/gates classes                   the error classes the code emits are the ones it declares
+  go run ./scripts/gates api-coverage              every API method is used on purpose or left out on purpose
+  go run ./scripts/gates api-diff                  refetch the discovery documents and report what changed
   go run ./scripts/gates precommit                 gofmt, vet and a secret scan
   go run ./scripts/gates install-hooks             write the git pre-commit hook
 `)
