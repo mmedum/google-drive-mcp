@@ -33,12 +33,17 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   nothing on a pull request; `schema-diff` ran only in CI, so the tool
   surface could be changed and pushed before anything objected.
 
-  Both lists are correct now, and a `parity` gate compares them, because
-  the reason they drifted will not go away: they live in different files
-  and whoever adds a gate is thinking about one of them. Found by a
-  sibling repository doing a cross-repo comparison, which is the same
-  argument one level up — nothing inside a repository was going to
-  notice.
+  Both lists are correct now, and a `parity` gate compares them — against
+  the gate program's own registry rather than only against each other, so
+  a gate that exists and is run by neither is caught too. The reason they
+  drifted will not go away: they live in different files and whoever adds
+  a gate is thinking about one of them. Found by a sibling repository
+  doing a cross-repo comparison, which is the same argument one level up
+  — nothing inside a repository was going to notice.
+
+  The gate then drifted from the program's own usage text in the very
+  commit that added it, which is the argument for the registry: the
+  dispatch, the usage and the parity check now read one list.
 
 - **`list_activity` announced a new Drive API on every ordinary entry.**
   Drive records some activities without saying what happened, and phase 4
@@ -61,6 +66,47 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   has grown one" leaves the reader with a probe to write before they can
   begin; the member name is the word they would be looking for, and this
   server has it in hand.
+
+- **`lock_file` promised a lock Drive does not apply.** Starting an
+  approval with it said "the file is LOCKED while the approval is open:
+  nobody can change its content, including you" — written from the
+  argument, and printed directly above a card showing no restriction at
+  all. Two live runs then changed the content successfully. The sentence
+  is read off the file now, so it is right whether or not Drive locks,
+  and it does not credit this approval with a lock that was already
+  there. `manage_approval`'s description and `lock_file`'s own schema
+  said the same thing and have been corrected: a schema is read BEFORE
+  the call, so an argument that overpromises there is worse than a
+  result that does.
+
+  Approving a file does lock it, exactly as described, and that is now
+  verified live — the restriction reads "Locked for File Approval" and
+  the next content change is refused for violating it.
+
+- **`empty_trash` claimed an outcome it cannot know.** `files.emptyTrash`
+  has no response — the reference gives it none — so nothing can be read
+  back about what went. It said "is empty. Everything that was in it is
+  gone for good" until a live run trashed a file, emptied that shared
+  drive's trash, and restored the same file on the very next call. It now
+  says Drive accepted the call, that the method reports nothing at all,
+  and that the view it works from lags. The dry run's count carries the
+  same warning: it counted a file trashed seconds earlier as nothing.
+
+- **A shared drive was unreachable by its own id until the listing caught
+  up.** Everything taking a `drive` argument resolved through
+  `drives.list`, which is eventually consistent after a create, so a
+  drive made moments ago was reported as an unknown NAME — with a list of
+  unrelated drive names attached — while the caller was holding its id.
+  `findDrive` falls back to `drives.get`, including when the listing is
+  empty, which is the case an account with one new shared drive is in.
+
+- **`delete_revision` disagreed with itself about a revision.** Drive's
+  revision endpoints lag a write in both directions: one run had a
+  revision `list_revisions` had just shown answer 404 and then delete
+  successfully seconds later, and another had the dry run find it and the
+  delete a second later not. Both refusals now say "or not yet" and
+  suggest trying again, instead of explaining that the revision must have
+  expired.
 
 - **A refused approval named every cause but the likely one.** Answering
   an approval that is already approved, declined or cancelled is refused

@@ -649,6 +649,18 @@ func (w *writeRun) pollChanges(token string) {
 // identifies it: the lines around it are a subject line and prose, and
 // neither has a second field beginning with a four-digit year.
 func (w *writeRun) firstRevision(id string) string {
+	return w.revisionID(id, false)
+}
+
+// revisionID reads a revision id out of a list_revisions result.
+//
+// skipCurrent picks one that is NOT the version the file is at now,
+// which is what deleting wants: Drive lists the current revision first
+// and refuses to delete it, so taking the first row asked for the one
+// answer that cannot work. One parser rather than two, because the row
+// format is the thing being read and misreading it has already cost a
+// live run.
+func (w *writeRun) revisionID(id string, skipCurrent bool) string {
 	if id == "" {
 		return ""
 	}
@@ -658,9 +670,13 @@ func (w *writeRun) firstRevision(id string) string {
 	}
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) >= 2 && looksLikeDate(fields[1]) {
-			return fields[0]
+		if len(fields) < 2 || !looksLikeDate(fields[1]) {
+			continue
 		}
+		if skipCurrent && strings.Contains(line, "current") {
+			continue
+		}
+		return fields[0]
 	}
 	return ""
 }
@@ -982,7 +998,10 @@ func (w *writeRun) call(c call) string {
 		return ""
 	}
 	fmt.Println(strings.TrimRight(w.red.Do(out), "\n"))
-	if isError != c.expectError {
+	switch {
+	case c.tolerant:
+		fmt.Println("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
+	case isError != c.expectError:
 		w.failures++
 		if c.expectError {
 			fmt.Println("!! expected a refusal and did not get one")

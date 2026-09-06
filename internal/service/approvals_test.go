@@ -113,12 +113,12 @@ func TestLockFileReportsWhatDriveDidRatherThanWhatWasAsked(t *testing.T) {
 }
 
 // TestAnAppliedLockIsReportedAsOne is the other half: where Drive really
-// has restricted the content, the sentence has to be the flat one.
+// does restrict the content on lock_file, the sentence has to be the
+// flat one. One account is not every edition, and the server has to be
+// right in both worlds.
 func TestAnAppliedLockIsReportedAsOne(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
-	fake.Files["id-notes-fixture"].ContentRestrictions = []*gdrive.ContentRestriction{
-		{ReadOnly: true, Reason: "Locked for an approval"},
-	}
+	fake.LockOnApprovalStart = true
 	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
 		File: "id-notes-fixture", Action: "start",
 		Reviewers: []string{"one@example.com"}, LockFile: true,
@@ -128,6 +128,28 @@ func TestAnAppliedLockIsReportedAsOne(t *testing.T) {
 	}
 	if !strings.Contains(res.Text, "nobody can change its content") {
 		t.Errorf("a real lock was not reported as one:\n%s", res.Text)
+	}
+}
+
+// TestALockThatWasAlreadyThereIsNotCredited keeps the sentence from
+// claiming a cause it cannot know. A file restricted before the call —
+// an earlier approval that was approved, or an administrator — must not
+// have that lock attributed to the approval just started, which is the
+// same "assert rather than observe" mistake one level down.
+func TestALockThatWasAlreadyThereIsNotCredited(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Files["id-notes-fixture"].ContentRestrictions = []*gdrive.ContentRestriction{
+		{ReadOnly: true, Reason: "Locked by somebody else"},
+	}
+	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-notes-fixture", Action: "start",
+		Reviewers: []string{"one@example.com"}, LockFile: true,
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if !strings.Contains(res.Text, "as it already was before this call") {
+		t.Errorf("a pre-existing lock was credited to this approval:\n%s", res.Text)
 	}
 }
 

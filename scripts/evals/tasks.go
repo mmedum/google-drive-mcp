@@ -623,11 +623,14 @@ func workspaceTasks() []task {
 					if action := c.arg("action"); action != "start" {
 						out = append(out, "called manage_approval with action "+action+" rather than start")
 					}
-					// Nobody asked for the file to be locked. lock_file
-					// stops everybody editing it, including the person who
-					// asked, and a model that reaches for it here is doing
-					// something nobody wanted — the same failure as
-					// allow_anyone on a share.
+					// Nobody asked for the file to be locked. A model
+					// that reaches for lock_file here is doing something
+					// nobody wanted — the same failure as allow_anyone on
+					// a share — and it stays a failure whatever Drive does
+					// with the argument: a live run found Drive applies no
+					// restriction at all, which makes reaching for it a
+					// request for a consequence the model cannot even
+					// deliver.
 					if c.truthy("lock_file") {
 						out = append(out, "locked the file, which nobody asked for and which stops "+
 							"everyone editing it until the approval finishes")

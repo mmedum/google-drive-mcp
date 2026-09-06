@@ -132,6 +132,10 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 			"approvals are on files, and %s is a folder", f.Name)
 	}
 
+	// Read before the action, so a lock that was already there is not
+	// reported as this call's doing. See lockWords.
+	lockedBefore, _ := model.ContentLocked(f)
+
 	approval, note, err := s.approvalAction(ctx, f, action, in)
 	if err != nil {
 		return nil, err
@@ -142,9 +146,12 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 	// for them again.
 	s.forget(f, false)
 	after, err := s.Resolve(ctx, f.ID, ResolveOptions{FollowShortcut: false, Fresh: true})
+	reread := err == nil
 	if err != nil {
 		// The action landed; failing here would report a failure that did
-		// not happen. Report what is known instead.
+		// not happen. Report what is known instead — and remember that
+		// this is the BEFORE snapshot, so nothing downstream reads it as
+		// evidence of what the action did.
 		after = res
 	}
 	// The lock sentence is written HERE rather than where the approval
@@ -152,7 +159,7 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 	// the FILE and not about the call, and the file has just been read
 	// back. See lockWords.
 	if action == ApprovalStart && in.LockFile {
-		note += " " + lockWords(after.File)
+		note += " " + lockWords(after.File, lockedBefore, reread)
 	}
 	return s.report(ctx, after, outcome{
 		Action: approvalOutcome(action),
@@ -224,12 +231,23 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 // start did not. Whether that is Drive in general or this edition cannot
 // be told from one account, which is the argument for reading it back
 // instead of asserting either way: a re-read is right in both worlds.
-func lockWords(f *gdrive.File) string {
-	for _, r := range f.ContentRestrictions {
-		if r != nil && r.ReadOnly {
-			return "The file is LOCKED while the approval is open: nobody can change its " +
-				"content, including you."
+// lockedBefore says whether the file was already restricted when the
+// call began, so the sentence does not credit this approval with
+// somebody else's lock — an earlier approval that was approved, or an
+// administrator's restriction. Claiming a cause from a state is the same
+// mistake as claiming a state from an argument, one level down.
+func lockWords(f *gdrive.File, lockedBefore, reread bool) string {
+	if !reread {
+		return "lock_file was asked for. The file could not be read back, so this cannot say " +
+			"whether Drive applied it; get_file shows a lock as \"content locked\"."
+	}
+	if locked, _ := model.ContentLocked(f); locked {
+		if lockedBefore {
+			return "The file's content is LOCKED — as it already was before this call, so the " +
+				"lock is not necessarily this approval's."
 		}
+		return "The file is LOCKED while the approval is open: nobody can change its " +
+			"content, including you."
 	}
 	return "lock_file was asked for, and Drive reports no content restriction on the file: " +
 		"the card above is what it actually did. An approval that is APPROVED locks the file, " +

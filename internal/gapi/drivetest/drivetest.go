@@ -112,6 +112,12 @@ type Server struct {
 	// ActivityEnabled stands for the Drive Activity scope having been
 	// granted and the API enabled. Off is where every account starts.
 	ActivityEnabled bool
+	// LockOnApprovalStart makes lockFile apply a content restriction, as
+	// the reference implies and as this fake used to do unconditionally.
+	// Drive did not, on the account this was checked against — but one
+	// account is not every edition, and the server has to be right in
+	// both worlds, so both are reachable from here.
+	LockOnApprovalStart bool
 	// Approvals are the reviews on a file id, oldest first.
 	Approvals map[string][]*gdrive.Approval
 	// FileLabels are the label values applied to a file id, which Drive

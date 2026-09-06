@@ -1,42 +1,53 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 4 complete (2026-09-06), released as v0.4.0. A default
-build registers **31** tools, phase 3's 29 plus `list_approvals` and
-`manage_approval`. Eight more exist behind a flag: the destructive five,
-plus `list_labels` and `manage_labels` under `GDRIVE_LABELS` and
-`list_activity` under `GDRIVE_ACTIVITY`. Those last three each need a
-Google API enabled in the Cloud project AND a scope the consent screen
-would otherwise not carry, which is why they are off by default — 39
-tools in all, and 13 in read-only mode. A Google Vid downloads through the long-running
-operation, which is the only way to reach one. Every method of all three
-APIs is now recorded as used on purpose or left out on purpose, and a
-gate holds the record to the code.
+**Status:** phase 5 complete (2026-09-06), released as v1.0.0. A default
+build registers **31** tools; eight more exist behind a flag — the
+destructive five, plus `list_labels` and `manage_labels` under
+`GDRIVE_LABELS` and `list_activity` under `GDRIVE_ACTIVITY`. Those last
+three each need a Google API enabled in the Cloud project AND a scope the
+consent screen would otherwise not carry, which is why they are off by
+default — 39 tools in all, and 13 in read-only mode. Phase 5 added no
+tools. Every method of all three APIs is recorded as used on purpose or
+left out on purpose, and a gate holds the record to the code.
 
-Phase 4 kept the habit of reading the discovery documents before writing
-the client, and it earned more than any phase so far: four corrections
-before a line of feature code, two of them in behaviour that had already
-shipped. `includeLabels=*` is a 400 and `get_file` had never been able to
-show a label; `LabelField`'s date member is `dateString`, so every
-date-valued field decoded to nothing. Neither could have failed a test
-here — the feature is off by default and the fake accepted whatever it
-was sent.
+**What phase 5 was for.** Everything was implemented; the question was
+what had never actually been run. The destructive five had not, because
+`empty_trash` cannot be scoped to a folder and reaching it meant emptying
+a real account's trash. Neither had an approved approval, because an
+approved file is locked and a scratch folder cannot be trashed around
+one. Both wanted the same thing — a shared drive the driver makes and
+destroys again — and building it took four runs, of which the first
+three each found a defect.
 
-The lesson that generalises is about §18 rather than about Google. Phase
-1 recorded `files.copy` as taking no `copyComments`, checked and settled;
-the discovery document lists it. A parameter list read once is a fact
-with a date on it, and the evidence log is not a substitute for reading
-the document again.
+**One mistake, six times.** The findings that mattered are all the same
+mistake: **a message asserted an outcome from the REQUEST instead of
+reading it from the response.** `list_activity` told every account with
+activity enabled that Google had added a thirteenth action kind, on
+entries that are ordinary. `lock_file` said "the file is LOCKED: nobody
+can change its content" and printed it directly above a card showing no
+restriction, with the next content change succeeding. `empty_trash` said
+"everything that was in it is gone for good" — from a method the
+reference gives no response at all — while a file trashed seconds
+earlier survived and was restored on the next call. None of the three
+could fail a test here, because the fakes were built from the same
+belief as the code.
 
-**What the live runs found that no test could.** The transcript redactor
-could not see this account's own name: its idea of a name required a
-capital, and a Workspace account with no display name shows the address's
-local part instead. It leaked in every result that named the signed-in
-person, in every renderer at once, and every fixture in the tests was
-capitalised so they agreed with the bug. `get_account` leaked outright,
-protected only by the address beside it. Drive refuses the property
-search Google's own guide gives as an example. And `list_activity` called
-an entry with no action "a kind this server has no words for" — a probe
-of 400 activities found three that carry no action at all.
+**And one about this document.** Phase 4 saw the right thing live and
+recorded the wrong shape: it wrote that an activity with no action
+arrives with `primaryActionDetail` MISSING, where Drive sends `{}`. A
+probe that asks whether a member is falsy cannot tell those apart. The
+code was then built to the record rather than to the response, so the
+branch meant to fix it never ran, and both test fixtures were written
+from the belief — the test passed while asserting the opposite of what
+Drive does. §18 now keeps responses, or something a decoder derived from
+one, rather than a sentence recalling it.
+
+**Six eventually-consistent surfaces, not one.** The changes feed and the
+property index were known. Phase 5 added four: `drives.list` after a
+create (a drive unreachable by its own id, which stranded a scratch
+shared drive in a real Workspace twice), a shared drive's trash count,
+the trash surviving `emptyTrash`, and `revisions.get` after a write.
+Eventual consistency is a property of Drive, not of one endpoint.
 
 **Three claims about automatic guards turned out to be false**, all found
 in one session: §17a described a test that does not exist, §18 described
@@ -826,6 +837,38 @@ before and after summaries.
 
 ## 11. Reliability
 
+**Drive's reads lag Drive's writes, on six endpoints and counting.** This
+is a property of the API rather than of one call, and the list is here
+rather than only in §18 because §18 is where a finding is recorded and
+this is where somebody writing the next call site looks.
+
+| Surface | What lags | What this server does |
+|---|---|---|
+| The changes feed | A write is not in the feed it was made against | The token design absorbs it; the driver asks twice |
+| The property index | A file tagged seconds ago does not match a property search | Nothing server-side — an empty page is a valid answer. The driver reports UNVERIFIED rather than failing |
+| `drives.list` after `drives.create` | A new shared drive is absent for minutes | `findDrive` falls back to `drives.get`, which is not lagged |
+| A shared drive's trash count | An item trashed seconds ago counts as nothing | The note says the count lags |
+| `files.emptyTrash` | An item trashed seconds ago survives it | The note says the method has no response and the view lags |
+| `revisions.get` and `revisions.delete` after a write | A revision `revisions.list` just showed answers 404 — and in one run the dry run found it and the delete a second later did not | Both refusals say "or not yet" and suggest trying again |
+
+Two rules come out of it, and both are worth more than the table:
+
+1. **Never assert an outcome the response did not carry.** Every defect
+   phase 5 found was this: a sentence built from the REQUEST. `lock_file`
+   reported a lock Drive had not applied, `empty_trash` reported
+   completion from a method with no response, `list_activity` reported a
+   new API from an empty object. A result must say what came back.
+2. **Where a listing lags and a `get` exists, an id should reach the
+   `get`.** That is what fixed shared drives, and the same shape is
+   available for `revisions.list`/`revisions.get` and
+   `files.list`/`files.get` if either is ever seen to lag.
+
+What this server does NOT do is sleep and retry inside a tool call. It
+would hold an MCP call open, it cannot be bounded (nothing says how long
+Drive takes), and asserting a settled state afterwards is rule 1 again
+with extra steps. Saying plainly that the answer may be stale is the
+honest option and the one a model can act on.
+
 - **Retries.** Reads and listings retry on 429, 403 `rateLimitExceeded`
   and `userRateLimitExceeded`, 5xx and network errors with exponential
   backoff and full jitter, capped at 30 s, five attempts, honouring
@@ -1205,8 +1248,36 @@ and no arrays of objects". Nothing had needed a list of scalars until an
 approval wanted its reviewers. The rule did not change; the test caught
 up with it, and now says which rule it is enforcing.
 
-**v1.0.0** waits for use in anger and a further eval round with a second
-client.
+**Phase 5 — what only a live run could say (v1.0.0).** No new tools. The
+destructive five and the approved-approval lock run against Drive for
+the first time, in a shared drive the driver creates and destroys again;
+`gates parity` holds `make check` and CI to the same list; and six
+defects that no test here could have caught are fixed.
+
+The through-line is one sentence, and it is worth more than any of the
+individual fixes: **the server asserted outcomes from the request rather
+than reading them from the response.** `list_activity` announced a new
+Drive API on every ordinary entry. `lock_file` reported a lock that was
+not applied, directly above a card showing it was not applied.
+`empty_trash` claimed everything was gone for good, from a method that
+has no response at all. Each was written by someone who knew what the
+call was supposed to do, and each shipped.
+
+The second lesson is about §18 itself. Phase 4 observed the right thing
+live and wrote down the wrong SHAPE — "the member is missing" for what
+is really `{}` — and phase 5's code was built to that record rather than
+to a response, so the fix never ran. A probe that tests whether a member
+is falsy cannot tell an absent object from an empty one. The entry in
+this log has to be the response, or something derived from it by code,
+and not a sentence recalling it.
+
+**v1.0.0 ships without three things**, all blocked on something this
+account cannot present rather than on work: ownership transfer and
+resource keys need a second Google account, and a genuinely
+policy-blocked share needs an address a Workspace administrator has put
+out of bounds. `manage_labels`'s writes need an administrator to publish
+a label. Each is in §17a with what would close it. Use in anger and an
+eval round with a second client are what 1.1 wants.
 
 ### Closing a phase
 
@@ -1260,6 +1331,39 @@ difference is a decision rather than a drift.
 ## 17a. Deferred cleanups
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
+
+- **"Never assert an outcome the response did not carry" has no gate.**
+  §11 states it as this repository's rule and phase 5 fixed three
+  violations by hand, every one of them found by a live run because
+  nothing here could see them. The narrow, checkable version exists: for
+  a tool input that asks Drive to MAKE SOMETHING SO — `lock_file`,
+  `allow_anyone`, `keep_previous_revision`,
+  `use_content_as_indexable_text` — fail if the field is read in the same
+  function that builds the outcome note, in the family of `gates classes`
+  and `TestEmptyTrashIsNamedInOnePlace`. It would have caught `lock_file`
+  before Drive did. Not done here because choosing the field set is a
+  design question and the gate is worth getting right rather than
+  shipping on release eve. Raised by the phase-5 altitude review.
+
+- **A created shared drive is thrown away and then looked for.**
+  `manage_drive` create calls `forgetDrives()`, so the next `findDrive`
+  pays for a cold paged `drives.list` that is *known* not to contain the
+  drive just made — and then falls back to `drives.get`. The server is
+  holding the created `*gdrive.Drive` and discards it. `rememberDrive`
+  would fix it, but only when the cache is already warm: seeding a cold
+  cache with one drive would make every OTHER drive unfindable by name
+  until the TTL expired, which is a worse bug than the round trip. Raised
+  by the phase-5 altitude review.
+
+- **The live driver repeats two shapes it already has.** The
+  "skipped, the file it needs was never created" banner is written out in
+  thirteen places across `write.go` and `destroy.go`, where `needing` and
+  `expecting` already own the format; and `deleteTheDrive`'s
+  call-look-retry-shout is `recover`'s, with one marker string swapped. A
+  `skip(section, why)` and a `twice(call, want, complaint)` would put
+  both in one place. Left because it touches paths phase 5 had just
+  changed heavily and verified live, which §17a has been wrong to do
+  before. Raised by the phase-5 reuse review.
 
 - **Five more oneof types are blind the same way `ActionDetail` was, and
   fail more quietly.** The fix after v0.4.0 taught `ActionDetail` to keep
@@ -1342,14 +1446,29 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   own external-sharing restriction. It needs an address that a Workspace
   administrator has actually put out of bounds; the maintainer is one,
   and the check is written and waiting for the address.
-- **The destructive five are unseen live.** They are gated off by
-  default and the live driver does not enable them. `empty_trash` is the
-  reason it does not: it cannot be scoped to a scratch folder, so
-  exercising it means emptying a real trash. `delete_comment`, added in
-  phase 3, could be run inside the scratch folder — a comment on a file
-  that is about to be trashed destroys nothing anybody wanted — but it
-  shares the gate with the other four, and turning the gate on to reach
-  it turns the other four on too.
+- ~~The destructive five are unseen live.~~ **Done after v0.4.0.** All
+  five have run against Drive, in a shared drive the driver makes and
+  destroys again: `livedrive -destructive`. The reason this waited was
+  sound — `empty_trash` cannot be scoped to a folder, so reaching it
+  without a drive of its own means emptying a real account's trash — and
+  the answer was a container that can be deleted whole, which is the
+  same thing the approved state below was waiting for.
+
+  The scoping is structural rather than remembered: `empty_trash` is
+  named in exactly one method, which cannot run before the drive exists,
+  and `TestEmptyTrashIsNamedInOnePlace` walks the driver's syntax tree
+  and fails on a second mention. That test was written after the first
+  draft named the tool in four places, one of which would have emptied
+  the signed-in account.
+
+  Four runs, and the first three each found something (§18): a freshly
+  created drive unreachable by its own id, `lock_file` promising a lock
+  Drive does not apply, `empty_trash` claiming an outcome a method with
+  no response cannot know, and a `delete_revision` dry run contradicting
+  the delete that followed it. Two of those runs stranded a scratch
+  shared drive in a real Workspace before the cause was understood,
+  which is why cleanup now deletes every id the run made rather than
+  assuming each section tidied up after itself.
 - ~~A `POST` that only reads would take the wrong limiter.~~ **Done in
   phase 3, and this entry described it wrongly until phase 4.** It named
   a `TestNoWriteIsLabelledAsARead` that walks the syntax tree checking a
@@ -1420,16 +1539,25 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   exercises both setter kinds and the choice validation. The driver's
   `-labels` mode does the rest.
 
-- **The approvals live check is unfinished in one direction.** The live
-  driver starts an approval, comments on it and cancels it. It never
-  APPROVES one, and that is deliberate rather than an omission: the
-  default `fileContentChangeBehavior` is `RESET_APPROVAL`, under which an
-  approved file is locked, and a scratch folder holding something the
-  driver cannot trash would break the contract that a run cleans up after
-  itself. What is therefore unverified live is the approved state and the
-  lock that comes with it, and `lock_file` with it. Verifying them wants
-  a scratch shared drive that can be deleted whole, the same thing
-  `empty_trash` has been waiting for.
+- ~~The approvals live check is unfinished in one direction.~~ **Done
+  after v0.4.0**, in the same scratch shared drive as the destructive
+  five, and it found the two halves behave nothing alike.
+
+  Approving is as described: the file comes back carrying a content
+  restriction reading "Locked for File Approval", the card drops rename
+  and comment from what you can do, and the next `update_content` is
+  refused for violating it. That state is now verified and the fake
+  applies it.
+
+  `lock_file` at the START does not lock. Drive returned no content
+  restriction at all, the card showed the file fully editable, and
+  `update_content` succeeded — on two runs. The server had been saying
+  "the file is LOCKED while the approval is open: nobody can change its
+  content, including you", written from the ARGUMENT, printed directly
+  above a card contradicting it. It reads the lock off the file now, so
+  it is right whether or not Drive applies one; the fake no longer
+  applies one either, since it was asserting the claim rather than the
+  behaviour, which is how the claim survived a phase.
 
 - **A stray editor file is in the public history.** A
   `.claude/settings.local.json.tmp.*` file reached a commit through
@@ -1632,6 +1760,12 @@ own numbers.
 | An activity with no action arrives with `primaryActionDetail` **missing** (phase 4, from a live probe of 400) | **Refuted live after v0.4.0.** A fresh probe of 400 activities finds that shape **zero** times: Drive sends `primaryActionDetail: {}`, ten times in 400. Phase 4 saw the right entries and wrote down the wrong shape — a probe that asks whether the member is *falsy* cannot tell an absent object from an empty one, and `{}` is falsy in most languages a probe gets written in. The code was then built to the record rather than to the response, so the branch meant to catch the ordinary case never ran, and every one of those entries was reported as a thirteenth kind Google had added: the exact confusion the phase-4 split was written to end | `ActionDetail` keeps the member names it decoded, because an empty object and a member no field covers are otherwise the same Go value. `NewActivity` decides on the names; the fixtures are JSON the decoder reads rather than struct literals, since a literal cannot express the difference. On a real account the false alarms go from ten to none, and a kind Drive really grows is named rather than counted |
 | A refutation is worth trusting once it has been checked live | **Refined after v0.4.0**, and this is the third time §18 has bent this way. Phase 4 learned that a parameter list read once has a date on it. This one has a SHAPE on it: the live observation was real and the record of it was not, and a note in this table is what the next phase builds against. What makes the difference is keeping the response — the bytes, or a decoder run over them — rather than a sentence about the response | The fixtures for both branches are now JSON, so the test is written in the same language as the evidence. Where a probe settles a question, the probe's own classification is quoted in the row |
 | Approvals exist in the API but the edition is unverified (phase 4, from the discovery document) | **Confirmed live**: start, list, comment and cancel all work on this Workspace edition, and the file-content-change behaviour comes back `RESET_APPROVAL` as the schema says | The approved state and `lock_file` are still unrun, deliberately — §17a |
+| A shared drive can be addressed by its id as soon as it exists | **Refuted live after v0.4.0.** `drives.list` is eventually consistent and `drives.get` is not, so a drive created moments ago answers by id and is absent from the listing for minutes. Everything taking a `drive` argument resolved through the listing alone, so the driver made a scratch drive, wrote files into it by that id, and was then told there was no drive of that NAME — with a list of unrelated drive names attached — when it tried to empty its trash and delete it. It stranded a shared drive in a real Workspace twice | `findDrive` falls back to `drives.get` when the listing has no match, which costs nothing on the paths that already worked: a name can only be answered by the listing, and an id that is in the listing is answered before the fallback. The refusal says both readings were tried. `drivetest.UnlistedDrives` is the fake's version of the lag |
+| `files.emptyTrash` empties the trash | **Refined live after v0.4.0.** The method has NO response — the reference gives it none — so nothing can be read back about what went. A run trashed a file, emptied that shared drive's trash, and restored the same file on the very next call; the dry run before it counted the trash as holding 0 items while that file was in it | The result says Drive accepted the call, says the method reports nothing at all, and says the view it works from lags. It had been claiming "is empty. Everything that was in it is gone for good", which is the strongest claim in the whole surface and the one thing this call cannot know |
+| `lockFile` on an approval locks the file | **Refuted live after v0.4.0**, on two runs: Drive applied no content restriction, the card showed the file fully editable, and `update_content` succeeded. APPROVING is what locks it — that half is confirmed, with the restriction reading "Locked for File Approval" and the next content change refused for violating it | The sentence is read off the file rather than written from the argument, so it is right in both worlds. The fake locked on `lockFile` too, which is how the claim survived a phase: it was built from the reference and agreed with the belief |
+| A content restriction stops a file being removed | Refuted from the reference before the run that depended on it: `readOnly` stops a new revision, a comment, and the title — and says nothing about trashing or deletion, and `files.delete` takes no parameter a restriction could refuse. Confirmed live: an approved, locked file was permanently deleted | Checked BEFORE designing the destructive driver, because the answer decided whether an approved file could strand a scratch shared drive. `drives.delete`'s `allowItemDeletion` needs `useDomainAdminAccess`, which this server does not offer, so a drive must be emptied before it can go |
+| `revisions.get` agrees with `revisions.list` | **Refuted live after v0.4.0**: a revision `list_revisions` had just shown answered 404 from `revisions.get` seconds later, and the delete that followed — same path, same call — succeeded. Drive's revision endpoint lags a write | The refusal says "or not yet" and tells the caller to try again, instead of explaining that the revision must have expired |
+| Drive's eventual consistency is a property of the changes feed | **Refuted, cumulatively.** Six surfaces now: the changes feed (phase 2), the property index (phase 4), and after v0.4.0 `drives.list` after a create, a shared drive's trash count, the trash itself surviving `emptyTrash`, and `revisions.get` after a write. It is a property of Drive, not of one endpoint | The rule this repository now works to: a message must never assert an outcome the response did not carry. Every one of the findings after v0.4.0 — including the `list_activity` false alarm and `lock_file` — is the same mistake, which is that a sentence was built from the REQUEST |
 | A refused approval is a permissions problem | **Refined live after v0.4.0**: answering an approval that is already finished is refused with the same bare `Permission denied` as answering one you are not a reviewer of. Drive does not distinguish them, so the message cannot either — it has to offer the whole set. It named two of three and left out the only cause the caller can have produced itself, so the live run, having just cancelled the approval it then answered, was told to check a reviewer list the account was already on | The finished case is named first and the message points at `list_approvals`, which is the one call that says which of the three it is |
 | Drive Activity says who did something | **Refuted in phase 4** from the schemas: an actor is a `KnownUser` carrying a People API resource name (`people/123456`) and an `isCurrentUser` flag, and nothing else. No display name, no address. The permissions inside a `PermissionChange` carry no address either | `list_activity` says "you" or "somebody else" and prints a line saying why it cannot say more. Resolving the name would be a third API and a third scope for a decoration, and the id itself never reaches the output |
 | go-sdk latest is v1.7.0 | Confirmed (proxy, 2026-07-27); v1.8.0-pre.2 tagged 2026-09-04 hardens bounds and adds `SupportedProtocolVersions`; protocol `2026-07-28` supported | Pin v1.7.0; smoke tests two protocol versions |
