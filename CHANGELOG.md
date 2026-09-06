@@ -8,6 +8,30 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The live driver's transcript hid a name only when an address stood
+  beside it.** `internal/model` prints a person three ways — `Name
+  (you)`, `Name <address>`, and a bare `Name` — and the redactor could
+  find only the middle one. So the signed-in account's own name went
+  into every transcript, and phase 3 made it worse by adding comments,
+  whose author Drive gives no address for at all. A name has no shape of
+  its own; what identifies it is the position this server printed it in,
+  and those positions are a closed set because `internal/render` wrote
+  every one of them. A full live transcript now carries the owner's name
+  zero times, where it carried it in dozens of lines.
+
+  The test that holds it does not describe the output, it **renders** it:
+  a person is put through every renderer that can print one, and a name
+  that survives fails. A renderer that starts printing a person somewhere
+  new is caught without anybody remembering to add a case — which is
+  exactly what did not happen when comments arrived. Its floor caught
+  three fixtures that proved nothing, one of them a real fixture bug.
+- **The leak gate treated a subdomain of a documentation domain as
+  real.** RFC 2606 reserves `example.com`, `.org` and `.net` and
+  everything beneath them, so `someone@corp.example.net` is as safe as
+  `someone@example.net`. The exact-match rule flagged one while a test
+  was being written to close a real leak — a gate that makes fixtures
+  weaker is working against its own purpose.
+
 - **The download eval asserts the behaviour it was explaining.** It had
   been rewritten to stop failing on a working download — `download_file`
   appends a short id so two files of one name land beside each other
