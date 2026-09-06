@@ -56,14 +56,14 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 
 // runWrites drives the whole write surface and reports how many calls
 // behaved unexpectedly.
-func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir, parent string, o options) (int, error) {
+func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o options) (int, error) {
 	w := &writeRun{sess: s, out: t, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
 		labels: o.labels, activity: o.activity}
 	stamp := time.Now().UTC().Format("2006-01-02 15:04:05")
 	name := fmt.Sprintf("%s %s", scratchPrefix, stamp)
 	args := map[string]any{"name": name}
-	if parent != "" {
-		args["parent"] = parent
+	if o.parent != "" {
+		args["parent"] = o.parent
 	}
 	w.scratchID = w.createAndKeepID("create_folder", args)
 	if w.scratchID == "" {

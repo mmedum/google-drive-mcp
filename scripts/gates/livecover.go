@@ -1,10 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
-	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -108,7 +107,7 @@ func liveCover(out io.Writer, args []string) error {
 				liveCoverFile, recorded[name].line, name))
 			continue
 		}
-		if !hasOption(known[tool], option) {
+		if !slices.Contains(known[tool], option) {
 			problems = append(problems, fmt.Sprintf("%s:%d: %s names an option %s does not have",
 				liveCoverFile, recorded[name].line, name, tool))
 		}
@@ -120,79 +119,67 @@ func liveCover(out io.Writer, args []string) error {
 		}
 		return fmt.Errorf("%d live-coverage problem(s)", len(problems))
 	}
+	undrivable, undriven := verdictCounts(recorded)
+	if undriven > maxUndriven {
+		return fmt.Errorf("%d options are recorded as undriven and the ceiling is %d. An undriven row is "+
+			"work parked rather than done, so the number may not grow: drive the new one, or lower the "+
+			"ceiling only after a run has closed some", undriven, maxUndriven)
+	}
 	_, _ = fmt.Fprintf(out, "live cover ok (%d of %d options driven, %d recorded as not: %d undrivable, "+
-		"%d undriven)\n", driven, total, excused, countVerdict(recorded, "undrivable"),
-		countVerdict(recorded, "undriven"))
+		"%d undriven)\n", driven, total, excused, undrivable, undriven)
 	return nil
 }
 
-func hasOption(options []string, want string) bool {
-	for _, o := range options {
-		if o == want {
-			return true
+// verdictCounts splits the record by verdict in one pass, so the two
+// numbers in the success line come from one walk rather than two.
+func verdictCounts(recorded map[string]liveCoverEntry) (undrivable, undriven int) {
+	for _, e := range recorded {
+		if e.verdict == "undrivable" {
+			undrivable++
+			continue
 		}
+		undriven++
 	}
-	return false
+	return undrivable, undriven
 }
 
-func countVerdict(recorded map[string]liveCoverEntry, verdict string) int {
-	n := 0
-	for _, e := range recorded {
-		if e.verdict == verdict {
-			n++
-		}
-	}
-	return n
-}
+// maxUndriven is the ceiling on rows that say a live step COULD send an
+// option and none does. It only ever goes down.
+//
+// Without it the record is a place to park work rather than a budget: a
+// new tool option is always cheaper to excuse than to drive, so the file
+// grows and 122 of 188 moves the wrong way by default. This is the
+// coverage floor in `make check` applied to a different measurement, and
+// it has the same rule — lower it when a run closes some, never raise
+// it to make a build pass.
+const maxUndriven = 56
 
 // readLiveCover reads the record. A verdict this gate does not know is a
 // refusal rather than a shrug: the two words carry the difference
 // between a gap somebody could close this afternoon and one that needs
 // another person, and inventing a third silently would lose it.
 func readLiveCover() (map[string]liveCoverEntry, error) {
-	f, err := os.Open(liveCoverFile)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
+	rows, problems := readTSV(liveCoverFile, 3, 0)
 	out := map[string]liveCoverEntry{}
-	scan := bufio.NewScanner(f)
-	line := 0
-	for scan.Scan() {
-		line++
-		// Spaces and a stray carriage return go; a trailing TAB does not,
-		// because it is the empty third field — and trimming it turned
-		// "no reason given" into "wrong number of fields", which is a
-		// worse message for the commoner mistake.
-		text := strings.TrimRight(scan.Text(), " \r")
-		if text == "" || strings.HasPrefix(text, "#") {
-			continue
+	for _, row := range rows {
+		name, verdict, reason := row.fields[0], row.fields[1], strings.TrimSpace(row.fields[2])
+		switch {
+		case verdict != "undrivable" && verdict != "undriven":
+			problems = append(problems, fmt.Sprintf("%s:%d: %s has verdict %q; it must be undrivable "+
+				"or undriven", liveCoverFile, row.line, name, verdict))
+		case reason == "":
+			problems = append(problems, fmt.Sprintf("%s:%d: %s carries no reason, and %q without one "+
+				"is not a decision", liveCoverFile, row.line, name, verdict))
+		default:
+			out[name] = liveCoverEntry{verdict: verdict, reason: reason, line: row.line}
 		}
-		fields := strings.Split(text, "\t")
-		if len(fields) != 3 {
-			return nil, fmt.Errorf("%s:%d: want three tab-separated fields, got %d", liveCoverFile, line, len(fields))
-		}
-		name, verdict, reason := fields[0], fields[1], strings.TrimSpace(fields[2])
-		if verdict != "undrivable" && verdict != "undriven" {
-			return nil, fmt.Errorf("%s:%d: %s has verdict %q; it must be undrivable or undriven",
-				liveCoverFile, line, name, verdict)
-		}
-		if reason == "" {
-			return nil, fmt.Errorf("%s:%d: %s carries no reason, and %q without one is not a decision",
-				liveCoverFile, line, name, verdict)
-		}
-		if _, seen := out[name]; seen {
-			return nil, fmt.Errorf("%s:%d: %s is listed twice", liveCoverFile, line, name)
-		}
-		out[name] = liveCoverEntry{verdict: verdict, reason: reason, line: line}
 	}
-	if err := scan.Err(); err != nil {
-		return nil, err
+	if len(out) == 0 && len(problems) == 0 {
+		problems = append(problems, liveCoverFile+" lists nothing; a record of no decisions passes "+
+			"every check there is")
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("%s lists nothing; a record of no decisions passes every check there is",
-			liveCoverFile)
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(problems, "\n"))
 	}
 	return out, nil
 }
