@@ -26,6 +26,20 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`make check` and CI did not run the same gates, in both directions.**
+  The `check` target calls itself "Everything CI runs" and was wrong
+  twice over: `api-coverage` — the gate holding every one of the API's 91
+  methods to a recorded decision — ran only locally, so it guarded
+  nothing on a pull request; `schema-diff` ran only in CI, so the tool
+  surface could be changed and pushed before anything objected.
+
+  Both lists are correct now, and a `parity` gate compares them, because
+  the reason they drifted will not go away: they live in different files
+  and whoever adds a gate is thinking about one of them. Found by a
+  sibling repository doing a cross-repo comparison, which is the same
+  argument one level up — nothing inside a repository was going to
+  notice.
+
 - **`list_activity` announced a new Drive API on every ordinary entry.**
   Drive records some activities without saying what happened, and phase 4
   built the code to tell that apart from an action kind this server has
