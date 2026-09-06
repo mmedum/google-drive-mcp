@@ -39,9 +39,12 @@ sboms:
 # workflow's OIDC identity: no private key to hold or leak.
 #
 # cosign 3 writes a bundle carrying the signature and the certificate
-# together; the separate --output-signature and --output-certificate
-# flags are deprecated and, with the new bundle format, ignored. The
-# first release attempt failed on exactly that, because the action was
+# together. --bundle moved from optional to *required* in v3 — its v3.0.1
+# release notes say exactly that, and say nothing about the old
+# --output-signature and --output-certificate being deprecated or
+# ignored — so a config carrying only those two gives cosign no output
+# path at all. That is the empty-path error the first v0.0.1 release
+# attempt died on: it failed rather than degraded, because the action was
 # pinned and the tool it installs was not (see .github/workflows).
 signs:
   - cmd: cosign
