@@ -196,7 +196,7 @@ func TestPinsPassesOnThisRepositoryAndSaysWhatItChecked(t *testing.T) {
 		t.Fatalf("pins: %v\n%s", err, out.String())
 	}
 	// A check that silently examined nothing would report success too.
-	if !strings.Contains(out.String(), "tool versions in") {
+	if !strings.Contains(out.String(), "tool versions") || !strings.Contains(out.String(), "workflows") {
 		t.Errorf("the gate does not say how much it checked: %q", out.String())
 	}
 }
