@@ -83,6 +83,19 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   layout and what each part is for; and a **Development** section naming
   the make targets and what `make check` actually runs.
 
+### Note for whoever picks this up
+
+Everything above is unreleased and sits on a topic branch. Nothing is
+pushed. The open decision is whether it goes out as 1.0.1 or waits for
+company: no code path changed, so nothing forces a release — but the
+README people read is the one on the default branch, which updates on
+merge rather than on a tag, and it was two releases stale until now.
+
+Four things are recorded in §17a rather than done: the MCP registry
+entry, a `live-cover` gate over the driver's option coverage, the
+`transcript` gate, and a gate for "never assert an outcome the response
+did not carry".
+
 ## [1.0.0] - 2026-09-06
 
 ### Added
