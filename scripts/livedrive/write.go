@@ -454,7 +454,7 @@ func (w *writeRun) spikeF() {
 	}
 	before := ownerFromResult(w.call(call{tool: "get_file", args: map[string]any{"file": transfer}}))
 
-	fmt.Println("\n!! the next call hands this file to " + w.share + " for good.")
+	fmt.Println("\n!! the next call hands this file to " + w.red.Do(w.share) + " for good.")
 	w.needing("share_file", transfer, map[string]any{
 		"file": transfer, "principal": w.share, "role": "owner", "transfer_ownership": true,
 	})
@@ -476,7 +476,7 @@ func (w *writeRun) spikeF() {
 		fmt.Println("\n(spike F: the owner changed, so the transfer really happened. " +
 			"This account is a writer on it now.)")
 	}
-	fmt.Println("!! that file now belongs to " + w.share + " and has moved to their Drive. Trashing the " +
+	fmt.Println("!! that file now belongs to " + w.red.Do(w.share) + " and has moved to their Drive. Trashing the " +
 		"scratch folder does not take it back: only its new owner can remove it.")
 }
 
@@ -879,7 +879,13 @@ func (w *writeRun) trashScratch() {
 
 // call runs one tool and prints the redacted result.
 func (w *writeRun) call(c call) string {
-	fmt.Printf("\n=== %s %s ===\n", c.tool, mcpstdio.Encode(c.args))
+	// The arguments go through the redactor too. Until phase 4 the only
+	// address that ever reached them was one the operator typed as
+	// -share or -blocked, and a transcript echoing it back was arguably
+	// their own business. Starting an approval put the SIGNED-IN
+	// account's address there automatically, on every -write run, which
+	// is nobody's choice at all.
+	fmt.Printf("\n=== %s %s ===\n", c.tool, w.red.Do(mcpstdio.Encode(c.args)))
 	if c.why != "" {
 		fmt.Printf("(expecting a refusal: %s)\n", c.why)
 	}

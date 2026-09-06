@@ -146,7 +146,7 @@ func run(o options) error {
 
 	unexpected := 0
 	for _, c := range calls { //nolint:dupl // the read loop and the write loop print differently on purpose
-		fmt.Printf("\n=== %s %s ===\n", c.tool, mcpstdio.Encode(c.args))
+		fmt.Printf("\n=== %s %s ===\n", c.tool, red.Do(mcpstdio.Encode(c.args)))
 		if c.why != "" {
 			fmt.Printf("(expecting a refusal: %s)\n", c.why)
 		}
