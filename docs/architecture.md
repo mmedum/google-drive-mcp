@@ -1326,6 +1326,30 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   offered. That is the drift this entry predicted, found the first time
   something looked.
 
+- **The live driver's transcript is redacted by habit, not by
+  construction.** Phase 4 found the difference: the driver echoed each
+  call's ARGUMENTS unredacted. That was arguably nobody's problem while
+  the only address there was one the operator had typed as `-share`, and
+  became one the moment starting an approval put the SIGNED-IN account's
+  own address into the arguments of every write run. Fixed, with a test
+  that an encoded argument list survives the redactor.
+
+  What is not fixed is the shape of it. Every line happening to go
+  through `red.Do` is not the same as every line having to, and the next
+  print somebody adds while debugging will look exactly like the two
+  beside it that are safe. A sibling repository built a gate for this
+  over its own driver's syntax tree, and the idea is right.
+
+  It was attempted here and abandoned deliberately. A gate that allows an
+  expression by its spelling needs an allowlist that grows with every
+  count and tool name printed — fifteen on the first run — and an
+  allowlist that long is a gate nobody trusts. The version with teeth is
+  the sibling's: forbid `fmt.Print*` in the driver outside one redacting
+  helper, so the rule is structural. That is a rewrite of some forty call
+  sites in a file phase 4 had just changed heavily, on the eve of a live
+  run, which is the wrong moment. It wants a phase of its own and no
+  other changes in flight.
+
 - **The approvals live check is unfinished in one direction.** The live
   driver starts an approval, comments on it and cancels it. It never
   APPROVES one, and that is deliberate rather than an omission: the
