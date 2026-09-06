@@ -193,8 +193,11 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 	if err != nil {
 		return nil, "", s.approvalError(err, f, "starting an approval on")
 	}
-	note := fmt.Sprintf("Approval started on %s and %s been mailed about it.",
-		f.Name, model.Plural(len(reviewers), "one reviewer has", "reviewers have"))
+	// The id is in the note because every other verb needs it, and this
+	// is the only place it is ever handed out: there is no listing a
+	// caller can find it in before the approval exists.
+	note := fmt.Sprintf("Approval %s started on %s and %s been mailed about it.",
+		started.ApprovalID, f.Name, model.Plural(len(reviewers), "one reviewer has", "reviewers have"))
 	if in.LockFile {
 		note += " The file is LOCKED while the approval is open: nobody can change its content, " +
 			"including you."
