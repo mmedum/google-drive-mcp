@@ -11,6 +11,7 @@
 package drivetest
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -97,6 +98,12 @@ type Server struct {
 	Changes []*gdrive.Change
 	// Activity is the Drive Activity feed, newest last.
 	Activity []*gdrive.DriveActivity
+	// RawActivityDetails overrides the action detail served for an
+	// activity, as JSON. See SetActivityDetail: a fake for a wire
+	// protocol has to be able to say things the client's own types
+	// cannot hold, and marshalling gdrive.ActionDetail can only ever
+	// produce what its fields express.
+	RawActivityDetails map[*gdrive.DriveActivity]json.RawMessage
 	// ActivityEnabled stands for the Drive Activity scope having been
 	// granted and the API enabled. Off is where every account starts.
 	ActivityEnabled bool

@@ -6,7 +6,39 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **`list_activity` announced a new Drive API on every ordinary entry.**
+  Drive records some activities without saying what happened, and phase 4
+  built the code to tell that apart from an action kind this server has
+  no words for — the first is nothing to worry about, the second means
+  Google has added a thirteenth kind. It got the wire backwards. The
+  ordinary case was read as a MISSING `primaryActionDetail`, and a probe
+  of 400 activities finds that shape zero times: Drive sends `{}`, ten
+  times in 400. So every ordinary entry went on being reported as the
+  alarming one, which is the confusion the split was written to end.
+
+  Both fixtures were written from the belief rather than from a response,
+  so the test passed while asserting the opposite of what Drive does. The
+  member names now decide it, and they are the only thing that can — an
+  empty object and a member this server cannot name leave every field of
+  the decoded struct nil, so the two were the same Go value. On a real
+  account the count goes from ten false alarms to none.
+
+  A kind Drive really has grown is now NAMED rather than counted. "Drive
+  has grown one" leaves the reader with a probe to write before they can
+  begin; the member name is the word they would be looking for, and this
+  server has it in hand.
+
+- **A refused approval named every cause but the likely one.** Answering
+  an approval that is already approved, declined or cancelled is refused
+  with the same bare `Permission denied` Drive gives someone who is not a
+  reviewer, so the message has to offer the whole set. It offered two of
+  three, and left out the only one the caller can have caused itself. The
+  live run walked into exactly that — cancel an approval, then answer it
+  — and was told to check a reviewer list the account was already on,
+  which is a dead end. The finished case is named first now, and the
+  message points at `list_approvals`, which says which of the three it is.
 
 ## [0.4.0] - 2026-09-06
 

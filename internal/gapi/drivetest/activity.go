@@ -2,6 +2,7 @@ package drivetest
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -44,7 +45,7 @@ func (s *Server) handleActivityQuery(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	var out []*gdrive.DriveActivity
+	var out []json.RawMessage
 	for _, a := range s.Activity {
 		if !ids[activitySubjectID(a)] {
 			continue
@@ -52,9 +53,63 @@ func (s *Server) handleActivityQuery(w http.ResponseWriter, r *http.Request) {
 		if !matchesActionFilter(a, q.Filter) {
 			continue
 		}
-		out = append(out, a)
+		wire, err := s.activityWireLocked(a)
+		if err != nil {
+			s.errorJSON(w, http.StatusInternalServerError, "internalError", err.Error())
+			return
+		}
+		out = append(out, wire)
 	}
-	writeJSON(w, gdrive.ActivityResponse{Activities: out})
+	writeJSON(w, struct {
+		Activities []json.RawMessage `json:"activities,omitempty"`
+	}{out})
+}
+
+// activityWireLocked renders one activity as Drive would send it, with
+// any raw action detail spliced in over the typed one.
+//
+// It splices rather than declaring a parallel struct on purpose: a
+// second copy of DriveActivity's fields here would drift the day one is
+// added to the real type, and the fake would go on serving the old
+// shape without anything failing.
+func (s *Server) activityWireLocked(a *gdrive.DriveActivity) (json.RawMessage, error) {
+	b, err := json.Marshal(a)
+	if err != nil {
+		return nil, fmt.Errorf("encode activity: %w", err)
+	}
+	raw, ok := s.RawActivityDetails[a]
+	if !ok {
+		return b, nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil, fmt.Errorf("re-read activity: %w", err)
+	}
+	obj["primaryActionDetail"] = raw
+	return json.Marshal(obj)
+}
+
+// SetActivityDetail serves detail, as JSON, for this activity, instead
+// of whatever its typed field would marshal to.
+//
+// It is how a test presents an action detail gdrive.ActionDetail cannot
+// hold — a member it has no field for, which is what a kind Google added
+// after this server was written looks like on the wire. The typed field
+// is set from the same JSON so that the fake's own action filter sees
+// what it serves.
+func (s *Server) SetActivityDetail(a *gdrive.DriveActivity, detail string) error {
+	var d gdrive.ActionDetail
+	if err := json.Unmarshal([]byte(detail), &d); err != nil {
+		return fmt.Errorf("decode action detail %s: %w", detail, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a.PrimaryActionDetail = &d
+	if s.RawActivityDetails == nil {
+		s.RawActivityDetails = map[*gdrive.DriveActivity]json.RawMessage{}
+	}
+	s.RawActivityDetails[a] = json.RawMessage(detail)
+	return nil
 }
 
 // activitySubjectID pulls the file id out of an activity's first target.
