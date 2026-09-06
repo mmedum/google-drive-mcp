@@ -38,6 +38,13 @@ const (
 	// longer than any one tool call should, and an operation that is
 	// still running is not a failure.
 	DownloadPollLimit = 2 * time.Minute
+	// DownloadPollAttempts bounds the same wait by count. The deadline
+	// alone is not a bound: it is measured against the wall clock, and
+	// the sleep between polls is replaceable — so a test, or anything
+	// else that makes sleeping free, polls without limit and never
+	// reaches the deadline at all. Under the real backoff the two run out
+	// at about the same time.
+	DownloadPollAttempts = 20
 )
 
 // StartDownload begins a download operation. mimeType applies only to a
@@ -99,7 +106,7 @@ func (c *Client) GetOperation(ctx context.Context, name string) (*gdrive.Operati
 func (c *Client) AwaitDownload(ctx context.Context, op *gdrive.Operation) (*gdrive.DownloadResponse, error) {
 	deadline := time.Now().Add(DownloadPollLimit)
 	wait := downloadPollFirst
-	for {
+	for attempt := 0; ; attempt++ {
 		if op.Error != nil {
 			return nil, fmt.Errorf("%w: the download operation failed: %s", ErrUnexpected, op.Error.Message)
 		}
@@ -112,7 +119,7 @@ func (c *Client) AwaitDownload(ctx context.Context, op *gdrive.Operation) (*gdri
 		if op.Name == "" {
 			return nil, fmt.Errorf("%w: the download operation is unfinished and carries no name to poll", ErrUnexpected)
 		}
-		if time.Now().After(deadline) {
+		if time.Now().After(deadline) || attempt >= DownloadPollAttempts {
 			return nil, &OperationPendingError{Name: op.Name, Waited: DownloadPollLimit}
 		}
 		if err := c.sleep(ctx, wait); err != nil {

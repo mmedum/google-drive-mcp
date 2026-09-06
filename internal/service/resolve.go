@@ -280,7 +280,7 @@ func pathSoFar(root string, walked []string) string {
 func (s *Service) fetch(ctx context.Context, id string, o ResolveOptions) (*gdrive.File, error) {
 	key := id
 	if o.IncludeLabels {
-		key += "\x00labels"
+		key = labelsKey(id)
 	}
 	if !o.Fresh {
 		s.mu.Lock()
@@ -311,9 +311,22 @@ func (s *Service) fetch(ctx context.Context, id string, o ResolveOptions) (*gdri
 	// that entry too: without this, moving a file into a folder read it,
 	// and then the location walk read the same folder again.
 	s.files[parentKey(id)] = cached[*gdrive.File]{value: f, at: s.now()}
+	// A labelled read is a strict superset of a plain one, so it answers
+	// a plain read as well. Without this a get_file with labels followed
+	// by one without paid for the same file twice.
+	if o.IncludeLabels {
+		s.files[id] = cached[*gdrive.File]{value: f, at: s.now()}
+	}
 	s.mu.Unlock()
 	return f, nil
 }
+
+// labelsKey is the cache key for a read that carries a file's labels.
+// It is a function rather than a spelling at each site because forget
+// has to delete it and did not: a write left the labelled entry behind,
+// and the next card with labels on served the state from before the
+// write for as long as the entry lasted.
+func labelsKey(id string) string { return id + "\x00labels" }
 
 // Location works out where a file sits by climbing its parents. Names
 // are not unique in Drive and a file's meaning depends on where it is,

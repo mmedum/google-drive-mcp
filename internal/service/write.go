@@ -646,6 +646,7 @@ func (s *Service) forget(f *gdrive.File, moved bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.files, f.ID)
+	delete(s.files, labelsKey(f.ID))
 	delete(s.files, parentKey(f.ID))
 	if parent := f.Parent(); parent != "" && f.Name != "" {
 		delete(s.paths, pathKey(parent, f.Name, false))
