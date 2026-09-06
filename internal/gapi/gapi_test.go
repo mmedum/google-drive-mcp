@@ -298,7 +298,12 @@ func TestErrorClasses(t *testing.T) {
 		{401, "", "auth"},
 		{403, "ACCESS_TOKEN_SCOPE_INSUFFICIENT", "forbidden"},
 		{403, "domainPolicy", "blocked"},
-		{400, "invalidSharingRequest", "blocked"},
+		// invalidSharingRequest is the one reason whose status decides
+		// its meaning: 403 is the organisation refusing, 400 is a
+		// request the caller can fix. See
+		// TestAMalformedShareIsNotAPolicyRefusal.
+		{403, "invalidSharingRequest", "blocked"},
+		{400, "invalidSharingRequest", "invalid"},
 		{400, "shareOutNotPermittedForContent", "blocked"},
 		{403, "insufficientFilePermissions", "forbidden"},
 		{404, "notFound", "not_found"},
@@ -669,4 +674,74 @@ func sameCondition(a, b string) bool {
 		return strings.ToLower(strings.ReplaceAll(s, "_", ""))
 	}
 	return a != "" && fold(a) == fold(b)
+}
+
+// TestAMalformedShareIsNotAPolicyRefusal is a live finding from
+// 2026-09-06, and the message below is Google's own, shortened.
+//
+// Sharing with an address that has no Google account behind it answers
+// 400 invalidSharingRequest, and the mapping treated every
+// invalidSharingRequest as the organisation's policy refusing. So the
+// server told the caller that a Workspace administrator forbade the
+// share and that no option here could work around it, when the truth
+// was that the request was fixable by the caller with notify: true.
+//
+// The two classes are two different instructions: [blocked] says give
+// up, [invalid] says fix it and try again. Getting this wrong is not a
+// wrong word, it is the wrong next step.
+func TestAMalformedShareIsNotAPolicyRefusal(t *testing.T) {
+	const noAccount = `Bad Request. User message: "You are trying to invite someone@example.org. ` +
+		`Since there is no Google account associated with this email address, you must check the ` +
+		`"Notify people" box to invite this recipient."`
+
+	s := drivetest.New()
+	defer s.Close()
+	drivetest.SmallTree(s)
+	s.Fail = drivetest.FailTimes(1, "/permissions", drivetest.Failure{
+		Status: http.StatusBadRequest, Reason: "invalidSharingRequest", Message: noAccount,
+	})
+	c := drivetest.Client(t, s)
+	_, err := c.CreatePermission(t.Context(), "id-budget-fixture", &gdrive.PermissionMeta{
+		Type: "user", Role: "reader", EmailAddress: "someone@example.org",
+	}, gapi.ShareOptions{SendNotificationEmail: gdrive.Bool(false)})
+	if err == nil {
+		t.Fatal("the refusal was not reported at all")
+	}
+	if got := gapi.Class(err); got != gapi.ClassInvalid {
+		t.Errorf("class = %q, want %q: a request the caller can fix is not the organisation refusing",
+			got, gapi.ClassInvalid)
+	}
+	// Google's own words have to survive, because they carry the fix.
+	if !strings.Contains(gapi.Message(err), "Notify people") {
+		t.Errorf("the message loses what Google said to do about it: %q", gapi.Message(err))
+	}
+}
+
+// TestAPolicyRefusalIsStillBlocked holds the other side of that split,
+// so narrowing the reason did not empty the class.
+func TestAPolicyRefusalIsStillBlocked(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		reason string
+	}{
+		{http.StatusForbidden, "domainPolicy"},
+		{http.StatusForbidden, "invalidSharingRequest"},
+		{http.StatusBadRequest, "shareOutNotPermittedForContent"},
+	} {
+		t.Run(tc.reason, func(t *testing.T) {
+			s := drivetest.New()
+			defer s.Close()
+			drivetest.SmallTree(s)
+			s.Fail = drivetest.FailTimes(1, "/permissions", drivetest.Failure{
+				Status: tc.status, Reason: tc.reason, Message: "the organisation refuses this",
+			})
+			c := drivetest.Client(t, s)
+			_, err := c.CreatePermission(t.Context(), "id-budget-fixture", &gdrive.PermissionMeta{
+				Type: "user", Role: "reader", EmailAddress: "someone@example.org",
+			}, gapi.ShareOptions{SendNotificationEmail: gdrive.Bool(false)})
+			if got := gapi.Class(err); got != gapi.ClassBlocked {
+				t.Errorf("class = %q, want %q", got, gapi.ClassBlocked)
+			}
+		})
+	}
 }

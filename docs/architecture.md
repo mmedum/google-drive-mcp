@@ -1193,10 +1193,20 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   it did not prove is what the other ten tasks say about the tool
   descriptions, which is the whole point of having them. They are the
   first thing to run when somebody has ten minutes and a live account.
-- **A policy-blocked share is unseen live.** The `[blocked]` mapping is
-  built from Google's documented reasons and exercised against an
-  injected refusal, not a real one. It needs an administrator to put an
-  external address out of bounds on an organisational unit.
+- **A policy-blocked share is still unseen live, and looking for it
+  found something else.** `livedrive -blocked ADDRESS` now attempts the
+  share, reports Google's own reason beside the class this server gave
+  it, and says when they disagree. Run against an address with no Google
+  account behind it, it found that `invalidSharingRequest` at 400 is not
+  a policy refusal at all (§18) — so the class that case had been given
+  for three phases told a model to give up when the fix was `notify:
+  true`.
+
+  What is still unverified is the genuine article: a 403
+  `invalidSharingRequest`, or a `domainPolicy`, from an organisation's
+  own external-sharing restriction. It needs an address that a Workspace
+  administrator has actually put out of bounds; the maintainer is one,
+  and the check is written and waiting for the address.
 - **The destructive five are unseen live.** They are gated off by
   default and the live driver does not enable them. `empty_trash` is the
   reason it does not: it cannot be scoped to a scratch folder, so
@@ -1368,6 +1378,8 @@ own numbers.
 | A wall-clock target can be asserted in `make check` | **Refuted.** 10 000 items render in 4.7 ms uninstrumented and over 60 ms under the race detector with coverage counters, which is what `make check` runs | The test asserts linearity — ten times the items within twenty times the work — plus a backstop far above anything instrumentation explains. The millisecond figure lives in the benchmark, where nothing is instrumented |
 | A benchmark's fixture shape does not matter, only its size | **Refuted, by getting it wrong.** The first 10 000-item tree made one folder per folder, so it was a thousand levels deep — a shape Drive would never return — and measured the cost of the indent string, at 226 MB allocated per render. A realistic shape is 6.8 MB | The fixture branches three ways, which puts 10 000 items about eight levels down, inside the depth a walk will go to |
 | A gate that runs on one platform of a three-platform matrix is enough | **Refuted** (reported by a sibling Go MCP server, checked here). The coverage floor ran under `if: runner.os == 'Linux'`, so a test skipped on Windows cost coverage nobody could measure | It runs on all three. One of the two Windows skips here turned out to be unnecessary — `os.UserConfigDir` reads `%AppData%` there, so clearing that is the same experiment — and now runs everywhere |
+| Every `invalidSharingRequest` is the organisation's policy refusing (§7.4's mapping since phase 2) | **Refuted, live, and it was the wrong instruction rather than the wrong word.** Sharing with an address that has no Google account behind it answers **400** `invalidSharingRequest` — "you must check the Notify people box to invite this recipient". Google uses the reason for a policy refusal AND for a request the caller can simply fix, and the status is what tells them apart | `invalidSharingRequest` maps to `blocked` only at 403; at 400 it is `invalid`, which keeps Google's own message and with it the fix. `[blocked]` says give up and names an administrator; `[invalid]` says fix it and try again. The mapping had been built from documented reasons and had never been shown a real one — which is the whole argument for the check that found it |
+| A driver that reads the CLASS of a refusal has verified the classification | **Refuted by its own first run.** The `-blocked` check compared the class against `blocked`, saw `blocked`, and printed "the mapping holds" for a refusal that was not a policy refusal at all | The verdict now prints Google's message and says to read it, and names both readings when the class is not `blocked` — the reason may be missing from the mapping, or the address may simply not be policy-refused. A check whose pass condition is one field of the thing it is checking can be fooled by that field |
 | The reference listing a field means the field can be requested | **Refuted, live.** `Comment.assigneeEmailAddress` is in the discovery document and is a real field; Drive answers 400 "Invalid field selection assignee_email_address" when a `fields` expression names it, so asking fails the whole call. Every `add_comment` failed on the first live run | The field is out of the request, the model and the renderer, and a note sits where it was in the wire types, because the next person to read the reference will want to add it back. Neither the fake nor the discovery document could have caught this: the first answered the field happily, and the second is the source that says it exists |
 | A live run that reports "all calls behaved as expected" has verified the tool surface | **Refuted, and it is the most useful thing phase 2 learned.** Two runs said exactly that while three results were wrong: a file card reporting `sharing: private to you` in the same result whose change line said the file was now public, a removal reporting "shared, but no grants are visible" instead of "private to you", and every My Drive file blaming an inherited grant on a shared drive it had never been near. The driver checks whether a call *succeeded*, not whether it *told the truth*, and those are different questions | The transcript is read, not just its verdict. Phase 3's evals are the mechanised version of this: a result that is wrong while succeeding is the class of defect no status code catches |
 | The changes feed answering "0 changes" straight after a write is a bug | Neither confirmed nor refuted for two runs, which was the problem: Drive's feed is eventually consistent, so a feed that works and reports nothing is indistinguishable from a broken one when you ask once. The third run reported the change and a fresh token | The live driver polls the feed and says which happened rather than printing an empty answer. **The general rule: where a system is eventually consistent, a single read cannot be evidence of absence** |
