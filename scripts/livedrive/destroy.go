@@ -199,7 +199,19 @@ func (d *destroyRun) deleteARevision() {
 		first = d.revisionID(id, true)
 	}
 	if first == "" {
-		d.problem("delete_revision was not exercised: no revision but the current one is listed, "+
+		// UNVERIFIED rather than a failure, which is how the property
+		// search two hundred lines away already treats the identical
+		// thing. Drive did not present the state; nothing went wrong.
+		// Counting it made a healthy run exit non-zero for a reason
+		// outside anybody's control, which teaches whoever runs this to
+		// stop reading exit codes — and an exit code nobody reads is a
+		// worse loss than this line being quiet.
+		//
+		// It stays loud, because the danger the comment above names is
+		// real: this is how delete_revision came to be "verified" by a
+		// run that never called it. Loud and not counted is what the
+		// property search settled on for the same reason.
+		d.unverified("delete_revision was not exercised: no revision but the current one is listed, "+
 			"even after waiting", errors.New("no older revision to delete"))
 		return
 	}
