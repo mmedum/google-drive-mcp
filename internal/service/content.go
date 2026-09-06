@@ -464,7 +464,7 @@ func (s *Service) downloadOperation(ctx context.Context, f *gdrive.File, in Down
 			// The name is kept, so the next call continues this render
 			// rather than asking Drive to do the work again. Without that
 			// the sentence below would be a promise the code does not keep.
-			s.rememberDownload(f.ID, pending.Name)
+			s.rememberDownload(downloadKey(f.ID, in.Revision), pending.Name)
 			return nil, "", "", Errorf(ClassPending,
 				"Drive is still rendering %s as %s. That can take a while for a video; "+
 					"call download_file again in a minute or two and it will pick up this same render "+
@@ -472,7 +472,7 @@ func (s *Service) downloadOperation(ctx context.Context, f *gdrive.File, in Down
 		}
 		return nil, "", "", s.contentError(err, f, "downloading")
 	}
-	s.forgetDownload(f.ID)
+	s.forgetDownload(downloadKey(f.ID, in.Revision))
 	c, err := s.api.DownloadURL(ctx, ready.DownloadURI)
 	if err != nil {
 		return nil, "", "", s.contentError(err, f, "fetching the rendered video of")
@@ -489,8 +489,13 @@ func (s *Service) downloadOperation(ctx context.Context, f *gdrive.File, in Down
 // operations and find it again. A name dropped is a render dropped, and
 // the caller pays for the whole thing twice.
 func (s *Service) resumeOrStartDownload(ctx context.Context, f *gdrive.File, revision string) (*gdrive.Operation, error) {
+	// Keyed on the revision as well as the file: an operation renders one
+	// version's bytes, and resuming a render of r1 for a call that asked
+	// for the current version would write the wrong content under a card
+	// that says nothing about a revision.
+	key := downloadKey(f.ID, revision)
 	s.mu.Lock()
-	name, ok := cacheGet(s.downloads, f.ID, s.now(), s.opts.DownloadOpTTL)
+	name, ok := cacheGet(s.downloads, key, s.now(), s.opts.DownloadOpTTL)
 	s.mu.Unlock()
 	if ok {
 		op, err := s.api.GetOperation(ctx, name)
@@ -502,25 +507,30 @@ func (s *Service) resumeOrStartDownload(ctx context.Context, f *gdrive.File, rev
 		// wanted.
 		s.log.DebugContext(ctx, "a kept download operation could not be read; starting another",
 			"class", gapi.Class(err))
-		s.forgetDownload(f.ID)
+		s.forgetDownload(key)
 	}
 	return s.api.StartDownload(ctx, f.ID, "", revision)
 }
 
+// downloadKey names one render: a file at one version. The empty
+// revision is the current one, which is its own key rather than a
+// wildcard.
+func downloadKey(fileID, revision string) string { return fileID + "\x00" + revision }
+
 // rememberDownload keeps an unfinished render's name.
-func (s *Service) rememberDownload(fileID, name string) {
+func (s *Service) rememberDownload(key, name string) {
 	if name == "" {
 		return
 	}
 	s.mu.Lock()
-	s.downloads[fileID] = cached[string]{value: name, at: s.now()}
+	s.downloads[key] = cached[string]{value: name, at: s.now()}
 	s.mu.Unlock()
 }
 
 // forgetDownload drops a render that finished or expired.
-func (s *Service) forgetDownload(fileID string) {
+func (s *Service) forgetDownload(key string) {
 	s.mu.Lock()
-	delete(s.downloads, fileID)
+	delete(s.downloads, key)
 	s.mu.Unlock()
 }
 

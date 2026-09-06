@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -373,5 +374,50 @@ func TestLabelDefinitionsAreReadPastTheFirstPage(t *testing.T) {
 		// proves the loop ran; the error is about the field, which that
 		// definition does not have.
 		t.Errorf("a definition past the first page was not found: %v", err)
+	}
+}
+
+// A failure and an empty listing are different answers, and caching them
+// as one turned a fixable diagnosis into a misleading one: with the
+// Labels API not enabled, the first call said "the Drive Labels API
+// refused the token" and every call for the next ten minutes said "no
+// published label has that id" — about a label that exists.
+func TestARememberedLabelsFailureKeepsSayingWhatWentWrong(t *testing.T) {
+	svc, fake := labelled(t)
+	fake.LabelsEnabled = false
+
+	for i := range 3 {
+		_, err := svc.ManageLabels(t.Context(), service.ManageLabelsInput{
+			File: "id-budget-fixture", Label: "id-label-review", Action: "set_field",
+			Field: "id-field-owner", Values: []string{"whoever"},
+		})
+		if err == nil {
+			t.Fatalf("call %d succeeded with the Labels API refusing the token", i)
+		}
+		if !strings.Contains(err.Error(), "Drive Labels API") {
+			t.Errorf("call %d reported %q, which sends a deployer looking in the wrong place", i, err)
+		}
+	}
+}
+
+// A file whose labels cannot be read still has a card worth showing.
+// Failing the whole read over a decoration would also turn a label
+// change that landed into a reported error, because the read-back asks
+// for labels.
+func TestAFileWhoseLabelsCannotBeReadStillHasACard(t *testing.T) {
+	svc, fake := labelled(t)
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.HasSuffix(r.URL.Path, "/listLabels") {
+			return &drivetest.Failure{Status: http.StatusForbidden,
+				Reason: "insufficientFilePermissions", Message: "cannot read labels"}
+		}
+		return nil
+	}
+	out, err := svc.GetFile(t.Context(), service.GetFileInput{File: "id-budget-fixture", IncludeLabels: true})
+	if err != nil {
+		t.Fatalf("a card was refused because its labels could not be read: %v", err)
+	}
+	if !strings.Contains(out, "Budget.xlsx") {
+		t.Errorf("the card did not render:\n%s", out)
 	}
 }

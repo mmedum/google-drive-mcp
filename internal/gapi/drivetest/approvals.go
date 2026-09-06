@@ -134,13 +134,42 @@ func (s *Server) handleApprovalVerb(w http.ResponseWriter, r *http.Request, file
 			return
 		}
 	case "reassign":
-		for _, address := range append(body.AddReviewers, body.ReplaceReviewers...) {
+		if len(body.AddReviewers) == 0 && len(body.ReplaceReviewers) == 0 {
+			s.errorJSON(w, http.StatusBadRequest, "badRequest",
+				"one of addReviewers and replaceReviewers is required")
+			return
+		}
+		for _, add := range body.AddReviewers {
+			if add.AddedReviewerEmail == "" {
+				s.errorJSON(w, http.StatusBadRequest, "badRequest", "addedReviewerEmail is required")
+				return
+			}
 			a.ReviewerResponses = append(a.ReviewerResponses, &gdrive.ReviewerResponse{
-				Reviewer: &gdrive.User{EmailAddress: address}, Response: "NO_RESPONSE",
+				Reviewer: &gdrive.User{EmailAddress: add.AddedReviewerEmail}, Response: "NO_RESPONSE",
 			})
 		}
-		if len(body.ReplaceReviewers) > 0 {
-			a.ReviewerResponses = a.ReviewerResponses[len(a.ReviewerResponses)-len(body.ReplaceReviewers):]
+		// A replacement takes one person out and puts another in, which is
+		// the only way Drive lets anybody leave an approval.
+		for _, swap := range body.ReplaceReviewers {
+			if swap.AddedReviewerEmail == "" || swap.RemovedReviewerEmail == "" {
+				s.errorJSON(w, http.StatusBadRequest, "badRequest",
+					"a replacement needs both removedReviewerEmail and addedReviewerEmail")
+				return
+			}
+			replaced := false
+			for _, r := range a.ReviewerResponses {
+				if r.Reviewer != nil && r.Reviewer.EmailAddress == swap.RemovedReviewerEmail {
+					r.Reviewer = &gdrive.User{EmailAddress: swap.AddedReviewerEmail}
+					r.Response = "NO_RESPONSE"
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				s.errorJSON(w, http.StatusBadRequest, "badRequest",
+					"the reviewer to replace is not on this approval")
+				return
+			}
 		}
 	default:
 		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement the verb "+verb)
