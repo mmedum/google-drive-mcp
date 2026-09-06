@@ -26,14 +26,14 @@ func TestScopes(t *testing.T) {
 		{true, true, []string{ScopeDriveReadonly, ScopeLabelsReadonly}},
 	}
 	for _, c := range cases {
-		got := Scopes(c.readOnly, c.labels)
+		got := Scopes(Access{ReadOnly: c.readOnly, Labels: c.labels})
 		if strings.Join(got, " ") != strings.Join(c.want, " ") {
 			t.Errorf("Scopes(%t, %t) = %v, want %v", c.readOnly, c.labels, got, c.want)
 		}
 	}
 	// drive.file is deliberately never requested: it reaches only files
 	// the app created or the user picked, which a stdio server cannot show.
-	for _, s := range Scopes(false, true) {
+	for _, s := range Scopes(Access{Labels: true}) {
 		if strings.HasSuffix(s, "/drive.file") {
 			t.Error("drive.file must not be requested")
 		}
@@ -44,7 +44,7 @@ const desktopClientJSON = `{"installed":{"client_id":"test-client-id","client_se
 "auth_uri":"https://accounts.example/auth","token_uri":"https://accounts.example/token"}}`
 
 func TestParseClientSecret(t *testing.T) {
-	cfg, err := ParseClientSecret([]byte(desktopClientJSON), Scopes(false, false))
+	cfg, err := ParseClientSecret([]byte(desktopClientJSON), Scopes(Access{}))
 	if err != nil {
 		t.Fatalf("ParseClientSecret: %v", err)
 	}
