@@ -26,6 +26,34 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The live driver's option coverage is measured, and it reads 122 of
+  188.** §17a has wanted this number since phase 5 grew the driver a
+  great deal, and the entry said the honest thing about not having it: a
+  number nobody has is not evidence of a good one.
+
+  `gates live-cover` holds every option the binary publishes to a
+  decision, recorded in `testdata/live-cover.tsv` the way
+  `api-coverage.tsv` records API methods. An option the driver does not
+  send is `undrivable` from this account, with what blocks it, or
+  `undriven`, with what closing it would take. Ten are undrivable, and
+  the reasons repeat: a second person, an administrator, or a state
+  nothing here may create — a file Google has flagged as malware, a scan
+  to run OCR over. The other fifty-six are gaps with a recipe, and most
+  are one argument on a call that already happens. They are written down
+  rather than closed, because a step added to a live driver is unverified
+  until somebody runs it, and adding sixty blind is how a driver starts
+  lying.
+
+  **The driver also records what it actually sent**, which is the half
+  that catches what a source reader cannot. A step can exist and never
+  run — behind a condition that was false, in a list nothing passes on —
+  and the words are there either way. A sibling repository proved that by
+  deleting one call and watching its own static gate report full
+  coverage. So every run now ends with what it sent, what it never
+  called, and any option the source claims that the run did not send. The
+  first run named five, all behind `-file`; passing `-file` took it to
+  three.
+
 - **The live driver's transcript is redacted by construction now, not by
   habit.** §17a has described this since phase 4 and deferred it three
   times, and the reason it kept being deferred is that the version with
