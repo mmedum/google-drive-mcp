@@ -1305,6 +1305,11 @@ gates §17a had described for three phases: `transcript`, `live-cover`,
 and one for §11's rule against asserting an outcome the response did not
 carry.
 
+The write half of the live driver ran at the end of it: 143 calls, all
+as expected, 93 of 157 options, and it settled the question the outcome
+gate had raised — `copy_comments` did not carry the threads, checked
+twice minutes apart to rule out the listing lagging (§18).
+
 The through-line is the one §17a itself names: **a guard that would be
 expensive to make automatic gets described as though it were, because the
 description is free.** Each of the three was a paragraph explaining what
@@ -1716,6 +1721,22 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   one of the three addresses `TestEveryLinePrintedIsRedacted` sends
   through.
 
+- **Whether `copy_comments` works for a Google-native document is
+  unknown.** Phase 6's live run settled it for a CSV — one open thread
+  with two replies, copied with `copy_comments: true`, and the copy had
+  none, still none minutes later with `include_deleted: true`, so not a
+  lag (§18). One file type is one file type. Drive's own reference does
+  not say the parameter is limited to its own formats, and a Doc is the
+  case where comments are anchored to a passage rather than to a file, so
+  it is the one most likely to behave differently.
+
+  What would close it: copy the Doc the driver already creates, with a
+  comment on it, and list the copy's comments — the same shape as the
+  step that answered the CSV, on `m.doc` instead of `m.text`. Not added
+  blind: the CSV step was written and run in the same session, and adding
+  a second unrun step to the same section is how a driver acquires paths
+  nobody has watched.
+
 - **The outcome gate subtracts rather than selects.** It collects every
   long string in a request-tested branch and then takes away the ones
   that are not outcomes — a refusal, a log line — which is why it needs a
@@ -2003,6 +2024,7 @@ own numbers.
 | Rate limiting only has to gate the first attempt of a call | Refuted in the phase-0 review: retries are triggered by 429 and by Google's three rate-limit reasons, so exempting them pushes hardest exactly when Drive has asked for less. Four of five attempts bypassed the limiter | The limiter is taken inside the retry loop, once per attempt |
 | An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
 | Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
+| `copy_file` with `copy_comments: true` brings the threads with it (the note this server printed, phases 4-6) | **Refuted live in phase 6, and the refutation is the response.** A CSV carrying one OPEN thread with two replies was copied with `copy_comments: true`. `list_comments` on the copy, immediately: `0 comment threads` / `no comments: nobody has commented on this file`. The same call minutes later, with `include_deleted: true`: `0 comment threads` / `no comments: nobody has commented on this file, and none has been deleted either` — so it is not `comments.list` lagging the copy, which was the other explanation and the one the code had been written to allow for. `files.copy` answers with a File and mentions comments nowhere, so nothing in the response ever said otherwise; the claim came from the argument | The note and the SCHEMA both say Drive does not always carry them and name `list_comments` on the copy as what tells you. The schema matters more: it is read before the call, which is the `lock_file` lesson exactly. What is still unknown is whether a Google-native document behaves differently — this is one file type, and §17a has it |
 | `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference — and the refutation was itself **refuted in phase 4** against the discovery document, which lists `copyComments` on `files.copy` with a default of `false`. Whether Google added it since or the phase-1 check read the reference page rather than the document cannot be told from here, and the difference does not matter: the lesson is that a parameter list read once is a fact with a date on it | `copy_comments` is back on `copy_file`, off by default. The result said out loud "when a copy carried somebody else's words somewhere new" — which was this overpromise written down as a feature: files.copy answers with a File and mentions comments nowhere, so nothing could know it had. `gates outcomes` found it. The result now says what Drive was ASKED to do and names list_comments on the copy as the call that settles it This is the argument for re-reading the discovery document every phase rather than trusting §18 |
 | An old revision of a Docs editors file is fetched with `files.download` (§18, from the revisions guide) | Refined in phase 1: `files.download` is a long-running operation that hands back an `Operation` to poll, while the `Revision` resource itself carries `exportLinks` for exactly this — a direct URL per format, on a Google host the allowlist already permits. The simpler documented route was taken | `download_file revision:` reads the revision, then fetches its export link. `files.download` stays for Vids in phase 4. To be confirmed by the live run |
 | Drive's structural refusals arrive with their own status | Refuted by the fake once it answered with Google's real reason: `teamDrivesFolderMoveInNotSupported` comes back as **403**, and the error mapping tested the status before the reason, so "this cannot be done" was reported as "you may not". A model told `[forbidden]` goes looking for permissions to change; there are none | The reason is matched before the generic 403, and the folder-move refusal is `[unsupported]` with the way round it. Phase 0's own tests had never seen the real reason: the fake refused the move without one |

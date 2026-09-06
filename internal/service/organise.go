@@ -408,10 +408,11 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 		// would report threads as dropped when they were merely late,
 		// which is the empty_trash mistake in the opposite direction. The
 		// caller is pointed at the one call that settles it instead.
-		notes = append(notes, "Drive was asked to bring the comment threads along. It does not say "+
-			"whether it did: list_comments on the copy shows what came across, though it can lag a "+
-			"copy by a moment. Anything that did come across is what other people wrote, now "+
-			"readable by everybody who can see the copy.")
+		notes = append(notes, "Drive was asked to bring the comment threads along, and its answer "+
+			"says nothing about whether it did. A live run copied a CSV carrying an open thread and "+
+			"the copy had none, so this is worth checking rather than assuming: list_comments on "+
+			"the copy shows what came across, though it can lag a copy by a moment. Anything that "+
+			"did come across is what other people wrote, now readable by everybody who can see the copy.")
 	}
 	return s.write(ctx, copied, outcome{Action: render.ActionCopied, Note: strings.Join(notes, " ")})
 }

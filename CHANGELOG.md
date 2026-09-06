@@ -8,6 +8,32 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`copy_comments` did not bring the comments, and now the schema says
+  so.** Phase 6's gate found that `copy_file` asserted the threads had
+  been copied from the argument alone, and the note was reworded to say
+  what Drive was asked rather than what it did. The live run then
+  answered the question the reword left open, and the answer is worse
+  than "unverifiable": a CSV carrying one OPEN thread with two replies
+  was copied with `copy_comments: true`, and `list_comments` on the copy
+  reported no comments at all — the same minutes later with
+  `include_deleted: true`, so not `comments.list` lagging the copy, which
+  was the other explanation and the one the code had been written to
+  allow for.
+
+  Both the note and the SCHEMA say it now. The schema matters more: it is
+  read BEFORE the call, so an argument that overpromises there is worse
+  than a result that does — which is the `lock_file` lesson, arriving a
+  second time in the same phase on a different parameter.
+
+  The live driver says it out loud rather than leaving it in the
+  transcript. The answer was one line in thirteen hundred, and "all calls
+  behaved as expected" is true of it either way, which is the thing this
+  repository has been caught by twice.
+
+  What is still unknown is whether a Google-native document behaves
+  differently — this is one file type, and a Doc anchors comments to a
+  passage rather than to a file. §17a has it, with what would close it.
+
 - **The leak gate could not see a file nobody had staged.** It listed
   files with `git ls-files`, which reads the INDEX, so a new file was
   invisible to it until somebody added it — and a phase's new files are
@@ -359,12 +385,16 @@ is the one that cannot be tested locally at all: the registry does a HEAD
 on the bundle's download URL before accepting the entry, so the step runs
 last in the release workflow, after the release exists.
 
-What is unverified and would be settled by one live run: the driver now
-lists the copied file's comments, which is the question `gates outcomes`
-raised and no run has answered; and the fifty-six `undriven` rows in
-`testdata/live-cover.tsv` are each one argument on a call that already
-happens. Neither blocks a release. Both are the first thing to do with an
-account in front of you.
+The write half has now run against a real account: 143 calls, every one
+behaving as expected, and 93 of the 157 options a default build
+registers. It answered the question `gates outcomes` raised — the copied
+comments were NOT carried, twice checked — which is the entry above.
+
+What is still unverified: the fifty-six `undriven` rows in
+`testdata/live-cover.tsv`, each one argument on a call that already
+happens; the destructive five and the sharing half, which need
+`-destructive` and a second account; and whether `copy_comments` behaves
+differently for a Google-native document. None blocks a release.
 
 ## [1.0.0] - 2026-09-06
 
