@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -119,6 +120,20 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 				m["compatibility"] = map[string]any{"platforms": []any{"darwin", "win32"}}
 			},
 			want: "platform_overrides.linux is an override for a platform compatibility.platforms does not claim",
+		},
+		{
+			// The direction the override check does not cover, and the
+			// one that would have shipped: delete the win32 override and
+			// Windows runs the DEFAULT command, which is the macOS
+			// universal binary. That file really is staged, so every
+			// other check here is satisfied.
+			name: "a claimed platform with no command of its own",
+			break_: func(m map[string]any) {
+				m["compatibility"] = map[string]any{"platforms": []any{"darwin", "win32"}}
+				cfg := m["server"].(map[string]any)["mcp_config"].(map[string]any)
+				delete(cfg["platform_overrides"].(map[string]any), "win32")
+			},
+			want: "on win32 the bundle would spawn",
 		},
 		{
 			name:   "a server that is not a binary",
@@ -352,5 +367,41 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "google-drive-mcp-amd64") {
 		t.Errorf("the complaint does not name the missing binary: %q", stderr)
+	}
+}
+
+// TestTheLauncherIsHeldToTheStagedNames. The launcher picks a binary by
+// name from a shell script no manifest mentions, so checkManifest cannot
+// see those names: renaming a staged Linux binary passed every gate and
+// every test until this check existed, and the bundle would then have
+// failed for every Linux user.
+//
+// It swaps the packer's own list rather than a copy, because the check's
+// whole job is to compare the launcher against what the packer really
+// stages — a fixture list would be two literals agreeing with each other
+// again, which is the mistake this file has already made once.
+func TestTheLauncherIsHeldToTheStagedNames(t *testing.T) {
+	t.Chdir("../..")
+	if problems := checkLauncher(); len(problems) > 0 {
+		t.Fatalf("the committed launcher does not name what the packer stages:\n%s",
+			strings.Join(problems, "\n"))
+	}
+
+	original := binaries
+	defer func() { binaries = original }()
+	renamed := slices.Clone(binaries)
+	for i := range renamed {
+		if renamed[i].platform == "" {
+			renamed[i].as = "server/renamed-" + filepath.Base(renamed[i].as)
+		}
+	}
+	binaries = renamed
+
+	problems := checkLauncher()
+	if len(problems) == 0 {
+		t.Fatal("a renamed Linux binary was accepted")
+	}
+	if !strings.Contains(strings.Join(problems, "\n"), "renamed-") {
+		t.Errorf("the report does not name the file:\n%s", strings.Join(problems, "\n"))
 	}
 }
