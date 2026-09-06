@@ -1,29 +1,57 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 3 complete (2026-09-06), released as v0.3.0. Twenty-nine
-registered tools: phase 2's twenty-four plus `list_comments`,
-`add_comment`, `reply_comment`, `list_access_requests` and
-`resolve_access_request`, with five now registered only under
-`GDRIVE_ENABLE_DESTRUCTIVE=true` — `delete_comment` joins the four — and
-each of those still needing `confirm: true` on the call. Three
-`gdrive://` resources, `copy_file recursive`, one media-type registry in
-place of five tables, the first benchmarks, and thirteen agent evals.
+**Status:** phase 4 complete (2026-09-06), released as v0.4.0. A default
+build registers **31** tools, phase 3's 29 plus `list_approvals` and
+`manage_approval`. Eight more exist behind a flag: the destructive five,
+plus `list_labels` and `manage_labels` under `GDRIVE_LABELS` and
+`list_activity` under `GDRIVE_ACTIVITY`. Those last three each need a
+Google API enabled in the Cloud project AND a scope the consent screen
+would otherwise not carry, which is why they are off by default — 39
+tools in all, and 13 in read-only mode. A Google Vid downloads through the long-running
+operation, which is the only way to reach one. Every method of all three
+APIs is now recorded as used on purpose or left out on purpose, and a
+gate holds the record to the code.
 
-Phase 3 kept phase 2's habit of reading the discovery document before
-writing the client, and it corrected four more things (§18). Two of them
-shape the code rather than one call: the comment endpoints REQUIRE the
-`fields` parameter, and `accessproposals.resolve` answers with no body at
-all, so what an acceptance did can only be read back.
+Phase 4 kept the habit of reading the discovery documents before writing
+the client, and it earned more than any phase so far: four corrections
+before a line of feature code, two of them in behaviour that had already
+shipped. `includeLabels=*` is a 400 and `get_file` had never been able to
+show a label; `LabelField`'s date member is `dateString`, so every
+date-valued field decoded to nothing. Neither could have failed a test
+here — the feature is off by default and the fake accepted whatever it
+was sent.
 
-The benchmarks refuted two of §11's own targets, which is what they were
-for. `get_file` is not "at most two calls" below the top of My Drive, and
-a search page's parent reads are one per folder in the chain rather than
-one. Both are restated as the code behaves and asserted in tests.
+The lesson that generalises is about §18 rather than about Google. Phase
+1 recorded `files.copy` as taking no `copyComments`, checked and settled;
+the discovery document lists it. A parameter list read once is a fact
+with a date on it, and the evidence log is not a substitute for reading
+the document again.
 
-**What phase 3 does not have:** spike F (ownership transfer) and a
-policy-blocked share, both still blocked on a second account and an
-administrator; and the destructive five against Drive, which stay gated
-off. All three are in §17a with what stands in for them.
+**What the live runs found that no test could.** The transcript redactor
+could not see this account's own name: its idea of a name required a
+capital, and a Workspace account with no display name shows the address's
+local part instead. It leaked in every result that named the signed-in
+person, in every renderer at once, and every fixture in the tests was
+capitalised so they agreed with the bug. `get_account` leaked outright,
+protected only by the address beside it. Drive refuses the property
+search Google's own guide gives as an example. And `list_activity` called
+an entry with no action "a kind this server has no words for" — a probe
+of 400 activities found three that carry no action at all.
+
+**Three claims about automatic guards turned out to be false**, all found
+in one session: §17a described a test that does not exist, §18 described
+a test that nothing reached, and the redaction coverage test said a new
+renderer would fail it when the map is hand-written. Two are now true and
+one is deleted. The pattern is worth naming: a guard that would be
+expensive to make automatic gets described as though it were, because the
+description is free.
+
+**What phase 4 does not have:** `manage_labels` verified live, which
+needs an administrator to publish one label; spike F and a policy-blocked
+share, still blocked on a second account and an administrator; the
+destructive five; and an approval carried through to APPROVED, which
+locks the file and so wants a scratch shared drive. All are in §17a with
+what stands in for them.
 
 This document is the plan. It is written so that whoever picks the work
 up can start from the repository alone: read the status line above, §16
@@ -1141,7 +1169,8 @@ on a second account and an administrator; the destructive five, which
 stay gated off and out of the live driver; and the ten evals nobody has
 run yet.
 
-**Phase 4 — Workspace extras and the rest of the API (v0.4.0).** Labels
+**Phase 4 — Workspace extras and the rest of the API (v0.4.0). Done
+2026-09-06.** Labels
 (`list_labels`, `manage_labels`) behind `GDRIVE_LABELS`; approvals
 (`list_approvals`, `manage_approval`); Drive Activity (`list_activity`)
 behind `GDRIVE_ACTIVITY`; `files.download` for Vids;
