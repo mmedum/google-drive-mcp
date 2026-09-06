@@ -100,7 +100,7 @@ func leaks(out io.Writer, args []string) error {
 	if arg(args, 0, "") == "history" {
 		return leaksInHistory(out)
 	}
-	files, err := trackedFiles()
+	files, err := scannableFiles()
 	if err != nil {
 		return err
 	}
@@ -325,16 +325,37 @@ func gitMessage(body string) string {
 	return ""
 }
 
-func trackedFiles() ([]string, error) {
-	out, err := exec.Command("git", "ls-files", "-z").Output()
+// scannableFiles lists what the working-tree scan reads: everything git
+// tracks, plus everything untracked that is not ignored.
+//
+// The second half was missing, and a sibling repository found the same
+// hole in its own copy the same week. `git ls-files` lists the INDEX, so
+// a file nobody has staged yet is invisible — and a phase's new files
+// are precisely the ones nobody has scanned before. `make check` would
+// go green all afternoon over the files of the last phase while this
+// phase's fixtures, written that afternoon, went unread; the leak would
+// arrive with the commit that finally staged them, at which point the
+// gate is being run by whoever is trying to push.
+//
+// `--exclude-standard` keeps .gitignore's word: a build output at the
+// repository root is not something to scan, and it is the one thing the
+// ignore file is there to keep out of the tree in the first place.
+func scannableFiles() ([]string, error) {
+	out, err := exec.Command("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard").Output()
 	if err != nil {
-		return nil, fmt.Errorf("list tracked files: %w", err)
+		return nil, fmt.Errorf("list files: %w", err)
 	}
 	var files []string
+	seen := map[string]bool{}
 	for _, name := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
-		if name != "" && isText(name) {
-			files = append(files, name)
+		// A file that is both tracked and modified is listed once by
+		// git, but --cached and --others can overlap after a rename, and
+		// scanning one twice would report one leak twice.
+		if name == "" || seen[name] || !isText(name) {
+			continue
 		}
+		seen[name] = true
+		files = append(files, name)
 	}
 	return files, nil
 }

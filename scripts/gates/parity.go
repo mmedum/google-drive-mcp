@@ -165,24 +165,71 @@ func makeTarget(text, target string) (recipe string, prereqs []string, err error
 		if line != "" && !strings.HasPrefix(line, "\t") && !strings.HasPrefix(line, " ") {
 			break
 		}
+		// A commented-out recipe line is not a recipe line. Make hands
+		// an indented `#` to the shell, which does nothing with it, and
+		// counting it would make a disabled gate look like a running one
+		// — the same hole the workflow side had.
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
+			continue
+		}
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
 	return b.String(), prereqs, nil
 }
 
-// gatesInWorkflow reports the gates a workflow runs.
+// gatesInWorkflow reports the gates a workflow actually runs.
+//
+// Reading the whole file for the call is not enough, and the way it
+// fails is the way this gate gets defeated in practice: a step commented
+// out to unblock a red build still matches, so parity stays green across
+// exactly the divergence it exists to catch, reached by typing one `#`.
+// A sibling repository found this in its own port of these gates.
+//
+// So comment lines go first, and a call counts only where a `run:` step
+// names it — either on the step's own line or inside a `run: |` block,
+// which is found by indentation rather than by parsing YAML. A step
+// disabled by an `if:` that is never true would still count, and closing
+// that needs a real YAML parse and a dependency; it is a smaller hole
+// than a `#`, which needs nothing.
 func gatesInWorkflow(path string) ([]string, error) {
 	source, err := os.ReadFile(path) //nolint:gosec // a path this repository owns
 	if err != nil {
 		return nil, err
 	}
 	var gates []string
-	for _, call := range gateCall.FindAllStringSubmatch(string(source), -1) {
-		if !slices.Contains(gates, call[1]) {
-			gates = append(gates, call[1])
+	blockIndent := -1
+	for _, line := range strings.Split(string(source), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		if blockIndent >= 0 && indent <= blockIndent {
+			blockIndent = -1
+		}
+		inRunStep := runStep.MatchString(line)
+		if inRunStep && runBlock.MatchString(line) {
+			blockIndent = indent
+		}
+		if !inRunStep && blockIndent < 0 {
+			continue
+		}
+		for _, call := range gateCall.FindAllStringSubmatch(line, -1) {
+			if !slices.Contains(gates, call[1]) {
+				gates = append(gates, call[1])
+			}
 		}
 	}
 	slices.Sort(gates)
 	return gates, nil
 }
+
+// runStep matches the line of a workflow step that runs a command.
+var runStep = regexp.MustCompile(`(?:^|\s|-\s*)run:`)
+
+// runBlock matches a run: that opens a multi-line block.
+var runBlock = regexp.MustCompile(`run:\s*[|>]`)

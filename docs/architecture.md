@@ -1,14 +1,33 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 5 complete (2026-09-06), released as v1.0.0. A default
+**Status:** phase 6 complete (2026-09-06), released as v1.0.1. A default
 build registers **31** tools; eight more exist behind a flag — the
 destructive five, plus `list_labels` and `manage_labels` under
 `GDRIVE_LABELS` and `list_activity` under `GDRIVE_ACTIVITY`. Those last
 three each need a Google API enabled in the Cloud project AND a scope the
 consent screen would otherwise not carry, which is why they are off by
-default — 39 tools in all, and 13 in read-only mode. Phase 5 added no
-tools. Every method of all three APIs is recorded as used on purpose or
-left out on purpose, and a gate holds the record to the code.
+default — 39 tools in all, and 13 in read-only mode. Neither phase 5 nor
+phase 6 added a tool. Every method of all three APIs is recorded as used
+on purpose or left out on purpose, and a gate holds the record to the
+code.
+
+**What phase 6 is, and it is unreleased.** No new tools. The bundle, the
+README a released project should have, and the three gates §17a had
+described for three phases rather than built: `transcript`, `live-cover`
+and the outcome gate. The lesson §17a names about itself is the one
+phase 6 proves — **a guard that would be expensive to make automatic gets
+described as though it were, because the description is free.** Building
+the three cost a day and found two defects no test and no live run had:
+`copy_file` claiming comments it could not know had arrived, and the
+parity gate being defeatable by one `#`.
+
+And a proposed rule is not a rule. §17a's version of the outcome gate
+would have failed two sites that are already correct — it named the
+function as the unit where the branch is the unit — and the entry read as
+though only the typing remained. The live driver's option coverage is
+122 of 188, measured for the first time; a reader that silently read 2 of
+188 and printed it as a figure is what stands between a measurement and a
+number.
 
 **What phase 5 was for.** Everything was implemented; the question was
 what had never actually been run. The destructive five had not, because
@@ -1279,6 +1298,56 @@ out of bounds. `manage_labels`'s writes need an administrator to publish
 a label. Each is in §17a with what would close it. Use in anger and an
 eval round with a second client are what 1.1 wants.
 
+**Phase 6 — the gates that were described rather than built (v1.0.1).
+Done 2026-09-06.**
+No new tools. A Claude Desktop bundle on every release, a README a
+released project should have, a code of conduct — and then the three
+gates §17a had described for three phases: `transcript`, `live-cover`,
+and one for §11's rule against asserting an outcome the response did not
+carry.
+
+The write half of the live driver ran at the end of it: 143 calls, all
+as expected, 93 of 157 options, and it settled the question the outcome
+gate had raised — `copy_comments` did not carry the threads, checked
+twice minutes apart to rule out the listing lagging (§18).
+
+The through-line is the one §17a itself names: **a guard that would be
+expensive to make automatic gets described as though it were, because the
+description is free.** Each of the three was a paragraph explaining what
+would catch a defect. Building them cost a day and caught two defects
+neither the tests nor eight live runs had found — `copy_file` claiming
+comments it could not know had arrived, and the parity gate itself being
+defeatable by one `#`.
+
+Three things are worth carrying forward.
+
+**A proposed rule is not a rule.** §17a's version of the outcome gate
+would have failed two sites that are already correct, because it named
+the function as the unit where the branch is the unit. The entry had been
+sitting there for a phase reading as though the work were decided and
+only the typing remained. It was not: the design was wrong, and only
+writing it against the code said so.
+
+**A measurement can fail by returning a number.** The live-coverage
+reader's first working draft read 2 of 188 options and printed it as a
+figure, because `any` is an identifier and not an interface node. Nothing
+crashed. A gate that reports a number needs either a floor it refuses to
+report below or a record that fails when the number moves, and this one
+has the second: 122 of 188, with every gap holding a decision.
+
+**Watch a gate fail before believing it, including one written an hour
+ago.** The transcript gate was reviewed by writing `log.Printf` into the
+driver and running it. It passed. Its own test enumerated the same six
+call shapes the implementation did, which is how a test comes to agree
+with the bug it should catch — the phase-4 lesson, one level up.
+
+Four sibling repositories were building the same gates the same week, and
+the cross-checking found more than any of them found alone: the bundle
+reaching `checksums.txt` only through `extra_files`, three parity and
+vocabulary holes, and the argument for a live driver recording what it
+SENT rather than a gate reading what it says it sends.
+
+
 ### Closing a phase
 
 1. `make check` green on all three platforms; the live driver run, and
@@ -1332,18 +1401,117 @@ difference is a decision rather than a drift.
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
 
-- **"Never assert an outcome the response did not carry" has no gate.**
-  §11 states it as this repository's rule and phase 5 fixed three
-  violations by hand, every one of them found by a live run because
-  nothing here could see them. The narrow, checkable version exists: for
-  a tool input that asks Drive to MAKE SOMETHING SO — `lock_file`,
-  `allow_anyone`, `keep_previous_revision`,
-  `use_content_as_indexable_text` — fail if the field is read in the same
-  function that builds the outcome note, in the family of `gates classes`
-  and `TestEmptyTrashIsNamedInOnePlace`. It would have caught `lock_file`
-  before Drive did. Not done here because choosing the field set is a
-  design question and the gate is worth getting right rather than
-  shipping on release eve. Raised by the phase-5 altitude review.
+- **No MCP registry entry.** The bundle ships and nothing lists it, so
+  the only way to find this server is to already know the repository
+  exists. A sibling has one and has offered its implementation: the entry
+  is written from the release's own `checksums.txt`, and the registry
+  enforces its MCPB rules in code rather than in the published schema — a
+  hash, a `github.com` release-asset URL carrying "mcp", no
+  `registryBaseUrl`, and a HEAD on that URL before the entry is accepted.
+
+  That last part decides where it goes: the step runs LAST in the release
+  workflow, after the release exists, because an entry pointing at a
+  download nobody can fetch is worse than no entry. It also means the
+  step cannot be tested locally at all, which is the reason it is not
+  done here yet rather than an argument against doing it.
+
+- ~~The live driver's option coverage has never been measured.~~
+  **Measured, and gated: 122 of 188.** `gates live-cover` holds every one
+  of the binary's published tool options to a decision, in
+  `testdata/live-cover.tsv` and in the shape `api-coverage.tsv` already
+  uses: an option the driver does not send is `undrivable` from this
+  account, with what blocks it, or `undriven`, with what closing it would
+  take. Both directions fail — an option nobody decided about, and a row
+  for an option the driver has since started sending.
+
+  Ten are undrivable and the reasons repeat: a second person (a reviewer
+  swap, an access request, mail to somebody's inbox), an administrator (a
+  published label to page through), or a state nothing here may create (a
+  file Google has flagged as malware; a scan to run OCR over). The other
+  fifty-six are gaps with a recipe, and most are one argument on a call
+  that already happens — `search_files.starred` on a run that stars a
+  file, `list_folder.include_trashed` on a run that trashes one,
+  `page_size: 1` anywhere a token is wanted. They are written down rather
+  than closed here, because a step added to the live driver is unverified
+  until somebody runs it, and adding sixty of them blind is how a driver
+  starts lying.
+
+  **A static gate over the driver's source is the smaller half, and it
+  took a sibling repository to say so.** It reads the words, so a step
+  that exists and never runs — in a branch that was false, in a list
+  nothing passes on — reads exactly like a step that runs. They proved it
+  by deleting one call and watching their own gate report full coverage.
+  So the driver carries a recorder as well: every call is recorded where
+  the calls go out, and the end of every run prints what the run sent,
+  what it never called, and any option the SOURCE says it sends that the
+  run did not. The first run of it named five, all of them steps behind
+  `-file`, and passing `-file` took the list to three. That is the
+  mechanism tracking reality rather than asserting it.
+
+  Two things the reader found are worth keeping. `any` is an identifier
+  and not an interface node — the alias is resolved by the type checker,
+  never by the parser — and a first draft looking for `*ast.InterfaceType`
+  read 2 of 188 options and would have reported that as a measurement.
+  And a helper that names the tool for its caller (`emptyTrash`, which
+  exists so that `empty_trash` is named in exactly one place and always
+  scoped) made its `confirm` and `dry_run` look undriven, which would
+  have put two lies in the record: they are sent twice on every
+  destructive run. The reader follows that indirection now.
+
+- ~~"Never assert an outcome the response did not carry" has no gate.~~
+  **Done, and the rule this entry proposed was wrong.** §17a said: fail
+  if the field is read in the same function that builds the outcome note.
+  Reading the code says otherwise, and thinking about it did not. Two
+  CORRECT sites read the field exactly there — the lock sentence branches
+  on `in.LockFile` and then calls `lockWords(after.File)`, which reads
+  the file back, and the pinning note branches on `in.KeepPreviousRevision`
+  and then asks Drive to pin and words the result from what Drive
+  answered. The function is the wrong unit. The BRANCH is the right one,
+  and what makes a branch honest is that it consults something before it
+  speaks.
+
+  So `gates outcomes` fails a branch that tests a boolean the caller
+  sent, and then writes prose describing the result, without asking Drive
+  anything in between. Two shapes are excluded by the rule itself rather
+  than by a list: a dry run, which makes no call by construction and says
+  "would" — the honest form of exactly this sentence — and a refusal,
+  which says what THIS SERVER did and is true whatever Drive would have
+  answered.
+
+  The other half of the design question the entry raised — which fields —
+  is answered by deriving rather than choosing. Every boolean field on a
+  service input struct is in scope, because a boolean input is the shape
+  that asks for a state where a string carries a value, and deriving it
+  means a new one is covered on the commit that adds it.
+
+  **It found one, and it is the same defect as `lock_file` with somebody
+  else's words in place of a restriction.** `copy_file` said "The comment
+  threads were copied with it, so everybody who can see the copy can read
+  what was said on the original", from `copy_comments: true` alone.
+  `files.copy` answers with a File and mentions comments nowhere, so
+  nothing here could know. The live driver has copied with that parameter
+  since phase 4 and never once looked at the copy, and §18 recorded the
+  overpromise as though it were a feature: "the result says out loud when
+  a copy carried somebody else's words somewhere new."
+
+  It now says what Drive was ASKED to do, says outright that Drive does
+  not report whether it did, and names `list_comments` on the copy as the
+  call that settles it. Reading it back was the other option and was
+  rejected for a reason phase 5 paid for: `comments.list` lags a copy, so
+  an empty answer would report threads as dropped when they were merely
+  late — the `empty_trash` mistake in the opposite direction. The driver
+  now lists the copy's comments, so the next live run answers the
+  question nobody has asked.
+
+  The test that covered this asserted the wrong sentence, which is the
+  phase-4 pattern exactly: a fixture written from the belief keeps the
+  belief alive.
+
+  What the gate cannot do is judge the WORDS — the honest form of the
+  shape parses identically to the dishonest one. A branch that is right
+  anyway carries a row in `testdata/outcome-claims.tsv` with the reason,
+  and a row that stops matching fails, so an excuse cannot outlive the
+  code it excused. There are two rows.
 
 - **A created shared drive is thrown away and then looked for.**
   `manage_drive` create calls `forgetDrives()`, so the next `findDrive`
@@ -1506,29 +1674,89 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   offered. That is the drift this entry predicted, found the first time
   something looked.
 
-- **The live driver's transcript is redacted by habit, not by
-  construction.** Phase 4 found the difference: the driver echoed each
-  call's ARGUMENTS unredacted. That was arguably nobody's problem while
-  the only address there was one the operator had typed as `-share`, and
-  became one the moment starting an approval put the SIGNED-IN account's
-  own address into the arguments of every write run. Fixed, with a test
-  that an encoded argument list survives the redactor.
+- ~~The live driver's transcript is redacted by habit, not by
+  construction.~~ **Done.** `scripts/internal/transcript` is now the only
+  way the live driver and the eval harness write anything, and `gates
+  transcript` refuses every other route to a terminal: `fmt.Print*`, any
+  mention of `os.Stdout` or `os.Stderr`, and the builtins `print` and
+  `println`.
 
-  What is not fixed is the shape of it. Every line happening to go
-  through `red.Do` is not the same as every line having to, and the next
-  print somebody adds while debugging will look exactly like the two
-  beside it that are safe. A sibling repository built a gate for this
-  over its own driver's syntax tree, and the idea is right.
+  The entry stood for three phases and the estimate in it was right: the
+  version with teeth is a rewrite of every print in the program, about
+  eighty call sites, and it wanted a moment with nothing else in flight.
+  What the estimate got wrong is which programs. The eval harness has the
+  same shape — same account, same kinds of thing printed, same `red`
+  field used by habit — and a rule covering one of two identical programs
+  is a rule waiting to be drifted around. Both go through the one type
+  now.
 
-  It was attempted here and abandoned deliberately. A gate that allows an
-  expression by its spelling needs an allowlist that grows with every
-  count and tool name printed — fifteen on the first run — and an
-  allowlist that long is a gate nobody trusts. The version with teeth is
-  the sibling's: forbid `fmt.Print*` in the driver outside one redacting
-  helper, so the rule is structural. That is a rewrite of some forty call
-  sites in a file phase 4 had just changed heavily, on the eve of a live
-  run, which is the wrong moment. It wants a phase of its own and no
-  other changes in flight.
+  Three things about the gate are worth keeping, because each was a
+  choice that could have gone the other way.
+
+  It forbids a DESTINATION rather than a function. `fmt.Fprintf` into a
+  `bytes.Buffer` is how an eval task builds its fixture and reaches
+  nobody; a gate that banned the function would have needed an exception
+  for it on day one, and an allowlist is how a gate stops being believed.
+  A terminal is `os.Stdout` and `os.Stderr`, and `fmt.Print*` is a write
+  to `os.Stdout` with the name left out, so naming those three names
+  every way out.
+
+  It refuses a HOLLOW exemption. Every other check here is about WHERE
+  printing happens and says nothing about what is printed: moving each
+  `fmt.Println` into a passthrough helper would satisfy all of them and
+  leak exactly as much. So the exempt package must pass what it writes
+  through the redactor, and what comes out of it is asserted in a test
+  rather than argued for here.
+
+  It redacts the whole formatted LINE, not the arguments somebody
+  remembered to wrap. That is what makes the property structural instead
+  of careful: an address arriving through a format string nobody thought
+  about is redacted by the same code that redacts one somebody did. It
+  also removed about fifteen hand-written `red.Do` calls at print sites,
+  which were the habit this entry was about.
+
+  The line that had never been redacted at all was the run's own failure.
+  It is printed after the session, from `main`, and it carries whatever
+  the error carried — a file name, an address, a path. Six ways to a
+  terminal are watched being refused in tests, and the failure line is
+  one of the three addresses `TestEveryLinePrintedIsRedacted` sends
+  through.
+
+- ~~Whether `copy_comments` works for a Google-native document is
+  unknown.~~ **Answered, and the answer is a split.** The Doc's threads
+  came across; the uploaded CSV's did not, on the same run with the same
+  argument (§18). The driver copies both kinds now and says which
+  carried, so the next run re-checks a fact that has already changed
+  once.
+
+  What is still an inference rather than a finding: that the rule is
+  "Drive's own formats yes, uploaded bytes no". That is two data points
+  and the obvious reading of them, and Google documents no such limit on
+  the parameter. A third kind — a Sheet, or an uploaded PDF, which Drive
+  can comment on natively — would make it a rule or refute it.
+- **The outcome gate subtracts rather than selects.** It collects every
+  long string in a request-tested branch and then takes away the ones
+  that are not outcomes — a refusal, a log line — which is why it needs a
+  list of function names, a 25-character heuristic AND a record file to
+  be right. The positive form is one question: does this literal reach
+  the caller's `Result`? In this package that is two shapes — appended to
+  a `notes` slice that ends in an `outcome{Note: ...}`, or assigned to a
+  note field — and both current exemptions are one of them. With it,
+  `Errorf` prose and `slog` prose are excluded by construction rather
+  than by name, and the length heuristic goes.
+
+  Not done because it wants a walk from the literal to the returned
+  outcome, which is real work against a gate that is currently correct on
+  every branch in the package. Raised by the phase-6 altitude review.
+
+- **`gates mcpb` stages four binaries and nothing holds that list to
+  `.goreleaser.yaml`.** A platform added to the build matrix would
+  silently not reach the bundle; a platform removed fails loudly at pack
+  time, when `onlyMatch` finds no file. So one direction rots quietly,
+  which is the shape `gates parity` exists for one file over. Deriving
+  the globs from the matrix, or failing when the matrix names a platform
+  the bundle does not stage, is the same idea. Raised by the phase-6
+  altitude review.
 
 - **`manage_labels` is unverified live, and `list_labels` is not.** The
   Drive Labels API answers (`doctor` calls `labels.list` and it
@@ -1793,7 +2021,8 @@ own numbers.
 | Rate limiting only has to gate the first attempt of a call | Refuted in the phase-0 review: retries are triggered by 429 and by Google's three rate-limit reasons, so exempting them pushes hardest exactly when Drive has asked for less. Four of five attempts bypassed the limiter | The limiter is taken inside the retry loop, once per attempt |
 | An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
 | Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
-| `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference — and the refutation was itself **refuted in phase 4** against the discovery document, which lists `copyComments` on `files.copy` with a default of `false`. Whether Google added it since or the phase-1 check read the reference page rather than the document cannot be told from here, and the difference does not matter: the lesson is that a parameter list read once is a fact with a date on it | `copy_comments` is back on `copy_file`, off by default, and the result says out loud when a copy carried somebody else's words somewhere new. This is the argument for re-reading the discovery document every phase rather than trusting §18 |
+| `copy_file` with `copy_comments: true` brings the threads with it (the note this server printed, phases 4-6) | **Half true, and the halves were found on two runs.** A CSV carrying one OPEN thread with two replies was copied with the parameter set. `list_comments` on the copy, immediately: `0 comment threads` / `no comments: nobody has commented on this file`. The same call minutes later with `include_deleted: true`: `0 comment threads` / `no comments: nobody has commented on this file, and none has been deleted either` — so not `comments.list` lagging, which was the other explanation and the one the code had been written to allow for. The second run copied a **Google Doc** the same way in the same session and its threads DID come across. So the parameter works, and not for every kind: two data points, a Doc and an uploaded CSV, and the obvious reading — Drive's own formats carry them and uploaded bytes do not — is an inference from two points rather than something Google documents | The note and the SCHEMA both say Drive does not always do it, name the two kinds the run actually saw, and point at `list_comments` on the copy. The schema matters more: it is read before the call, which is the `lock_file` lesson exactly. The driver copies BOTH kinds now and says which carried and which did not, so the next run re-checks a fact that has already changed once |
+| `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference — and the refutation was itself **refuted in phase 4** against the discovery document, which lists `copyComments` on `files.copy` with a default of `false`. Whether Google added it since or the phase-1 check read the reference page rather than the document cannot be told from here, and the difference does not matter: the lesson is that a parameter list read once is a fact with a date on it | `copy_comments` is back on `copy_file`, off by default. The result said out loud "when a copy carried somebody else's words somewhere new" — which was this overpromise written down as a feature: files.copy answers with a File and mentions comments nowhere, so nothing could know it had. `gates outcomes` found it. The result now says what Drive was ASKED to do and names list_comments on the copy as the call that settles it This is the argument for re-reading the discovery document every phase rather than trusting §18 |
 | An old revision of a Docs editors file is fetched with `files.download` (§18, from the revisions guide) | Refined in phase 1: `files.download` is a long-running operation that hands back an `Operation` to poll, while the `Revision` resource itself carries `exportLinks` for exactly this — a direct URL per format, on a Google host the allowlist already permits. The simpler documented route was taken | `download_file revision:` reads the revision, then fetches its export link. `files.download` stays for Vids in phase 4. To be confirmed by the live run |
 | Drive's structural refusals arrive with their own status | Refuted by the fake once it answered with Google's real reason: `teamDrivesFolderMoveInNotSupported` comes back as **403**, and the error mapping tested the status before the reason, so "this cannot be done" was reported as "you may not". A model told `[forbidden]` goes looking for permissions to change; there are none | The reason is matched before the generic 403, and the folder-move refusal is `[unsupported]` with the way round it. Phase 0's own tests had never seen the real reason: the fake refused the move without one |
 | "Flat schemas" means every argument is a scalar (convention, phase 0) | Refined in phase 1: `update_file` has to tell "leave this alone" from "set it to false", which is a nullable boolean (`type: ["null", "boolean"]`), and Drive's custom properties are a map. Both are still one level deep — a model fills them in without building a structure | The rule is now "no nested objects and no arrays of objects"; the schema test checks scalars, nullable scalars, and maps of scalars, and nothing else |

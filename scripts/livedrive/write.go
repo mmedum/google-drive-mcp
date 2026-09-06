@@ -11,7 +11,7 @@ import (
 
 	"github.com/mmedum/google-drive-mcp/internal/service"
 	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
-	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/scripts/internal/transcript"
 )
 
 // writeRun exercises every tool that changes Drive, inside one scratch
@@ -23,7 +23,9 @@ import (
 // changes anything in a real account.
 type writeRun struct {
 	sess *mcpstdio.Session
-	red  *redact.Redactor
+	// out is the only way this run prints anything; see the transcript
+	// package, and `gates transcript`, which is what makes that true.
+	out *transcript.Transcript
 	// dir is the local directory the server was told to use, and the one
 	// place uploads come from and downloads land in.
 	dir string
@@ -54,26 +56,26 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 
 // runWrites drives the whole write surface and reports how many calls
 // behaved unexpectedly.
-func runWrites(s *mcpstdio.Session, red *redact.Redactor, dir, parent string, o options) (int, error) {
-	w := &writeRun{sess: s, red: red, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
+func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o options) (int, error) {
+	w := &writeRun{sess: s, out: t, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
 		labels: o.labels, activity: o.activity}
 	stamp := time.Now().UTC().Format("2006-01-02 15:04:05")
 	name := fmt.Sprintf("%s %s", scratchPrefix, stamp)
 	args := map[string]any{"name": name}
-	if parent != "" {
-		args["parent"] = parent
+	if o.parent != "" {
+		args["parent"] = o.parent
 	}
 	w.scratchID = w.createAndKeepID("create_folder", args)
 	if w.scratchID == "" {
 		return w.failures, fmt.Errorf("the scratch folder could not be created, so nothing else can run safely")
 	}
-	fmt.Println("\n(everything below happens inside that folder, and it is trashed at the end)")
+	w.out.Say("\n(everything below happens inside that folder, and it is trashed at the end)")
 
 	w.exercise()
 	if o.destructive {
 		runDestructive(w, driveScratchName(stamp))
 	} else {
-		fmt.Println("\n(pass -destructive to also exercise the five tools that remove things for " +
+		w.out.Say("\n(pass -destructive to also exercise the five tools that remove things for " +
 			"good, in a shared drive this run creates and destroys again)")
 	}
 	w.trashScratch()
@@ -113,14 +115,16 @@ func (w *writeRun) exercise() {
 // reported rather than counted as a failure — the same caution the
 // changes feed needed in phase 2.
 func (w *writeRun) phase4Extras(m made) {
-	fmt.Println("\n--- phase 4 parameters ---")
+	w.out.Say("\n--- phase 4 parameters ---")
+	// Both kinds, because the answer differs by kind and one file type is
+	// one file type. The CSV settled itself the first time anybody looked
+	// — the threads did not come across, twice checked minutes apart
+	// (§18) — and a Google Doc anchors its comments to a passage rather
+	// than to a file, which is the case most likely to behave differently
+	// and the one §17a was left holding.
+	w.copyAndCheckComments(m.text, "rows with its comments.csv", "a csv")
+	w.copyAndCheckComments(m.doc, "Notes with its comments", "a Google Doc")
 	if m.text != "" {
-		// The comments were made on this file a moment ago, so a copy
-		// asking for them has something to carry.
-		w.needing("copy_file", m.text, map[string]any{
-			"file": m.text, "name": "rows with its comments.csv",
-			"to": w.scratchID, "copy_comments": true, "allow_duplicate": true,
-		})
 		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
 	}
 
@@ -141,7 +145,7 @@ func (w *writeRun) phase4Extras(m made) {
 	// showing up at all.
 	w.expecting("search_files", w.scratchID, map[string]any{"property": "livedrive"},
 		"a key with no value, which Drive answers Invalid Value despite its guide")
-	fmt.Println("(an empty property search moments after the write is Drive's index catching up, " +
+	w.out.Say("(an empty property search moments after the write is Drive's index catching up, " +
 		"not a defect — read the hits above against what update_file set)")
 }
 
@@ -162,7 +166,7 @@ func (w *writeRun) pollProperty(property string) {
 		if !strings.Contains(out, "0 hits") {
 			return
 		}
-		fmt.Printf("(the property index reports nothing yet; waiting — attempt %d of %d)\n", i+1, attempts)
+		w.out.Sayf("(the property index reports nothing yet; waiting — attempt %d of %d)", i+1, attempts)
 	}
 	// NOT a failure, and the difference matters. Phase 4 measured this:
 	// the file tagged in a run was still missing from the index after
@@ -173,7 +177,7 @@ func (w *writeRun) pollProperty(property string) {
 	//
 	// What it must not do is pass quietly, because "not indexed yet" and
 	// "the query is broken" produce the same empty page.
-	fmt.Println("UNVERIFIED THIS RUN: the property search did not find the file this run tagged, after " +
+	w.out.Say("UNVERIFIED THIS RUN: the property search did not find the file this run tagged, after " +
 		"30 seconds. Drive's property index is eventually consistent and has been measured slower than " +
 		"that, so this is expected often enough not to be a failure — but it means the search was not " +
 		"checked, rather than checked and passed. Run search_files with the property by hand a few " +
@@ -196,10 +200,10 @@ func (w *writeRun) pollProperty(property string) {
 // so the only mail this sends is to the person running it.
 func (w *writeRun) approvals(m made) {
 	if m.doc == "" {
-		fmt.Println("\n(no document was created, so the approval surface is skipped)")
+		w.out.Say("\n(no document was created, so the approval surface is skipped)")
 		return
 	}
-	fmt.Println("\n--- approvals ---")
+	w.out.Say("\n--- approvals ---")
 	w.needing("list_approvals", m.doc, map[string]any{"file": m.doc})
 
 	account := w.accountAddress()
@@ -217,7 +221,7 @@ func (w *writeRun) approvals(m made) {
 		// Not necessarily a defect: approvals are a Workspace feature and
 		// not every edition has them. What matters is that the refusal
 		// said so rather than looking like a bug.
-		fmt.Println("(no approval id came back — read the refusal above: an edition without approvals " +
+		w.out.Say("(no approval id came back — read the refusal above: an edition without approvals " +
 			"is a legitimate answer, a confusing error is not)")
 		return
 	}
@@ -241,14 +245,14 @@ func (w *writeRun) approvals(m made) {
 // published to it, which is not a failure.
 func (w *writeRun) labelling(m made) {
 	if !w.labels {
-		fmt.Println("\n(pass -labels to exercise the label tools, which need GDRIVE_LABELS and its scopes)")
+		w.out.Say("\n(pass -labels to exercise the label tools, which need GDRIVE_LABELS and its scopes)")
 		return
 	}
-	fmt.Println("\n--- labels ---")
+	w.out.Say("\n--- labels ---")
 	listing := w.call(call{tool: "list_labels", args: map[string]any{}})
 	id, field, choice := labelFromResult(listing)
 	if id == "" {
-		fmt.Println("(no label is published to this account, so there is nothing to apply — " +
+		w.out.Say("(no label is published to this account, so there is nothing to apply — " +
 			"the listing above should say so in as many words)")
 		return
 	}
@@ -283,10 +287,10 @@ func (w *writeRun) labelling(m made) {
 // changes feed the hard way, and the same caution applies here.
 func (w *writeRun) activityFeed(m made) {
 	if !w.activity {
-		fmt.Println("\n(pass -activity to exercise list_activity, which needs GDRIVE_ACTIVITY and its scope)")
+		w.out.Say("\n(pass -activity to exercise list_activity, which needs GDRIVE_ACTIVITY and its scope)")
 		return
 	}
-	fmt.Println("\n--- activity ---")
+	w.out.Say("\n--- activity ---")
 	w.needing("list_activity", w.scratchID, map[string]any{"file": w.scratchID, "recursive": true})
 	if m.doc != "" {
 		w.needing("list_activity", m.doc, map[string]any{"file": m.doc})
@@ -296,7 +300,7 @@ func (w *writeRun) activityFeed(m made) {
 		"an action filter nobody implemented")
 	w.expecting("list_activity", m.doc, map[string]any{"file": m.doc, "recursive": true},
 		"recursive on a file, where the API's ancestorName means nothing")
-	fmt.Println("(an empty feed moments after a write is Drive being eventually consistent, not a defect)")
+	w.out.Say("(an empty feed moments after a write is Drive being eventually consistent, not a defect)")
 }
 
 // collaboration exercises what phase 3 added: comments, the access
@@ -314,7 +318,7 @@ func (w *writeRun) collaboration(m made) {
 		if target.id == "" {
 			continue
 		}
-		fmt.Printf("\n--- comments on %s ---\n", target.what)
+		w.out.Sayf("\n--- comments on %s ---", target.what)
 		w.needing("list_comments", target.id, map[string]any{"file": target.id})
 		id := commentFromResult(w.call(call{tool: "add_comment", args: map[string]any{
 			"file": target.id, "content": "is this row still right?",
@@ -498,7 +502,7 @@ func (w *writeRun) access(m made) {
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true})
 
 	if w.share == "" {
-		fmt.Println("\n(pass -share SOMEONE@EXAMPLE.COM to also exercise a real grant, an expiry " +
+		w.out.Say("\n(pass -share SOMEONE@EXAMPLE.COM to also exercise a real grant, an expiry " +
 			"and the ownership transfer of spike F)")
 		return
 	}
@@ -535,12 +539,12 @@ func (w *writeRun) spikeF() {
 		"content": "spike F: this file is about to change hands\n", "mime_type": "text/plain",
 	})
 	if transfer == "" {
-		fmt.Println("\n=== spike F: skipped, the file it needs was never created ===")
+		w.out.Say("\n=== spike F: skipped, the file it needs was never created ===")
 		return
 	}
 	before := ownerFromResult(w.call(call{tool: "get_file", args: map[string]any{"file": transfer}}))
 
-	fmt.Println("\n!! the next call hands this file to " + w.red.Do(w.share) + " for good.")
+	w.out.Say("\n!! the next call hands this file to " + w.share + " for good.")
 	w.needing("share_file", transfer, map[string]any{
 		"file": transfer, "principal": w.share, "role": "owner", "transfer_ownership": true,
 	})
@@ -559,10 +563,10 @@ func (w *writeRun) spikeF() {
 		w.problem("share_file reported an ownership transfer and the owner DID NOT CHANGE. That is the "+
 			"failure reading it back exists to catch", errors.New("the owner is the same as before"))
 	default:
-		fmt.Println("\n(spike F: the owner changed, so the transfer really happened. " +
+		w.out.Say("\n(spike F: the owner changed, so the transfer really happened. " +
 			"This account is a writer on it now.)")
 	}
-	fmt.Println("!! that file now belongs to " + w.red.Do(w.share) + " and has moved to their Drive. Trashing the " +
+	w.out.Say("!! that file now belongs to " + w.share + " and has moved to their Drive. Trashing the " +
 		"scratch folder does not take it back: only its new owner can remove it.")
 }
 
@@ -634,7 +638,7 @@ func (w *writeRun) pollChanges(token string) {
 		if !strings.Contains(out, "0 changes") {
 			return
 		}
-		fmt.Printf("(the feed reports nothing yet; it is eventually consistent, waiting — attempt %d of %d)\n",
+		w.out.Sayf("(the feed reports nothing yet; it is eventually consistent, waiting — attempt %d of %d)",
 			i+1, attempts)
 	}
 	w.problem("the changes feed never reported the write this run made. That is either Drive's own lag "+
@@ -906,11 +910,11 @@ func (w *writeRun) refusals(m made) {
 // touches anything outside the scratch folder.
 func (w *writeRun) sharedDrive(m made) {
 	if w.drive == "" {
-		fmt.Println("\n(pass -drive NAME_OR_ID to also exercise moving a file into a shared drive and back)")
+		w.out.Say("\n(pass -drive NAME_OR_ID to also exercise moving a file into a shared drive and back)")
 		return
 	}
 	if m.small == "" || m.folder == "" {
-		fmt.Println("\n=== shared drive: skipped, the files it needs were never created ===")
+		w.out.Say("\n=== shared drive: skipped, the files it needs were never created ===")
 		return
 	}
 	target := "drive:" + w.drive
@@ -945,9 +949,19 @@ func (w *writeRun) recover(id string) {
 		errors.New("the move back out failed twice"))
 }
 
+// unverified says a step could not run because Drive did not present
+// the state it needs, which is not a failure: nothing is wrong, and the
+// same run an hour later would do it. It is loud because the thing it
+// guards against is a step being counted as verified by a run that never
+// reached it.
+func (w *writeRun) unverified(what string, err error) {
+	w.out.Sayf("!! UNVERIFIED THIS RUN: %s (%v). Nothing is wrong: this is Drive being eventually "+
+		"consistent. It means the step was not checked, rather than checked and passed.", what, err)
+}
+
 // problem records something that went wrong outside a tool call.
 func (w *writeRun) problem(what string, err error) {
-	fmt.Printf("!! %s: %v\n", what, err)
+	w.out.Sayf("!! %s: %v", what, err)
 	w.failures++
 }
 
@@ -955,7 +969,7 @@ func (w *writeRun) problem(what string, err error) {
 // and says so when it cannot.
 func (w *writeRun) needing(tool, id string, args map[string]any) {
 	if id == "" {
-		fmt.Printf("\n=== %s: skipped, the file it needs was never created ===\n", tool)
+		w.out.Sayf("\n=== %s: skipped, the file it needs was never created ===", tool)
 		return
 	}
 	w.call(call{tool: tool, args: args})
@@ -964,7 +978,7 @@ func (w *writeRun) needing(tool, id string, args map[string]any) {
 // expecting is needing for a call that ought to be refused.
 func (w *writeRun) expecting(tool, id string, args map[string]any, why string) {
 	if id == "" {
-		fmt.Printf("\n=== %s: skipped, the file it needs was never created ===\n", tool)
+		w.out.Sayf("\n=== %s: skipped, the file it needs was never created ===", tool)
 		return
 	}
 	w.call(call{tool: tool, args: args, expectError: true, why: why})
@@ -976,37 +990,39 @@ func (w *writeRun) trashScratch() {
 		return
 	}
 	w.call(call{tool: "trash_file", args: map[string]any{"file": w.scratchID}})
-	fmt.Println("\n(the scratch folder is in the trash; empty it yourself if you want it gone for good)")
+	w.out.Say("\n(the scratch folder is in the trash; empty it yourself if you want it gone for good)")
 }
 
 // call runs one tool and prints the redacted result.
 func (w *writeRun) call(c call) string {
-	// The arguments go through the redactor too. Until phase 4 the only
-	// address that ever reached them was one the operator typed as
-	// -share or -blocked, and a transcript echoing it back was arguably
-	// their own business. Starting an approval put the SIGNED-IN
-	// account's address there automatically, on every -write run, which
-	// is nobody's choice at all.
-	fmt.Printf("\n=== %s %s ===\n", c.tool, w.red.Do(mcpstdio.Encode(c.args)))
+	// The arguments are echoed unwrapped because the transcript redacts
+	// the whole line. Until phase 4 the only address that ever reached
+	// them was one the operator typed as -share or -blocked, and a
+	// transcript echoing it back was arguably their own business.
+	// Starting an approval put the SIGNED-IN account's address there
+	// automatically, on every -write run, which is nobody's choice at
+	// all. It was fixed by wrapping this call site; it stays fixed
+	// because there is no longer a way to print that does not redact.
+	w.out.Sayf("\n=== %s %s ===", c.tool, mcpstdio.Encode(c.args))
 	if c.why != "" {
-		fmt.Printf("(expecting a refusal: %s)\n", c.why)
+		w.out.Sayf("(expecting a refusal: %s)", c.why)
 	}
 	out, isError, err := w.sess.CallTool(c.tool, c.args)
 	if err != nil {
-		fmt.Println("!! transport failure:", err)
+		w.out.Sayf("!! transport failure: %v", err)
 		w.failures++
 		return ""
 	}
-	fmt.Println(strings.TrimRight(w.red.Do(out), "\n"))
+	w.out.Say(out)
 	switch {
 	case c.tolerant:
-		fmt.Println("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
+		w.out.Say("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
 	case isError != c.expectError:
 		w.failures++
 		if c.expectError {
-			fmt.Println("!! expected a refusal and did not get one")
+			w.out.Say("!! expected a refusal and did not get one")
 		} else {
-			fmt.Println("!! unexpected tool error")
+			w.out.Say("!! unexpected tool error")
 		}
 	}
 	return out
@@ -1057,34 +1073,34 @@ func (w *writeRun) resources(m made) {
 		// needing: an id an earlier create never produced is a skip that
 		// says so, not a silent one.
 		if r.id == "" {
-			fmt.Println("\n=== resource: skipped, the file it needs was never created ===")
+			w.out.Say("\n=== resource: skipped, the file it needs was never created ===")
 			continue
 		}
 		uri := service.ResourceURI(r.id, r.suffix)
-		fmt.Printf("\n=== resource %s ===\n", w.red.Do(uri))
+		w.out.Sayf("\n=== resource %s ===", uri)
 		if r.why != "" {
-			fmt.Printf("(expecting a refusal: %s)\n", r.why)
+			w.out.Sayf("(expecting a refusal: %s)", r.why)
 		}
 		text, mime, err := w.sess.ReadResource(uri)
 		var refused *mcpstdio.RPCError
 		switch {
 		case errors.As(err, &refused):
-			fmt.Println(w.red.Do(refused.Detail))
+			w.out.Say(refused.Detail)
 			if r.why == "" {
-				fmt.Println("!! unexpected refusal")
+				w.out.Say("!! unexpected refusal")
 				w.failures++
 			}
 			continue
 		case err != nil:
-			fmt.Println("!! transport failure:", err)
+			w.out.Sayf("!! transport failure: %v", err)
 			w.failures++
 			continue
 		}
 		if r.why != "" {
-			fmt.Println("!! expected a refusal and did not get one")
+			w.out.Say("!! expected a refusal and did not get one")
 			w.failures++
 		}
-		fmt.Printf("mime: %s\n%s\n", mime, strings.TrimRight(w.red.Do(head(text, 12)), "\n"))
+		w.out.Sayf("mime: %s\n%s", mime, head(text, 12))
 	}
 }
 
@@ -1119,21 +1135,21 @@ func (w *writeRun) policyRefusal(m made) {
 	if w.blocked == "" || m.text == "" {
 		return
 	}
-	fmt.Printf("\n--- the policy refusal of §17a ---\n")
-	fmt.Println("(expecting a refusal: the organisation's sharing policy, not Drive's own rules)")
+	w.out.Say("\n--- the policy refusal of §17a ---")
+	w.out.Say("(expecting a refusal: the organisation's sharing policy, not Drive's own rules)")
 	out, isError, err := w.sess.CallTool("share_file", map[string]any{
 		"file": m.text, "principal": w.blocked, "role": "reader",
 	})
 	if err != nil {
-		fmt.Println("!! transport failure:", err)
+		w.out.Sayf("!! transport failure: %v", err)
 		w.failures++
 		return
 	}
-	fmt.Println(strings.TrimRight(w.red.Do(out), "\n"))
+	w.out.Say(out)
 
 	if !isError {
 		w.problem("the share was ALLOWED. Either the admin setting is not in place for this account's "+
-			"organisational unit yet, or "+w.red.Do(w.blocked)+" is inside it or on the allowlist. "+
+			"organisational unit yet, or "+w.blocked+" is inside it or on the allowlist. "+
 			"Nothing was learned about the mapping, and the grant is still on the file",
 			errors.New("no refusal to classify"))
 		// It really did share, inside the scratch folder; take it back.
@@ -1142,10 +1158,10 @@ func (w *writeRun) policyRefusal(m made) {
 	}
 
 	class, reason := classAndReason(out, w.sess.StderrTail(40))
-	fmt.Printf("\nGoogle's reason: %s\nthis server classified it as: [%s]\n", orUnknown(reason), orUnknown(class))
+	w.out.Sayf("\nGoogle's reason: %s\nthis server classified it as: [%s]", orUnknown(reason), orUnknown(class))
 	switch {
 	case class == "blocked":
-		fmt.Println("VERDICT: classified as [blocked] — but READ GOOGLE'S MESSAGE ABOVE before recording " +
+		w.out.Say("VERDICT: classified as [blocked] — but READ GOOGLE'S MESSAGE ABOVE before recording " +
 			"that as confirmation. This check cannot tell a policy refusal from any other refusal that " +
 			"lands in the same class, and the first run of it was fooled: an address with no Google " +
 			"account behind it came back as invalidSharingRequest and was reported as the organisation's " +
@@ -1200,4 +1216,42 @@ func orUnknown(s string) string {
 		return "(not recorded)"
 	}
 	return s
+}
+
+// copyAndCheckComments copies a file asking for its comment threads, and
+// then LOOKS at the copy.
+//
+// The copy has been made with copy_comments since phase 4 and nobody
+// ever asked whether the threads arrived, while the server told the
+// caller they had — which `gates outcomes` found and no run here could
+// have, because the run never looked. The first run that did look found
+// none on a CSV, and none again minutes later, so that one is not
+// comments.list lagging.
+//
+// It says so out loud rather than leaving it in the transcript. The
+// answer is one line among thirteen hundred, and "all calls behaved as
+// expected" is true of it either way, which is the thing this repository
+// has been caught by twice.
+func (w *writeRun) copyAndCheckComments(id, name, kind string) {
+	if id == "" {
+		w.out.Sayf("\n=== copy_file with its comments: skipped, the %s it needs was never created ===", kind)
+		return
+	}
+	copied := w.createAndKeepID("copy_file", map[string]any{
+		"file": id, "name": name, "to": w.scratchID,
+		"copy_comments": true, "allow_duplicate": true,
+	})
+	if copied == "" {
+		w.out.Sayf("\n=== list_comments: skipped, the copy of %s was never made ===", kind)
+		return
+	}
+	threads := w.call(call{tool: "list_comments",
+		args: map[string]any{"file": copied, "include_deleted": false}})
+	if strings.Contains(threads, "0 comment threads") {
+		w.out.Sayf("!! the copy of %s asked for the comment threads and has NONE. Check it again in a "+
+			"minute — comments.list can lag a copy — and if it is still empty then Drive did not "+
+			"carry them, whatever copy_comments was set to.", kind)
+		return
+	}
+	w.out.Sayf("(the copy of %s carried its comment threads: Drive honoured copy_comments here)", kind)
 }
