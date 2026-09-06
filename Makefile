@@ -115,6 +115,10 @@ mcpb: ## The committed bundle manifest must name files the packer will stage
 transcript: ## A program driving a real account may only print through the redactor
 	$(GO) run ./scripts/gates transcript
 
+.PHONY: live-cover
+live-cover: build ## Every tool option is driven live or recorded as not, with the reason
+	$(GO) run ./scripts/gates live-cover $(BIN)
+
 .PHONY: parity
 parity: ## `make check` and CI must run the same gates
 	$(GO) run ./scripts/gates parity
@@ -124,7 +128,7 @@ api-diff: ## Refetch the three discovery documents and report what has changed (
 	$(GO) run ./scripts/gates api-diff
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage mcpb transcript schema-diff smoke staleness parity ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage mcpb transcript schema-diff smoke staleness live-cover parity ## Everything CI runs
 
 .PHONY: clean
 clean:
