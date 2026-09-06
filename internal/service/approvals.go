@@ -372,9 +372,18 @@ func (s *Service) approvalError(err error, f *gdrive.File, doing string) error {
 				"this can also mean the approval id is wrong. Google said: %s",
 			doing, f.Name, gapi.Message(err)), Err: err}
 	case ClassForbidden:
+		// Drive answers all three of these with a bare Permission denied,
+		// so the message has to offer the whole set. The finished case is
+		// first because it is the one the caller can have caused itself,
+		// and the live run met exactly it: the driver cancelled an
+		// approval and then answered it, and a message naming only the
+		// other two sent a reader to check a reviewer list they were
+		// already on.
 		return &Error{Class: ClassForbidden, Message: fmt.Sprintf(
-			"%s %s was refused. Answering an approval needs to be one of its reviewers, and starting "+
-				"or cancelling one needs write access to the file. Google said: %s",
+			"%s %s was refused. An approval that is already approved, declined or cancelled cannot "+
+				"be answered again; answering an open one needs to be one of its reviewers, and "+
+				"starting or cancelling one needs write access to the file. list_approvals says "+
+				"which of those it is. Google said: %s",
 			doing, f.Name, gapi.Message(err)), Err: err}
 	}
 	return wrap(err, doing+" "+f.Name)
