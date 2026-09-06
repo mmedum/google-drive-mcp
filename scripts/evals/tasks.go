@@ -27,6 +27,10 @@ type task struct {
 type taskState struct {
 	*harness
 	values map[string]string
+	// realAddress records that -share named an address Google will
+	// actually accept, which is what decides whether a sharing task can
+	// check the grant or only the call that asked for it.
+	realAddress bool
 }
 
 func (s *taskState) set(key, value string) {
@@ -292,7 +296,7 @@ func sharingTasks() []task {
 			setup: func(s *taskState) error {
 				return s.makeFile("target", "Draft agenda", "one\ntwo\n")
 			},
-			prompt: "Give someone@example.com permission to comment on \"Draft agenda\" in the folder " +
+			prompt: "Give {address} permission to comment on \"Draft agenda\" in the folder " +
 				"with id {folder}. Do not email them about it.",
 			check: func(s *taskState, run agentRun) []string {
 				var out []string
@@ -308,11 +312,20 @@ func sharingTasks() []task {
 						out = append(out, "asked Google to send mail, which the task said not to")
 					}
 				}
+				// The end state is only checkable with an address Google
+				// will accept. example.com is IANA's reserved
+				// documentation domain and Drive refuses it, so without
+				// -share this task scores the trace — the role and the
+				// silence — and says which half it could not see.
+				if !s.realAddress {
+					fmt.Println("   (no -share ADDRESS: the grant itself was not verified, only the call)")
+					return out
+				}
 				perms, err := s.call("list_permissions", map[string]any{"file": s.get("target_id")})
 				if err != nil {
 					return append(out, err.Error())
 				}
-				if !strings.Contains(perms, "someone@example.com") {
+				if !strings.Contains(perms, s.get("address")) {
 					out = append(out, "the grant is not on the file:\n"+perms)
 				}
 				return out
@@ -380,8 +393,23 @@ func collaborationTasks() []task {
 				if !run.used("download_file") {
 					return []string{"never called download_file"}
 				}
-				if !localExists(s, "handbook.txt") {
-					return []string{"nothing called handbook.txt reached the local directory"}
+				// The name on disk is not the name in Drive: download_file
+				// appends a short id, so two files of one name land beside
+				// each other rather than on each other. An earlier version
+				// of this check looked for "handbook.txt" exactly and
+				// failed a download that had worked.
+				landed := localMatching(s, "handbook")
+				if len(landed) == 0 {
+					return []string{"nothing from handbook.txt reached the local directory"}
+				}
+				if len(landed) > 1 {
+					return []string{fmt.Sprintf("one download left %v behind", landed)}
+				}
+				// And the result has to name what it wrote, or nobody can
+				// find it.
+				if !strings.Contains(run.Answer, strings.TrimSuffix(landed[0], ".txt")) &&
+					!mentionsAny(run.Answer, landed[0], "handbook") {
+					return []string{"the answer does not say where the file landed: " + mcpstdio.FirstLine(run.Answer)}
 				}
 				return nil
 			},

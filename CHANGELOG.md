@@ -6,6 +6,27 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every workflow pins its shell, at workflow level.** The Windows
+  runner's default shell is PowerShell, and it does not read
+  `-coverprofile=cov.out` the way bash does: the coverage profile went to
+  a file no step referred to, and nothing noticed while the only step
+  that read it was skipped on that platform. v0.3.0 fixed it on the one
+  job that had failed; this puts it on the file, so a job added later
+  inherits it, and `gates pins` now refuses a workflow without it —
+  including one that sets the shell under a job, which reads as correct
+  and is not.
+- **The two eval tasks that could never pass now say what they check.**
+  `download-a-file` looked for the file under the name Drive holds, and
+  `download_file` deliberately appends a short id so two files of one
+  name land beside each other; `share-as-commenter-quietly` asserted a
+  grant to `someone@example.com`, which Drive refuses because it is
+  IANA's reserved documentation domain. The first checks what actually
+  landed, and the second scores the call and says out loud that the grant
+  went unverified unless `-share` names an address Google will accept.
+  All thirteen tasks pass against a real account now.
+
 ## [0.3.0] - 2026-09-06
 
 Collaboration, resources and the numbers. Six new tools, one of them
