@@ -71,7 +71,7 @@ func outcomes(out io.Writer, _ []string) error {
 	var problems []string
 	used := map[string]int{}
 	for _, c := range outcomeClaims(files, fields, fset) {
-		key := fmt.Sprintf("%s:%s", c.file, c.field)
+		key := outcomeKey(c.file, c.field)
 		if _, ok := exempt[key]; ok {
 			used[key]++
 			continue
@@ -465,4 +465,30 @@ func saysItIsADryRun(body *ast.BlockStmt) bool {
 		return !found
 	})
 	return found
+}
+
+// outcomeKey names a branch in the record file: a path with forward
+// slashes, whatever the platform writes, and the field it tests.
+//
+// One function because the key is built in two places — the gate and the
+// test that holds the record to the code — and they have to agree
+// character for character or the record silently excuses nothing.
+//
+// The path arrives from filepath, so on Windows it is
+// `internal\service\drives.go` where the record file names it with
+// forward slashes. Nothing matched: every excused branch was reported
+// unexcused AND every row was reported stale, so the gate failed on a
+// tree it passes on everywhere else. Found by CI on the third platform,
+// which is the whole reason a merge waits for it.
+//
+// ReplaceAll rather than filepath.ToSlash, which is what the first fix
+// used. ToSlash is a no-op wherever the separator is already a slash, so
+// it is correct on Windows and UNTESTABLE anywhere else — the assertion
+// that would prove it can only run on the platform that had the bug. A
+// replacement that does the same thing everywhere can be asserted on the
+// machine somebody is actually working on, which today is worth more
+// than the idiom. No path this gate walks contains a backslash on a
+// system where one would be legal.
+func outcomeKey(file, field string) string {
+	return strings.ReplaceAll(file, `\`, "/") + ":" + field
 }
