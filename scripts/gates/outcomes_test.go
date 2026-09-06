@@ -145,7 +145,7 @@ func TestAnExemptionThatNoLongerMatchesFails(t *testing.T) {
 	claims := outcomeClaims(files, boolInputFields(files), fset)
 	matched := map[string]bool{}
 	for _, c := range claims {
-		matched[c.file+":"+c.field] = true
+		matched[outcomeKey(c.file, c.field)] = true
 	}
 	for key := range exempt {
 		if !matched[key] {
@@ -182,4 +182,40 @@ func claimsIn(t *testing.T, source string) []claim {
 		t.Fatal(err)
 	}
 	return outcomeClaims(files, boolInputFields(files), fset)
+}
+
+// TestTheRecordIsKeyedBySlashesOnEveryPlatform.
+//
+// The claim's path comes from filepath, so on Windows it arrives as
+// `internal\service\drives.go` while the record file names it with
+// forward slashes. Nothing matched: every excused branch was reported
+// unexcused, and every row was reported stale, so the gate failed on a
+// tree it passes on everywhere else.
+//
+// Linux and macOS cannot reproduce it — a test that only wrote a path
+// and read it back would pass on both and prove nothing — so this asks
+// the key function directly with the path Windows produces.
+func TestTheRecordIsKeyedBySlashesOnEveryPlatform(t *testing.T) {
+	const want = "internal/service/drives.go:IncludeHidden"
+	for _, path := range []string{
+		`internal\service\drives.go`,
+		"internal/service/drives.go",
+	} {
+		if got := outcomeKey(path, "IncludeHidden"); got != want {
+			t.Errorf("outcomeKey(%q) = %q, want %q", path, got, want)
+		}
+	}
+
+	// And the committed record uses that spelling, so the two halves
+	// cannot drift apart in the other direction either.
+	t.Chdir("../..")
+	exempt, err := readOutcomeExemptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key := range exempt {
+		if strings.ContainsRune(key, '\\') {
+			t.Errorf("%s names %q with a backslash; the record is keyed by slashes", outcomeFile, key)
+		}
+	}
 }
