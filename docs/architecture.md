@@ -1389,18 +1389,60 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   have put two lies in the record: they are sent twice on every
   destructive run. The reader follows that indirection now.
 
-- **"Never assert an outcome the response did not carry" has no gate.**
-  §11 states it as this repository's rule and phase 5 fixed three
-  violations by hand, every one of them found by a live run because
-  nothing here could see them. The narrow, checkable version exists: for
-  a tool input that asks Drive to MAKE SOMETHING SO — `lock_file`,
-  `allow_anyone`, `keep_previous_revision`,
-  `use_content_as_indexable_text` — fail if the field is read in the same
-  function that builds the outcome note, in the family of `gates classes`
-  and `TestEmptyTrashIsNamedInOnePlace`. It would have caught `lock_file`
-  before Drive did. Not done here because choosing the field set is a
-  design question and the gate is worth getting right rather than
-  shipping on release eve. Raised by the phase-5 altitude review.
+- ~~"Never assert an outcome the response did not carry" has no gate.~~
+  **Done, and the rule this entry proposed was wrong.** §17a said: fail
+  if the field is read in the same function that builds the outcome note.
+  Reading the code says otherwise, and thinking about it did not. Two
+  CORRECT sites read the field exactly there — the lock sentence branches
+  on `in.LockFile` and then calls `lockWords(after.File)`, which reads
+  the file back, and the pinning note branches on `in.KeepPreviousRevision`
+  and then asks Drive to pin and words the result from what Drive
+  answered. The function is the wrong unit. The BRANCH is the right one,
+  and what makes a branch honest is that it consults something before it
+  speaks.
+
+  So `gates outcomes` fails a branch that tests a boolean the caller
+  sent, and then writes prose describing the result, without asking Drive
+  anything in between. Two shapes are excluded by the rule itself rather
+  than by a list: a dry run, which makes no call by construction and says
+  "would" — the honest form of exactly this sentence — and a refusal,
+  which says what THIS SERVER did and is true whatever Drive would have
+  answered.
+
+  The other half of the design question the entry raised — which fields —
+  is answered by deriving rather than choosing. Every boolean field on a
+  service input struct is in scope, because a boolean input is the shape
+  that asks for a state where a string carries a value, and deriving it
+  means a new one is covered on the commit that adds it.
+
+  **It found one, and it is the same defect as `lock_file` with somebody
+  else's words in place of a restriction.** `copy_file` said "The comment
+  threads were copied with it, so everybody who can see the copy can read
+  what was said on the original", from `copy_comments: true` alone.
+  `files.copy` answers with a File and mentions comments nowhere, so
+  nothing here could know. The live driver has copied with that parameter
+  since phase 4 and never once looked at the copy, and §18 recorded the
+  overpromise as though it were a feature: "the result says out loud when
+  a copy carried somebody else's words somewhere new."
+
+  It now says what Drive was ASKED to do, says outright that Drive does
+  not report whether it did, and names `list_comments` on the copy as the
+  call that settles it. Reading it back was the other option and was
+  rejected for a reason phase 5 paid for: `comments.list` lags a copy, so
+  an empty answer would report threads as dropped when they were merely
+  late — the `empty_trash` mistake in the opposite direction. The driver
+  now lists the copy's comments, so the next live run answers the
+  question nobody has asked.
+
+  The test that covered this asserted the wrong sentence, which is the
+  phase-4 pattern exactly: a fixture written from the belief keeps the
+  belief alive.
+
+  What the gate cannot do is judge the WORDS — the honest form of the
+  shape parses identically to the dishonest one. A branch that is right
+  anyway carries a row in `testdata/outcome-claims.tsv` with the reason,
+  and a row that stops matching fails, so an excuse cannot outlive the
+  code it excused. There are two rows.
 
 - **A created shared drive is thrown away and then looked for.**
   `manage_drive` create calls `forgetDrives()`, so the next `findDrive`
@@ -1874,7 +1916,7 @@ own numbers.
 | Rate limiting only has to gate the first attempt of a call | Refuted in the phase-0 review: retries are triggered by 429 and by Google's three rate-limit reasons, so exempting them pushes hardest exactly when Drive has asked for less. Four of five attempts bypassed the limiter | The limiter is taken inside the retry loop, once per attempt |
 | An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
 | Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
-| `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference — and the refutation was itself **refuted in phase 4** against the discovery document, which lists `copyComments` on `files.copy` with a default of `false`. Whether Google added it since or the phase-1 check read the reference page rather than the document cannot be told from here, and the difference does not matter: the lesson is that a parameter list read once is a fact with a date on it | `copy_comments` is back on `copy_file`, off by default, and the result says out loud when a copy carried somebody else's words somewhere new. This is the argument for re-reading the discovery document every phase rather than trusting §18 |
+| `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference — and the refutation was itself **refuted in phase 4** against the discovery document, which lists `copyComments` on `files.copy` with a default of `false`. Whether Google added it since or the phase-1 check read the reference page rather than the document cannot be told from here, and the difference does not matter: the lesson is that a parameter list read once is a fact with a date on it | `copy_comments` is back on `copy_file`, off by default. The result said out loud "when a copy carried somebody else's words somewhere new" — which was this overpromise written down as a feature: files.copy answers with a File and mentions comments nowhere, so nothing could know it had. `gates outcomes` found it. The result now says what Drive was ASKED to do and names list_comments on the copy as the call that settles it This is the argument for re-reading the discovery document every phase rather than trusting §18 |
 | An old revision of a Docs editors file is fetched with `files.download` (§18, from the revisions guide) | Refined in phase 1: `files.download` is a long-running operation that hands back an `Operation` to poll, while the `Revision` resource itself carries `exportLinks` for exactly this — a direct URL per format, on a Google host the allowlist already permits. The simpler documented route was taken | `download_file revision:` reads the revision, then fetches its export link. `files.download` stays for Vids in phase 4. To be confirmed by the live run |
 | Drive's structural refusals arrive with their own status | Refuted by the fake once it answered with Google's real reason: `teamDrivesFolderMoveInNotSupported` comes back as **403**, and the error mapping tested the status before the reason, so "this cannot be done" was reported as "you may not". A model told `[forbidden]` goes looking for permissions to change; there are none | The reason is matched before the generic 403, and the folder-move refusal is `[unsupported]` with the way round it. Phase 0's own tests had never seen the real reason: the fake refused the move without one |
 | "Flat schemas" means every argument is a scalar (convention, phase 0) | Refined in phase 1: `update_file` has to tell "leave this alone" from "set it to false", which is a nullable boolean (`type: ["null", "boolean"]`), and Drive's custom properties are a map. Both are still one level deep — a model fills them in without building a structure | The rule is now "no nested objects and no arrays of objects"; the schema test checks scalars, nullable scalars, and maps of scalars, and nothing else |

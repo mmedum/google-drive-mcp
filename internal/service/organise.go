@@ -399,10 +399,18 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 			model.KindName(convert), f.Name))
 	}
 	if in.CopyComments {
-		// Worth saying out loud: the copy now carries what other people
-		// wrote on the original, to wherever the copy went.
-		notes = append(notes, "The comment threads were copied with it, so everybody who can see the copy "+
-			"can read what was said on the original.")
+		// What was ASKED for, not what happened. files.copy answers with a
+		// File and says nothing about comments, so this cannot know: the
+		// sentence here used to be "the comment threads were copied with
+		// it", which is the lock_file mistake with somebody else's words
+		// in place of a restriction. Reading it back was the other option
+		// and was rejected: comments.list lags a copy, so an empty answer
+		// would report threads as dropped when they were merely late,
+		// which is the empty_trash mistake in the opposite direction. The
+		// caller is pointed at the one call that settles it instead.
+		notes = append(notes, "Drive was asked to bring the comment threads along. It does not say "+
+			"whether it did: list_comments on the copy shows what came across, and anything that did "+
+			"is what other people wrote, now readable by everybody who can see the copy.")
 	}
 	return s.write(ctx, copied, outcome{Action: render.ActionCopied, Note: strings.Join(notes, " ")})
 }
