@@ -24,6 +24,16 @@
 // account: trashing the scratch folder does not take back a file whose
 // owner is now somebody else.
 //
+// -blocked PARTNER@EXAMPLE.ORG is the check §17a has been waiting
+// for a Workspace administrator to make possible: a share the
+// ORGANISATION refuses, rather than one Drive refuses. It reports
+// Google's own reason beside the class this server gave it, and says
+// loudly when the two disagree — a policy refusal reported as
+// [forbidden] tells a model to try something else when the truth is that
+// nothing it does will work.
+//
+//	go run ./scripts/livedrive -bin ./google-drive-mcp -write -blocked partner@example.org
+//
 // -raw turns redaction off. Do not use it in a terminal you are sharing.
 package main
 
@@ -45,10 +55,11 @@ func main() {
 	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
 	drive := flag.String("drive", "", "a shared drive to move a file into and out of, by name or id; empty skips that half")
 	share := flag.String("share", "", "an address to grant access to, for the half of sharing that needs a second person (spike F included); empty skips it")
+	blocked := flag.String("blocked", "", "an address the organisation's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
 	flag.Parse()
 
 	if err := run(options{binary: *binary, file: *file, raw: *raw, write: *write,
-		parent: *parent, drive: *drive, share: *share}); err != nil {
+		parent: *parent, drive: *drive, share: *share, blocked: *blocked}); err != nil {
 		fmt.Fprintln(os.Stderr, "livedrive: "+err.Error())
 		os.Exit(1)
 	}
@@ -66,13 +77,14 @@ type call struct {
 
 // options are what one run of the driver was asked to do.
 type options struct {
-	binary string
-	file   string
-	raw    bool
-	write  bool
-	parent string
-	drive  string
-	share  string
+	binary  string
+	file    string
+	raw     bool
+	write   bool
+	parent  string
+	drive   string
+	share   string
+	blocked string
 }
 
 func run(o options) error {
@@ -142,7 +154,7 @@ func run(o options) error {
 		fmt.Println("\n(pass -file REF to also exercise get_file and a recursive listing)")
 	}
 	if o.write {
-		failures, err := runWrites(sess, red, dir, o.parent, o.drive, o.share)
+		failures, err := runWrites(sess, red, dir, o.parent, o.drive, o.share, o.blocked)
 		unexpected += failures
 		if err != nil {
 			return err
