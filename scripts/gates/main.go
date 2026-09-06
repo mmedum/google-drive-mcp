@@ -45,6 +45,8 @@ func main() {
 		err = pins(os.Stdout, args)
 	case "classes":
 		err = classes(os.Stdout, args)
+	case "parity":
+		err = parity(os.Stdout, args)
 	case "precommit":
 		err = precommit(os.Stdout, args)
 	case "install-hooks":
