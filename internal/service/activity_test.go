@@ -179,34 +179,72 @@ func TestActivityQueryIsTreatedAsARead(t *testing.T) {
 	}
 }
 
-// A live query of 400 activities found three that Drive sent with no
-// primaryActionDetail at all. That is ordinary and nothing can be done
-// about it — while an action kind this server has no words for would
-// mean Google had added a thirteenth, which is worth acting on. Until
-// the live run both were reported as the second, sending a reader to
-// look for a missing case that is not missing.
+// TestTheTwoKindsOfUndescribedActivityAreToldApart holds the two apart
+// on the shapes Drive really sends, which is where phase 4 went wrong.
+//
+// It read the ordinary case as a MISSING primaryActionDetail. A probe of
+// 400 activities finds that shape zero times: Drive sends `{}`, ten
+// times out of 400. So every ordinary entry went on being reported as a
+// thirteenth kind — the exact confusion the split was written to end —
+// and the test agreed, because both fixtures were built from the belief
+// rather than from a response.
+//
+// The fixtures below are therefore written as JSON reaches the decoder,
+// and the fake serialises them, so the round trip is the one the client
+// makes. A thirteenth kind is a member name nothing here covers; the
+// empty object is the ordinary one.
 func TestTheTwoKindsOfUndescribedActivityAreToldApart(t *testing.T) {
 	svc, fake := active(t)
 	fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-03T09:00:00Z")
-	// One with no action detail at all, as Drive really sends.
-	silent := fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-02T09:00:00Z")
-	silent.PrimaryActionDetail = nil
-	// And one whose detail carries nothing this server knows, which is
-	// what a thirteenth kind would look like on the wire.
-	unknown := fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-01T09:00:00Z")
-	unknown.PrimaryActionDetail = &gdrive.ActionDetail{}
+	setDetail(t, fake, fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-02T09:00:00Z"),
+		`{}`)
+	setDetail(t, fake, fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-01T09:00:00Z"),
+		`{"approvalChange":{"approvalId":"a"}}`)
 
 	out, err := svc.ListActivity(t.Context(), service.ListActivityInput{File: "id-budget-fixture"})
 	if err != nil {
 		t.Fatalf("ListActivity: %v", err)
 	}
-	if !strings.Contains(out, "without saying what happened") {
-		t.Errorf("an entry with no action was not reported as one:\n%s", out)
+	if !strings.Contains(out, "1 entry Drive recorded without saying what happened") {
+		t.Errorf("an empty action detail was not reported as the ordinary case:\n%s", out)
 	}
-	if !strings.Contains(out, "Drive has grown one") {
-		t.Errorf("an unknown action kind was not reported as one:\n%s", out)
+	if !strings.Contains(out, "a kind Drive has grown that this server cannot name (approvalChange)") {
+		t.Errorf("a kind this server cannot name was not reported and named:\n%s", out)
 	}
 	if !strings.Contains(out, "1 event") {
 		t.Errorf("the count does not match the one describable event:\n%s", out)
+	}
+}
+
+// TestAnEmptyActionDetailIsNotAThirteenthKind is the regression on its
+// own, because the assertion above passes if either half is right and
+// this is the half that was wrong live. An account whose feed holds
+// nothing but ordinary entries must not be told Google changed the API.
+func TestAnEmptyActionDetailIsNotAThirteenthKind(t *testing.T) {
+	svc, fake := active(t)
+	fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-03T09:00:00Z")
+	setDetail(t, fake, fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-02T09:00:00Z"),
+		`{}`)
+
+	out, err := svc.ListActivity(t.Context(), service.ListActivityInput{File: "id-budget-fixture"})
+	if err != nil {
+		t.Fatalf("ListActivity: %v", err)
+	}
+	if strings.Contains(out, "Drive has grown") {
+		t.Errorf("an empty action detail was reported as a new kind:\n%s", out)
+	}
+	if !strings.Contains(out, "without saying what happened") {
+		t.Errorf("an empty action detail went unaccounted for:\n%s", out)
+	}
+}
+
+// setDetail gives an activity the action detail it should be served
+// with, as JSON. A struct literal cannot express the difference these
+// tests are about — a member gdrive.ActionDetail has no field for
+// vanishes the moment the fake re-encodes one.
+func setDetail(t *testing.T, fake *drivetest.Server, a *gdrive.DriveActivity, detail string) {
+	t.Helper()
+	if err := fake.SetActivityDetail(a, detail); err != nil {
+		t.Fatalf("set action detail %s: %v", detail, err)
 	}
 }

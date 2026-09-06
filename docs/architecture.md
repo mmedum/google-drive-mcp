@@ -1261,6 +1261,27 @@ difference is a decision rather than a drift.
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
 
+- **Five more oneof types are blind the same way `ActionDetail` was, and
+  fail more quietly.** The fix after v0.4.0 taught `ActionDetail` to keep
+  the member names it decoded, because a member no field names and an
+  empty object are otherwise the same Go value. `ActivityCreate`
+  (new/upload/copy), `ActivityComment` (post/assignment/suggestion),
+  `ActivityActor`, `ActivityUser` and `ActivityTarget` have the identical
+  shape and the identical blindness — and worse symptoms, because they do
+  not report it: `actionWords` falls through an unrecognised create
+  sub-kind to "created", and `actorWords` falls through an unrecognised
+  actor to "somebody". A loud wrong answer was fixed; four silent ones
+  are still there, and a silent one is what the phase-4 lesson says costs
+  a phase to find.
+
+  Not done here because it wants the general form rather than five copies
+  — an unexported `unmarshalMembers(b []byte, v any, into *[]string)` in
+  `internal/gdrive`, so each type's decoder is three lines — and because
+  deciding what a fallthrough should SAY is a separate question per type:
+  "created" for an unknown create sub-kind may well be the right answer,
+  where "somebody" for an unknown actor probably is not. Raised by the
+  post-v0.4.0 altitude review.
+
 - Spikes A, C and the write half of E have run (§18). **F (ownership
   transfer) is still unrun**: `share_file` with `role: owner` exists as
   of phase 2 and behaves against `drivetest`, including the
@@ -1607,8 +1628,11 @@ own numbers.
 | Drive Activity's 404 in phase 0 meant something was wrong with it | **Refuted in phase 4**: the discovery document is there, the API is GA, and it has exactly one method (`activity.query`). A documentation page that 404s says nothing about an API | `list_activity`, behind `GDRIVE_ACTIVITY` |
 | Google's search guide documents how to find a file by a custom property | **Refuted live in phase 4.** The guide gives `properties has { key='department' }` as its own example of matching a key whatever the value, and Drive answers it 400 `invalid` "Invalid Value" — twice in each of three spellings, and for `appProperties` too. Only `key` AND `value` works | `search_files property:` requires both halves and says why; `drivetest` refuses the key-only form as Drive does; the live driver checks the refusal, so a day when Drive starts accepting it shows up as this server being needlessly strict rather than never showing up |
 | An empty property search means the query is wrong | Refined live: the file a run had just tagged was still absent after 30 s, and a direct query minutes later found it. The query is right and Drive's property index is eventually consistent, slower than the changes feed | The driver reports UNVERIFIED rather than failing: a slow index is not a defect, and a verdict that cries wolf is one nobody reads. It still must not pass quietly, because "not indexed yet" and "the query is broken" are the same empty page |
-| Every activity says what happened | Refuted live: of 400 activities queried, **three carried no `primaryActionDetail` at all**. An entry with a time and a target and no action on it is ordinary | `list_activity` counts and reports those separately from an action kind it has no words for — which would mean Google had added a thirteenth, and IS worth acting on. Reporting the first as the second sends a reader hunting a case that is not missing |
+| Every activity says what happened | Refuted live in phase 4: some activities carry no action. **The shape was recorded wrongly and corrected after v0.4.0** — see the row below | `list_activity` counts and reports those separately from an action kind it has no words for — which would mean Google had added a thirteenth, and IS worth acting on. Reporting the first as the second sends a reader hunting a case that is not missing |
+| An activity with no action arrives with `primaryActionDetail` **missing** (phase 4, from a live probe of 400) | **Refuted live after v0.4.0.** A fresh probe of 400 activities finds that shape **zero** times: Drive sends `primaryActionDetail: {}`, ten times in 400. Phase 4 saw the right entries and wrote down the wrong shape — a probe that asks whether the member is *falsy* cannot tell an absent object from an empty one, and `{}` is falsy in most languages a probe gets written in. The code was then built to the record rather than to the response, so the branch meant to catch the ordinary case never ran, and every one of those entries was reported as a thirteenth kind Google had added: the exact confusion the phase-4 split was written to end | `ActionDetail` keeps the member names it decoded, because an empty object and a member no field covers are otherwise the same Go value. `NewActivity` decides on the names; the fixtures are JSON the decoder reads rather than struct literals, since a literal cannot express the difference. On a real account the false alarms go from ten to none, and a kind Drive really grows is named rather than counted |
+| A refutation is worth trusting once it has been checked live | **Refined after v0.4.0**, and this is the third time §18 has bent this way. Phase 4 learned that a parameter list read once has a date on it. This one has a SHAPE on it: the live observation was real and the record of it was not, and a note in this table is what the next phase builds against. What makes the difference is keeping the response — the bytes, or a decoder run over them — rather than a sentence about the response | The fixtures for both branches are now JSON, so the test is written in the same language as the evidence. Where a probe settles a question, the probe's own classification is quoted in the row |
 | Approvals exist in the API but the edition is unverified (phase 4, from the discovery document) | **Confirmed live**: start, list, comment and cancel all work on this Workspace edition, and the file-content-change behaviour comes back `RESET_APPROVAL` as the schema says | The approved state and `lock_file` are still unrun, deliberately — §17a |
+| A refused approval is a permissions problem | **Refined live after v0.4.0**: answering an approval that is already finished is refused with the same bare `Permission denied` as answering one you are not a reviewer of. Drive does not distinguish them, so the message cannot either — it has to offer the whole set. It named two of three and left out the only cause the caller can have produced itself, so the live run, having just cancelled the approval it then answered, was told to check a reviewer list the account was already on | The finished case is named first and the message points at `list_approvals`, which is the one call that says which of the three it is |
 | Drive Activity says who did something | **Refuted in phase 4** from the schemas: an actor is a `KnownUser` carrying a People API resource name (`people/123456`) and an `isCurrentUser` flag, and nothing else. No display name, no address. The permissions inside a `PermissionChange` carry no address either | `list_activity` says "you" or "somebody else" and prints a line saying why it cannot say more. Resolving the name would be a third API and a third scope for a decoration, and the id itself never reaches the output |
 | go-sdk latest is v1.7.0 | Confirmed (proxy, 2026-07-27); v1.8.0-pre.2 tagged 2026-09-04 hardens bounds and adds `SupportedProtocolVersions`; protocol `2026-07-28` supported | Pin v1.7.0; smoke tests two protocol versions |
 | Go latest is 1.27.x | Confirmed: 1.27.1 is current; 1.27 brings generic methods, `encoding/json/v2` behind `encoding/json`, a `uuid` package (useful for `requestId`) | §17 item 5 |

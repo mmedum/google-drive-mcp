@@ -1,9 +1,11 @@
 package service_test
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/internal/service"
 )
 
@@ -227,5 +229,39 @@ func TestManageApprovalRefusesAnActionItDoesNotHave(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "start") {
 		t.Errorf("the refusal does not list the actions that do exist: %v", err)
+	}
+}
+
+// TestAnsweringAFinishedApprovalSaysThatIsPossible holds the message to
+// the case the live run actually produced.
+//
+// The driver cancelled an approval and then answered it. Drive refuses
+// that with a bare Permission denied — the same answer it gives someone
+// who is not a reviewer and someone with no write access — so the
+// message has to offer all three. It named only the other two, and the
+// account it was telling to check the reviewer list was on it, which
+// leaves a reader with nothing to try.
+func TestAnsweringAFinishedApprovalSaysThatIsPossible(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddApproval("id-notes-fixture", "id-approval-gone", "person@example.com")
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.Contains(r.URL.Path, "/approvals/") && r.Method == http.MethodPost {
+			return &drivetest.Failure{Status: http.StatusForbidden,
+				Reason: "insufficientFilePermissions", Message: "Permission denied."}
+		}
+		return nil
+	}
+
+	_, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-notes-fixture", Action: "approve", Approval: "id-approval-gone",
+	})
+	if err == nil {
+		t.Fatal("answering a refused approval succeeded")
+	}
+	msg := err.Error()
+	for _, want := range []string{"already approved, declined or cancelled", "list_approvals"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not mention %q:\n%s", want, msg)
+		}
 	}
 }
