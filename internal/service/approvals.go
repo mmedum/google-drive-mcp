@@ -147,6 +147,13 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 		// not happen. Report what is known instead.
 		after = res
 	}
+	// The lock sentence is written HERE rather than where the approval
+	// is started, because it is the one part of the note that is about
+	// the FILE and not about the call, and the file has just been read
+	// back. See lockWords.
+	if action == ApprovalStart && in.LockFile {
+		note += " " + lockWords(after.File)
+	}
 	return s.report(ctx, after, outcome{
 		Action: approvalOutcome(action),
 		Note:   note + " " + approvalState(converted),
@@ -204,11 +211,29 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 	// caller can find it in before the approval exists.
 	note := fmt.Sprintf("Approval %s started on %s and %s been mailed about it.",
 		started.ApprovalID, f.Name, model.Plural(len(reviewers), "reviewer has", "reviewers have"))
-	if in.LockFile {
-		note += " The file is LOCKED while the approval is open: nobody can change its content, " +
-			"including you."
-	}
 	return started, note, nil
+}
+
+// lockWords says whether the lock lock_file asked for is on the file,
+// rather than predicting it from the argument.
+//
+// It predicted, until a live run put "the file is LOCKED: nobody can
+// change its content, including you" directly beneath a card showing no
+// restriction at all — and then changed the content, successfully, on
+// the next call. Approving is what locked that file; lock_file at the
+// start did not. Whether that is Drive in general or this edition cannot
+// be told from one account, which is the argument for reading it back
+// instead of asserting either way: a re-read is right in both worlds.
+func lockWords(f *gdrive.File) string {
+	for _, r := range f.ContentRestrictions {
+		if r != nil && r.ReadOnly {
+			return "The file is LOCKED while the approval is open: nobody can change its " +
+				"content, including you."
+		}
+	}
+	return "lock_file was asked for, and Drive reports no content restriction on the file: " +
+		"the card above is what it actually did. An approval that is APPROVED locks the file, " +
+		"and that lock does not come off."
 }
 
 // answerApproval records this account's answer, withdraws the approval,
