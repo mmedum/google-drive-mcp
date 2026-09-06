@@ -87,6 +87,7 @@ func (s *Service) ListActivity(ctx context.Context, in ListActivityInput) (strin
 
 	events := make([]*model.Activity, 0, len(page.Activities))
 	silent, unknown := 0, 0
+	var kinds []string
 	for _, a := range page.Activities {
 		converted, why := model.NewActivity(a)
 		switch {
@@ -94,11 +95,12 @@ func (s *Service) ListActivity(ctx context.Context, in ListActivityInput) (strin
 			events = append(events, converted)
 		case why == model.UnknownAction:
 			unknown++
+			kinds = append(kinds, model.UnnamedMembers(a.PrimaryActionDetail)...)
 		default:
 			silent++
 		}
 	}
-	note := activityNote(silent, unknown)
+	note := activityNote(silent, unknown, kinds)
 	return render.Activity(events, render.ActivityOptions{
 		Subject:       activitySubject(f, len(events), in.Recursive),
 		Location:      s.Location(ctx, f).String(),
@@ -111,21 +113,33 @@ func (s *Service) ListActivity(ctx context.Context, in ListActivityInput) (strin
 // activityNote accounts for the entries that are not in the list, and
 // keeps the two reasons apart because they ask for different things.
 //
-// An entry with no action on it is ordinary — a live query of 400 found
-// three — and there is nothing to do about it. An entry whose action
-// this server has no words for means Google has added a kind, since the
-// discovery document lists twelve and all twelve are named. Reporting
-// the first as the second, which this did until the live run, sends
-// somebody looking for a missing case that is not missing.
-func activityNote(silent, unknown int) string {
+// An entry Drive recorded without saying what happened is ordinary — a
+// live query of 400 found ten — and there is nothing to do about it. An
+// entry whose action this server has no words for means Google has
+// added a kind, since the discovery document lists twelve and all twelve
+// are named, and that one is worth acting on. Reporting the first as the
+// second sends somebody looking for a missing case that is not missing,
+// which is what this did for the whole of phase 4.
+//
+// The new kind is NAMED, because a count alone leaves the reader with a
+// probe to write before they can start; the member name is the word they
+// would be looking for and this server already has it.
+func activityNote(silent, unknown int, kinds []string) string {
 	var parts []string
 	if silent > 0 {
 		parts = append(parts, fmt.Sprintf("%s Drive recorded without saying what happened",
 			model.Plural(silent, "entry", "entries")))
 	}
 	if unknown > 0 {
-		parts = append(parts, fmt.Sprintf("%s of a kind this server has no words for, which means "+
-			"Drive has grown one", model.Plural(unknown, "entry", "entries")))
+		// Named before counted, and counted from the named: kinds holds
+		// one entry per ACTIVITY, so a new kind appearing three times in
+		// a page would otherwise say "kinds" over a list of one — the
+		// same "the count says what the evidence does not" this whole
+		// area exists to stop.
+		named := uniqueStrings(kinds)
+		parts = append(parts, fmt.Sprintf("%s of %s Drive has grown that this server cannot "+
+			"name (%s)", model.Plural(unknown, "entry", "entries"),
+			model.Word(len(named), "a kind", "kinds"), strings.Join(named, ", ")))
 	}
 	if len(parts) == 0 {
 		return ""

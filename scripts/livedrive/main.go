@@ -57,12 +57,13 @@ func main() {
 	share := flag.String("share", "", "an address to grant access to, for the half of sharing that needs a second person (spike F included); empty skips it")
 	labels := flag.Bool("labels", false, "exercise the label tools, which need GDRIVE_LABELS and the Drive Labels API enabled with its scopes granted at login")
 	activity := flag.Bool("activity", false, "exercise list_activity, which needs GDRIVE_ACTIVITY and the Drive Activity API enabled with its scope granted at login")
+	destructive := flag.Bool("destructive", false, "also exercise the five tools that remove something for good, in a shared drive this run creates and destroys again; needs an account that may create shared drives")
 	blocked := flag.String("blocked", "", "an address the organisation's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
 	flag.Parse()
 
 	if err := run(options{binary: *binary, file: *file, raw: *raw, write: *write,
 		parent: *parent, drive: *drive, share: *share, blocked: *blocked,
-		labels: *labels, activity: *activity}); err != nil {
+		labels: *labels, activity: *activity, destructive: *destructive}); err != nil {
 		fmt.Fprintln(os.Stderr, "livedrive: "+err.Error())
 		os.Exit(1)
 	}
@@ -76,6 +77,23 @@ type call struct {
 	args        map[string]any
 	expectError bool
 	why         string
+	// tolerant marks a call whose outcome is genuinely either way, so
+	// neither counts against the run. It exists for Drive's eventual
+	// consistency: asking for a file after emptying the trash it was in
+	// is a 404 when the empty took and a card when Drive has not caught
+	// up, and BOTH are the server behaving correctly. Counting one of
+	// them made the driver report a failure precisely when the empty had
+	// worked. The result is still printed, and which way it went is said
+	// out loud, because that is the thing a reader wants.
+	tolerant bool
+}
+
+// outcomeWord names what a tolerant call actually did.
+func outcomeWord(isError bool) string {
+	if isError {
+		return "a refusal"
+	}
+	return "a result"
 }
 
 // options are what one run of the driver was asked to do.
@@ -90,6 +108,11 @@ type options struct {
 	blocked  string
 	labels   bool
 	activity bool
+	// destructive turns on the five tools that remove something for
+	// good, and the shared drive they run inside. Off is where every run
+	// starts: the server does not register them without the variable
+	// below, and this driver does not set it without being asked.
+	destructive bool
 }
 
 func run(o options) error {
@@ -111,6 +134,9 @@ func run(o options) error {
 	}
 	if o.activity {
 		env = append(env, "GDRIVE_ACTIVITY=true")
+	}
+	if o.destructive {
+		env = append(env, "GDRIVE_ENABLE_DESTRUCTIVE=true")
 	}
 	sess, err := mcpstdio.Start(o.binary, env...)
 	if err != nil {
@@ -155,7 +181,10 @@ func run(o options) error {
 			return err
 		}
 		fmt.Println(strings.TrimRight(red.Do(text), "\n"))
-		if isError != c.expectError {
+		switch {
+		case c.tolerant:
+			fmt.Println("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
+		case isError != c.expectError:
 			unexpected++
 			if c.expectError {
 				fmt.Println("!! expected a refusal and did not get one")

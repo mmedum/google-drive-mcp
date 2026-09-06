@@ -4,9 +4,125 @@ All notable changes to this project are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-09-06
 
-Nothing yet.
+### Added
+
+- **The five destructive tools have run against Drive**, for the first
+  time since they were written. `livedrive -destructive` makes a shared
+  drive, exercises `delete_file`, `delete_revision`, `delete_comment`,
+  `empty_trash` and `delete_drive` inside it, and deletes the drive
+  again. §17a had deferred this since phase 2 for a good reason:
+  `empty_trash` cannot be scoped to a folder, so without a drive of its
+  own it takes the whole account's trash. Every call is scoped to the
+  scratch drive, and the scoping is structural — `empty_trash` is named
+  in exactly one method, and a test over the driver's syntax tree fails
+  if a second mention appears.
+
+  The same drive reaches the two states §17a said needed one: a file
+  locked by an approval, and `lock_file`. An approved file cannot be
+  cleaned out of a scratch FOLDER, which is why this waited for
+  something that can be deleted whole.
+
+### Fixed
+
+- **`make check` and CI did not run the same gates, in both directions.**
+  The `check` target calls itself "Everything CI runs" and was wrong
+  twice over: `api-coverage` — the gate holding every one of the API's 91
+  methods to a recorded decision — ran only locally, so it guarded
+  nothing on a pull request; `schema-diff` ran only in CI, so the tool
+  surface could be changed and pushed before anything objected.
+
+  Both lists are correct now, and a `parity` gate compares them — against
+  the gate program's own registry rather than only against each other, so
+  a gate that exists and is run by neither is caught too. The reason they
+  drifted will not go away: they live in different files and whoever adds
+  a gate is thinking about one of them. Found by a sibling repository
+  doing a cross-repo comparison, which is the same argument one level up
+  — nothing inside a repository was going to notice.
+
+  The gate then drifted from the program's own usage text in the very
+  commit that added it, which is the argument for the registry: the
+  dispatch, the usage and the parity check now read one list.
+
+- **`list_activity` announced a new Drive API on every ordinary entry.**
+  Drive records some activities without saying what happened, and phase 4
+  built the code to tell that apart from an action kind this server has
+  no words for — the first is nothing to worry about, the second means
+  Google has added a thirteenth kind. It got the wire backwards. The
+  ordinary case was read as a MISSING `primaryActionDetail`, and a probe
+  of 400 activities finds that shape zero times: Drive sends `{}`, ten
+  times in 400. So every ordinary entry went on being reported as the
+  alarming one, which is the confusion the split was written to end.
+
+  Both fixtures were written from the belief rather than from a response,
+  so the test passed while asserting the opposite of what Drive does. The
+  member names now decide it, and they are the only thing that can — an
+  empty object and a member this server cannot name leave every field of
+  the decoded struct nil, so the two were the same Go value. On a real
+  account the count goes from ten false alarms to none.
+
+  A kind Drive really has grown is now NAMED rather than counted. "Drive
+  has grown one" leaves the reader with a probe to write before they can
+  begin; the member name is the word they would be looking for, and this
+  server has it in hand.
+
+- **`lock_file` promised a lock Drive does not apply.** Starting an
+  approval with it said "the file is LOCKED while the approval is open:
+  nobody can change its content, including you" — written from the
+  argument, and printed directly above a card showing no restriction at
+  all. Two live runs then changed the content successfully. The sentence
+  is read off the file now, so it is right whether or not Drive locks,
+  and it does not credit this approval with a lock that was already
+  there. `manage_approval`'s description and `lock_file`'s own schema
+  said the same thing and have been corrected: a schema is read BEFORE
+  the call, so an argument that overpromises there is worse than a
+  result that does.
+
+  Approving a file does lock it, exactly as described, and that is now
+  verified live — the restriction reads "Locked for File Approval" and
+  the next content change is refused for violating it.
+
+- **`empty_trash` claimed an outcome it cannot know.** `files.emptyTrash`
+  has no response — the reference gives it none — so nothing can be read
+  back about what went. It said "is empty. Everything that was in it is
+  gone for good" until a live run trashed a file, emptied that shared
+  drive's trash, and restored the same file on the very next call. It now
+  says Drive accepted the call, that the method reports nothing at all,
+  and that the view it works from lags. The dry run's count carries the
+  same warning: it counted a file trashed seconds earlier as nothing.
+
+- **A shared drive was unreachable by its own id until the listing caught
+  up.** Everything taking a `drive` argument resolved through
+  `drives.list`, which is eventually consistent after a create, so a
+  drive made moments ago was reported as an unknown NAME — with a list of
+  unrelated drive names attached — while the caller was holding its id.
+  `findDrive` falls back to `drives.get`, including when the listing is
+  empty, which is the case an account with one new shared drive is in.
+
+- **`delete_revision` disagreed with itself about a revision.** Drive's
+  revision endpoints lag a write in both directions: one run had a
+  revision `list_revisions` had just shown answer 404 and then delete
+  successfully seconds later, and another had the dry run find it and the
+  delete a second later not. Both refusals now say "or not yet" and
+  suggest trying again, instead of explaining that the revision must have
+  expired.
+
+- **A refused approval named every cause but the likely one.** Answering
+  an approval that is already approved, declined or cancelled is refused
+  with the same bare `Permission denied` Drive gives someone who is not a
+  reviewer, so the message has to offer the whole set. It offered two of
+  three, and left out the only one the caller can have caused itself. The
+  live run walked into exactly that — cancel an approval, then answer it
+  — and was told to check a reviewer list the account was already on,
+  which is a dead end. The finished case is named first now, and the
+  message points at `list_approvals`, which says which of the three it is.
+
+  Only where it can be true: the same refusal serves `list_approvals` and
+  starting an approval, and neither names one that could be finished.
+  Leading those with it would point the reader at a state that is not
+  there — and tell somebody whose `list_approvals` just failed to call
+  `list_approvals`.
 
 ## [0.4.0] - 2026-09-06
 
@@ -782,7 +898,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
-[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v0.4.0...HEAD
+[1.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.2.0...v0.3.0
 [0.0.1]: https://github.com/mmedum/google-drive-mcp/releases/tag/v0.0.1
