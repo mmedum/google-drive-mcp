@@ -36,13 +36,15 @@ func main() {
 	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
 	only := flag.String("only", "", "run only these tasks, by name, comma-separated")
 	model := flag.String("model", "", "the model to run the tasks with; empty uses the CLI's default")
+	share := flag.String("share", "", "an address to share with, for the half of the sharing task that needs one Google will accept. Without it that task scores the call and says the grant went unchecked, because Drive refuses the reserved example.com domain.")
 	keep := flag.Bool("keep", false, "leave the scratch folder behind, to look at what happened")
 	raw := flag.Bool("raw", false, "print results without redaction (never in a shared terminal)")
 	timeout := flag.Duration("timeout", 5*time.Minute, "how long one task may take")
 	flag.Parse()
 
 	o := options{
-		binary: *binary, parent: *parent, model: *model, keep: *keep, raw: *raw, timeout: *timeout,
+		binary: *binary, parent: *parent, model: *model, share: *share,
+		keep: *keep, raw: *raw, timeout: *timeout,
 	}
 	if *only != "" {
 		o.only = strings.Split(*only, ",")
@@ -58,6 +60,7 @@ type options struct {
 	parent  string
 	only    []string
 	model   string
+	share   string
 	keep    bool
 	raw     bool
 	timeout time.Duration
