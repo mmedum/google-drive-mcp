@@ -9,7 +9,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 )
@@ -55,19 +54,34 @@ func mcpbManifest(out io.Writer, args []string) error {
 	if version == "" {
 		return fmt.Errorf("usage: gates mcpb-manifest VERSION [MANIFEST]")
 	}
-	manifest, err := readManifest(path)
+	manifest, err := readCommittedManifest(path)
 	if err != nil {
 		return err
-	}
-	if got, _ := manifest["version"].(string); got != mcpbPlaceholder {
-		return fmt.Errorf("%s carries version %q; the committed manifest must carry %q, "+
-			"so that a version in the tree can never be a stale one", path, got, mcpbPlaceholder)
 	}
 	manifest["version"] = strings.TrimPrefix(version, "v")
 
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(manifest)
+}
+
+// readCommittedManifest reads a manifest and refuses one that is not
+// carrying the placeholder.
+//
+// One function because there were three copies of the check, and they
+// had already drifted: two shared the long explanation and the third
+// gave a bare one, so the same mistake read differently depending on
+// which entry point somebody hit.
+func readCommittedManifest(path string) (map[string]any, error) {
+	manifest, err := readManifest(path)
+	if err != nil {
+		return nil, err
+	}
+	if got, _ := manifest["version"].(string); got != mcpbPlaceholder {
+		return nil, fmt.Errorf("%s carries version %q; the committed manifest must carry %q, "+
+			"so that a version in the tree can never be a stale one", path, got, mcpbPlaceholder)
+	}
+	return manifest, nil
 }
 
 // readManifest decodes into a map rather than a struct: the packer
@@ -142,13 +156,9 @@ func stagedNames() map[string]string {
 // the repository, and waiting for a tagged release to learn it is
 // waiting for the most expensive moment there is.
 func mcpbCheck(out io.Writer, _ []string) error {
-	manifest, err := readManifest(mcpbManifestPath)
+	manifest, err := readCommittedManifest(mcpbManifestPath)
 	if err != nil {
 		return err
-	}
-	if got, _ := manifest["version"].(string); got != mcpbPlaceholder {
-		return fmt.Errorf("%s carries version %q; the committed manifest must carry %q, "+
-			"so that a version in the tree can never be a stale one", mcpbManifestPath, got, mcpbPlaceholder)
 	}
 	contents := stagedNames()
 	if problems := checkManifest(manifest, contents); len(problems) > 0 {
@@ -192,12 +202,9 @@ func mcpbPack(out io.Writer, args []string) error {
 		contents[b.as] = src
 	}
 
-	manifest, err := readManifest(mcpbManifestPath)
+	manifest, err := readCommittedManifest(mcpbManifestPath)
 	if err != nil {
 		return err
-	}
-	if got, _ := manifest["version"].(string); got != mcpbPlaceholder {
-		return fmt.Errorf("%s carries version %q; it must carry %q", mcpbManifestPath, got, mcpbPlaceholder)
 	}
 	manifest["version"] = version
 	if problems := checkManifest(manifest, contents); len(problems) > 0 {
@@ -243,12 +250,7 @@ func writeBundle(bundle string, manifest map[string]any, contents map[string]str
 	if err := addBytes(zw, "manifest.json", append(encoded, '\n'), 0o644); err != nil {
 		return err
 	}
-	names := make([]string, 0, len(contents))
-	for name := range contents {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sorted(contents) {
 		mode := os.FileMode(0o644)
 		if strings.HasPrefix(name, "server/") {
 			mode = 0o755
@@ -335,7 +337,7 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 
 	overrides, _ := cfg["platform_overrides"].(map[string]any)
 	claimed := manifestPlatforms(manifest)
-	for _, platform := range sortedKeys(overrides) {
+	for _, platform := range sorted(overrides) {
 		over, _ := overrides[platform].(map[string]any)
 		c, _ := over["command"].(string)
 		inBundle("platform_overrides."+platform+".command", bundlePath(c))
@@ -356,7 +358,7 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	// is asked for at install, or the server starts without it.
 	declared, _ := manifest["user_config"].(map[string]any)
 	env, _ := cfg["env"].(map[string]any)
-	for _, name := range sortedKeys(env) {
+	for _, name := range sorted(env) {
 		value, _ := env[name].(string)
 		key, ok := userConfigKey(value)
 		if !ok {
@@ -383,15 +385,6 @@ func userConfigKey(value string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSuffix(strings.TrimPrefix(value, prefix), "}"), true
-}
-
-func sortedKeys(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // onlyMatch resolves a glob that must name exactly one file.

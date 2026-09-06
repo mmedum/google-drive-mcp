@@ -46,7 +46,7 @@ func main() {
 
 	o := options{
 		binary: *binary, parent: *parent, model: *model, share: *share,
-		keep: *keep, raw: *raw, timeout: *timeout,
+		keep: *keep, timeout: *timeout,
 	}
 	if *only != "" {
 		o.only = strings.Split(*only, ",")
@@ -68,6 +68,5 @@ type options struct {
 	model   string
 	share   string
 	keep    bool
-	raw     bool
 	timeout time.Duration
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,10 +39,23 @@ func TestTheGateCatchesTheMistakeItWasWrittenFor(t *testing.T) {
 	}`,
 		},
 		{
-			name: "a dry run, which says what WOULD happen and makes no call at all",
+			name: "a dry run, which says what WOULD happen and marks its result as one",
 			body: `	if in.DryRun {
-		return result(outcome{Note: "everything in the trash would be gone for good, with no way back."}), nil
+		return result(outcome{DryRun: true, Note: "everything in the trash would be gone for good."}), nil
 	}`,
+		},
+		{
+			// The hole the first version of this gate left open. It
+			// excluded the FIELD named DryRun, so a branch testing it
+			// could say anything at all for ever. Reading the RESULT's
+			// own marker asks the question that matters: does this
+			// branch tell the caller it is describing something that
+			// has not happened?
+			name: "a dry-run branch whose result does not say it is one",
+			body: `	if in.DryRun {
+		return result(outcome{Note: "the file was deleted and is gone for good."}), nil
+	}`,
+			want: true,
 		},
 		{
 			name: "a refusal, which says what this server did",
@@ -60,37 +74,23 @@ func TestTheGateCatchesTheMistakeItWasWrittenFor(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			dir := t.TempDir()
-			t.Chdir(dir)
-			pkg := filepath.Join("internal", "service")
-			if err := os.MkdirAll(pkg, 0o700); err != nil {
-				t.Fatal(err)
-			}
 			src := "package service\n\ntype ThingInput struct {\n\tLockFile bool\n\tDryRun bool\n" +
 				"\tConfirm bool\n\tRemoveLink bool\n\tKeepPreviousRevision bool\n}\n\n" +
+				"type outcome struct {\n\tDryRun bool\n\tNote string\n}\n\n" +
 				"func (s *Service) Do(in ThingInput) {\n" + c.body + "\n}\n"
-			if err := os.WriteFile(filepath.Join(pkg, "thing.go"), []byte(src), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			fields, err := boolInputFields()
-			if err != nil {
-				t.Fatal(err)
-			}
-			claims, _, err := outcomeClaims(fields)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := len(claims) > 0; got != c.want {
-				t.Errorf("flagged = %v, want %v (claims: %+v)", got, c.want, claims)
+			if got := len(claimsIn(t, src)) > 0; got != c.want {
+				t.Errorf("flagged = %v, want %v", got, c.want)
 			}
 		})
 	}
 }
 
-// TestDryRunIsNotABooleanThisRuleIsAbout. A dry run makes no call by
-// construction, so "the response did not carry it" is true of every one
-// of them, and what it says is in the conditional.
-func TestDryRunIsNotABooleanThisRuleIsAbout(t *testing.T) {
+// TestEveryBooleanInputIsInScope, DryRun included. The first version of
+// this gate dropped that one field from the set, which excused every
+// branch testing it whatever it said. A dry run is excused by its own
+// result saying it is a dry run, which is a fact about the branch rather
+// than about the field's name.
+func TestEveryBooleanInputIsInScope(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	pkg := filepath.Join("internal", "service")
@@ -101,15 +101,14 @@ func TestDryRunIsNotABooleanThisRuleIsAbout(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pkg, "thing.go"), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fields, err := boolInputFields()
+	fset := token.NewFileSet()
+	files, err := parseService(fset)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fields["DryRun"] {
-		t.Error("DryRun is in the field set")
-	}
-	if !fields["Notify"] {
-		t.Error("an ordinary boolean input is not in the field set")
+	fields := boolInputFields(files)
+	if !fields["DryRun"] || !fields["Notify"] {
+		t.Errorf("a boolean input is missing from the field set: %v", fields)
 	}
 }
 
@@ -124,14 +123,12 @@ func TestAnExemptionThatNoLongerMatchesFails(t *testing.T) {
 	if len(exempt) == 0 {
 		t.Skip("nothing is excused, so there is nothing to go stale")
 	}
-	fields, err := boolInputFields()
+	fset := token.NewFileSet()
+	files, err := parseService(fset)
 	if err != nil {
 		t.Fatal(err)
 	}
-	claims, _, err := outcomeClaims(fields)
-	if err != nil {
-		t.Fatal(err)
-	}
+	claims := outcomeClaims(files, boolInputFields(files), fset)
 	matched := map[string]bool{}
 	for _, c := range claims {
 		matched[c.file+":"+c.field] = true
@@ -150,4 +147,25 @@ func TestTheRealServiceIsChecked(t *testing.T) {
 	if err := outcomes(&out, nil); err != nil {
 		t.Fatalf("outcomes: %v\n%s", err, out.String())
 	}
+}
+
+// claimsIn writes one service file and runs both passes over it, which
+// is what the gate does.
+func claimsIn(t *testing.T, source string) []claim {
+	t.Helper()
+	dir := t.TempDir()
+	t.Chdir(dir)
+	pkg := filepath.Join("internal", "service")
+	if err := os.MkdirAll(pkg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "thing.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	files, err := parseService(fset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return outcomeClaims(files, boolInputFields(files), fset)
 }

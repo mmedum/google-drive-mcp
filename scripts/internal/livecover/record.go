@@ -2,7 +2,6 @@ package livecover
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -24,7 +23,6 @@ type Recorder struct {
 	// sent: get_account takes no options at all, so a run that called it
 	// recorded an empty set and then reported the tool as never called.
 	called map[string]int
-	calls  int
 }
 
 // NewRecorder returns a recorder with nothing in it.
@@ -32,11 +30,19 @@ func NewRecorder() *Recorder {
 	return &Recorder{sent: map[string]map[string]bool{}, called: map[string]int{}}
 }
 
+// calls is how many tool invocations this run made.
+func (r *Recorder) calls() int {
+	n := 0
+	for _, count := range r.called {
+		n += count
+	}
+	return n
+}
+
 // Sent records one tool call. It takes the arguments actually handed to
 // the server, so an option added by a helper on the way out is recorded
 // as sent — which it was.
 func (r *Recorder) Sent(tool string, args map[string]any) {
-	r.calls++
 	r.called[tool]++
 	if r.sent[tool] == nil {
 		r.sent[tool] = map[string]bool{}
@@ -70,7 +76,7 @@ func (r *Recorder) Report(published map[string][]string, believed map[string]map
 		}
 	}
 	fmt.Fprintf(&b, "live cover: this run sent %d of %d options across %d registered tools, in %d calls",
-		driven, total, len(published), r.calls)
+		driven, total, len(published), r.calls())
 
 	// The check the source cannot make. A step whose words are in the
 	// file and whose call never happened reads as coverage nobody has,
@@ -91,7 +97,8 @@ func (r *Recorder) Report(published map[string][]string, believed map[string]map
 			}
 		}
 	}
-	sort.Strings(ghosts)
+	// Already in order: the two Sorted walks above build these as
+	// tool.option, and "." sorts below every character a name can carry.
 	if len(ghosts) > 0 {
 		fmt.Fprintf(&b, "\n\n!! %d option(s) the driver's source says it sends were NOT sent by this run.\n"+
 			"   Expected for a step behind an option this run was not given — -file, -share, -drive.\n"+

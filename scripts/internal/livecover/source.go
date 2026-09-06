@@ -154,11 +154,13 @@ func readFunction(fn *ast.FuncDecl, known map[string][]string, naming map[string
 					}
 				}
 			}
+			// The first string-literal argument is the tool name in
+			// every helper this driver has.
 			tool := ""
 			for _, arg := range v.Args {
-				if lit, ok := stringLit(arg); ok && tool == "" {
+				if lit, ok := stringLit(arg); ok {
 					tool = lit
-					continue
+					break
 				}
 			}
 			if tool == "" {
@@ -172,13 +174,23 @@ func readFunction(fn *ast.FuncDecl, known map[string][]string, naming map[string
 	})
 
 	if assigned != "" {
-		// Keys added to that call's argument map belong to the tool it
-		// was given, wherever in the function they were added.
-		for _, keys := range maps {
-			record(sent, known, assigned, keys)
-		}
+		// Keys added to that call's argument map belong to the tool it was
+		// given, wherever in the function they were added.
+		//
+		// The ARGUMENT map only. An earlier version recorded every map
+		// the function built, which is right for the one function that
+		// has this shape today and silently wrong the day it builds a
+		// second map for something else — the keys of that one would be
+		// recorded as options of this tool, coverage would go UP, and the
+		// rows excusing those options would be deleted as driven. A
+		// measurement that fails by growing is the worst kind.
+		record(sent, known, assigned, maps[argsField])
 	}
 }
+
+// argsField is the field a call carries its arguments in, and the name
+// mapsIn files a `c.args["k"] = v` assignment under.
+const argsField = "args"
 
 // callLiteral reads a `call{tool: "x", args: ...}` literal.
 func callLiteral(lit *ast.CompositeLit) (string, ast.Expr) {
@@ -197,7 +209,7 @@ func callLiteral(lit *ast.CompositeLit) (string, ast.Expr) {
 			if s, ok := stringLit(kv.Value); ok {
 				tool = s
 			}
-		case "args":
+		case argsField:
 			args = kv.Value
 		}
 	}
@@ -247,8 +259,6 @@ func mapsIn(fn *ast.FuncDecl) map[string][]string {
 // literal written at the call, or a variable the function built.
 func keysOf(e ast.Expr, maps map[string][]string) []string {
 	switch v := e.(type) {
-	case nil:
-		return nil
 	case *ast.CompositeLit:
 		if isArgMap(v) {
 			return literalKeys(v)
