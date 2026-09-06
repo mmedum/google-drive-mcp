@@ -1523,12 +1523,27 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   It was attempted here and abandoned deliberately. A gate that allows an
   expression by its spelling needs an allowlist that grows with every
   count and tool name printed — fifteen on the first run — and an
-  allowlist that long is a gate nobody trusts. The version with teeth is
-  the sibling's: forbid `fmt.Print*` in the driver outside one redacting
-  helper, so the rule is structural. That is a rewrite of some forty call
-  sites in a file phase 4 had just changed heavily, on the eve of a live
-  run, which is the wrong moment. It wants a phase of its own and no
-  other changes in flight.
+  allowlist that long is a gate nobody trusts. The version with teeth
+  forbids `fmt.Print*` in the driver outside one redacting helper, so the
+  rule is structural. That is a rewrite of some forty call sites in a
+  file phase 4 had just changed heavily, on the eve of a live run, which
+  is the wrong moment. It wants a phase of its own and no other changes
+  in flight.
+
+  **What has changed since: it is no longer a design, it is a thing that
+  works and has caught something.** The shared standard now names
+  `transcript` for every repository with a live driver, on the strength
+  of a run where it found a section header printing straight to the
+  terminal — one refactor away from carrying a document title with it.
+  So the argument for deferring is now only the timing, and the estimate
+  is no longer a guess. `TestEmptyTrashIsNamedInOnePlace` in this
+  repository is the same technique at one call site and took an hour; the
+  general form is that shape over `fmt.Print*` with one exemption.
+
+  The standard also names `live-cover` — the driver's source against the
+  binary's published schema, failing on any tool option no step sends.
+  This repository has never measured that number, and phase 5 grew the
+  driver a lot. The one place it was measured elsewhere it read 14 of 28.
 
 - **`manage_labels` is unverified live, and `list_labels` is not.** The
   Drive Labels API answers (`doctor` calls `labels.list` and it
