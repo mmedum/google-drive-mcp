@@ -116,35 +116,15 @@ func (w *writeRun) exercise() {
 // changes feed needed in phase 2.
 func (w *writeRun) phase4Extras(m made) {
 	w.out.Say("\n--- phase 4 parameters ---")
+	// Both kinds, because the answer differs by kind and one file type is
+	// one file type. The CSV settled itself the first time anybody looked
+	// — the threads did not come across, twice checked minutes apart
+	// (§18) — and a Google Doc anchors its comments to a passage rather
+	// than to a file, which is the case most likely to behave differently
+	// and the one §17a was left holding.
+	w.copyAndCheckComments(m.text, "rows with its comments.csv", "a csv")
+	w.copyAndCheckComments(m.doc, "Notes with its comments", "a Google Doc")
 	if m.text != "" {
-		// The comments were made on this file a moment ago, so a copy
-		// asking for them has something to carry.
-		copied := w.createAndKeepID("copy_file", map[string]any{
-			"file": m.text, "name": "rows with its comments.csv",
-			"to": w.scratchID, "copy_comments": true, "allow_duplicate": true,
-		})
-		// And then LOOK. The copy was made with copy_comments since phase
-		// 4 and nobody ever asked whether the threads arrived, while the
-		// server told the caller they had — which `gates outcomes` found
-		// and no run here could have, because the run never looked.
-		//
-		// The first run that did look found none, and none again minutes
-		// later, so this is not comments.list lagging. It is said out
-		// loud rather than left in the transcript: the answer is one line
-		// among thirteen hundred, and "all calls behaved as expected" is
-		// true of it either way — which is the thing this repository has
-		// been caught by twice.
-		if copied != "" {
-			threads := w.call(call{tool: "list_comments",
-				args: map[string]any{"file": copied, "include_deleted": false}})
-			if strings.Contains(threads, "0 comment threads") {
-				w.out.Say("!! the copy asked for the comment threads and has NONE. Check it again in a " +
-					"minute — comments.list can lag a copy — and if it is still empty then Drive did " +
-					"not carry them, whatever copy_comments was set to.")
-			}
-		} else {
-			w.out.Say("\n=== list_comments: skipped, the copy it needs was never made ===")
-		}
 		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
 	}
 
@@ -969,6 +949,16 @@ func (w *writeRun) recover(id string) {
 		errors.New("the move back out failed twice"))
 }
 
+// unverified says a step could not run because Drive did not present
+// the state it needs, which is not a failure: nothing is wrong, and the
+// same run an hour later would do it. It is loud because the thing it
+// guards against is a step being counted as verified by a run that never
+// reached it.
+func (w *writeRun) unverified(what string, err error) {
+	w.out.Sayf("!! UNVERIFIED THIS RUN: %s (%v). Nothing is wrong: this is Drive being eventually "+
+		"consistent. It means the step was not checked, rather than checked and passed.", what, err)
+}
+
 // problem records something that went wrong outside a tool call.
 func (w *writeRun) problem(what string, err error) {
 	w.out.Sayf("!! %s: %v", what, err)
@@ -1226,4 +1216,42 @@ func orUnknown(s string) string {
 		return "(not recorded)"
 	}
 	return s
+}
+
+// copyAndCheckComments copies a file asking for its comment threads, and
+// then LOOKS at the copy.
+//
+// The copy has been made with copy_comments since phase 4 and nobody
+// ever asked whether the threads arrived, while the server told the
+// caller they had — which `gates outcomes` found and no run here could
+// have, because the run never looked. The first run that did look found
+// none on a CSV, and none again minutes later, so that one is not
+// comments.list lagging.
+//
+// It says so out loud rather than leaving it in the transcript. The
+// answer is one line among thirteen hundred, and "all calls behaved as
+// expected" is true of it either way, which is the thing this repository
+// has been caught by twice.
+func (w *writeRun) copyAndCheckComments(id, name, kind string) {
+	if id == "" {
+		w.out.Sayf("\n=== copy_file with its comments: skipped, the %s it needs was never created ===", kind)
+		return
+	}
+	copied := w.createAndKeepID("copy_file", map[string]any{
+		"file": id, "name": name, "to": w.scratchID,
+		"copy_comments": true, "allow_duplicate": true,
+	})
+	if copied == "" {
+		w.out.Sayf("\n=== list_comments: skipped, the copy of %s was never made ===", kind)
+		return
+	}
+	threads := w.call(call{tool: "list_comments",
+		args: map[string]any{"file": copied, "include_deleted": false}})
+	if strings.Contains(threads, "0 comment threads") {
+		w.out.Sayf("!! the copy of %s asked for the comment threads and has NONE. Check it again in a "+
+			"minute — comments.list can lag a copy — and if it is still empty then Drive did not "+
+			"carry them, whatever copy_comments was set to.", kind)
+		return
+	}
+	w.out.Sayf("(the copy of %s carried its comment threads: Drive honoured copy_comments here)", kind)
 }
