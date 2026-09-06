@@ -290,3 +290,39 @@ func TestAFileNobodyHasStagedIsStillScanned(t *testing.T) {
 		t.Errorf("an ignored file was scanned: %v\n%s", err, out.String())
 	}
 }
+
+// TestACompiledBinaryIsAFindingAndNotASkip.
+//
+// Three sessions across sibling repositories concluded from reading this
+// gate that a compiled artifact is invisible to it — that a content
+// scanner cannot see a binary by construction, so only .gitignore stands
+// between a build output and the history. All three were wrong here, and
+// all three found out the same way: by building one and watching the
+// gate name it. Nothing in this file had ever run that check, which is
+// what left the question to be settled by reading.
+//
+// A NUL byte in the first few kilobytes is what git itself uses to
+// decide, so the fixture needs no real executable.
+func TestACompiledBinaryIsAFindingAndNotASkip(t *testing.T) {
+	dir := gitRepo(t, sample("a.tester", "@", "example", ".com"), "Add a file\n")
+	body := append([]byte("\x7fELF\x00\x00\x00"), make([]byte, 4096)...)
+	if err := os.WriteFile(filepath.Join(dir, "built"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	var out strings.Builder
+	err := leaks(&out, nil)
+	if err == nil {
+		t.Fatalf("a compiled artifact in the tree was accepted:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "compiled binary") {
+		t.Errorf("the report does not say what was found:\n%s", out.String())
+	}
+	// And it fails while the file is still untracked, which is the
+	// ordering that matters: the alternative is failing after the
+	// `git add -A` that would have swept it into a commit.
+	if !strings.Contains(out.String(), "built") {
+		t.Errorf("the report does not name the file:\n%s", out.String())
+	}
+}
