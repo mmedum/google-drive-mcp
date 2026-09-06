@@ -72,3 +72,9 @@ for tests), `internal/ref` parses references and paths, `internal/model`
 is the server's view of a file, `internal/render` produces text,
 `internal/service` orchestrates and holds the policy, `internal/tools`
 registers MCP tools.
+
+## Code of conduct
+
+Taking part in this project means agreeing to
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), the Contributor Covenant 3.0.
+It says how to report a problem, and what happens then.

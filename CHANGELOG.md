@@ -37,6 +37,14 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   The verification commands are the ones run against v1.0.0 itself, not
   transcribed from a template.
 
+- **A code of conduct**, the Contributor Covenant 3.0, linked from the
+  README and from `CONTRIBUTING.md`. It names two reporting channels —
+  the maintainer directly, or GitHub's private security-advisory flow for
+  anyone who would rather not send mail — because a policy whose only
+  route is one a reporter may not want to use is not much of a route.
+  `SECURITY.md` existed and nothing linked to it either; both are in the
+  documentation list now.
+
 ## [1.0.0] - 2026-09-06
 
 ### Added
