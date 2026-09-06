@@ -38,12 +38,20 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   transcribed from a template.
 
 - **A code of conduct**, the Contributor Covenant 3.0, linked from the
-  README and from `CONTRIBUTING.md`. It names two reporting channels —
-  the maintainer directly, or GitHub's private security-advisory flow for
-  anyone who would rather not send mail — because a policy whose only
-  route is one a reporter may not want to use is not much of a route.
+  README and from `CONTRIBUTING.md`. Reports go through GitHub's private
+  security-advisory flow, the same route `SECURITY.md` already used —
+  no address, because the leak gate refuses one anywhere in the tree and
+  a policy document is the wrong place to make the first exception.
   `SECURITY.md` existed and nothing linked to it either; both are in the
   documentation list now.
+
+- **The README now looks like a released project's.** Status badges for
+  CI, the latest release, the Go reference and the licence; a link to the
+  latest release beside the `go install` line, with `--ignore-missing` on
+  the checksum command because `checksums.txt` covers every archive and
+  you will have taken one; a **How it works** section with the package
+  layout and what each part is for; and a **Development** section naming
+  the make targets and what `make check` actually runs.
 
 ## [1.0.0] - 2026-09-06
 

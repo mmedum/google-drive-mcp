@@ -1,5 +1,10 @@
 # google-drive-mcp
 
+[![CI](https://github.com/mmedum/google-drive-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mmedum/google-drive-mcp/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/mmedum/google-drive-mcp?sort=semver)](https://github.com/mmedum/google-drive-mcp/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/mmedum/google-drive-mcp.svg)](https://pkg.go.dev/github.com/mmedum/google-drive-mcp)
+[![License: Apache 2.0](https://img.shields.io/github/license/mmedum/google-drive-mcp)](./LICENSE)
+
 A [Model Context Protocol](https://modelcontextprotocol.io) server for
 Google Drive, written in Go: find files and know where they live and who
 can see them, organise folders, move and copy, get content in and out,
@@ -117,12 +122,16 @@ path or add the directory once:
 export PATH="$(go env GOPATH)/bin:$PATH"             # or add it to your shell profile
 ```
 
-Or download a release archive from the releases page and put the binary
-on your `PATH`. Every archive carries the binary, `LICENSE` and this
-README. Nothing about a release has to be taken on trust:
+Or take a signed archive from the
+[latest release](https://github.com/mmedum/google-drive-mcp/releases/latest)
+— Linux, macOS and Windows, on amd64 and arm64 — and put the binary on
+your `PATH`. Every archive carries the binary, `LICENSE` and this README.
+Nothing about a release has to be taken on trust:
 
 ```bash
-sha256sum -c checksums.txt
+# --ignore-missing, because checksums.txt covers every archive and you
+# will have downloaded one of them.
+sha256sum -c checksums.txt --ignore-missing
 
 # checksums.txt is signed with a keyless Sigstore certificate tied to the
 # release workflow's identity; the bundle carries the signature and the
@@ -135,6 +144,9 @@ cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
 # that produced it.
 gh attestation verify google-drive-mcp_*.tar.gz --repo mmedum/google-drive-mcp
 ```
+
+Every archive also ships an SBOM, so you can see what is inside a binary
+you did not build.
 
 ## Set up Google, once per person
 
@@ -261,6 +273,47 @@ the server will do at all:
 - Write anything private into its logs. They carry truncated ids, counts,
   byte counts and latencies; never file names, paths, addresses, queries
   or content.
+
+## How it works
+
+```
+MCP client ──stdio──► google-drive-mcp
+                       ├── tools      one handler per tool; shapes the reply
+                       ├── service    the rules: addressing, sharing policy, confinement
+                       ├── model      the server's view of a file, and what you may do to it
+                       ├── render     the text a result is made of
+                       ├── gapi       raw REST client for Drive, Drive Labels and Drive Activity
+                       ├── gdrive     hand-written wire types, no generated client
+                       ├── ref        ids, URLs and paths; resolves nothing over the network
+                       └── auth       refresh token → access token
+```
+
+[docs/architecture.md](docs/architecture.md) has the design, the package
+layout, the phase plan, and an evidence log recording which conventions
+were checked against Google's own reference and which turned out to be
+wrong. [docs/security.md](docs/security.md) is what it touches and what
+limits it.
+
+## Development
+
+```bash
+make build     # the binary
+make test      # race detector, per-package coverage floor
+make check     # everything CI runs
+make live      # drive the binary against the signed-in account, redacted
+```
+
+`make check` is the definition of done: gofmt, `go vet`, golangci-lint,
+race tests with a per-package coverage floor, `govulncheck`, a licence
+check, a leak check over the working tree, pinned-version and error-class
+gates, an API-coverage gate holding every method of all three APIs to a
+recorded decision, a stdio smoke test, a schema diff against the released
+tool surface, a staleness gate that fails when this README, the docs or
+the changelog drift from the code, and a parity gate asserting that
+`make check` and CI run the same set of gates.
+
+Conventions are in [CONTRIBUTING.md](CONTRIBUTING.md); building, testing
+and releasing are in [docs/development.md](docs/development.md).
 
 ## Versioning
 
