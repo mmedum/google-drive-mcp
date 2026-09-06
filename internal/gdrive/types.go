@@ -873,12 +873,34 @@ type ApprovalMessage struct {
 	Message string `json:"message,omitempty"`
 }
 
-// ReassignApproval adds reviewers or replaces them. Removing a reviewer
-// is not offered by the API, so it is not offered here.
+// ReassignApproval adds reviewers or replaces them. The request's own
+// description is exact about the limit: "Reviewers can be added or
+// replaced, but not removed" — a replacement names the person going and
+// the person arriving together, and there is no way to say only the
+// first.
+//
+// Both members are arrays of OBJECTS, not of addresses. Phase 4 sent
+// bare strings here at first, which Drive answers 400 to on every call:
+// the discovery document was read through a projection that dropped the
+// items' $ref, and the fake decoded into the same wrong struct, so
+// nothing could fail.
 type ReassignApproval struct {
-	AddReviewers     []string `json:"addReviewers,omitempty"`
-	ReplaceReviewers []string `json:"replaceReviewers,omitempty"`
-	Message          string   `json:"message,omitempty"`
+	AddReviewers     []AddReviewer     `json:"addReviewers,omitempty"`
+	ReplaceReviewers []ReplaceReviewer `json:"replaceReviewers,omitempty"`
+	Message          string            `json:"message,omitempty"`
+}
+
+// AddReviewer is one reviewer joining an approval.
+type AddReviewer struct {
+	AddedReviewerEmail string `json:"addedReviewerEmail,omitempty"`
+}
+
+// ReplaceReviewer swaps one reviewer for another. Both addresses are
+// required: this is the only way the API removes anybody, and it removes
+// them only by putting somebody else in their place.
+type ReplaceReviewer struct {
+	RemovedReviewerEmail string `json:"removedReviewerEmail,omitempty"`
+	AddedReviewerEmail   string `json:"addedReviewerEmail,omitempty"`
 }
 
 // Drive Activity is a separate API (driveactivity.googleapis.com, v2)

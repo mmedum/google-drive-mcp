@@ -139,9 +139,61 @@ func TestCommentingOnAnApprovalNeedsSomethingToSay(t *testing.T) {
 	}
 }
 
-// Drive offers no way to remove a reviewer. Saying so beats offering an
-// argument that always fails.
-func TestReassignSaysThatDriveCannotRemoveAReviewer(t *testing.T) {
+// Drive removes a reviewer only by naming their replacement, which the
+// request's own description says in as many words: "Reviewers can be
+// added or replaced, but not removed."
+func TestReassignAddsAndReplacesReviewers(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddApproval("id-notes-fixture", "id-approval-1", "first@example.com")
+
+	if _, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-notes-fixture", Action: "reassign", Approval: "id-approval-1",
+		Reviewers: []string{"second@example.com"},
+	}); err != nil {
+		t.Fatalf("adding a reviewer: %v", err)
+	}
+	if _, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-notes-fixture", Action: "reassign", Approval: "id-approval-1",
+		ReplaceReviewers: []string{"first@example.com=third@example.com"},
+	}); err != nil {
+		t.Fatalf("replacing a reviewer: %v", err)
+	}
+	got := map[string]bool{}
+	for _, r := range fake.Approvals["id-notes-fixture"][0].ReviewerResponses {
+		got[r.Reviewer.EmailAddress] = true
+	}
+	if got["first@example.com"] {
+		t.Error("the replaced reviewer is still on the approval")
+	}
+	for _, want := range []string{"second@example.com", "third@example.com"} {
+		if !got[want] {
+			t.Errorf("%s is not on the approval: %v", want, got)
+		}
+	}
+}
+
+// A replacement needs both halves. A flat address could not say whether
+// it was the person going or the person arriving, and Drive answers 400
+// to a body missing either.
+func TestReassignRefusesAHalfWrittenReplacement(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddApproval("id-notes-fixture", "id-approval-1", "first@example.com")
+	for _, pair := range []string{"first@example.com", "first@example.com=", "=third@example.com"} {
+		_, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+			File: "id-notes-fixture", Action: "reassign", Approval: "id-approval-1",
+			ReplaceReviewers: []string{pair},
+		})
+		if err == nil {
+			t.Errorf("%q was accepted as a replacement", pair)
+			continue
+		}
+		if !strings.Contains(err.Error(), "Both halves are required") {
+			t.Errorf("the refusal for %q does not say what is missing: %v", pair, err)
+		}
+	}
+}
+
+func TestReassignNeedsSomebodyToAddOrReplace(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddApproval("id-notes-fixture", "id-approval-1", "person@example.com")
 	_, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
@@ -150,8 +202,8 @@ func TestReassignSaysThatDriveCannotRemoveAReviewer(t *testing.T) {
 	if err == nil {
 		t.Fatal("a reassign with nobody to add or replace was sent to Drive")
 	}
-	if !strings.Contains(err.Error(), "does not remove") {
-		t.Errorf("the refusal does not say what Drive cannot do: %v", err)
+	if !strings.Contains(err.Error(), "will not simply REMOVE") {
+		t.Errorf("the refusal does not say what Drive will not do: %v", err)
 	}
 }
 
