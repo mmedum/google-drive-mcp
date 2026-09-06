@@ -108,8 +108,23 @@ func (e *APIError) Unwrap() error {
 	// requests, a policy refusal, and a plain lack of rights.
 	case e.Status == 403 && rateLimitedReason(e.Reason):
 		return ErrRateLimited
-	case sameReason(e.Reason, reasonDomainPolicy) || sameReason(e.Reason, reasonInvalidSharing) ||
-		sameReason(e.Reason, reasonShareOutBlocked):
+	// A policy refusal is a 403. invalidSharingRequest is the reason to
+	// be careful with: Google uses it for a genuine policy refusal AND
+	// for a request that is simply malformed, and the second arrives as
+	// a 400.
+	//
+	// Seen live 2026-09-06: sharing with an address that has no Google
+	// account behind it answers 400 invalidSharingRequest with the
+	// message "you must check the Notify people box to invite this
+	// recipient". This mapping called that a policy refusal, so the
+	// server told the caller that their organisation forbade it and that
+	// no option here could work around it — when the truth was that the
+	// request was fixable, by the caller, with notify: true. [blocked]
+	// says give up; [invalid] says fix it and try again, which is what a
+	// model needed to hear.
+	case sameReason(e.Reason, reasonDomainPolicy) || sameReason(e.Reason, reasonShareOutBlocked):
+		return ErrBlocked
+	case e.Status == 403 && sameReason(e.Reason, reasonInvalidSharing):
 		return ErrBlocked
 	case e.Status == 403 && sameReason(e.Reason, reasonStorageFull):
 		return ErrInvalid

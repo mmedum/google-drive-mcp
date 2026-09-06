@@ -8,6 +8,20 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A share refused for a fixable reason no longer claims your
+  organisation forbade it.** Sharing with an address that has no Google
+  account behind it answers 400 `invalidSharingRequest`, and every
+  `invalidSharingRequest` was mapped to `[blocked]` — so the server
+  reported "your organisation's sharing policy does not allow this…no
+  option here can work around it" when Google's own message said the
+  opposite: check the Notify people box. Google uses that reason for a
+  policy refusal and for a malformed request, and the status tells them
+  apart. It is `[blocked]` at 403 and `[invalid]` at 400 now, and the
+  fix Google named survives in the message. Found by the new
+  `livedrive -blocked` check, which then had to be fixed too: it had
+  compared the class against `blocked`, seen `blocked`, and called it
+  confirmation.
+
 - **A correction the phase-1 branch stranded, and one claim it was
   right about.** `.goreleaser.yaml` said the separate
   `--output-signature` and `--output-certificate` flags were "deprecated
