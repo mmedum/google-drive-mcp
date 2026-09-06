@@ -226,3 +226,29 @@ func TestHistoryScansMessagesAndNotTheIdentitiesGitWrites(t *testing.T) {
 		}
 	})
 }
+
+// TestASubdomainOfADocumentedDomainIsDocumented is RFC 2606 read
+// properly: it reserves example.com, .org and .net and everything under
+// them. The exact-match rule flagged someone@corp.example.net while a
+// test was being written to close a real leak, which is the wrong way
+// round — a gate that makes fixtures weaker is a gate working against
+// its own purpose.
+func TestASubdomainOfADocumentedDomainIsDocumented(t *testing.T) {
+	for _, safe := range []string{
+		"example.com", "example.net", "example.org",
+		"corp.example.net", "mail.corp.example.com", "anthropic.com",
+	} {
+		if !isDocumented(safe) {
+			t.Errorf("isDocumented(%q) = false, and RFC 2606 reserves it", safe)
+		}
+	}
+	// The suffix must be a label boundary: notexample.net and
+	// example.net.example-of-a-real-host.com are somebody's.
+	for _, real := range []string{
+		"notexample.net", "example.net.co", "myexample.com", "example.company.com", "",
+	} {
+		if isDocumented(real) {
+			t.Errorf("isDocumented(%q) = true, and it is a host somebody could own", real)
+		}
+	}
+}
