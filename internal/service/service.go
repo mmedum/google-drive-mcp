@@ -17,6 +17,7 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/config"
 	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/internal/model"
 )
 
 // API is the subset of the Drive client the service uses. It is an
@@ -78,6 +79,31 @@ type API interface {
 	UpdateReply(ctx context.Context, fileID, commentID, replyID string, meta *gdrive.ReplyMeta) (*gdrive.Reply, error)
 	DeleteReply(ctx context.Context, fileID, commentID, replyID string) error
 
+	// Labels. The values on a file are Drive's and need no labels scope;
+	// the definitions are a separate API and do.
+	AllFileLabels(ctx context.Context, fileID string) ([]*gdrive.Label, error)
+	ModifyLabels(ctx context.Context, fileID string, req gdrive.ModifyLabelsRequest) (*gdrive.ModifyLabelsResponse, error)
+	ListLabelDefinitions(ctx context.Context, o gapi.ListLabelDefinitionsOptions) (*gdrive.LabelDefinitionList, error)
+
+	// Long-running downloads: the only way to reach a Google Vid's bytes.
+	StartDownload(ctx context.Context, fileID, mimeType, revisionID string) (*gdrive.Operation, error)
+	GetOperation(ctx context.Context, name string) (*gdrive.Operation, error)
+	AwaitDownload(ctx context.Context, op *gdrive.Operation) (*gdrive.DownloadResponse, error)
+
+	// Drive Activity, a separate API behind GDRIVE_ACTIVITY.
+	QueryActivity(ctx context.Context, q gdrive.ActivityQuery) (*gdrive.ActivityResponse, error)
+
+	// Approvals. Every verb mails somebody, and none of them is
+	// idempotent, which is why they are separate methods rather than one
+	// that takes a verb.
+	ListApprovals(ctx context.Context, fileID string, o gapi.ListApprovalsOptions) (*gdrive.ApprovalList, error)
+	StartApproval(ctx context.Context, fileID string, body *gdrive.StartApproval) (*gdrive.Approval, error)
+	ApproveApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ApprovalMessage) (*gdrive.Approval, error)
+	DeclineApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ApprovalMessage) (*gdrive.Approval, error)
+	CancelApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ApprovalMessage) (*gdrive.Approval, error)
+	CommentApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ApprovalMessage) (*gdrive.Approval, error)
+	ReassignApproval(ctx context.Context, fileID, approvalID string, body *gdrive.ReassignApproval) (*gdrive.Approval, error)
+
 	// Access requests. There is no create: only somebody who was refused
 	// can ask.
 	ListAccessProposals(ctx context.Context, fileID string) ([]*gdrive.AccessProposal, error)
@@ -96,12 +122,22 @@ type Options struct {
 	LocalDir    string
 	MaxDownload int64
 	Labels      bool
+	Activity    bool
 	Logger      *slog.Logger
 	// PathTTL is how long a resolved (parent, name) pair is trusted, so
 	// a burst of calls on one path costs one walk. Default 60s.
 	PathTTL time.Duration
 	// FileTTL coalesces repeated reads of one file. Default 5s.
 	FileTTL time.Duration
+	// DownloadOpTTL is how long a long-running download's name is kept so
+	// a later call can resume it rather than starting the render again.
+	// Default 2h, against Google's promise of at least 12.
+	DownloadOpTTL time.Duration
+	// LabelTTL is how long the label definitions are kept. They are a
+	// property of the organisation rather than of a file: an
+	// administrator republishing a label is not something that happens
+	// between two calls of one conversation. Default 10m.
+	LabelTTL time.Duration
 	// ExportTTL is how long one exported document is kept so that a model
 	// can page through it. It is longer than FileTTL because paging
 	// happens across turns, and it is safe to be: the cache key carries
@@ -123,6 +159,17 @@ type Service struct {
 	paths map[string]cached[string]
 	// files caches whole file reads for a few seconds.
 	files map[string]cached[*gdrive.File]
+	// labelDefs caches the whole label definition listing. It is one
+	// value rather than a map because there is one listing: it is per
+	// account, not per anything a caller passes. Naming the labels on a
+	// card would otherwise cost a listing per card.
+	labelDefs cached[map[string]*model.LabelDefinition]
+	// labelDefsErr remembers a FAILED attempt to read them, separately,
+	// because a failure and an empty listing are different answers and
+	// storing them as one turns "the API refused the token" into "no such
+	// label" for as long as the entry lasts.
+	labelDefsErr   error
+	labelDefsErrAt time.Time
 	// drives caches the shared drive list, which changes rarely and is
 	// needed to name a location.
 	drivesAt time.Time
@@ -138,6 +185,14 @@ type Service struct {
 	// per conversion.
 	imports      map[string][]string
 	importsTried bool
+	// downloads are the long-running download operations this process has
+	// started, by file id. An operation lives at least twelve hours and
+	// its name comes back only from the call that started it — there is
+	// no way to list operations and find it again — so a name thrown away
+	// is a render thrown away. Keeping it is what makes "call again in a
+	// minute and it will pick up the finished render" true rather than a
+	// sentence that starts the work over.
+	downloads map[string]cached[string]
 	// export holds the last document exported for a read. Drive takes no
 	// byte range on an export, so without this every window of a long
 	// document costs a full re-export: reading a 1 MB Doc a page at a
@@ -166,7 +221,8 @@ type exported struct {
 // New builds a service.
 func New(api API, o Options) *Service {
 	s := &Service{api: api, opts: o, log: o.Logger, now: o.Now,
-		paths: map[string]cached[string]{}, files: map[string]cached[*gdrive.File]{}}
+		paths: map[string]cached[string]{}, files: map[string]cached[*gdrive.File]{},
+		downloads: map[string]cached[string]{}}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
@@ -178,6 +234,14 @@ func New(api API, o Options) *Service {
 	}
 	if s.opts.FileTTL == 0 {
 		s.opts.FileTTL = 5 * time.Second
+	}
+	if s.opts.DownloadOpTTL == 0 {
+		// Well under the twelve hours Google promises, so a name this
+		// server hands back is one Drive still knows about.
+		s.opts.DownloadOpTTL = 2 * time.Hour
+	}
+	if s.opts.LabelTTL == 0 {
+		s.opts.LabelTTL = 10 * time.Minute
 	}
 	if s.opts.ExportTTL == 0 {
 		s.opts.ExportTTL = 5 * time.Minute
@@ -235,6 +299,7 @@ const (
 	ClassServer      = gapi.ClassServer
 	ClassNetwork     = gapi.ClassNetwork
 	ClassAmbiguousIO = gapi.ClassAmbiguousIO
+	ClassPending     = gapi.ClassPending
 	ClassUnexpected  = gapi.ClassUnexpected
 )
 

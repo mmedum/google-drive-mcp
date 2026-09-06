@@ -49,7 +49,7 @@ func live(t *testing.T) (*service.Service, *gapi.Client) {
 			t.Fatalf("locate client secret: %v", err)
 		}
 	}
-	oc, err := auth.LoadClientSecret(secret, auth.Scopes(false, false))
+	oc, err := auth.LoadClientSecret(secret, auth.Scopes(auth.Access{}))
 	if err != nil {
 		t.Fatalf("load client secret: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestLiveSearchIsPrefixNotSubstring(t *testing.T) {
 		if err != nil {
 			t.Fatalf("search: %v", err)
 		}
-		return countHits(out)
+		return hitCount(t, out)
 	}
 
 	whole := hits(service.SearchInput{Name: word, Limit: 100})
@@ -137,9 +137,9 @@ func TestLiveNameEqualsIgnoresCase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if countHits(exact) != countHits(folded) {
+	if hitCount(t, exact) != hitCount(t, folded) {
 		t.Errorf("`name =` matched %d exactly and %d upper-cased: it is case-sensitive, and "+
-			"internal/gapi/drivetest disagrees with Drive", countHits(exact), countHits(folded))
+			"internal/gapi/drivetest disagrees with Drive", hitCount(t, exact), hitCount(t, folded))
 	}
 }
 
@@ -273,26 +273,6 @@ func isPlainWord(w string) bool {
 		}
 	}
 	return true
-}
-
-// countHits reads the count out of a rendered listing without keeping any
-// of the names in it.
-func countHits(out string) int {
-	head := strings.SplitN(out, "\n", 2)[0]
-	fields := strings.Fields(head)
-	for i, f := range fields {
-		if (f == "hits" || f == "hit") && i > 0 {
-			n := 0
-			for _, r := range fields[i-1] {
-				if r < '0' || r > '9' {
-					return 0
-				}
-				n = n*10 + int(r-'0')
-			}
-			return n
-		}
-	}
-	return 0
 }
 
 // markSafe keeps a failing assertion from printing a name.

@@ -33,12 +33,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if upload, ok := strings.CutPrefix(r.URL.Path, "/upload/drive/v3"); ok {
-		s.serveUpload(w, r, upload)
-		return
-	}
-	if rev, ok := strings.CutPrefix(r.URL.Path, "/export/"); ok && r.Method == http.MethodGet {
-		s.handleRevisionExport(w, r, rev)
+	if s.serveElsewhere(w, r) {
 		return
 	}
 
@@ -56,11 +51,89 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.handleCreateDrive(w, r)
 	case strings.HasPrefix(path, "/drives/"):
 		s.serveDrives(w, r, strings.TrimPrefix(path, "/drives/"))
+	case strings.HasPrefix(path, "/operations/") && r.Method == http.MethodGet:
+		s.handleGetOperation(w, r, strings.TrimPrefix(path, "/operations/"))
 	case path == "/files" || strings.HasPrefix(path, "/files/"):
 		s.serveFiles(w, r, path)
 	default:
 		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+path)
 	}
+}
+
+// serveElsewhere routes everything that is not the Drive v3 API under
+// its own path: the media-upload host, the two links a response hands
+// out, and the two APIs that are not Drive at all. It reports whether it
+// answered.
+//
+// They live here rather than in serve's switch because they are matched
+// on a PREFIX rather than on a path, and because keeping them together
+// says the thing worth saying: each one stands in for a host of its own,
+// so a client that built the wrong base URL 404s here instead of quietly
+// working against a fake that answers everything.
+func (s *Server) serveElsewhere(w http.ResponseWriter, r *http.Request) bool {
+	if upload, ok := strings.CutPrefix(r.URL.Path, "/upload/drive/v3"); ok {
+		s.serveUpload(w, r, upload)
+		return true
+	}
+	if rev, ok := strings.CutPrefix(r.URL.Path, "/export/"); ok && r.Method == http.MethodGet {
+		s.handleRevisionExport(w, r, rev)
+		return true
+	}
+	// Where a finished download operation says the bytes are. Drive puts
+	// them on googleusercontent.com; the fake puts them on a path.
+	if id, ok := strings.CutPrefix(r.URL.Path, "/download-uri/"); ok && r.Method == http.MethodGet {
+		s.handleRenderedDownload(w, id)
+		return true
+	}
+	// The two hosts that are not Drive, each with the scope that reaches
+	// it. The scope is checked HERE rather than in the handlers: it is a
+	// property of the host, not of the endpoint, and a second endpoint
+	// added under either prefix would otherwise have to remember the
+	// guard — producing a fake that answers something the real API
+	// refuses for want of a scope, which is the failure this whole file
+	// exists to prevent.
+	for _, host := range []struct {
+		prefix  string
+		enabled bool
+		serve   func(http.ResponseWriter, *http.Request) bool
+	}{
+		{"/labels/v2", s.LabelsEnabled, s.serveLabelsAPI},
+		{"/activity/v2", s.ActivityEnabled, s.serveActivityAPI},
+	} {
+		rest, ok := strings.CutPrefix(r.URL.Path, host.prefix)
+		if !ok {
+			continue
+		}
+		if !host.enabled {
+			s.scopeDenied(w)
+			return true
+		}
+		if !host.serve(w, r) {
+			s.errorJSON(w, http.StatusNotFound, "notFound",
+				"the fake does not implement "+r.Method+" "+rest)
+		}
+		return true
+	}
+	return false
+}
+
+// serveLabelsAPI routes the Drive Labels API's endpoints, and reports
+// whether it answered.
+func (s *Server) serveLabelsAPI(w http.ResponseWriter, r *http.Request) bool {
+	if strings.HasSuffix(r.URL.Path, "/labels") && r.Method == http.MethodGet {
+		s.handleListLabelDefinitions(w, r)
+		return true
+	}
+	return false
+}
+
+// serveActivityAPI routes the Drive Activity API's one endpoint.
+func (s *Server) serveActivityAPI(w http.ResponseWriter, r *http.Request) bool {
+	if strings.HasSuffix(r.URL.Path, "/activity:query") && r.Method == http.MethodPost {
+		s.handleActivityQuery(w, r)
+		return true
+	}
+	return false
 }
 
 // serveDrives routes the per-drive endpoints. Hiding has two of its own,
@@ -121,11 +194,20 @@ func (s *Server) serveFileChild(w http.ResponseWriter, r *http.Request, path, re
 		s.handleListRevisions(w, strings.TrimSuffix(rest, "/revisions"))
 	case strings.HasSuffix(path, "/export") && r.Method == http.MethodGet:
 		s.handleExport(w, r, strings.TrimSuffix(rest, "/export"))
+	case strings.HasSuffix(path, "/download") && r.Method == http.MethodPost:
+		s.handleStartDownload(w, r, strings.TrimSuffix(rest, "/download"))
 	case strings.HasSuffix(path, "/copy") && r.Method == http.MethodPost:
 		s.handleCopy(w, r, strings.TrimSuffix(rest, "/copy"))
+	case strings.HasSuffix(path, "/listLabels") && r.Method == http.MethodGet:
+		s.handleListFileLabels(w, r, strings.TrimSuffix(rest, "/listLabels"))
+	case strings.HasSuffix(path, "/modifyLabels") && r.Method == http.MethodPost:
+		s.handleModifyLabels(w, r, strings.TrimSuffix(rest, "/modifyLabels"))
 	case commentPath.MatchString(path):
 		m := commentPath.FindStringSubmatch(path)
 		s.serveComments(w, r, m[1], m[2])
+	case approvalPath.MatchString(path):
+		m := approvalPath.FindStringSubmatch(path)
+		s.serveApprovals(w, r, m[1], m[2])
 	case proposalPath.MatchString(path):
 		m := proposalPath.FindStringSubmatch(path)
 		s.serveProposals(w, r, m[1], m[2])
@@ -153,6 +235,13 @@ var revisionPath = regexp.MustCompile(`^/files/([^/]+)/revisions/([^/]+)$`)
 // and doing it with four regexps here would put half of that decision in
 // this file and half in the other.
 var commentPath = regexp.MustCompile(`^/files/([^/]+)/comments(?:/(.*))?$`)
+
+// approvalPath matches everything under one file's approvals: the
+// collection, the colon-suffixed start verb on the collection itself,
+// one approval, and the five verbs on it. The tail is passed on whole
+// for the same reason the comment one is: telling four shapes apart with
+// four regexps here would split the decision across two files.
+var approvalPath = regexp.MustCompile(`^/files/([^/]+)/approvals(?:[:/](.*))?$`)
 
 // proposalPath matches a file's access proposals, including the
 // colon-suffixed :resolve verb, which is not a path segment of its own.
@@ -339,7 +428,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, id string) {
 		s.errorJSON(w, http.StatusNotFound, "notFound", "File not found: "+id+".")
 		return
 	}
-	writeJSON(w, s.project(f, r.URL.Query().Get("fields"), r.URL.Query().Get("includeLabels") != ""))
+	s.writeProjected(w, f, r.URL.Query())
 }
 
 func (s *Server) handleListPermissions(w http.ResponseWriter, id string) {
@@ -408,7 +497,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	page := gdrive.FileList{Files: []*gdrive.File{}}
 	for _, f := range matched[start:end] {
-		page.Files = append(page.Files, s.project(f, q.Get("fields"), false))
+		page.Files = append(page.Files, s.project(f, q.Get("fields"), nil))
 	}
 	if end < len(matched) {
 		page.NextPageToken = "offset-" + strconv.Itoa(end)
@@ -499,7 +588,20 @@ func sizeOf(f *gdrive.File) int64 {
 // project returns the file with only the requested fields, the way Drive
 // does: asking for a narrow field list and reading a field that was not
 // requested is a bug the fake will surface.
-func (s *Server) project(f *gdrive.File, fields string, includeLabels bool) *gdrive.File {
+// writeProjected answers with one file, honouring fields and
+// includeLabels. It is the one place that reads includeLabels, so the
+// rule that a wildcard is not a label id is enforced for every endpoint
+// that takes the parameter rather than for the one somebody remembered.
+func (s *Server) writeProjected(w http.ResponseWriter, f *gdrive.File, q url.Values) {
+	ids, ok := labelIDsFrom(q.Get("includeLabels"))
+	if !ok {
+		s.errorJSON(w, http.StatusBadRequest, "badRequest", "Bad Request")
+		return
+	}
+	writeJSON(w, s.project(f, q.Get("fields"), ids))
+}
+
+func (s *Server) project(f *gdrive.File, fields string, labelIDs []string) *gdrive.File {
 	out := *f
 	if formats := exportFormatsFor[f.MimeType]; len(formats) > 0 {
 		links := make(map[string]string, len(formats))
@@ -517,10 +619,21 @@ func (s *Server) project(f *gdrive.File, fields string, includeLabels bool) *gdr
 		}
 		out.PermissionIDs = ids
 	}
-	s.mu.Unlock()
-	if !includeLabels {
+	if len(labelIDs) > 0 {
+		var picked []*gdrive.Label
+		for _, l := range s.FileLabels[f.ID] {
+			for _, want := range labelIDs {
+				if l.ID == want {
+					picked = append(picked, l)
+					break
+				}
+			}
+		}
+		out.LabelInfo = &gdrive.LabelInfo{Labels: picked}
+	} else {
 		out.LabelInfo = nil
 	}
+	s.mu.Unlock()
 	if fields == "" || strings.Contains(fields, "*") {
 		return &out
 	}

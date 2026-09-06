@@ -92,7 +92,8 @@ func run(o options) error {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	sess, err := mcpstdio.Start(o.binary, "GDRIVE_LOCAL_DIR="+dir)
+	sess, err := mcpstdio.Start(o.binary, "GDRIVE_LOCAL_DIR="+dir,
+		"GDRIVE_LABELS=true", "GDRIVE_ACTIVITY=true")
 	if err != nil {
 		return err
 	}
@@ -136,9 +137,22 @@ func run(o options) error {
 		return err
 	}
 
-	passed, failed := 0, 0
+	passed, failed, skipped := 0, 0, 0
 	for _, t := range tasks {
 		fmt.Printf("\n=== %s ===\n%s\n", t.name, t.prompt)
+		// A task the world will not permit today is not a failure, and
+		// counting it as one teaches everybody to ignore the verdict.
+		// Asked BEFORE the agent runs, so an unwinnable task costs no
+		// tokens either.
+		if t.reachable != nil {
+			state := &taskState{harness: h, realAddress: h.realAddress}
+			ok, why := t.reachable(state)
+			if !ok {
+				skipped++
+				fmt.Println("UNREACHABLE: " + h.red.Do(why))
+				continue
+			}
+		}
 		problems := h.score(o, config, t)
 		if len(problems) == 0 {
 			passed++
@@ -152,7 +166,11 @@ func run(o options) error {
 		}
 	}
 
-	fmt.Printf("\n%d passed, %d failed, of %d\n", passed, failed, len(tasks))
+	fmt.Printf("\n%d passed, %d failed, %d unreachable, of %d\n", passed, failed, skipped, len(tasks))
+	if skipped > 0 {
+		fmt.Println("An unreachable task is one this account cannot present the conditions for — " +
+			"it was NOT checked, and is not a pass.")
+	}
 	fmt.Println(h.red.Summary())
 	if failed > 0 {
 		return fmt.Errorf("%d task(s) failed", failed)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
@@ -70,6 +71,11 @@ type UpdateFileInput struct {
 	Properties                   map[string]string
 	CopyRequiresWriterPermission *bool
 	WritersCanShare              *bool
+	// Viewed marks the file as seen by the signed-in person, which is
+	// what puts it in Drive's Recent view. Only true does anything:
+	// viewedByMeTime is a timestamp, and Drive offers no way to say a
+	// file was never opened.
+	Viewed bool
 }
 
 // UpdateFile renames, describes, stars, colours or tags a file. It
@@ -92,7 +98,7 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 		return nil, Errorf(ClassInvalid, "colour is a folder's, and %s is %s", f.Name, model.KindWithArticle(f))
 	}
 
-	meta, changes, err := metaPatch(f, in, colour)
+	meta, changes, err := metaPatch(f, in, colour, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +121,7 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 // field whose value is already what was asked for is left out of both:
 // Drive would accept it, and the result would claim a change that did
 // not happen.
-func metaPatch(f *gdrive.File, in UpdateFileInput, colour string) (*gdrive.FileMeta, []render.Change, error) {
+func metaPatch(f *gdrive.File, in UpdateFileInput, colour string, now time.Time) (*gdrive.FileMeta, []render.Change, error) {
 	meta := &gdrive.FileMeta{}
 	var changes []render.Change
 	if name := strings.TrimSpace(in.Name); name != "" && name != f.Name {
@@ -143,6 +149,14 @@ func metaPatch(f *gdrive.File, in UpdateFileInput, colour string) (*gdrive.FileM
 		meta.WritersCanShare = in.WritersCanShare
 		changes = append(changes, render.Change{Field: "editors may change sharing",
 			From: yesNo(f.WritersCanShare), To: yesNo(*in.WritersCanShare)})
+	}
+	if in.Viewed {
+		// No "already that value" check: the field is a timestamp, so
+		// marking a file seen again moves it up the Recent view, which is
+		// the point of asking.
+		meta.ViewedByMeTime = now.UTC().Format(time.RFC3339)
+		changes = append(changes, render.Change{Field: "last opened by you",
+			From: orNever(f.ViewedByMeTime), To: meta.ViewedByMeTime})
 	}
 	propertyChanges, err := propertyPatch(f, in.Properties, meta)
 	if err != nil {
@@ -284,7 +298,11 @@ type CopyFileInput struct {
 	OCRLanguage string
 	// KeepRevisionForever pins the copy's first revision.
 	KeepRevisionForever bool
-	AllowDuplicate      bool
+	// CopyComments brings the file's comment threads along. Off by
+	// default: a copy usually starts a fresh conversation, and comments
+	// carry other people's words to wherever the copy lands.
+	CopyComments   bool
+	AllowDuplicate bool
 	// Recursive copies a folder and everything inside it. Drive has no
 	// call for that, so it is a walk and a write per item, which is why
 	// it has to be asked for.
@@ -370,17 +388,23 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 	}
 	copied, err := s.api.CopyFile(ctx, f.ID, meta, gapi.WriteOptions{
 		OCRLanguage: in.OCRLanguage, KeepRevisionForever: in.KeepRevisionForever,
-		ResourceIDs: []string{parentID},
+		CopyComments: in.CopyComments, ResourceIDs: []string{parentID},
 	})
 	if err != nil {
 		return nil, wrap(err, fmt.Sprintf("copying %s%s", f.Name, listOrNothing([]string{parentName}, " into ", "")))
 	}
-	note := ""
+	notes := []string{}
 	if convert != "" {
-		note = fmt.Sprintf("Google imported the copy as %s. The original %s is untouched.",
-			model.KindName(convert), f.Name)
+		notes = append(notes, fmt.Sprintf("Google imported the copy as %s. The original %s is untouched.",
+			model.KindName(convert), f.Name))
 	}
-	return s.write(ctx, copied, outcome{Action: render.ActionCopied, Note: note})
+	if in.CopyComments {
+		// Worth saying out loud: the copy now carries what other people
+		// wrote on the original, to wherever the copy went.
+		notes = append(notes, "The comment threads were copied with it, so everybody who can see the copy "+
+			"can read what was said on the original.")
+	}
+	return s.write(ctx, copied, outcome{Action: render.ActionCopied, Note: strings.Join(notes, " ")})
 }
 
 // CreateShortcutInput describes a shortcut to create.
@@ -567,4 +591,14 @@ func yesNo(b bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+// orNever names a timestamp that was never set, so a before-and-after
+// line does not read as though a field went from nothing to something
+// without saying what nothing meant.
+func orNever(ts string) string {
+	if strings.TrimSpace(ts) == "" {
+		return "never"
+	}
+	return ts
 }

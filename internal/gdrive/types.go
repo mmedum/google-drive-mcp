@@ -108,20 +108,185 @@ type Label struct {
 	Fields     map[string]LabelField `json:"fields,omitempty"`
 }
 
-// LabelField is one field of an applied label.
+// LabelField is one field of an applied label. Drive names the date
+// member `dateString`, not `date`: it is an RFC 3339 calendar date with
+// no time, and the name says so. Phase 4 read the discovery document and
+// found this tag saying `date`, which decoded every date-valued field to
+// nothing at all — silently, because a missing member is indistinguishable
+// from an unset one.
 type LabelField struct {
 	ID        string   `json:"id,omitempty"`
 	ValueType string   `json:"valueType,omitempty"`
 	Text      []string `json:"text,omitempty"`
 	Selection []string `json:"selection,omitempty"`
 	Integer   []string `json:"integer,omitempty"`
-	Date      []string `json:"date,omitempty"`
+	Date      []string `json:"dateString,omitempty"`
 	User      []*User  `json:"user,omitempty"`
 }
 
-// LabelInfo carries the labels files.get returns with includeLabels.
+// LabelInfo carries the labels a files.get returns. It is populated by
+// the includeLabels parameter, which takes a comma-separated list of
+// label ids and nothing else — see LabelList for the way to ask for all
+// of them.
 type LabelInfo struct {
 	Labels []*Label `json:"labels,omitempty"`
+}
+
+// LabelList is one page of files.listLabels: the labels applied to a
+// file, without having to know their ids in advance.
+type LabelList struct {
+	Labels        []*Label `json:"labels,omitempty"`
+	NextPageToken string   `json:"nextPageToken,omitempty"`
+}
+
+// ModifyLabelsRequest applies, changes or removes labels on a file. The
+// reference is explicit that the modifications either all succeed or all
+// fail, so a partial application is not a state this server has to
+// describe.
+type ModifyLabelsRequest struct {
+	LabelModifications []LabelModification `json:"labelModifications,omitempty"`
+}
+
+// LabelModification is one label's worth of change. RemoveLabel and
+// FieldModifications are alternatives: removing a label takes its fields
+// with it.
+type LabelModification struct {
+	LabelID            string                   `json:"labelId,omitempty"`
+	RemoveLabel        bool                     `json:"removeLabel,omitempty"`
+	FieldModifications []LabelFieldModification `json:"fieldModifications,omitempty"`
+}
+
+// LabelFieldModification sets or unsets one field. Every setter replaces
+// the field's values rather than adding to them, which is the reference's
+// wording and the reason this server's tool speaks of setting a field
+// rather than adding to it.
+type LabelFieldModification struct {
+	FieldID            string   `json:"fieldId,omitempty"`
+	SetTextValues      []string `json:"setTextValues,omitempty"`
+	SetSelectionValues []string `json:"setSelectionValues,omitempty"`
+	SetIntegerValues   []string `json:"setIntegerValues,omitempty"`
+	SetDateValues      []string `json:"setDateValues,omitempty"`
+	SetUserValues      []string `json:"setUserValues,omitempty"`
+	UnsetValues        bool     `json:"unsetValues,omitempty"`
+}
+
+// ModifyLabelsResponse carries only the labels the request added or
+// changed, so a removal comes back as an empty list rather than as
+// evidence of itself.
+type ModifyLabelsResponse struct {
+	ModifiedLabels []*Label `json:"modifiedLabels,omitempty"`
+}
+
+// LabelDefinition is a label as the separate Drive Labels API defines
+// it, which is where a field's id, type and permitted values live. The
+// Drive API only ever reports the values applied to a file.
+//
+// This is a subset: the definition carries creator, publisher, display
+// hints, lock status and per-revision permissions besides, none of which
+// help a model decide what it may set on a file.
+type LabelDefinition struct {
+	// Name is `labels/{id}` or `labels/{id}@{revision}`, depending on
+	// whether the request asked for published revisions only.
+	Name       string `json:"name,omitempty"`
+	ID         string `json:"id,omitempty"`
+	RevisionID string `json:"revisionId,omitempty"`
+	// LabelType is ADMIN or SHARED: who may change the definition.
+	LabelType           string                     `json:"labelType,omitempty"`
+	Properties          *LabelDefinitionProperties `json:"properties,omitempty"`
+	Lifecycle           *LabelLifecycle            `json:"lifecycle,omitempty"`
+	Fields              []*LabelFieldDefinition    `json:"fields,omitempty"`
+	AppliedCapabilities *LabelAppliedCapabilities  `json:"appliedCapabilities,omitempty"`
+}
+
+// LabelDefinitionProperties is the label's own title and description.
+type LabelDefinitionProperties struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// LabelLifecycle says whether a definition is published, and so whether
+// it can be applied at all.
+type LabelLifecycle struct {
+	State                 string `json:"state,omitempty"`
+	HasUnpublishedChanges bool   `json:"hasUnpublishedChanges,omitempty"`
+}
+
+// LabelAppliedCapabilities is what this user may do with the label on a
+// file, as distinct from what they may do to the definition.
+type LabelAppliedCapabilities struct {
+	CanRead   bool `json:"canRead,omitempty"`
+	CanApply  bool `json:"canApply,omitempty"`
+	CanRemove bool `json:"canRemove,omitempty"`
+}
+
+// LabelFieldDefinition is one field of a definition. The value type is
+// not a member: the API says which type a field is by which options
+// object is present, so ValueType below is derived rather than decoded.
+type LabelFieldDefinition struct {
+	ID string `json:"id,omitempty"`
+	// QueryKey is the term a Drive search uses to find files by this
+	// field's value.
+	QueryKey            string                         `json:"queryKey,omitempty"`
+	Properties          *LabelFieldProperties          `json:"properties,omitempty"`
+	Lifecycle           *LabelLifecycle                `json:"lifecycle,omitempty"`
+	AppliedCapabilities *LabelFieldAppliedCapabilities `json:"appliedCapabilities,omitempty"`
+	TextOptions         *struct{}                      `json:"textOptions,omitempty"`
+	IntegerOptions      *struct{}                      `json:"integerOptions,omitempty"`
+	DateOptions         *LabelDateOptions              `json:"dateOptions,omitempty"`
+	SelectionOptions    *LabelSelectionOptions         `json:"selectionOptions,omitempty"`
+	UserOptions         *struct{}                      `json:"userOptions,omitempty"`
+}
+
+// LabelFieldProperties is a field's display name and whether it is
+// required.
+type LabelFieldProperties struct {
+	DisplayName string `json:"displayName,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+// LabelFieldAppliedCapabilities is what this user may do with the field's
+// value on a file.
+type LabelFieldAppliedCapabilities struct {
+	CanRead   bool `json:"canRead,omitempty"`
+	CanWrite  bool `json:"canWrite,omitempty"`
+	CanSearch bool `json:"canSearch,omitempty"`
+}
+
+// LabelDateOptions says how a date field is displayed. The format is the
+// only part that helps a caller: the value itself is always YYYY-MM-DD.
+type LabelDateOptions struct {
+	DateFormatType string `json:"dateFormatType,omitempty"`
+}
+
+// LabelSelectionOptions carries the choices a selection field permits.
+type LabelSelectionOptions struct {
+	ListOptions *LabelListOptions `json:"listOptions,omitempty"`
+	Choices     []*LabelChoice    `json:"choices,omitempty"`
+}
+
+// LabelListOptions says whether a field takes more than one value.
+type LabelListOptions struct {
+	MaxEntries int `json:"maxEntries,omitempty"`
+}
+
+// LabelChoice is one permitted value of a selection field. The id is
+// what a modification sets; the display name is what a person reads.
+type LabelChoice struct {
+	ID         string                 `json:"id,omitempty"`
+	Properties *LabelChoiceProperties `json:"properties,omitempty"`
+	Lifecycle  *LabelLifecycle        `json:"lifecycle,omitempty"`
+}
+
+// LabelChoiceProperties is a choice's display name and description.
+type LabelChoiceProperties struct {
+	DisplayName string `json:"displayName,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// LabelDefinitionList is one page of the Labels API's labels.list.
+type LabelDefinitionList struct {
+	Labels        []*LabelDefinition `json:"labels,omitempty"`
+	NextPageToken string             `json:"nextPageToken,omitempty"`
 }
 
 // File is a Drive file, folder or shortcut. Drive returns only the
@@ -373,6 +538,13 @@ type FileMeta struct {
 
 	WritersCanShare              *bool `json:"writersCanShare,omitempty"`
 	CopyRequiresWriterPermission *bool `json:"copyRequiresWriterPermission,omitempty"`
+
+	// ViewedByMeTime is when the signed-in person last opened the file.
+	// It is the one "output only in spirit" field the API lets a caller
+	// write: viewedByMe beside it IS output only, so marking a file as
+	// seen means stamping this. Drive uses it for the Recent view and for
+	// the viewedByMeTime sort.
+	ViewedByMeTime string `json:"viewedByMeTime,omitempty"`
 
 	// Properties are public custom properties. A nil value deletes the
 	// key, which is what the reference means by "entries with null values
@@ -639,4 +811,282 @@ type ResolveProposal struct {
 	Role             []string `json:"role,omitempty"`
 	View             string   `json:"view,omitempty"`
 	SendNotification bool     `json:"sendNotification"`
+}
+
+// Approval is a review a file is waiting on: who asked, who is to
+// answer, and what they have said so far. Approvals are a Workspace
+// feature and a GA part of the Drive API; whether an edition offers
+// them is answered by the API rather than guessed at here.
+type Approval struct {
+	ApprovalID   string `json:"approvalId,omitempty"`
+	TargetFileID string `json:"targetFileId,omitempty"`
+	Initiator    *User  `json:"initiator,omitempty"`
+	// Status is IN_PROGRESS, APPROVED, CANCELLED or DECLINED. It is
+	// output only: an approval's state follows from the reviewers'
+	// answers rather than being set.
+	Status            string              `json:"status,omitempty"`
+	ReviewerResponses []*ReviewerResponse `json:"reviewerResponses,omitempty"`
+	DueTime           string              `json:"dueTime,omitempty"`
+	CreateTime        string              `json:"createTime,omitempty"`
+	ModifyTime        string              `json:"modifyTime,omitempty"`
+	CompleteTime      string              `json:"completeTime,omitempty"`
+	// FileContentChangeBehavior is RESET_APPROVAL or NO_APPROVAL_ACTION.
+	// RESET_APPROVAL means a content change while the approval is in
+	// progress clears the approvals given — and that once approved, the
+	// file is LOCKED.
+	FileContentChangeBehavior string `json:"fileContentChangeBehavior,omitempty"`
+}
+
+// ReviewerResponse is one reviewer's answer, or the absence of one.
+type ReviewerResponse struct {
+	Reviewer *User `json:"reviewer,omitempty"`
+	// Response is NO_RESPONSE, APPROVED or DECLINED.
+	Response string `json:"response,omitempty"`
+}
+
+// ApprovalList is one page of a file's approvals. The list member is
+// `items`, not `approvals`: the approvals endpoints are older in shape
+// than the rest of v3.
+type ApprovalList struct {
+	Items         []*Approval `json:"items,omitempty"`
+	NextPageToken string      `json:"nextPageToken,omitempty"`
+}
+
+// StartApproval opens a review on a file.
+type StartApproval struct {
+	// ReviewerEmails is required: an approval with nobody to answer it
+	// is not a state the API offers.
+	ReviewerEmails []string `json:"reviewerEmails,omitempty"`
+	Message        string   `json:"message,omitempty"`
+	// LockFile locks the file's content for the duration.
+	LockFile bool   `json:"lockFile,omitempty"`
+	DueTime  string `json:"dueTime,omitempty"`
+	// FileContentChangeBehavior decides what a content change does to
+	// answers already given.
+	FileContentChangeBehavior string `json:"fileContentChangeBehavior,omitempty"`
+}
+
+// ApprovalMessage is the body every other approval verb takes: approve,
+// decline, cancel and comment differ in their endpoint and in nothing
+// else. The message is required only for comment.
+type ApprovalMessage struct {
+	Message string `json:"message,omitempty"`
+}
+
+// ReassignApproval adds reviewers or replaces them. The request's own
+// description is exact about the limit: "Reviewers can be added or
+// replaced, but not removed" — a replacement names the person going and
+// the person arriving together, and there is no way to say only the
+// first.
+//
+// Both members are arrays of OBJECTS, not of addresses. Phase 4 sent
+// bare strings here at first, which Drive answers 400 to on every call:
+// the discovery document was read through a projection that dropped the
+// items' $ref, and the fake decoded into the same wrong struct, so
+// nothing could fail.
+type ReassignApproval struct {
+	AddReviewers     []AddReviewer     `json:"addReviewers,omitempty"`
+	ReplaceReviewers []ReplaceReviewer `json:"replaceReviewers,omitempty"`
+	Message          string            `json:"message,omitempty"`
+}
+
+// AddReviewer is one reviewer joining an approval.
+type AddReviewer struct {
+	AddedReviewerEmail string `json:"addedReviewerEmail,omitempty"`
+}
+
+// ReplaceReviewer swaps one reviewer for another. Both addresses are
+// required: this is the only way the API removes anybody, and it removes
+// them only by putting somebody else in their place.
+type ReplaceReviewer struct {
+	RemovedReviewerEmail string `json:"removedReviewerEmail,omitempty"`
+	AddedReviewerEmail   string `json:"addedReviewerEmail,omitempty"`
+}
+
+// Drive Activity is a separate API (driveactivity.googleapis.com, v2)
+// with a scope of its own. It answers "who did what to this" — with one
+// large caveat this server has to carry rather than hide: it names a
+// person by a People API resource name (`people/123456`), never by a
+// display name or an address. Resolving one would mean a third API and a
+// third scope. So an activity can say that something was done by you, or
+// by somebody else, and no more than that.
+
+// ActivityQuery asks the Drive Activity API for a page of activity.
+// Exactly one of ItemName and AncestorName may be set.
+type ActivityQuery struct {
+	// ItemName is `items/{fileId}`: activity on that one item.
+	ItemName string `json:"itemName,omitempty"`
+	// AncestorName is `items/{folderId}`: activity on a folder and
+	// everything under it.
+	AncestorName string `json:"ancestorName,omitempty"`
+	PageSize     int    `json:"pageSize,omitempty"`
+	PageToken    string `json:"pageToken,omitempty"`
+	// Filter is the API's own expression language over `time` and
+	// `detail.action_detail_case`.
+	Filter string `json:"filter,omitempty"`
+}
+
+// ActivityResponse is one page of activity.
+type ActivityResponse struct {
+	Activities    []*DriveActivity `json:"activities,omitempty"`
+	NextPageToken string           `json:"nextPageToken,omitempty"`
+}
+
+// DriveActivity is one thing that happened.
+type DriveActivity struct {
+	PrimaryActionDetail *ActionDetail     `json:"primaryActionDetail,omitempty"`
+	Actors              []*ActivityActor  `json:"actors,omitempty"`
+	Targets             []*ActivityTarget `json:"targets,omitempty"`
+	// Timestamp is set for an activity at one instant; TimeRange is set
+	// for a consolidated one. Exactly one of them arrives.
+	Timestamp string             `json:"timestamp,omitempty"`
+	TimeRange *ActivityTimeRange `json:"timeRange,omitempty"`
+}
+
+// ActivityTimeRange is when a consolidated activity happened.
+type ActivityTimeRange struct {
+	StartTime string `json:"startTime,omitempty"`
+	EndTime   string `json:"endTime,omitempty"`
+}
+
+// ActionDetail says what kind of thing happened. Exactly one member is
+// set, and which one IS the answer: the API has no action-type field.
+type ActionDetail struct {
+	Create             *ActivityCreate     `json:"create,omitempty"`
+	Edit               *struct{}           `json:"edit,omitempty"`
+	Move               *ActivityMove       `json:"move,omitempty"`
+	Rename             *ActivityRename     `json:"rename,omitempty"`
+	Delete             *ActivityTyped      `json:"delete,omitempty"`
+	Restore            *ActivityTyped      `json:"restore,omitempty"`
+	PermissionChange   *ActivityPermission `json:"permissionChange,omitempty"`
+	Comment            *ActivityComment    `json:"comment,omitempty"`
+	DLPChange          *struct{}           `json:"dlpChange,omitempty"`
+	Reference          *struct{}           `json:"reference,omitempty"`
+	SettingsChange     *struct{}           `json:"settingsChange,omitempty"`
+	AppliedLabelChange *struct{}           `json:"appliedLabelChange,omitempty"`
+}
+
+// ActivityCreate says how an item came to be.
+type ActivityCreate struct {
+	New    *struct{} `json:"new,omitempty"`
+	Upload *struct{} `json:"upload,omitempty"`
+	Copy   *struct{} `json:"copy,omitempty"`
+}
+
+// ActivityMove records the parents added and removed.
+type ActivityMove struct {
+	AddedParents   []*ActivityTarget `json:"addedParents,omitempty"`
+	RemovedParents []*ActivityTarget `json:"removedParents,omitempty"`
+}
+
+// ActivityRename records the titles before and after.
+type ActivityRename struct {
+	OldTitle string `json:"oldTitle,omitempty"`
+	NewTitle string `json:"newTitle,omitempty"`
+}
+
+// ActivityTyped is a delete or a restore, whose only detail is its type.
+type ActivityTyped struct {
+	Type string `json:"type,omitempty"`
+}
+
+// ActivityPermission records grants added and removed. The permissions
+// themselves carry no address either, for the same reason as the actor.
+type ActivityPermission struct {
+	AddedPermissions   []map[string]any `json:"addedPermissions,omitempty"`
+	RemovedPermissions []map[string]any `json:"removedPermissions,omitempty"`
+}
+
+// ActivityComment records a comment, and which kind.
+type ActivityComment struct {
+	Post       *struct{} `json:"post,omitempty"`
+	Assignment *struct{} `json:"assignment,omitempty"`
+	Suggestion *struct{} `json:"suggestion,omitempty"`
+}
+
+// ActivityActor is who did it. Only the KnownUser case carries anything,
+// and what it carries is a People API resource name.
+type ActivityActor struct {
+	User          *ActivityUser `json:"user,omitempty"`
+	Anonymous     *struct{}     `json:"anonymous,omitempty"`
+	System        *struct{}     `json:"system,omitempty"`
+	Administrator *struct{}     `json:"administrator,omitempty"`
+	Impersonation *struct{}     `json:"impersonation,omitempty"`
+}
+
+// ActivityUser is a person, as far as this API will say.
+type ActivityUser struct {
+	KnownUser   *ActivityKnownUser `json:"knownUser,omitempty"`
+	DeletedUser *struct{}          `json:"deletedUser,omitempty"`
+	UnknownUser *struct{}          `json:"unknownUser,omitempty"`
+}
+
+// ActivityKnownUser is a person the API will identify only by a People
+// API resource name, plus whether it is the signed-in account.
+type ActivityKnownUser struct {
+	PersonName    string `json:"personName,omitempty"`
+	IsCurrentUser bool   `json:"isCurrentUser,omitempty"`
+}
+
+// ActivityTarget is what the activity was about.
+type ActivityTarget struct {
+	DriveItem   *ActivityDriveItem `json:"driveItem,omitempty"`
+	Drive       map[string]any     `json:"drive,omitempty"`
+	FileComment map[string]any     `json:"fileComment,omitempty"`
+}
+
+// ActivityDriveItem is a file or folder an activity was about. `name` is
+// `items/{fileId}`, so the id has to be cut out of it.
+type ActivityDriveItem struct {
+	Name     string         `json:"name,omitempty"`
+	Title    string         `json:"title,omitempty"`
+	MimeType string         `json:"mimeType,omitempty"`
+	File     *struct{}      `json:"driveFile,omitempty"`
+	Folder   map[string]any `json:"driveFolder,omitempty"`
+}
+
+// Operation is a long-running operation. files.download is the only one
+// this server starts: it is the only way to get the bytes of a Google
+// Vid, and Drive refuses to export one at all.
+//
+// The discovery document types the response as a bare Any, so the shape
+// below comes from the long-running-operations guide rather than from
+// the document. Done is a pointer because the guide's own example of a
+// pending operation has `done: null` rather than `done: false`, and the
+// two would otherwise decode alike.
+type Operation struct {
+	Name     string             `json:"name,omitempty"`
+	Done     *bool              `json:"done,omitempty"`
+	Metadata *OperationMetadata `json:"metadata,omitempty"`
+	Response *DownloadResponse  `json:"response,omitempty"`
+	Error    *OperationError    `json:"error,omitempty"`
+}
+
+// OperationMetadata carries the resource key a link-shared file needs on
+// the follow-up request.
+type OperationMetadata struct {
+	ResourceKey string `json:"resourceKey,omitempty"`
+}
+
+// DownloadResponse is a finished download's answer: where to fetch the
+// bytes from.
+type DownloadResponse struct {
+	DownloadURI string `json:"downloadUri,omitempty"`
+	// PartialDownloadAllowed says whether the URI takes a Range header.
+	// It is true for blob content and false for an exported document.
+	PartialDownloadAllowed bool `json:"partialDownloadAllowed,omitempty"`
+}
+
+// OperationError is a failed operation's reason, in google.rpc.Status
+// shape rather than in Drive's usual error shape.
+type OperationError struct {
+	Code    int    `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// Finished reports whether the operation has completed. The guide's
+// pending example carries `done: null`, so an absent member means "still
+// running" rather than "finished and false".
+func (o *Operation) Finished() bool {
+	return o != nil && o.Done != nil && *o.Done
 }

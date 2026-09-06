@@ -6,7 +6,136 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-09-06
+
+### Added
+
+- **Three more agent evals, and the thirteen that existed have all run.**
+  Ten of them had never been run since phase 3 built them; all thirteen
+  pass against a real account. The three new ones cover phase 4's own
+  surface, because the thirteen covered phases 0 to 3 and nothing else —
+  and an eval is the only thing that tests a tool DESCRIPTION rather than
+  a code path.
+
+  A task can now say it is **unreachable**: it asks, before the agent
+  runs and before any tokens are spent, whether this account can present
+  the conditions it needs. Applying a label needs an administrator to
+  have published one, and without that the task is unwinnable — a model
+  would be marked down for a rule the server is right to have. An
+  unreachable task is reported as not checked, which is not a pass. The
+  idea came from a sibling repository that found a task of its own that
+  could never have passed.
+
+- **Workspace labels**, behind `GDRIVE_LABELS=true`. `list_labels` shows
+  the definitions this account may use, with every field and the values
+  it takes; `manage_labels` puts one on a file, sets or clears a field,
+  or takes it off. One label and one field per call.
+
+  Labels come through two APIs, and the split is where the mistakes
+  live. The values on a file are Drive's, on the ordinary scope; the
+  definitions are the separate Drive Labels API, with its own scope and
+  its own enablement in the Cloud project. So an account that can reach
+  Drive but not the Labels API can still apply and remove a label it
+  knows the id of — only `set_field` is refused there, because the API
+  has one setter per field type and the type lives in the definition.
+
+  A wrong selection choice is answered with the choices that would have
+  worked. A choice id is a generated string that appears nowhere else, so
+  a refusal that did not list them would be a dead end.
+
+- **Approvals**: `list_approvals` and `manage_approval` (start, approve,
+  decline, cancel, comment, reassign). Two things are said in the
+  description and again in every result, because neither is what "start
+  an approval" sounds like it does: every action MAILS somebody, with no
+  way to turn it off, and an approval can LOCK the file — at once with
+  `lock_file`, or once it is approved. Declining completes an approval on
+  its own where approving waits for everybody, and Drive cannot remove a
+  reviewer at all.
+
+- **Drive Activity**: `list_activity`, behind `GDRIVE_ACTIVITY=true`.
+  What happened to a file, or to everything in a folder, with filters by
+  kind and by time. It says who only as "you" or "somebody else", and
+  says why: Drive's activity feed identifies people by an internal id and
+  gives no name or address for them. A reader not told that would assume
+  the names went missing here.
+
+- **A Google Vid downloads.** It is the one file type with no bytes on
+  the file endpoint and no export — Drive answers `fileNotExportable` —
+  so `download_file` starts a long-running operation, polls while Drive
+  renders the MP4, and fetches what it hands back. A render that takes
+  longer than two minutes is reported as still running rather than as a
+  failure, which needed a new error class: `pending` is not `server`, and
+  a model told `server` would report a failure that did not happen.
+
+- **`copy_file` can bring the comments**, with `copy_comments`. Off by
+  default, and the result says out loud when a copy carried somebody
+  else's words somewhere new.
+
+- **`search_files` matches custom properties**, with `property`. A key
+  alone finds every file carrying it; `key=value` matches the value too.
+
+- **`update_file` can mark a file as opened**, with `viewed`, which is
+  what puts it at the top of Drive's Recent view.
+
+- **`upload_file` can ask Drive to index the content**, with
+  `use_content_as_indexable_text`, so a type Drive does not read on its
+  own can still be found by its words.
+
+- **Every API method is used on purpose or left out on purpose.**
+  `testdata/api-coverage.tsv` records all 91 methods of the three APIs
+  this server can reach, 51 used and 40 not, each with its reason. `make
+  api-coverage` holds the record to the code in both directions and runs
+  in `make check`; `make api-diff` refetches the discovery documents and
+  reports what has changed.
+
 ### Fixed
+
+- **The live driver's transcript carried the maintainer's own name, in
+  every result that named them.** The redactor's idea of a name required
+  a capital letter, and a Workspace account with no display name set
+  shows the address's local part instead — lowercase, dotted. It survived
+  every position the redactor knows, because the SHAPE refused it before
+  the position was ever consulted. The fixtures were the other half:
+  every invented name in them was capitalised, so the tests agreed with
+  the bug. Found by reading a live transcript rather than by any test.
+
+- **`search_files` by property refused what Google's guide documents.**
+  The search guide gives `properties has { key='department' }` as its own
+  example of finding a file by a key whatever its value; Drive answers it
+  400 "Invalid Value", in every spelling and for `appProperties` too.
+  Both halves are required, and the server now says so rather than
+  spending a round trip to be told less.
+
+- **`list_activity` called an entry with no action "a kind this server
+  has no words for".** Of 400 activities queried live, three carried no
+  action detail at all — ordinary, and nothing to do about it. An action
+  kind this server cannot name would mean Google had added a thirteenth,
+  which is worth knowing. They are counted and reported separately now.
+
+- **`get_file` had never been able to show a label.** Drive's
+  `includeLabels` is a comma-separated list of label IDS — not a flag and
+  not a wildcard — and this server sent `includeLabels=*`, which Drive
+  answers 400. Nothing noticed for three phases: the feature is off by
+  default, and no test could have seen it because the fake accepted
+  whatever it was sent. Found by reading the discovery document, and
+  confirmed by a probe against a real account, which is what makes it a
+  fact rather than one bad response. `files.listLabels` is the method
+  that answers "which labels are on this file", and it needs no labels
+  scope at all.
+
+- **Every date-valued label field decoded to nothing.** The wire type
+  tagged the member `date` where Drive sends `dateString`. It failed
+  silently, an absent member being indistinguishable from an unset one.
+
+- **A `POST` that only reads took the write budget and would not retry.**
+  `activity:query` is the first read-only POST this server makes.
+  Deriving the rate class and the retry rule from the HTTP method — which
+  is what phase 3 did, and was right about the dangerous direction —
+  gets this one backwards: a listing spent from the write quota and
+  failed closed on a dropped connection. A request carries a `reads`
+  marker now, whose zero value is still the safe one.
 
 - **The live driver's transcript hid a name only when an address stood
   beside it.** `internal/model` prints a person three ways — `Name
@@ -653,6 +782,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
-[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.2.0...v0.3.0
 [0.0.1]: https://github.com/mmedum/google-drive-mcp/releases/tag/v0.0.1

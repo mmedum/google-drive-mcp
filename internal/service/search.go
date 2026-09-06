@@ -32,9 +32,14 @@ type SearchInput struct {
 	ModifiedBefore string
 	CreatedAfter   string
 	OrderBy        string
-	Limit          int
-	PageToken      string
-	RawQuery       string
+	// Property matches a custom file property. "key" alone finds every
+	// file carrying that key whatever its value; "key=value" matches
+	// both. Properties are the key-value pairs update_file sets, which
+	// is how one app tags files for another to find.
+	Property  string
+	Limit     int
+	PageToken string
+	RawQuery  string
 }
 
 // Scope values for a search.
@@ -233,6 +238,14 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput) (query, descr
 		clauses = append(clauses, fmt.Sprintf("%s %s %s", t.field, t.op, quote(stamp)))
 		described = append(described, t.words+" "+stamp)
 	}
+	if property := strings.TrimSpace(in.Property); property != "" {
+		clause, words, err := propertyClause(property)
+		if err != nil {
+			return "", "", err
+		}
+		clauses = append(clauses, clause)
+		described = append(described, words)
+	}
 	if raw := strings.TrimSpace(in.RawQuery); raw != "" {
 		clauses = append(clauses, "("+raw+")")
 		described = append(described, "raw query "+raw)
@@ -243,7 +256,7 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput) (query, descr
 
 	if len(described) == 0 {
 		return "", "", Errorf(ClassInvalid, "a search needs at least one of name, text, kind, mime_type, in_folder, "+
-			"owner, starred, trashed, modified_after, modified_before, created_after or raw_query. "+
+			"owner, starred, trashed, modified_after, modified_before, created_after, property or raw_query. "+
 			"list_folder lists a folder without a search.")
 	}
 	return strings.Join(clauses, " and "), "search: " + strings.Join(described, ", "), nil
@@ -296,4 +309,41 @@ func (s *Service) cachedParent(id string) (*gdrive.File, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return cacheGet(s.files, parentKey(id), s.now(), s.opts.PathTTL)
+}
+
+// propertyClause builds the collection-matching clause for a custom file
+// property. Drive's form is
+//
+//	properties has { key='mass' and value='1.3kg' }
+//
+// The braces are Drive's syntax and not a quoted value, so the key and
+// the value are quoted individually and the clause is assembled here
+// rather than passed through: a caller writing the whole expression
+// would be writing a raw query, and raw_query already exists for that.
+//
+// BOTH halves are required, which is not what Google's search guide
+// says. It gives "properties has { key='department' }" as an example of
+// finding every file carrying a key whatever its value — and Drive
+// answers that 400 `invalid` "Invalid Value". Phase 4 shipped the guide's
+// form, and the live run refused it; a probe then tried it twice in each
+// of three spellings, and against appProperties, and every one was
+// refused. The guide is wrong, so this refuses the shape locally rather
+// than spending a round trip to be told the same thing with less
+// explanation.
+func propertyClause(property string) (clause, words string, err error) {
+	key, value, hasValue := strings.Cut(property, "=")
+	key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+	switch {
+	case key == "":
+		return "", "", Errorf(ClassInvalid,
+			"property needs a key and a value, as \"key=value\"")
+	case !hasValue || value == "":
+		return "", "", Errorf(ClassInvalid,
+			"property needs a value as well as a key, as \"%s=something\". Drive has no way to search for "+
+				"a key whatever its value: its own guide gives that form as an example and the API "+
+				"refuses it. If you do not know the value, search another way and read the properties "+
+				"off the file cards", key)
+	}
+	return "properties has { key=" + quote(key) + " and value=" + quote(value) + " }",
+		fmt.Sprintf("with the property %s=%s", key, value), nil
 }

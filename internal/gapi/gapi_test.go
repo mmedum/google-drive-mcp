@@ -745,3 +745,40 @@ func TestAPolicyRefusalIsStillBlocked(t *testing.T) {
 		})
 	}
 }
+
+// Drive's includeLabels is a comma-separated list of label IDS. Not a
+// flag, and not a wildcard: this client sent `includeLabels=*` from
+// phase 1 to phase 4 and Drive answered 400 the whole time, with nothing
+// able to see it because the fake accepted anything.
+//
+// The fake refuses a wildcard now. This is the test that makes that
+// refusal mean something — without a caller reaching it, a fake that
+// refuses is a fake nobody asks.
+func TestIncludeLabelsTakesIDsAndNotAWildcard(t *testing.T) {
+	fake := drivetest.New()
+	defer fake.Close()
+	drivetest.SmallTree(fake)
+	fake.ApplyLabel("id-budget-fixture", &gdrive.Label{ID: "id-label-review", RevisionID: "1"})
+	client := drivetest.Client(t, fake)
+
+	got, err := client.GetFile(t.Context(), "id-budget-fixture", gapi.GetFileOptions{
+		IncludeLabelIDs: []string{"id-label-review"},
+	})
+	if err != nil {
+		t.Fatalf("a list of ids was refused: %v", err)
+	}
+	if got.LabelInfo == nil || len(got.LabelInfo.Labels) != 1 {
+		t.Fatalf("asking for one label by id returned %+v", got.LabelInfo)
+	}
+
+	// And the shape that never worked, refused the way Drive refuses it.
+	_, err = client.GetFile(t.Context(), "id-budget-fixture", gapi.GetFileOptions{
+		IncludeLabelIDs: []string{"*"},
+	})
+	if err == nil {
+		t.Fatal("a wildcard was accepted; Drive answers 400 badRequest to it")
+	}
+	if class := gapi.Class(err); class != gapi.ClassInvalid {
+		t.Errorf("a wildcard was refused as %q, want %q", class, gapi.ClassInvalid)
+	}
+}
