@@ -87,6 +87,7 @@ type API interface {
 
 	// Long-running downloads: the only way to reach a Google Vid's bytes.
 	StartDownload(ctx context.Context, fileID, mimeType, revisionID string) (*gdrive.Operation, error)
+	GetOperation(ctx context.Context, name string) (*gdrive.Operation, error)
 	AwaitDownload(ctx context.Context, op *gdrive.Operation) (*gdrive.DownloadResponse, error)
 
 	// Drive Activity, a separate API behind GDRIVE_ACTIVITY.
@@ -128,6 +129,10 @@ type Options struct {
 	PathTTL time.Duration
 	// FileTTL coalesces repeated reads of one file. Default 5s.
 	FileTTL time.Duration
+	// DownloadOpTTL is how long a long-running download's name is kept so
+	// a later call can resume it rather than starting the render again.
+	// Default 2h, against Google's promise of at least 12.
+	DownloadOpTTL time.Duration
 	// LabelTTL is how long the label definitions are kept. They are a
 	// property of the organisation rather than of a file: an
 	// administrator republishing a label is not something that happens
@@ -174,6 +179,14 @@ type Service struct {
 	// per conversion.
 	imports      map[string][]string
 	importsTried bool
+	// downloads are the long-running download operations this process has
+	// started, by file id. An operation lives at least twelve hours and
+	// its name comes back only from the call that started it — there is
+	// no way to list operations and find it again — so a name thrown away
+	// is a render thrown away. Keeping it is what makes "call again in a
+	// minute and it will pick up the finished render" true rather than a
+	// sentence that starts the work over.
+	downloads map[string]cached[string]
 	// export holds the last document exported for a read. Drive takes no
 	// byte range on an export, so without this every window of a long
 	// document costs a full re-export: reading a 1 MB Doc a page at a
@@ -202,7 +215,8 @@ type exported struct {
 // New builds a service.
 func New(api API, o Options) *Service {
 	s := &Service{api: api, opts: o, log: o.Logger, now: o.Now,
-		paths: map[string]cached[string]{}, files: map[string]cached[*gdrive.File]{}}
+		paths: map[string]cached[string]{}, files: map[string]cached[*gdrive.File]{},
+		downloads: map[string]cached[string]{}}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
@@ -214,6 +228,11 @@ func New(api API, o Options) *Service {
 	}
 	if s.opts.FileTTL == 0 {
 		s.opts.FileTTL = 5 * time.Second
+	}
+	if s.opts.DownloadOpTTL == 0 {
+		// Well under the twelve hours Google promises, so a name this
+		// server hands back is one Drive still knows about.
+		s.opts.DownloadOpTTL = 2 * time.Hour
 	}
 	if s.opts.LabelTTL == 0 {
 		s.opts.LabelTTL = 10 * time.Minute
