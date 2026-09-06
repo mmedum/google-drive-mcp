@@ -77,6 +77,23 @@ type call struct {
 	args        map[string]any
 	expectError bool
 	why         string
+	// tolerant marks a call whose outcome is genuinely either way, so
+	// neither counts against the run. It exists for Drive's eventual
+	// consistency: asking for a file after emptying the trash it was in
+	// is a 404 when the empty took and a card when Drive has not caught
+	// up, and BOTH are the server behaving correctly. Counting one of
+	// them made the driver report a failure precisely when the empty had
+	// worked. The result is still printed, and which way it went is said
+	// out loud, because that is the thing a reader wants.
+	tolerant bool
+}
+
+// outcomeWord names what a tolerant call actually did.
+func outcomeWord(isError bool) string {
+	if isError {
+		return "a refusal"
+	}
+	return "a result"
 }
 
 // options are what one run of the driver was asked to do.
@@ -164,7 +181,10 @@ func run(o options) error {
 			return err
 		}
 		fmt.Println(strings.TrimRight(red.Do(text), "\n"))
-		if isError != c.expectError {
+		switch {
+		case c.tolerant:
+			fmt.Println("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
+		case isError != c.expectError:
 			unexpected++
 			if c.expectError {
 				fmt.Println("!! expected a refusal and did not get one")

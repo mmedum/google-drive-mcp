@@ -236,13 +236,28 @@ func New(f *gdrive.File, o Options) *File {
 	if f.LabelInfo != nil {
 		m.Labels = NewAppliedLabels(f.LabelInfo.Labels, o.LabelDefinitions)
 	}
+	m.ContentLocked, m.ContentLockedReason = ContentLocked(f)
+	return m
+}
+
+// ContentLocked reports whether Drive has restricted the file's content,
+// and why it says it did.
+//
+// One definition, because three places were walking this slice: the card
+// built here, the note a started approval writes, and the fake. What
+// "locked" means has to be the same in all of them — a card that says a
+// file is editable beside a note that says it is not is the confusion
+// the approval work spent a live run on.
+func ContentLocked(f *gdrive.File) (locked bool, reason string) {
+	if f == nil {
+		return false, ""
+	}
 	for _, r := range f.ContentRestrictions {
 		if r != nil && r.ReadOnly {
-			m.ContentLocked = true
-			m.ContentLockedReason = r.Reason
+			locked, reason = true, r.Reason
 		}
 	}
-	return m
+	return locked, reason
 }
 
 // userWords names a person the way a result should: their display name,

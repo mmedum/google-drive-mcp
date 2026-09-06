@@ -120,21 +120,32 @@ func (s *Service) EmptyTrash(ctx context.Context, in EmptyTrashInput) (*Result, 
 	if driveName != "" {
 		whose = "the trash of the shared drive " + driveName
 	}
-	count, counted := s.trashCount(ctx, driveID)
-	what := whose
-	if counted {
-		what = fmt.Sprintf("%s (%s in it right now)", whose, model.Plural(count, "item", "items"))
+	// Counted only where the count is read. A confirmed, non-dry run
+	// consumes it nowhere — confirmed() returns immediately when Confirm
+	// is set — so counting first meant every real empty_trash paid for a
+	// paged listing of up to a thousand ids and discarded it, to build a
+	// sentence nobody would see.
+	what := func() string {
+		count, counted := s.trashCount(ctx, driveID)
+		if !counted {
+			return whose
+		}
+		return fmt.Sprintf("%s (%s in it right now)", whose, model.Plural(count, "item", "items"))
 	}
 
 	if in.DryRun {
 		return emptyTrashResult(outcome{Action: render.ActionEmptied, DryRun: true,
-			Note: "everything in " + what + " would be gone for good. The count is what Drive's " +
+			Note: "everything in " + what() + " would be gone for good. The count is what Drive's " +
 				"listing reports now, and it lags: a live run saw a file trashed seconds earlier " +
 				"counted as nothing."}), nil
 	}
-	if err := s.confirmed(in.Confirm, "empty_trash", "destroy everything in "+what+
-		", with no way back. Items in the trash can be restored one by one with restore_file until this runs"); err != nil {
-		return nil, err
+	// Guarded rather than passed: Go evaluates the argument before the
+	// call, so building the message here would count the trash on the
+	// confirmed path too — which is the path that never reads it.
+	if !in.Confirm {
+		return nil, s.confirmed(false, "empty_trash", "destroy everything in "+what()+
+			", with no way back. Items in the trash can be restored one by one with restore_file "+
+			"until this runs")
 	}
 	if err := s.api.EmptyTrash(ctx, driveID); err != nil {
 		return nil, wrap(err, "emptying "+whose)
@@ -305,7 +316,13 @@ func (s *Service) DeleteRevision(ctx context.Context, in DeleteRevisionInput) (*
 		return nil, err
 	}
 	if err := s.api.DeleteRevision(ctx, f.ID, revisionID); err != nil {
-		return nil, wrap(err, "deleting "+what)
+		// Through revisionError rather than wrap, because a 404 HERE is
+		// the same lag as a 404 on the read and wants the same words. A
+		// live run had the dry run find this revision and the delete a
+		// second later answer "Revision not found", which is the earlier
+		// finding in reverse: Drive disagrees with itself about a
+		// revision in both directions for a while after a write.
+		return nil, s.revisionError(err, f, revisionID)
 	}
 	return s.report(ctx, res, outcome{Action: render.ActionDeleted,
 		Note: what + " is gone for good. The file's current content is untouched."}), nil

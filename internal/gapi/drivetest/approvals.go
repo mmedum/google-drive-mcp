@@ -246,13 +246,19 @@ func (s *Server) handleStartApproval(w http.ResponseWriter, r *http.Request, fil
 	s.nextID++
 	a := s.addApprovalLocked(fileID, fmt.Sprintf("id-approval-fixture-%d", s.nextID),
 		s.me(), body.DueTime, body.ReviewerEmails)
-	// lockFile deliberately does NOT put a content restriction on the
-	// file. A live run asked for one and Drive applied none: the card
-	// came back unrestricted and the next update_content succeeded.
-	// Approving is what locks a file, and LockApproved below is how a
-	// test reaches that state. A fake that locked here would prove the
-	// server's old claim rather than Drive's behaviour, which is how the
-	// claim survived a phase.
+	// lockFile does NOT put a content restriction on the file by default.
+	// A live run asked for one and Drive applied none: the card came
+	// back unrestricted and the next update_content succeeded. Approving
+	// is what locks a file. A fake that locked here unconditionally —
+	// which this one did — proves the server's old claim rather than
+	// Drive's behaviour, and that is how the claim survived a phase.
+	if body.LockFile && s.LockOnApprovalStart {
+		if f := s.Files[fileID]; f != nil {
+			f.ContentRestrictions = append(f.ContentRestrictions, &gdrive.ContentRestriction{
+				ReadOnly: true, Reason: "Locked for an approval", Type: "globalContentRestriction",
+			})
+		}
+	}
 	writeJSON(w, a)
 }
 
