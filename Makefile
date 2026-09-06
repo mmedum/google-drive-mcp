@@ -59,6 +59,10 @@ integration: ## Live tests against the signed-in account (writes nothing yet)
 live: build ## Drive the binary against the signed-in Google account (redacted)
 	$(GO) run ./scripts/livedrive -bin $(BIN) $(LIVE_ARGS)
 
+.PHONY: evals
+evals: build ## Agent evals against the signed-in account, in one scratch folder
+	$(GO) run ./scripts/evals -bin $(BIN)
+
 .PHONY: bench
 bench: ## Benchmarks over the in-memory Drive
 	$(GO) test -run XXX -bench . -benchmem ./internal/ref ./internal/render ./internal/service
@@ -95,8 +99,12 @@ staleness: build ## Docs must match the code
 pins: ## Every tool a workflow installs must be one exact version
 	$(GO) run ./scripts/gates pins
 
+.PHONY: gate-classes
+gate-classes: ## The error classes the code emits must be the ones it declares
+	$(GO) run ./scripts/gates classes
+
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins smoke staleness ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins gate-classes smoke staleness ## Everything CI runs
 
 .PHONY: clean
 clean:

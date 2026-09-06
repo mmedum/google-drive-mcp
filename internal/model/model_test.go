@@ -523,3 +523,31 @@ func TestAnInheritedGrantOutsideASharedDriveIsNotBlamedOnOne(t *testing.T) {
 		t.Errorf("inheritedFrom = %q, want the id Drive gave", inDrive.Grants[0].InheritedFrom)
 	}
 }
+
+func TestExportFormatsAreShortNamesAndNeverLinks(t *testing.T) {
+	f := &gdrive.File{ExportLinks: map[string]string{
+		"application/pdf": "https://docs.google.com/feeds/download/x",
+		"text/markdown":   "https://docs.google.com/feeds/download/x",
+		"application/zip": "https://docs.google.com/feeds/download/x",
+		"text/unheard-of": "https://docs.google.com/feeds/download/x",
+	}}
+	got := ExportFormats(f)
+	want := []string{"md", "pdf", "zip"}
+	if len(got) != len(want) {
+		t.Fatalf("formats = %v, want %v: a type with no short name is left out rather than shown raw", got, want)
+	}
+	for i, name := range want {
+		if got[i] != name {
+			t.Errorf("formats = %v, want %v", got, want)
+			break
+		}
+	}
+	for _, name := range got {
+		if strings.Contains(name, "http") {
+			t.Errorf("export format %q looks like a URL", name)
+		}
+	}
+	if ExportFormats(nil) != nil {
+		t.Error("ExportFormats(nil) should be empty")
+	}
+}

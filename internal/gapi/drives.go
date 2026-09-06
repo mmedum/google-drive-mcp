@@ -45,7 +45,7 @@ func (c *Client) ListDrives(ctx context.Context, o ListDrivesOptions) (*gdrive.D
 	}
 	v.Set("fields", "nextPageToken,drives("+DriveFields+")")
 	u := c.base + "/drives?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (c *Client) GetDrive(ctx context.Context, driveID string) (*gdrive.Drive, e
 	v := url.Values{}
 	v.Set("fields", DriveFields)
 	u := c.base + "/drives/" + url.PathEscape(driveID) + "?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (c *Client) CreateDrive(ctx context.Context, requestID string, meta *gdrive
 	v.Set("requestId", requestID)
 	v.Set("fields", DriveFields)
 	u := c.base + "/drives?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindWrite, method: http.MethodPost, url: u,
+	body, err := c.do(ctx, request{method: http.MethodPost, url: u,
 		body: payload, idempotent: true})
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func (c *Client) UpdateDrive(ctx context.Context, driveID string, meta *gdrive.D
 	v := url.Values{}
 	v.Set("fields", DriveFields)
 	u := c.base + "/drives/" + url.PathEscape(driveID) + "?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindWrite, method: http.MethodPatch, url: u, body: payload})
+	body, err := c.do(ctx, request{method: http.MethodPatch, url: u, body: payload})
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (c *Client) UpdateDrive(ctx context.Context, driveID string, meta *gdrive.D
 // that deletes a drive's contents along with it is not one to offer.
 func (c *Client) DeleteDrive(ctx context.Context, driveID string) error {
 	u := c.base + "/drives/" + url.PathEscape(driveID)
-	_, err := c.do(ctx, request{kind: kindWrite, method: http.MethodDelete, url: u})
+	_, err := c.do(ctx, request{method: http.MethodDelete, url: u})
 	return err
 }
 
@@ -148,7 +148,7 @@ func (c *Client) setDriveHidden(ctx context.Context, driveID, action string) (*g
 	v := url.Values{}
 	v.Set("fields", DriveFields)
 	u := c.base + "/drives/" + url.PathEscape(driveID) + "/" + action + "?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindWrite, method: http.MethodPost, url: u, idempotent: true})
+	body, err := c.do(ctx, request{method: http.MethodPost, url: u, idempotent: true})
 	if err != nil {
 		return nil, err
 	}

@@ -98,18 +98,6 @@ func (s *Service) isDriveRoot(ctx context.Context, f *gdrive.File) bool {
 	return f.ID == RootAlias || f.ID == s.rootID(ctx)
 }
 
-func kindClause(kind string) (string, error) {
-	kind = strings.ToLower(strings.TrimSpace(kind))
-	if kind == "" || kind == "any" {
-		return "", nil
-	}
-	clause, ok := kindMimes[kind]
-	if !ok {
-		return "", Errorf(ClassInvalid, "kind %q is not one of %s", kind, strings.Join(Kinds(), ", "))
-	}
-	return clause, nil
-}
-
 // childQuery builds the query for one folder's direct children, with an
 // optional extra clause (a kind filter, or the exact name a path walk is
 // after). Drive cannot recurse in a query, which is why a tree costs a

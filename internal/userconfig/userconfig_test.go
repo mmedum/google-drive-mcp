@@ -233,12 +233,16 @@ func TestEveryPathReportsAMachineWithNoConfigDirectory(t *testing.T) {
 	// Every function here funnels through BaseDir, so the failure has to
 	// come back from all of them rather than surfacing as an empty path
 	// that later reads as the current directory.
-	if runtime.GOOS == "windows" {
-		t.Skip("the Windows config directory does not come from these variables")
-	}
+	// It runs on Windows too. os.UserConfigDir reads %AppData% there
+	// rather than XDG_CONFIG_HOME and HOME, so clearing all three is the
+	// same experiment on every platform — and a test skipped on one
+	// platform is coverage nobody can see missing, which is exactly what
+	// the coverage floor is there to notice.
 	t.Setenv(EnvDir, "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "")
+	t.Setenv("AppData", "")
+	t.Setenv("USERPROFILE", "")
 	if _, err := os.UserConfigDir(); err == nil {
 		t.Skip("this machine still names a config directory")
 	}

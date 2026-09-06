@@ -39,6 +39,8 @@ func main() {
 		err = leaks(os.Stdout, args)
 	case "pins":
 		err = pins(os.Stdout, args)
+	case "classes":
+		err = classes(os.Stdout, args)
 	case "precommit":
 		err = precommit(os.Stdout, args)
 	case "install-hooks":
@@ -68,6 +70,7 @@ Usage:
   go run ./scripts/gates leaks                     nothing from a real Drive is in the working tree
   go run ./scripts/gates leaks history             ...nor anywhere in the history
   go run ./scripts/gates pins                      every tool a workflow installs is one exact version
+  go run ./scripts/gates classes                   the error classes the code emits are the ones it declares
   go run ./scripts/gates precommit                 gofmt, vet and a secret scan
   go run ./scripts/gates install-hooks             write the git pre-commit hook
 `)

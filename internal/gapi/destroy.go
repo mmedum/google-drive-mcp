@@ -30,7 +30,7 @@ func (c *Client) ListRevisions(ctx context.Context, fileID string) ([]*gdrive.Re
 			v.Set("pageToken", pageToken)
 		}
 		u := c.base + "/files/" + segment + "/revisions?" + v.Encode()
-		body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u,
+		body, err := c.do(ctx, request{method: http.MethodGet, url: u,
 			resourceIDs: []string{fileID}})
 		if err != nil {
 			return nil, err
@@ -59,7 +59,7 @@ func (c *Client) DeleteRevision(ctx context.Context, fileID, revisionID string) 
 		return err
 	}
 	u := c.base + "/files/" + segment + "/revisions/" + url.PathEscape(revisionID)
-	_, err = c.do(ctx, request{kind: kindWrite, method: http.MethodDelete, url: u,
+	_, err = c.do(ctx, request{method: http.MethodDelete, url: u,
 		resourceIDs: []string{fileID}})
 	return err
 }
@@ -77,7 +77,7 @@ func (c *Client) DeleteFile(ctx context.Context, fileID string) error {
 	v := url.Values{}
 	v.Set("supportsAllDrives", "true")
 	u := c.base + "/files/" + segment + "?" + v.Encode()
-	_, err = c.do(ctx, request{kind: kindWrite, method: http.MethodDelete, url: u,
+	_, err = c.do(ctx, request{method: http.MethodDelete, url: u,
 		resourceIDs: []string{fileID}})
 	return err
 }
@@ -93,6 +93,6 @@ func (c *Client) EmptyTrash(ctx context.Context, driveID string) error {
 	if q := v.Encode(); q != "" {
 		u += "?" + q
 	}
-	_, err := c.do(ctx, request{kind: kindWrite, method: http.MethodDelete, url: u})
+	_, err := c.do(ctx, request{method: http.MethodDelete, url: u})
 	return err
 }
