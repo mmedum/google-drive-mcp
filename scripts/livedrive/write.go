@@ -57,7 +57,8 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 func runWrites(s *mcpstdio.Session, red *redact.Redactor, dir, parent string, o options) (int, error) {
 	w := &writeRun{sess: s, red: red, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
 		labels: o.labels, activity: o.activity}
-	name := fmt.Sprintf("%s %s", scratchPrefix, time.Now().UTC().Format("2006-01-02 15:04:05"))
+	stamp := time.Now().UTC().Format("2006-01-02 15:04:05")
+	name := fmt.Sprintf("%s %s", scratchPrefix, stamp)
 	args := map[string]any{"name": name}
 	if parent != "" {
 		args["parent"] = parent
@@ -69,6 +70,12 @@ func runWrites(s *mcpstdio.Session, red *redact.Redactor, dir, parent string, o 
 	fmt.Println("\n(everything below happens inside that folder, and it is trashed at the end)")
 
 	w.exercise()
+	if o.destructive {
+		runDestructive(w, driveScratchName(stamp))
+	} else {
+		fmt.Println("\n(pass -destructive to also exercise the five tools that remove things for " +
+			"good, in a shared drive this run creates and destroys again)")
+	}
 	w.trashScratch()
 	return w.failures, nil
 }

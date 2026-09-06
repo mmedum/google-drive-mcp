@@ -85,6 +85,11 @@ type Server struct {
 	Permissions map[string][]*gdrive.Permission
 	// Drives are the shared drives the account can see.
 	Drives map[string]*gdrive.Drive
+	// UnlistedDrives are drive ids that drives.get answers for and
+	// drives.list leaves out, which is what Drive really does for a
+	// while after a drive is created. A resolver that only ever reads
+	// the listing cannot see these, and that was a live defect.
+	UnlistedDrives map[string]bool
 	// Comments are the threads on a file id, oldest first, with their
 	// replies inline the way Drive returns them.
 	Comments map[string][]*gdrive.Comment

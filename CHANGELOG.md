@@ -6,6 +6,24 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The five destructive tools have run against Drive**, for the first
+  time since they were written. `livedrive -destructive` makes a shared
+  drive, exercises `delete_file`, `delete_revision`, `delete_comment`,
+  `empty_trash` and `delete_drive` inside it, and deletes the drive
+  again. §17a had deferred this since phase 2 for a good reason:
+  `empty_trash` cannot be scoped to a folder, so without a drive of its
+  own it takes the whole account's trash. Every call is scoped to the
+  scratch drive, and the scoping is structural — `empty_trash` is named
+  in exactly one method, and a test over the driver's syntax tree fails
+  if a second mention appears.
+
+  The same drive reaches the two states §17a said needed one: a file
+  locked by an approval, and `lock_file`. An approved file cannot be
+  cleaned out of a scratch FOLDER, which is why this waited for
+  something that can be deleted whole.
+
 ### Fixed
 
 - **`list_activity` announced a new Drive API on every ordinary entry.**

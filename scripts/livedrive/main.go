@@ -57,12 +57,13 @@ func main() {
 	share := flag.String("share", "", "an address to grant access to, for the half of sharing that needs a second person (spike F included); empty skips it")
 	labels := flag.Bool("labels", false, "exercise the label tools, which need GDRIVE_LABELS and the Drive Labels API enabled with its scopes granted at login")
 	activity := flag.Bool("activity", false, "exercise list_activity, which needs GDRIVE_ACTIVITY and the Drive Activity API enabled with its scope granted at login")
+	destructive := flag.Bool("destructive", false, "also exercise the five tools that remove something for good, in a shared drive this run creates and destroys again; needs an account that may create shared drives")
 	blocked := flag.String("blocked", "", "an address the organisation's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
 	flag.Parse()
 
 	if err := run(options{binary: *binary, file: *file, raw: *raw, write: *write,
 		parent: *parent, drive: *drive, share: *share, blocked: *blocked,
-		labels: *labels, activity: *activity}); err != nil {
+		labels: *labels, activity: *activity, destructive: *destructive}); err != nil {
 		fmt.Fprintln(os.Stderr, "livedrive: "+err.Error())
 		os.Exit(1)
 	}
@@ -90,6 +91,11 @@ type options struct {
 	blocked  string
 	labels   bool
 	activity bool
+	// destructive turns on the five tools that remove something for
+	// good, and the shared drive they run inside. Off is where every run
+	// starts: the server does not register them without the variable
+	// below, and this driver does not set it without being asked.
+	destructive bool
 }
 
 func run(o options) error {
@@ -111,6 +117,9 @@ func run(o options) error {
 	}
 	if o.activity {
 		env = append(env, "GDRIVE_ACTIVITY=true")
+	}
+	if o.destructive {
+		env = append(env, "GDRIVE_ENABLE_DESTRUCTIVE=true")
 	}
 	sess, err := mcpstdio.Start(o.binary, env...)
 	if err != nil {

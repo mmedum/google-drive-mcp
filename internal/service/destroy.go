@@ -128,7 +128,9 @@ func (s *Service) EmptyTrash(ctx context.Context, in EmptyTrashInput) (*Result, 
 
 	if in.DryRun {
 		return emptyTrashResult(outcome{Action: render.ActionEmptied, DryRun: true,
-			Note: "everything in " + what + " would be gone for good."}), nil
+			Note: "everything in " + what + " would be gone for good. The count is what Drive's " +
+				"listing reports now, and it lags: a live run saw a file trashed seconds earlier " +
+				"counted as nothing."}), nil
 	}
 	if err := s.confirmed(in.Confirm, "empty_trash", "destroy everything in "+what+
 		", with no way back. Items in the trash can be restored one by one with restore_file until this runs"); err != nil {
@@ -137,8 +139,18 @@ func (s *Service) EmptyTrash(ctx context.Context, in EmptyTrashInput) (*Result, 
 	if err := s.api.EmptyTrash(ctx, driveID); err != nil {
 		return nil, wrap(err, "emptying "+whose)
 	}
+	// files.emptyTrash has NO response — the reference gives it none — so
+	// nothing here knows what went or whether it has finished. It said
+	// "is empty. Everything that was in it is gone for good" anyway,
+	// until a live run trashed a file, emptied that drive's trash, and
+	// restored the file from the trash on the very next call. Drive's
+	// view of its own trash lags, and a claim of completion is not one
+	// this call can make.
 	return emptyTrashResult(outcome{Action: render.ActionEmptied,
-		Note: whose + " is empty. Everything that was in it is gone for good."}), nil
+		Note: "Drive accepted the call and reports nothing back about it — the method has no " +
+			"response at all, so this cannot say what went. It removes what Drive's own view of " +
+			whose + " held, and that view lags: something trashed moments ago may survive and " +
+			"still be restorable. list_folder or restore_file is how to check."}), nil
 }
 
 // trashCount counts what is in the trash, so a call that names no item

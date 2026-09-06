@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/internal/service"
 )
 
@@ -83,9 +84,15 @@ func TestStartingAnApprovalSaysThatItMailedPeople(t *testing.T) {
 	}
 }
 
+// TestLockFileReportsWhatDriveDidRatherThanWhatWasAsked.
+//
 // lock_file is the consequence nobody expects from "start an approval",
-// so it has to be reported in the words that describe it.
-func TestLockingTheFileForAnApprovalIsReported(t *testing.T) {
+// and it was reported straight from the argument: pass it and the result
+// said the file was LOCKED and nobody could change its content. A live
+// run put that sentence directly under a card carrying no restriction at
+// all, and then changed the content on the next call. The sentence is
+// read off the file now, so it is right whether or not Drive locks.
+func TestLockFileReportsWhatDriveDidRatherThanWhatWasAsked(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
 		File: "id-notes-fixture", Action: "start",
@@ -94,11 +101,53 @@ func TestLockingTheFileForAnApprovalIsReported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if !strings.Contains(res.Text, "LOCKED") {
-		t.Errorf("the result does not say the file is locked:\n%s", res.Text)
+	if len(fake.Files["id-notes-fixture"].ContentRestrictions) != 0 {
+		t.Fatal("the fake locked on lock_file, which Drive did not do")
 	}
-	if len(fake.Files["id-notes-fixture"].ContentRestrictions) == 0 {
-		t.Error("the file was not actually locked")
+	if !strings.Contains(res.Text, "Drive reports no content restriction") {
+		t.Errorf("an unapplied lock was not reported as unapplied:\n%s", res.Text)
+	}
+	if strings.Contains(res.Text, "nobody can change its content") {
+		t.Errorf("the result promised a lock that is not on the file:\n%s", res.Text)
+	}
+}
+
+// TestAnAppliedLockIsReportedAsOne is the other half: where Drive really
+// has restricted the content, the sentence has to be the flat one.
+func TestAnAppliedLockIsReportedAsOne(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Files["id-notes-fixture"].ContentRestrictions = []*gdrive.ContentRestriction{
+		{ReadOnly: true, Reason: "Locked for an approval"},
+	}
+	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-notes-fixture", Action: "start",
+		Reviewers: []string{"one@example.com"}, LockFile: true,
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if !strings.Contains(res.Text, "nobody can change its content") {
+		t.Errorf("a real lock was not reported as one:\n%s", res.Text)
+	}
+}
+
+// TestApprovingLocksTheFile is the state §17a said needed a shared drive
+// to reach, and the live run reached it: an approved file comes back
+// carrying a content restriction, and the next content change is refused.
+func TestApprovingLocksTheFile(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddApproval("id-budget-fixture", "id-approval-yes", "person@example.com")
+	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-budget-fixture", Action: "approve", Approval: "id-approval-yes",
+	})
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if len(fake.Files["id-budget-fixture"].ContentRestrictions) == 0 {
+		t.Fatal("approving did not lock the file")
+	}
+	if !strings.Contains(res.Text, "content locked") {
+		t.Errorf("the card does not report the lock approving applied:\n%s", res.Text)
 	}
 }
 
