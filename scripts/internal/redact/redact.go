@@ -102,6 +102,13 @@ var personPositions = []*regexp.Regexp{
 	regexp.MustCompile(`(` + personName + `) \(you\)`),
 	// Beside an address, once the address is a placeholder.
 	regexp.MustCompile(`(` + personName + `) <<EMAIL_\d+>>`),
+	// A name opening a line with an angle bracket after it, which is how
+	// get_account prints the signed-in person. The position above needs
+	// the address to have been replaced first, so it protects this line
+	// only while there IS an address: Drive returning an account without
+	// one, or the field list dropping it, would leak the name with
+	// nothing to notice. The bracket alone is enough to anchor on.
+	regexp.MustCompile(`(?m)^(` + personName + `) <`),
 	// "modified … by Name" ending a field, in a file card, a listing or
 	// a revision. A column break or the end of the line closes it.
 	regexp.MustCompile(`\bby (` + personName + `)(?:  |$)`),

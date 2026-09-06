@@ -1,6 +1,11 @@
 package redact_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,9 +23,18 @@ import (
 // renderers.
 //
 // So this test does not describe the output. It RENDERS it, through the
-// same functions the server uses, and fails if a name survives. A
-// renderer that starts printing a person somewhere new fails here
-// without anybody remembering to come and add a case.
+// same functions the server uses, and fails if a name survives.
+//
+// That was once claimed to catch a renderer which starts printing a
+// person somewhere new "without anybody remembering to add a case", and
+// it did not: rendered() below is a map somebody types, and phase 4
+// added two renderers, added neither, and watched one leak a name into a
+// live transcript while this test passed. TestEveryRendererIsCovered at
+// the bottom of this file is what makes the claim true now — it reads
+// internal/render's syntax tree and fails on a renderer nothing here
+// produces. The fixtures are still written by hand, because each
+// renderer takes its own arguments; what is no longer possible is
+// forgetting one in silence.
 
 // The names are invented and unmistakable: an incidental match would
 // make this test pass for the wrong reason, and a name copied from a
@@ -30,6 +44,10 @@ const (
 	other     = "Perpetua Blackwood"
 	their     = "someone@corp.example.net"
 	fixtureID = "1SyntheticFixtureFileIdAAAAAAAAAAAA"
+	// A shared drive's id has a shape of its own, and the redactor has to
+	// see it as an id: a fixture with a made-up "id-drive-1" would prove
+	// only that the redactor ignores things that do not look like ids.
+	fixtureDriveID = "0ASyntheticFixtureDriveIdAAAAAAA"
 )
 
 var now = time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
@@ -101,6 +119,33 @@ func rendered() map[string]string {
 				},
 			}),
 		}, render.ApprovalsOptions{Subject: "Budget.xlsx", Now: now}),
+		"account": render.Account(&gdrive.About{
+			// With an address, as about.get really answers — and the test
+			// below covers the shape without one, which is what showed
+			// that the name was protected only by the address beside it.
+			User:         &gdrive.User{DisplayName: me, EmailAddress: their, Me: true},
+			StorageQuota: &gdrive.StorageQuota{Limit: "16106127360", Usage: "4294967296"},
+		}, render.AccountOptions{}),
+		"drives": render.Drives([]*model.Drive{
+			model.NewDrive(&gdrive.Drive{ID: fixtureDriveID, Name: "Marketing"}),
+		}, render.DrivesOptions{}),
+		"drive card": render.DriveCard(
+			model.NewDrive(&gdrive.Drive{ID: fixtureDriveID, Name: "Marketing"}),
+			render.DriveCardOptions{}),
+		"changes": render.Changes([]*model.Change{
+			model.NewChange(&gdrive.Change{
+				FileID: fixtureID, Time: "2026-03-04T09:00:00Z", File: &gdrive.File{
+					ID: fixtureID, Name: "Budget.xlsx", MimeType: "text/csv",
+					LastModifyingUser: otherUser(),
+				},
+			}, "My Drive"),
+		}, render.ChangesOptions{Now: now}),
+		"file text": render.FileText(fixtureFile(), render.FileTextOptions{
+			Text: "a line of the file", Now: now,
+		}),
+		"download": render.Download(fixtureFile(), render.DownloadOptions{
+			Path: "/tmp/Budget.xlsx", Bytes: 4096, Now: now,
+		}),
 		"access requests": render.AccessRequests([]*model.AccessRequest{
 			model.NewAccessRequest(&gdrive.AccessProposal{
 				ProposalID: "id-request-1", RequesterEmailAddress: their,
@@ -140,6 +185,11 @@ func TestNoRendererLeaksAPersonThroughTheRedactor(t *testing.T) {
 var noPersonToday = map[string]string{
 	"tree":            "a tree prints names, ids and kinds, and no people at all",
 	"access requests": "an access proposal carries addresses only — Drive attaches no display name to one",
+	"drives":          "a shared drive has a name, a role and restrictions; the people in it are permissions, and list_permissions renders those",
+	"drive card":      "as the drives listing",
+	"changes":         "a change says which file changed and when, not who changed it: the feed's own File carries a last modifier, and this server does not print it",
+	"file text":       "the text of a file, headed by its name and size — the people who touched it are on the file card, not here",
+	"download":        "where the bytes went and whether the checksum matched; no people",
 }
 
 // TestTheFixturesReallyCarrySomethingToHide is the floor. Three of these
@@ -153,18 +203,20 @@ func TestTheFixturesReallyCarrySomethingToHide(t *testing.T) {
 	for what, text := range rendered() {
 		hasName := strings.Contains(text, me) || strings.Contains(text, other)
 		hasAddress := strings.Contains(text, their)
-		// A file id counts too: the tree prints no people and no
-		// addresses, and an id is what it does carry for the redactor to
-		// take.
-		hasID := strings.Contains(text, fixtureID)
 		if hasName {
 			names++
 		}
 		if hasAddress {
 			addresses++
 		}
-		if !hasName && !hasAddress && !hasID {
-			t.Errorf("the %s fixture carries nothing the redactor hides, so redacting it proves "+
+		// The real question is whether redacting this fixture proves
+		// anything, and the direct way to ask it is to redact it and see
+		// whether anything moved. Naming the file-id constant instead —
+		// which is what this did — passes a fixture that happens to carry
+		// that one id and fails one carrying a drive id, an address or a
+		// link, none of which is less of a secret.
+		if redact.NewRedactor(false).Do(text) == text {
+			t.Errorf("redacting the %s fixture changes nothing, so redacting it proves "+
 				"nothing:\n%s", what, text)
 			continue
 		}
@@ -225,4 +277,102 @@ func TestActivityNamesNobody(t *testing.T) {
 	if !strings.Contains(text, "somebody else") {
 		t.Errorf("the renderer did not say who in the only terms it can:\n%s", text)
 	}
+}
+
+// TestEveryRendererIsCovered is what makes the claim at the top of this
+// file true rather than aspirational.
+//
+// rendered() is a map somebody types, and until phase 4 the comment above
+// it said a new renderer "fails here without anybody remembering to come
+// and add a case". It does not: two renderers were added, neither was
+// added here, the test passed, and one of them leaked a name into a live
+// transcript. A guard described as automatic because describing it is
+// free is worse than one honestly described as remembered — people stop
+// checking the thing they have been told is checked.
+//
+// So this reads internal/render's own syntax tree. Every exported
+// function returning a string is a renderer; each must appear in
+// rendered() above, or in notRenderers below with the reason it is not
+// one. Forgetting is now a failure with the name of what was forgotten.
+func TestEveryRendererIsCovered(t *testing.T) {
+	const dir = "../../../internal/render"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	fset := token.NewFileSet()
+	found := map[string]bool{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || !fn.Name.IsExported() || !returnsOnlyString(fn) {
+				continue
+			}
+			found[fn.Name.Name] = true
+		}
+	}
+	if len(found) < 15 {
+		t.Fatalf("found only %d renderers in %s; this test is not reading the package", len(found), dir)
+	}
+
+	covered := rendered()
+	for name := range found {
+		if reason := notRenderers[name]; reason != "" {
+			continue
+		}
+		key := renderedKey[name]
+		if key == "" || covered[key] == "" {
+			t.Errorf("render.%s is exported and returns a string, and nothing in rendered() produces "+
+				"it. Add a fixture there, or add it to notRenderers with the reason it cannot carry "+
+				"a person", name)
+		}
+	}
+}
+
+// returnsOnlyString reports whether a function's single result is a
+// string, which is what every renderer in this package is.
+func returnsOnlyString(fn *ast.FuncDecl) bool {
+	if fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
+		return false
+	}
+	ident, ok := fn.Type.Results.List[0].Type.(*ast.Ident)
+	return ok && ident.Name == "string"
+}
+
+// renderedKey maps a renderer's Go name to the key it appears under in
+// rendered(). The keys are prose because a failure names them to a
+// person; this is the join.
+var renderedKey = map[string]string{
+	"FileCard":       "file card",
+	"Listing":        "listing",
+	"Tree":           "tree",
+	"Permissions":    "permissions",
+	"Revisions":      "revisions",
+	"Comments":       "comments",
+	"AccessRequests": "access requests",
+	"Approvals":      "approvals",
+	"Account":        "account",
+	"Drives":         "drives",
+	"DriveCard":      "drive card",
+	"Changes":        "changes",
+	"FileText":       "file text",
+	"Download":       "download",
+}
+
+// notRenderers are the exported string functions in internal/render that
+// do not render a result, with the reason. Each is here on purpose: a
+// name added without thought belongs in rendered() instead.
+var notRenderers = map[string]string{
+	"StripDataURIs": "a text filter over content, not a result: it takes a string and gives one back",
+	"Checksum":      "one verdict word about a download's md5, with nothing in it but the verdict",
+	"Activity":      "asserted by TestActivityNamesNobody, which is stronger: it prints no person at all",
+	"Labels":        "a label definition as this server models it has no person in it to print",
 }
