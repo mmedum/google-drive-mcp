@@ -4,12 +4,12 @@
 on a topic branch and unreleased. A default build registers **31** tools;
 eight more exist behind a flag — the destructive five, plus `list_labels`
 and `manage_labels` under `GDRIVE_LABELS` and `list_activity` under
-`GDRIVE_ACTIVITY`. Those last
-three each need a Google API enabled in the Cloud project AND a scope the
-consent screen would otherwise not carry, which is why they are off by
-default — 39 tools in all, and 13 in read-only mode. Neither phase 5 nor
-phase 6 added a tool. Every method of all three APIs is recorded as used on purpose or
-left out on purpose, and a gate holds the record to the code.
+`GDRIVE_ACTIVITY`. Those last three each need a Google API enabled in the
+Cloud project AND a scope the consent screen would otherwise not carry,
+which is why they are off by default — 39 tools in all, and 13 in
+read-only mode. Neither phase 5 nor phase 6 added a tool. Every method of
+all three APIs is recorded as used on purpose or left out on purpose, and
+a gate holds the record to the code.
 
 **What phase 6 is, and it is unreleased.** No new tools. The bundle, the
 README a released project should have, and the three gates §17a had
