@@ -30,6 +30,27 @@ var documentedDomains = map[string]bool{
 	"anthropic.com": true,
 }
 
+// isDocumented reports whether a host is one RFC 2606 reserves, or sits
+// under one. The RFC reserves example.com, example.org and example.net
+// and everything beneath them, so someone@corp.example.net is exactly as
+// safe as someone@example.net — and nobody can register the subdomain to
+// make it otherwise.
+//
+// It is a suffix rule rather than three more map entries because a
+// fixture wanting to read as "a different organisation" will reach for a
+// subdomain again, and the alternative is weakening the fixture to suit
+// the gate. Which is backwards: this one bit while a test was being
+// written to close a real leak.
+func isDocumented(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for documented := range documentedDomains {
+		if host == documented || strings.HasSuffix(host, "."+documented) {
+			return true
+		}
+	}
+	return false
+}
+
 var (
 	addressPattern = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})`)
 	// A Drive id: base64url, 19 characters or more. Requiring a capital
@@ -128,7 +149,7 @@ func scanForLeaks(path, body string) []string {
 	for i, line := range strings.Split(body, "\n") {
 		where := fmt.Sprintf("%s:%d", path, i+1)
 		for _, m := range addressPattern.FindAllStringSubmatch(line, -1) {
-			if !documentedDomains[strings.ToLower(m[1])] {
+			if !isDocumented(m[1]) {
 				found = append(found, where+": an address on a real domain: "+abbreviate(m[0]))
 			}
 		}
