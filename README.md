@@ -276,6 +276,10 @@ behind a feature flag, or the other way, counts as breaking.
 [SECURITY.md](SECURITY.md) says how to report a vulnerability. Please do
 not open a public issue for one.
 
+## Code of conduct
+
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 3.0.
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — the design, the evidence
@@ -284,6 +288,8 @@ not open a public issue for one.
 - [docs/security.md](docs/security.md) — what it touches and what limits it.
 - [docs/development.md](docs/development.md) — building, testing, releasing.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — ground rules and the pull request flow.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 3.0.
+- [SECURITY.md](SECURITY.md) — reporting a vulnerability.
 
 ## Licence
 
