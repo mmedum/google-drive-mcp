@@ -43,8 +43,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/mmedum/google-drive-mcp/scripts/internal/livecover"
 	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
 	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
 	"github.com/mmedum/google-drive-mcp/scripts/internal/transcript"
@@ -152,6 +154,12 @@ func run(o options, t *transcript.Transcript) error {
 	defer sess.Close()
 	file := o.file
 
+	// What this run actually sends, recorded where the calls go out. The
+	// static gate reads the driver's source and cannot tell a step that
+	// runs from one that merely exists; this can, and says so at the end.
+	rec := livecover.NewRecorder()
+	sess.OnCall(rec.Sent)
+
 	proto, tools, err := sess.Initialize("livedrive")
 	if err != nil {
 		return err
@@ -219,10 +227,32 @@ func run(o options, t *transcript.Transcript) error {
 			t.Say(line)
 		}
 	}
+	t.Say("\n" + coverage(rec, sess))
 	t.Say("\n" + t.Summary())
 	if unexpected > 0 {
 		return fmt.Errorf("%d call(s) did not behave as expected", unexpected)
 	}
 	t.Say("all calls behaved as expected")
 	return nil
+}
+
+// coverage says how much of the registered surface this run drove.
+//
+// It is printed on every run rather than kept for a gate, because the
+// number is only true of the run that produced it: a read-only run
+// drives a fraction of what a -write -destructive one does, and a single
+// figure in a file would be whichever run wrote it last. What it adds to
+// `gates live-cover` is the thing that gate cannot see — an option the
+// driver's source says it sends, on a tool this run really called, that
+// the run did not send. That is a step which exists and does not run.
+func coverage(rec *livecover.Recorder, sess *mcpstdio.Session) string {
+	published := sess.Options()
+	believed, err := livecover.FromSource(filepath.Join("scripts", "livedrive"), published)
+	if err != nil {
+		// Reading the source is a convenience here and the recording is
+		// not: a driver run from somewhere else still knows what it
+		// sent, and should say so rather than fail.
+		return rec.Report(published, nil)
+	}
+	return rec.Report(published, believed)
 }

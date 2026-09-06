@@ -1346,14 +1346,48 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   step cannot be tested locally at all, which is the reason it is not
   done here yet rather than an argument against doing it.
 
-- **The live driver's option coverage has never been measured.** The
-  shared standard names a `live-cover` gate — the driver's source against
-  the binary's published schema, failing on any tool option no step
-  sends. Phase 5 grew this driver a great deal, including a whole
-  destructive mode, and nothing here knows what fraction of the surface
-  it actually exercises. The one repository that has measured it read 14
-  of 28 on the day the gate was written. A number nobody has is not
-  evidence of a good one.
+- ~~The live driver's option coverage has never been measured.~~
+  **Measured, and gated: 122 of 188.** `gates live-cover` holds every one
+  of the binary's published tool options to a decision, in
+  `testdata/live-cover.tsv` and in the shape `api-coverage.tsv` already
+  uses: an option the driver does not send is `undrivable` from this
+  account, with what blocks it, or `undriven`, with what closing it would
+  take. Both directions fail — an option nobody decided about, and a row
+  for an option the driver has since started sending.
+
+  Ten are undrivable and the reasons repeat: a second person (a reviewer
+  swap, an access request, mail to somebody's inbox), an administrator (a
+  published label to page through), or a state nothing here may create (a
+  file Google has flagged as malware; a scan to run OCR over). The other
+  fifty-six are gaps with a recipe, and most are one argument on a call
+  that already happens — `search_files.starred` on a run that stars a
+  file, `list_folder.include_trashed` on a run that trashes one,
+  `page_size: 1` anywhere a token is wanted. They are written down rather
+  than closed here, because a step added to the live driver is unverified
+  until somebody runs it, and adding sixty of them blind is how a driver
+  starts lying.
+
+  **A static gate over the driver's source is the smaller half, and it
+  took a sibling repository to say so.** It reads the words, so a step
+  that exists and never runs — in a branch that was false, in a list
+  nothing passes on — reads exactly like a step that runs. They proved it
+  by deleting one call and watching their own gate report full coverage.
+  So the driver carries a recorder as well: every call is recorded where
+  the calls go out, and the end of every run prints what the run sent,
+  what it never called, and any option the SOURCE says it sends that the
+  run did not. The first run of it named five, all of them steps behind
+  `-file`, and passing `-file` took the list to three. That is the
+  mechanism tracking reality rather than asserting it.
+
+  Two things the reader found are worth keeping. `any` is an identifier
+  and not an interface node — the alias is resolved by the type checker,
+  never by the parser — and a first draft looking for `*ast.InterfaceType`
+  read 2 of 188 options and would have reported that as a measurement.
+  And a helper that names the tool for its caller (`emptyTrash`, which
+  exists so that `empty_trash` is named in exactly one place and always
+  scoped) made its `confirm` and `dry_run` look undriven, which would
+  have put two lies in the record: they are sent twice on every
+  destructive run. The reader follows that indirection now.
 
 - **"Never assert an outcome the response did not carry" has no gate.**
   §11 states it as this repository's rule and phase 5 fixed three
