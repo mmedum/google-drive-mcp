@@ -60,7 +60,32 @@ var patterns = []pattern{
 // why it is never matched on its own. What identifies it is the POSITION
 // this server printed it in, and those positions are a closed set
 // because internal/render wrote every one of them.
-const personName = `(?:\p{Lu}[\p{L}'\-.]+)(?: (?:\p{Lu}[\p{L}'\-.]+|van|von|der|den|de|del|di|du|la|le|bin|al)){0,4}`
+//
+// The capital is not enough on its own, which a live run found the hard
+// way: a Workspace account whose display name was never set shows the
+// address's local part instead, and "mark.medum.bundgaard" has no
+// capital anywhere. It survived every position — beside "(you)", after
+// "by", after "owner:" — because the shape, not the position, refused
+// it. The fixtures could not have caught it either: every invented name
+// in them was capitalised, so the test agreed with the bug.
+//
+// So a dotted lowercase token is a name shape too. It is safe only
+// BECAUSE the positions are anchored: matched loose it would swallow
+// "modified_before", and the positions are what keep it from being asked
+// anywhere a field name could stand.
+const personName = `(?:` + capitalisedName + `|` + dottedName + `)`
+
+// capitalisedName is the ordinary shape: capitalised words of two
+// letters or more, with the usual lowercase particles between them.
+// Requiring the capital keeps the match off the words around it —
+// without it, "13:17Z by Kim" was swallowed whole, timestamp and all.
+const capitalisedName = `(?:\p{Lu}[\p{L}'\-.]+)(?: (?:\p{Lu}[\p{L}'\-.]+|van|von|der|den|de|del|di|du|la|le|bin|al)){0,4}`
+
+// dottedName is what Google shows for an account with no display name
+// set: the address's local part, lowercase, joined by dots, hyphens or
+// underscores. At least one separator is required, so a single ordinary
+// word is never a name.
+const dottedName = `(?:[\p{Ll}\d]+(?:[.\-_][\p{Ll}\d]+)+)`
 
 // personPositions are those positions. internal/model prints a person in
 // exactly three forms (userWords): "Name (you)", "Name <address>", and
@@ -80,8 +105,20 @@ var personPositions = []*regexp.Regexp{
 	// "modified … by Name" ending a field, in a file card, a listing or
 	// a revision. A column break or the end of the line closes it.
 	regexp.MustCompile(`\bby (` + personName + `)(?:  |$)`),
-	// "owner: Name" in a file card.
-	regexp.MustCompile(`(?m)^owner: (` + personName + `)`),
+	// A person standing as the whole value of a field whose KEY says it
+	// is one. The keys are a closed set because internal/render writes
+	// every one of them, and each is here because some renderer prints a
+	// person under it: "owner:" in a file card, and the three an
+	// approval's reviewers appear under.
+	//
+	// Phase 4's live run is why this is a list rather than just "owner":
+	// the approvals renderer prints "approved by: Name" for a reviewer
+	// Drive gives no address for, and the "by Name" position below did
+	// not match it — that one wants a space after "by", and this has a
+	// colon. A new key belongs here the day the renderer that prints it
+	// is written.
+	regexp.MustCompile(`(?m)^\s*(?:owner|asked by|approved by|declined by|waiting on): (` +
+		personName + `)\s*$`),
 	// "Name, 2026-03-04 …" — a comment or reply author, which is the
 	// form with nothing else beside it at all.
 	regexp.MustCompile(`(` + personName + `), \d{4}-\d{2}-\d{2}`),

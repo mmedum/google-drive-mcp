@@ -85,6 +85,7 @@ func (w *writeRun) exercise() {
 	w.access(ids)
 	w.history(ids)
 	w.collaboration(ids)
+	w.phase4Extras(ids)
 	w.approvals(ids)
 	w.labelling(ids)
 	w.activityFeed(ids)
@@ -92,6 +93,84 @@ func (w *writeRun) exercise() {
 	w.resources(ids)
 	w.refusals(ids)
 	w.sharedDrive(ids)
+}
+
+// phase4Extras covers the three Drive parameters phase 4 added that
+// nothing else here reaches: bringing a file's comments along on a copy,
+// marking a file as opened, and finding a file by a custom property.
+//
+// The property search runs LAST of the three deliberately: it looks for
+// the key update_file set earlier in this run, so it is checking that
+// what this server wrote is what Drive indexed, not merely that a query
+// parses. Drive's index is eventually consistent, so an empty answer is
+// reported rather than counted as a failure — the same caution the
+// changes feed needed in phase 2.
+func (w *writeRun) phase4Extras(m made) {
+	fmt.Println("\n--- phase 4 parameters ---")
+	if m.text != "" {
+		// The comments were made on this file a moment ago, so a copy
+		// asking for them has something to carry.
+		w.needing("copy_file", m.text, map[string]any{
+			"file": m.text, "name": "rows with its comments.csv",
+			"to": w.scratchID, "copy_comments": true, "allow_duplicate": true,
+		})
+		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
+	}
+
+	// A property set HERE, on purpose. The earlier one is deleted before
+	// this step runs, so searching for it could only ever answer nothing
+	// — a check whose pass and fail look identical, which is no check.
+	if m.text != "" {
+		w.needing("update_file", m.text, map[string]any{
+			"file": m.text, "properties": map[string]any{"livedrive_found": "yes"},
+		})
+		w.pollProperty("livedrive_found=yes")
+	}
+	w.expecting("search_files", w.scratchID, map[string]any{"property": "=nothing"},
+		"a property clause with no key")
+	// The form Google's own guide gives as an example and Drive refuses.
+	// It is checked here so that a day when Drive starts accepting it
+	// shows up as this server being needlessly strict, rather than never
+	// showing up at all.
+	w.expecting("search_files", w.scratchID, map[string]any{"property": "livedrive"},
+		"a key with no value, which Drive answers Invalid Value despite its guide")
+	fmt.Println("(an empty property search moments after the write is Drive's index catching up, " +
+		"not a defect — read the hits above against what update_file set)")
+}
+
+// pollProperty searches for a property until Drive's index has caught
+// up, or says it did not. Drive indexes a property change within seconds
+// usually, but not always — and an empty answer moments after a write
+// looks exactly like a broken query, which is what phase 2 learned about
+// the changes feed and phase 4 nearly repeated here.
+func (w *writeRun) pollProperty(property string) {
+	const attempts = 10
+	for i := range attempts {
+		if i > 0 {
+			time.Sleep(3 * time.Second)
+		}
+		out := w.call(call{tool: "search_files", args: map[string]any{
+			"property": property, "in_folder": w.scratchID,
+		}})
+		if !strings.Contains(out, "0 hits") {
+			return
+		}
+		fmt.Printf("(the property index reports nothing yet; waiting — attempt %d of %d)\n", i+1, attempts)
+	}
+	// NOT a failure, and the difference matters. Phase 4 measured this:
+	// the file tagged in a run was still missing from the index after
+	// twelve seconds, and a direct query minutes later found it — so the
+	// query is right and the index is slow. Counting a slow index as a
+	// defect would make this run fail for something the server does not
+	// control, and a verdict that cries wolf is a verdict nobody reads.
+	//
+	// What it must not do is pass quietly, because "not indexed yet" and
+	// "the query is broken" produce the same empty page.
+	fmt.Println("UNVERIFIED THIS RUN: the property search did not find the file this run tagged, after " +
+		"30 seconds. Drive's property index is eventually consistent and has been measured slower than " +
+		"that, so this is expected often enough not to be a failure — but it means the search was not " +
+		"checked, rather than checked and passed. Run search_files with the property by hand a few " +
+		"minutes from now to close it.")
 }
 
 // approvals exercises phase 4's review surface, and stops short of one

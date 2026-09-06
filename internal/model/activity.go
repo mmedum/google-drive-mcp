@@ -33,16 +33,36 @@ type Activity struct {
 	Items []string
 }
 
-// NewActivity converts one wire activity. It returns nil for an activity
-// whose action this server cannot name, rather than reporting an event
-// that says nothing.
-func NewActivity(a *gdrive.DriveActivity) *Activity {
-	if a == nil {
-		return nil
+// Undescribed is why NewActivity returned nothing, when it did. The two
+// reasons mean very different things and a caller that reports them as
+// one sends somebody looking for the wrong thing.
+type Undescribed int
+
+// Reasons an activity cannot be described.
+const (
+	// Described means the activity was converted.
+	Described Undescribed = iota
+	// NoAction is an activity Drive sent with no primaryActionDetail on
+	// it at all. A live query of 400 activities found three, so this is
+	// ordinary rather than exceptional: the entry has a time and a
+	// target and simply does not say what happened.
+	NoAction
+	// UnknownAction is an activity whose action detail carries a member
+	// this server has no words for. That one IS worth acting on: the
+	// discovery document lists twelve kinds and this server names all
+	// twelve, so seeing it means Google has added a thirteenth.
+	UnknownAction
+)
+
+// NewActivity converts one wire activity, and says why when it cannot.
+// It returns nil rather than an event that says nothing happened.
+func NewActivity(a *gdrive.DriveActivity) (*Activity, Undescribed) {
+	if a == nil || a.PrimaryActionDetail == nil {
+		return nil, NoAction
 	}
 	what, detail := actionWords(a.PrimaryActionDetail)
 	if what == "" {
-		return nil
+		return nil, UnknownAction
 	}
 	out := &Activity{What: what, Detail: detail, Who: actorWords(a.Actors)}
 	out.When = parseTime(a.Timestamp)
@@ -60,7 +80,7 @@ func NewActivity(a *gdrive.DriveActivity) *Activity {
 			out.Items = append(out.Items, title)
 		}
 	}
-	return out
+	return out, Described
 }
 
 // actionWords names the action. The API has no action-type field: WHICH
@@ -68,8 +88,6 @@ func NewActivity(a *gdrive.DriveActivity) *Activity {
 // vocabulary rather than a translation of one.
 func actionWords(d *gdrive.ActionDetail) (what, detail string) {
 	switch {
-	case d == nil:
-		return "", ""
 	case d.Create != nil:
 		switch {
 		case d.Create.Upload != nil:

@@ -91,6 +91,16 @@ func rendered() map[string]string {
 				}},
 			}),
 		}, render.CommentsOptions{Subject: "Budget.xlsx", Now: now, CanComment: true}),
+		"approvals": render.Approvals([]*model.Approval{
+			model.NewApproval(&gdrive.Approval{
+				ApprovalID: "id-approval-1", Status: model.ApprovalInProgress,
+				CreateTime: "2026-03-04T09:00:00Z", Initiator: otherUser(),
+				ReviewerResponses: []*gdrive.ReviewerResponse{
+					{Reviewer: meUser(), Response: model.ResponseNone},
+					{Reviewer: bareUser(), Response: model.ResponseApproved},
+				},
+			}),
+		}, render.ApprovalsOptions{Subject: "Budget.xlsx", Now: now}),
 		"access requests": render.AccessRequests([]*model.AccessRequest{
 			model.NewAccessRequest(&gdrive.AccessProposal{
 				ProposalID: "id-request-1", RequesterEmailAddress: their,
@@ -104,7 +114,7 @@ func rendered() map[string]string {
 
 func TestNoRendererLeaksAPersonThroughTheRedactor(t *testing.T) {
 	all := rendered()
-	if len(all) < 7 {
+	if len(all) < 8 {
 		t.Fatalf("only %d renderers are covered; this test is not looking at the surface", len(all))
 	}
 	for what, text := range all {
@@ -167,5 +177,52 @@ func TestTheFixturesReallyCarrySomethingToHide(t *testing.T) {
 	if names < 4 || addresses < 2 {
 		t.Errorf("%d fixtures carry a name and %d carry an address; the set is not exercising the "+
 			"redactor", names, addresses)
+	}
+}
+
+// render.Activity is not in the set above, and the reason is worth
+// stating rather than left as an absence.
+//
+// It prints no person AT ALL — not a redacted one, none. The Drive
+// Activity API identifies an actor by a People API resource name and an
+// is-it-you flag, and gives no display name or address for anybody, so
+// the renderer says "you" or "somebody else". Putting it in the leak set
+// would mean redacting a fixture with nothing in it, which is what that
+// set's floor exists to refuse.
+//
+// So its assertion is the stronger one: given an actor, no trace of them
+// reaches the output — including the resource name itself, which is an
+// identifier of a person even though it is not a name. If this renderer
+// starts printing people, this fails, and the fix is to move it into
+// rendered() above where the redactor has to learn its positions.
+//
+// render.Labels is not here either, and needs no test: a label
+// DEFINITION as this server models it has no person in it to print. The
+// wire type's creator and publisher are deliberately outside the subset
+// in internal/gdrive, so there is nothing for a fixture to supply.
+func TestActivityNamesNobody(t *testing.T) {
+	const personID = "people/1234567890"
+	event, _ := model.NewActivity(&gdrive.DriveActivity{
+		Timestamp:           "2026-03-04T09:00:00Z",
+		PrimaryActionDetail: &gdrive.ActionDetail{Edit: &struct{}{}},
+		Actors: []*gdrive.ActivityActor{{User: &gdrive.ActivityUser{
+			KnownUser: &gdrive.ActivityKnownUser{PersonName: personID},
+		}}},
+		Targets: []*gdrive.ActivityTarget{{DriveItem: &gdrive.ActivityDriveItem{
+			Name: "items/" + fixtureID, Title: "Budget.xlsx",
+		}}},
+	})
+	text := render.Activity([]*model.Activity{event}, render.ActivityOptions{
+		Subject: "Budget.xlsx", Now: now,
+	})
+
+	for _, secret := range []string{me, other, their, personID} {
+		if strings.Contains(text, secret) {
+			t.Errorf("the activity renderer printed %q, so it names people after all and belongs "+
+				"in rendered() where the redactor learns its positions:\n%s", secret, text)
+		}
+	}
+	if !strings.Contains(text, "somebody else") {
+		t.Errorf("the renderer did not say who in the only terms it can:\n%s", text)
 	}
 }

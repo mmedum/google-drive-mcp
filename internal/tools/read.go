@@ -40,7 +40,7 @@ type SearchInput struct {
 	OrderBy        string `json:"order_by,omitempty" jsonschema:"modified (the default), created, name, recency, viewed or size"`
 	Limit          int    `json:"limit,omitempty" jsonschema:"how many hits to return, default 25, maximum 200"`
 	PageToken      string `json:"page_token,omitempty" jsonschema:"the page_token from a previous result, to see the next page"`
-	Property       string `json:"property,omitempty" jsonschema:"match a custom file property, as \"key\" to find every file carrying that key whatever its value, or \"key=value\" to match the value too. These are the pairs update_file sets: one app tags files this way for another to find."`
+	Property       string `json:"property,omitempty" jsonschema:"match a custom file property, as \"key=value\". These are the pairs update_file sets: one app tags files this way for another to find. Both halves are required — Drive cannot search for a key whatever its value, whatever its documentation says."`
 	RawQuery       string `json:"raw_query,omitempty" jsonschema:"a Drive API v3 query expression, ANDed with the other fields, for syntax these fields do not cover"`
 }
 

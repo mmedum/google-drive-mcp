@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/internal/service"
 )
 
@@ -175,5 +176,37 @@ func TestActivityQueryIsTreatedAsARead(t *testing.T) {
 	}
 	if tries < 2 {
 		t.Errorf("the query was attempted %d times; a read retries", tries)
+	}
+}
+
+// A live query of 400 activities found three that Drive sent with no
+// primaryActionDetail at all. That is ordinary and nothing can be done
+// about it — while an action kind this server has no words for would
+// mean Google had added a thirteenth, which is worth acting on. Until
+// the live run both were reported as the second, sending a reader to
+// look for a missing case that is not missing.
+func TestTheTwoKindsOfUndescribedActivityAreToldApart(t *testing.T) {
+	svc, fake := active(t)
+	fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-03T09:00:00Z")
+	// One with no action detail at all, as Drive really sends.
+	silent := fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-02T09:00:00Z")
+	silent.PrimaryActionDetail = nil
+	// And one whose detail carries nothing this server knows, which is
+	// what a thirteenth kind would look like on the wire.
+	unknown := fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-01T09:00:00Z")
+	unknown.PrimaryActionDetail = &gdrive.ActionDetail{}
+
+	out, err := svc.ListActivity(t.Context(), service.ListActivityInput{File: "id-budget-fixture"})
+	if err != nil {
+		t.Fatalf("ListActivity: %v", err)
+	}
+	if !strings.Contains(out, "without saying what happened") {
+		t.Errorf("an entry with no action was not reported as one:\n%s", out)
+	}
+	if !strings.Contains(out, "Drive has grown one") {
+		t.Errorf("an unknown action kind was not reported as one:\n%s", out)
+	}
+	if !strings.Contains(out, "1 event") {
+		t.Errorf("the count does not match the one describable event:\n%s", out)
 	}
 }
