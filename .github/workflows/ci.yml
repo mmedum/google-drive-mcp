@@ -21,6 +21,16 @@ jobs:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    # One line has to mean one thing on all three runners. The Windows
+    # runner's default shell is PowerShell, which turned
+    # `-coverprofile=cov.out` into a file called `cov`, so the profile
+    # was written under a name no step refers to. Nothing noticed while
+    # the only step that read it was skipped on that platform — which is
+    # the same blind spot as running the gate on one runner, arriving
+    # from the other side.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
