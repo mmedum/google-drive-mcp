@@ -111,6 +111,9 @@ jobs:
       # or listed and never emitted, and both read as silence.
       - run: go run ./scripts/gates classes
       - run: go run ./scripts/gates api-coverage
+      - run: go run ./scripts/gates mcpb
+      - run: go run ./scripts/gates transcript
+      - run: go run ./scripts/gates outcomes
       - run: go run ./scripts/gates parity
 
   smoke:
@@ -128,6 +131,7 @@ jobs:
       - run: go run ./scripts/gates smoke ./google-drive-mcp
       - run: go run ./scripts/gates schema-diff ./google-drive-mcp
       - run: go run ./scripts/gates staleness ./google-drive-mcp
+      - run: go run ./scripts/gates live-cover ./google-drive-mcp
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: schemas

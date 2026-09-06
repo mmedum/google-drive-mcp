@@ -25,11 +25,21 @@ func TestCopyCanBringTheCommentsWithIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CopyFile: %v", err)
 	}
-	// The copy carries the words, and the result says so: a comment is
-	// somebody else's writing, and copying it moves it somewhere they
-	// may not have expected.
-	if !strings.Contains(res.Text, "comment threads were copied") {
-		t.Errorf("the result does not say the comments came along:\n%s", res.Text)
+	// The result says what was ASKED for and points at the call that
+	// settles it. It used to say "the comment threads were copied with
+	// it", which files.copy cannot know — it answers with a File and
+	// says nothing about comments — and this test asserted that claim,
+	// which is how a fixture written from a belief keeps the belief
+	// alive. `gates outcomes` found it, and it is the same shape as
+	// lock_file with somebody else's words in place of a restriction.
+	if !strings.Contains(res.Text, "asked to bring the comment threads along") {
+		t.Errorf("the result does not say what was asked for:\n%s", res.Text)
+	}
+	if !strings.Contains(res.Text, "list_comments") {
+		t.Errorf("the result does not name the call that would settle it:\n%s", res.Text)
+	}
+	if strings.Contains(res.Text, "were copied") {
+		t.Errorf("the result claims an outcome the response did not carry:\n%s", res.Text)
 	}
 	sent := lastQuery(t, fake, "POST", "/copy", "copyComments")
 	if sent != "true" {

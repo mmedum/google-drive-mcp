@@ -107,6 +107,22 @@ gate-classes: ## The error classes the code emits must be the ones it declares
 api-coverage: ## Every API method is used on purpose or left out on purpose
 	$(GO) run ./scripts/gates api-coverage
 
+.PHONY: mcpb
+mcpb: ## The committed bundle manifest must name files the packer will stage
+	$(GO) run ./scripts/gates mcpb
+
+.PHONY: transcript
+transcript: ## A program driving a real account may only print through the redactor
+	$(GO) run ./scripts/gates transcript
+
+.PHONY: live-cover
+live-cover: build ## Every tool option is driven live or recorded as not, with the reason
+	$(GO) run ./scripts/gates live-cover $(BIN)
+
+.PHONY: outcomes
+outcomes: ## No result sentence may be written from the request rather than the response
+	$(GO) run ./scripts/gates outcomes
+
 .PHONY: parity
 parity: ## `make check` and CI must run the same gates
 	$(GO) run ./scripts/gates parity
@@ -116,7 +132,7 @@ api-diff: ## Refetch the three discovery documents and report what has changed (
 	$(GO) run ./scripts/gates api-diff
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage schema-diff smoke staleness parity ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage mcpb transcript schema-diff smoke staleness live-cover outcomes parity ## Everything CI runs
 
 .PHONY: clean
 clean:

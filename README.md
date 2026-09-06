@@ -1,5 +1,10 @@
 # google-drive-mcp
 
+[![CI](https://github.com/mmedum/google-drive-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mmedum/google-drive-mcp/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/mmedum/google-drive-mcp?sort=semver)](https://github.com/mmedum/google-drive-mcp/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/mmedum/google-drive-mcp.svg)](https://pkg.go.dev/github.com/mmedum/google-drive-mcp)
+[![License: Apache 2.0](https://img.shields.io/github/license/mmedum/google-drive-mcp)](./LICENSE)
+
 A [Model Context Protocol](https://modelcontextprotocol.io) server for
 Google Drive, written in Go: find files and know where they live and who
 can see them, organise folders, move and copy, get content in and out,
@@ -12,14 +17,17 @@ Single binary, stdio, one Google account per profile. You run it against
 a Google Cloud project you own, so nothing about this repository is tied
 to any particular organisation or account.
 
-**Status: v0.3.0, phase 3 of the plan in
+**Status: v1.0.1, phase 6 of the plan in
 [docs/architecture.md](docs/architecture.md).** The tools below work, and
 every one of them is verified against a real Google Workspace account as
-well as against the in-memory Drive the tests use. Two paths are not:
-handing over ownership of a file, and a share an organisation's policy
-refuses — both need a second account or an administrator to exercise, and
+well as against the in-memory Drive the tests use — the five that remove
+something for good included, which run inside a shared drive the live
+driver creates and destroys again. Four paths are not: handing over
+ownership of a file, opening a link-shared file that needs its resource
+key, a share an organisation's policy refuses, and applying a label. Each
+needs a second Google account or an administrator to exercise, and
 [docs/architecture.md](docs/architecture.md) §17a says what stands in for
-them. Workspace labels arrive in v0.4.0.
+each of them.
 
 ## What it does today
 
@@ -114,11 +122,46 @@ path or add the directory once:
 export PATH="$(go env GOPATH)/bin:$PATH"             # or add it to your shell profile
 ```
 
-Or download a release archive from the releases page and put the binary
-on your `PATH`. Every archive carries the binary, `LICENSE` and this
-README; `checksums.txt` is signed with a keyless Sigstore certificate and
-each archive has a build provenance attestation you can check with
-`gh attestation verify`.
+Or take a signed archive from the
+[latest release](https://github.com/mmedum/google-drive-mcp/releases/latest)
+— Linux, macOS and Windows, on amd64 and arm64 — and put the binary on
+your `PATH`. Every archive carries the binary, `LICENSE` and this README.
+Nothing about a release has to be taken on trust:
+
+```bash
+# --ignore-missing, because checksums.txt covers every archive and you
+# will have downloaded one of them.
+sha256sum -c checksums.txt --ignore-missing
+
+# checksums.txt is signed with a keyless Sigstore certificate tied to the
+# release workflow's identity; the bundle carries the signature and the
+# certificate together.
+cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
+  --certificate-identity-regexp '^https://github.com/mmedum/google-drive-mcp' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# And each archive carries build provenance naming the workflow and tag
+# that produced it.
+gh attestation verify google-drive-mcp_*.tar.gz --repo mmedum/google-drive-mcp
+```
+
+Every archive also ships an SBOM, so you can see what is inside a binary
+you did not build.
+
+### Claude Desktop
+
+Every release also carries a `.mcpb` bundle. Open it and Claude Desktop
+installs the server and asks for your OAuth client JSON — no config file
+to edit. It covers macOS, Windows and Linux on both architectures each:
+macOS through a universal binary, Windows through amd64, and Linux
+through a small launcher that picks the right binary at start, because a
+bundle manifest names a command per platform and has no key for the
+architecture. Its SHA-256 is in the same signed `checksums.txt`.
+
+The bundle does not log you in. Install the binary as well, run
+`google-drive-mcp login` once, and the bundle picks up the same
+credentials. Claude Code does not install `.mcpb` files, so it uses the
+command below.
 
 ## Set up Google, once per person
 
@@ -162,6 +205,22 @@ and stores the refresh token in your OS keyring (Secret Service, Keychain
 or Credential Manager). If no keyring is available it falls back to a
 `0600` file and says so. `logout` revokes the token at Google and deletes
 it locally.
+
+### Logging in over SSH
+
+The callback goes to the *remote* host's loopback address and your browser
+is local, so the port has to be forwarded. It is drawn at random and
+printed only once login is already waiting, so read it out of the printed
+URL — it appears percent-encoded there, as `127.0.0.1%3A<port>` — and in a
+second local terminal:
+
+```bash
+ssh -N -L <port>:127.0.0.1:<port> user@remote-host
+```
+
+Then open the URL in your local browser. If `ssh` says `bind: Address
+already in use`, cancel the login with Ctrl-C and start it again to draw
+a different port.
 
 ## Connect a client
 
@@ -230,6 +289,71 @@ the server will do at all:
   byte counts and latencies; never file names, paths, addresses, queries
   or content.
 
+## How it works
+
+```
+MCP client ──stdio──► google-drive-mcp
+                       ├── tools      one handler per tool; shapes the reply
+                       ├── service    the rules: addressing, sharing policy, confinement
+                       ├── model      the server's view of a file, and what you may do to it
+                       ├── render     the text a result is made of
+                       ├── gapi       raw REST client for Drive, Drive Labels and Drive Activity
+                       ├── gdrive     hand-written wire types, no generated client
+                       ├── ref        ids, URLs and paths; resolves nothing over the network
+                       └── auth       refresh token → access token
+```
+
+[docs/architecture.md](docs/architecture.md) has the design, the package
+layout, the phase plan, and an evidence log recording which conventions
+were checked against Google's own reference and which turned out to be
+wrong. [docs/security.md](docs/security.md) is what it touches and what
+limits it.
+
+## Development
+
+```bash
+make build     # the binary
+make test      # race detector, per-package coverage floor
+make check     # everything CI runs
+make live      # drive the binary against the signed-in account, redacted
+```
+
+`make check` is the definition of done: gofmt, `go vet`, golangci-lint,
+race tests with a per-package coverage floor, `govulncheck`, a licence
+check, a leak check over the working tree, pinned-version and error-class
+gates, an API-coverage gate holding every method of all three APIs to a
+recorded decision, a bundle-manifest gate holding the committed manifest
+to the files the packer stages, a transcript gate refusing any way for a
+program that drives a real account to reach a terminal except through the
+redactor, a live-coverage gate holding every tool option to a decision
+about whether the live driver drives it, an outcome gate refusing a
+result sentence written from the request rather than from the response, a
+stdio smoke test, a schema diff against the released tool surface, a
+staleness gate that fails when this README, the docs or the changelog
+drift from the code, and a parity gate asserting that `make check` and CI
+run the same set of gates.
+
+Conventions are in [CONTRIBUTING.md](CONTRIBUTING.md); building, testing
+and releasing are in [docs/development.md](docs/development.md).
+
+## Versioning
+
+Tool names, their arguments and the shape of their output are stable
+within a major version. A change that needs you to do something — a new
+scope, another `login`, a different command in your client config — is
+marked **Breaking:** in [CHANGELOG.md](CHANGELOG.md), which is what the
+release notes are made from. A tool moving from the default surface to
+behind a feature flag, or the other way, counts as breaking.
+
+## Security
+
+[SECURITY.md](SECURITY.md) says how to report a vulnerability. Please do
+not open a public issue for one.
+
+## Code of conduct
+
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 3.0.
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — the design, the evidence
@@ -238,6 +362,8 @@ the server will do at all:
 - [docs/security.md](docs/security.md) — what it touches and what limits it.
 - [docs/development.md](docs/development.md) — building, testing, releasing.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — ground rules and the pull request flow.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 3.0.
+- [SECURITY.md](SECURITY.md) — reporting a vulnerability.
 
 ## Licence
 

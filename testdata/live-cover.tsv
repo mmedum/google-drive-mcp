@@ -1,0 +1,96 @@
+# Every tool option the live driver does not send, and the verdict on it.
+#
+# A live run is the only check that Drive agrees with this server, and
+# until this file existed nobody knew what fraction of the tool surface
+# one exercises. It reads 122 of 188 options. The shared standard names
+# this gate for every repository with a live driver; the one other place
+# it has been measured started at 14 of 28.
+#
+# Columns, tab-separated: tool.option, verdict, reason.
+#
+#   undrivable  no run from this account can send it, and the reason is
+#               a second person, an administrator, or a state nothing
+#               here may create.
+#   undriven    a live step could send it and none does. The reason says
+#               what it would take, because the point of measuring is to
+#               close them, and a gap without a recipe gets read as a
+#               decision.
+#
+# `gates live-cover` holds both directions: an option that is neither
+# driven nor listed here fails, and an option listed here that the driver
+# has since started sending fails too. It runs in `make check` and CI
+# against the binary's own published schema.
+#
+# What it CANNOT see is a step that exists and never runs — sitting in a
+# slice nobody passes on, or behind a condition that was false. A sibling
+# repository demonstrated that by deleting one call and watching its
+# static gate still report full coverage. The driver prints its own
+# recorded coverage at the end of every run for that reason, and names
+# anything this file believes is driven that the run did not send.
+
+copy_file.keep_revision_forever	undriven	the copy is made; pinning its first revision is one argument, and list_revisions on the copy would show it
+copy_file.ocr_language	undrivable	it hints the language of text in a scan, for convert_to. Every fixture here is text somebody typed, and a copy of typed text has no OCR to hint
+create_file.allow_duplicate	undriven	the duplicate-name guard is driven for folders; the same refusal on a file is one more create in the same scratch folder
+create_file.description	undriven	one argument on a create that already happens; update_file's description is driven, so only the create path is unseen
+create_file.starred	undriven	starring is driven through update_file; at create it is one argument
+create_folder.color	undriven	one argument on the scratch folder itself, and the card prints the colour back
+create_shortcut.allow_duplicate	undriven	the same guard as create_file's, on the shortcut the run already makes
+delete_comment.reply	undriven	the destructive run deletes a whole thread; deleting one reply needs the reply id, which list_comments prints
+download_file.acknowledge_abuse	undrivable	it needs a file Google has flagged as malware or spam, and nothing here may create one
+download_file.revision	undriven	update_content makes a second revision and list_revisions shows the first; downloading that one is one call
+get_file.include_labels	undriven	needs the -labels run. On an account with no label published it returns none, which is still an answer about the argument
+list_activity.page_size	undriven	one argument on the -activity call
+list_activity.page_token	undriven	page_size: 1 over a feed the run has just filled returns a token to follow
+list_activity.since	undriven	the run knows when it started, and that moment is the beginning of the feed it made itself
+list_approvals.page_size	undriven	one argument on the listing the approvals section already makes
+list_approvals.page_token	undriven	a second page needs more approvals on one file than this run starts
+list_changes.drive	undriven	the -drive run holds a shared drive, and a shared drive's feed has tokens of its own
+list_changes.my_drive_only	undriven	one argument on the changes call the history section already makes
+list_comments.page_size	undriven	one argument on a listing that already happens
+list_comments.page_token	undriven	the run makes two threads; page_size: 1 returns a token
+list_comments.since	undriven	the run knows when it started, and it made every comment on that file
+list_drives.include_hidden	undriven	one argument; it proves Drive accepts it, which is what a hidden drive nobody has cannot
+list_drives.name	undriven	the -drive run knows the drive's name and the destructive run makes one
+list_folder.include_trashed	undriven	the run trashes a file inside the scratch folder before trashing the folder; listing it is one call
+list_folder.kind	undriven	search_files.kind is driven; the same filter on a listing is one argument
+list_folder.max_items	undriven	one argument on the recursive listing
+list_folder.page_token	undriven	page_size: 1 over the scratch folder returns a token
+list_labels.appliable	undriven	needs the -labels run; on an account with no label published it returns the same empty list, which still answers whether Drive accepts the argument
+list_labels.page_size	undriven	one argument on the -labels run
+list_labels.page_token	undrivable	no label is published to this account, so there is no first page to follow. The same blocker as the rest of the label surface
+manage_approval.due	undriven	one argument at start, and the approval card prints the due date back
+manage_approval.replace_reviewers	undrivable	a swap names who takes the reviewer's place, so it needs a second address Drive will accept — the blocker spike F is waiting on
+manage_drive.drive	undriven	the destructive run holds a drive id, and every action but create takes one
+manage_drive.dry_run	undriven	one argument on a restrict of the run's own scratch drive
+manage_drive.restrictions	undriven	the scratch drive belongs to the run and is destroyed at the end, so restricting it changes nothing anybody else can see
+reply_comment.reply	undriven	the run makes a reply; editing that reply by its id is one more call
+resolve_access_request.dry_run	undrivable	it needs a pending access request, which only somebody else asking for access can create
+resolve_access_request.notify	undrivable	the same pending request, and it would put mail in that person's inbox
+resolve_access_request.role	undrivable	the same pending request
+restore_file.dry_run	undriven	restore is driven; the dry run is one argument in front of it
+search_files.created_after	undriven	the run knows when it started, and everything it made was created after that
+search_files.drive	undriven	the -drive run and the destructive run both hold a shared drive
+search_files.mime_type	undriven	one argument; the run creates a text/csv file to name
+search_files.modified_after	undriven	the run knows when it started
+search_files.modified_before	undriven	the run knows when it started, and a before that excludes its own files is the half that proves the bound is applied
+search_files.owner	undriven	get_account gives the address this run is signed in as, and owner: me needs no address at all
+search_files.page_token	undriven	limit: 1 over the scratch folder returns a token
+search_files.raw_query	undriven	one argument, and it is the escape hatch nothing else covers: what it accepts is Drive's own syntax rather than this server's
+search_files.scope	undriven	one argument, and my_drive is a scope every account has
+search_files.starred	undriven	the run stars a file and unstars it again
+search_files.text	undriven	full-text search waits on Drive's index, which is eventually consistent — the same wait the property search already has, and the reason to add it beside that one rather than alone
+search_files.trashed	undriven	the run trashes a file before it trashes the folder
+share_file.discoverable	undriven	the anyone-with-the-link grant is already made; discoverable is one argument on it
+share_file.message	undrivable	it is only used when notify is true, which see
+share_file.notify	undrivable	it puts Google's mail in a real person's inbox on every run, which a driver may not do. The ownership transfer of spike F mails anyway, because Drive forces it
+unshare_file.dry_run	undriven	one argument in front of a removal the run already makes
+unshare_file.permission_id	undriven	list_permissions prints the id, and removing by id is the path for a grant with no address to name it by
+update_content.mime_type	undriven	one argument on a replacement that already happens
+update_file.copy_requires_writer_permission	undriven	a switch on the scratch file, and the card prints it back
+update_file.writers_can_share	undriven	a switch on the scratch file, and the card prints it back
+upload_file.allow_duplicate	undriven	the same duplicate-name guard, on the upload path
+upload_file.convert_to	undriven	the upload is a text file, and asking Google to import it as a doc is one argument
+upload_file.description	undriven	one argument on an upload that already happens
+upload_file.mime_type	undriven	the driver's upload is named .txt, so the type is worked out from the extension; naming it explicitly is the other path
+upload_file.ocr_language	undrivable	it needs a scan or a photograph to convert, and every fixture here is text somebody typed
+upload_file.use_content_as_indexable_text	undriven	it is for a type Drive does not read on its own, which is exactly what the run's filler upload is

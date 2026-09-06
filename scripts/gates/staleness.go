@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -43,6 +45,7 @@ func staleness(out io.Writer, args []string) error {
 	}
 	problems = append(problems, checkConfigDocs(settings)...)
 	problems = append(problems, checkArchitectureStatus()...)
+	problems = append(problems, checkStatusVersions()...)
 
 	changelog, err := checkChangelog()
 	if err != nil {
@@ -160,6 +163,60 @@ func checkArchitectureStatus() []string {
 		return []string{"docs/architecture.md still says 'no code yet'"}
 	}
 	return nil
+}
+
+// statusVersion matches the version a status line claims, in either of
+// the two spellings the two documents use.
+var statusVersion = map[string]*regexp.Regexp{
+	"README.md":            regexp.MustCompile(`(?m)^\*\*Status: v([0-9]+\.[0-9]+\.[0-9]+)`),
+	"docs/architecture.md": regexp.MustCompile(`(?m)^\*\*Status:\*\* phase [0-9]+ complete \([^)]*\), released as v([0-9]+\.[0-9]+\.[0-9]+)`),
+}
+
+// checkStatusVersions holds the two status lines to the newest version
+// in the changelog.
+//
+// The README said "Status: v0.3.0, phase 3" for two whole releases, and
+// promised Workspace labels as something that would "arrive in v0.4.0"
+// after they had shipped. Nothing noticed, because the gate beside this
+// one reads the README's tool TABLE — which was correct throughout — and
+// checkArchitectureStatus above greps for one phase-0 placeholder. A
+// document can be wrong about what it is while every list in it is right.
+//
+// Only the version is checked. The prose around it is a human's to keep
+// honest; a number that has to match another number in the repository is
+// the part a gate can hold.
+func checkStatusVersions() []string {
+	raw, err := os.ReadFile("CHANGELOG.md")
+	if err != nil {
+		return []string{"cannot read CHANGELOG.md: " + err.Error()}
+	}
+	m := versionHeading.FindStringSubmatch(string(raw))
+	if m == nil {
+		// Before the first release there is nothing to be stale against.
+		return nil
+	}
+	released := m[1]
+
+	var problems []string
+	for _, path := range slices.Sorted(maps.Keys(statusVersion)) {
+		doc, err := os.ReadFile(path) //nolint:gosec // a path this repository owns
+		if err != nil {
+			problems = append(problems, "cannot read "+path+": "+err.Error())
+			continue
+		}
+		found := statusVersion[path].FindStringSubmatch(string(doc))
+		if found == nil {
+			problems = append(problems, path+" has no status line naming a version, "+
+				"or it no longer has the shape this gate reads")
+			continue
+		}
+		if found[1] != released {
+			problems = append(problems, fmt.Sprintf(
+				"%s says the status is v%s and the newest version in CHANGELOG.md is v%s",
+				path, found[1], released))
+		}
+	}
+	return problems
 }
 
 var versionHeading = regexp.MustCompile(`(?m)^## \[([0-9]+\.[0-9]+\.[0-9]+)\]`)

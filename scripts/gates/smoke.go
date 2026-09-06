@@ -279,8 +279,13 @@ func drive(binary string, env, frames []string, wantIDs []int) (map[int]map[stri
 
 	if _, err := io.WriteString(stdin, strings.Join(frames, "\n")+"\n"); err != nil {
 		_ = stdin.Close()
+		// Wait first, then report what the server said. A write that
+		// fails here fails because the server has already gone, so the
+		// error in hand is a broken pipe and the reason is in stderr —
+		// and this returned the pipe alone, discarding the panic that
+		// explained it. A sibling repository found the same in its port.
 		_ = cmd.Wait()
-		return nil, fmt.Errorf("write frames: %w", err)
+		return nil, fmt.Errorf("write frames: %w\nstderr:\n%s", err, stderr.String())
 	}
 
 	want := make(map[int]bool, len(wantIDs))
