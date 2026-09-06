@@ -131,6 +131,13 @@ type Server struct {
 	// progress sends the same chunk for ever.
 	StallUploads bool
 
+	// PendingDownloads is how many times a new download operation answers
+	// as unfinished before it completes. Zero finishes at once; a Vid in
+	// production is usually pending at least once.
+	PendingDownloads int
+
+	// operations are the long-running downloads in progress.
+	operations map[string]*fakeOperation
 	// sessions are the resumable uploads in progress.
 	sessions map[string]*uploadSession
 	// driveRequests maps a drives.create requestId to the drive it made,
