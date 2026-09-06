@@ -8,6 +8,44 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The parity gate could be defeated by typing one `#`.** It read the
+  whole workflow file for `go run ./scripts/gates NAME`, so a step
+  commented out to unblock a red build still counted as running — which
+  is exactly the divergence between `make check` and CI that this gate
+  exists to catch, reached by the commonest way of causing it. The
+  Makefile side had the same hole: an indented `#` is a line Make hands
+  to the shell, which does nothing with it.
+
+  Comment lines are dropped from both files now, and on the CI side a
+  gate counts only where a `run:` step names it — on the step's own line
+  or inside a `run: |` block, found by indentation rather than by parsing
+  YAML. Four ways a gate's name can be in the file without running are
+  tested. What is left is a step disabled by an `if:` that is never true,
+  which needs a real YAML parser and a dependency to see; it is a smaller
+  hole than a `#`, which needs nothing.
+
+  Found by a sibling repository porting these gates and hitting it there.
+
+- **The error-class gate never read the published vocabulary.** It held
+  every declared class to being emitted somewhere in the code, and
+  `gapi.Classes()` — the list `doctor` prints, and what a model is told
+  the vocabulary is — was a third list nothing checked. A class could be
+  declared, emitted and missing from it, which is a class nobody can look
+  up; or listed twice, which is a list edited without being read.
+
+  Both are refused now, and the duplicate check counts occurrences rather
+  than comparing lengths after a compaction: the sibling that reported
+  this had used `slices.Compact`, which removes only ADJACENT equals, so
+  a class written twice anywhere but beside itself passed. The fixtures
+  here put the repeat at the far end.
+
+- **The stdio smoke test threw away the reason it failed.** When the
+  write of the request frames fails, it fails because the server has
+  already gone — so the error in hand is a broken pipe and the
+  explanation is in the server's stderr, which this discarded. A server
+  that panicked during initialisation reported `write frames: broken
+  pipe` and nothing else. It reports the stderr with it now.
+
 - **The README's status line was two releases stale.** It said "Status:
   v0.3.0, phase 3" through v0.4.0 and v1.0.0, and promised Workspace
   labels as something that would "arrive in v0.4.0" after they had
