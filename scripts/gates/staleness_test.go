@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,10 +49,10 @@ func TestAStaleStatusLineIsCaught(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFile(t, filepath.Join(dir, "CHANGELOG.md"),
+			write(t, filepath.Join(dir, "CHANGELOG.md"),
 				"# Changelog\n\n## [1.0.0] - 2026-09-06\n\n### Added\n\n- something\n")
-			writeFile(t, filepath.Join(dir, "README.md"), c.readme)
-			writeFile(t, filepath.Join(dir, "docs", "architecture.md"), c.arch)
+			write(t, filepath.Join(dir, "README.md"), c.readme)
+			write(t, filepath.Join(dir, "docs", "architecture.md"), c.arch)
 			t.Chdir(dir)
 
 			problems := checkStatusVersions()
@@ -72,22 +71,12 @@ func TestAStaleStatusLineIsCaught(t *testing.T) {
 // heading yet is a repository that has never released.
 func TestStatusVersionsBeforeTheFirstRelease(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "CHANGELOG.md"), "# Changelog\n\n## [Unreleased]\n\n- something\n")
-	writeFile(t, filepath.Join(dir, "README.md"), "**Status: pre-release.**\n")
-	writeFile(t, filepath.Join(dir, "docs", "architecture.md"), "**Status:** no code yet.\n")
+	write(t, filepath.Join(dir, "CHANGELOG.md"), "# Changelog\n\n## [Unreleased]\n\n- something\n")
+	write(t, filepath.Join(dir, "README.md"), "**Status: pre-release.**\n")
+	write(t, filepath.Join(dir, "docs", "architecture.md"), "**Status:** no code yet.\n")
 	t.Chdir(dir)
 
 	if problems := checkStatusVersions(); len(problems) > 0 {
 		t.Errorf("an unreleased repository was reported as stale:\n%s", strings.Join(problems, "\n"))
-	}
-}
-
-func writeFile(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
 	}
 }

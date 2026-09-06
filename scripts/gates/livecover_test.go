@@ -34,7 +34,7 @@ func TestARecordThatIsNotADecisionIsRefused(t *testing.T) {
 	for _, c := range []struct{ name, row, want string }{
 		{"no reason", "get_file.include_labels\tundriven\t", "not a decision"},
 		{"an invented verdict", "get_file.include_labels\tlater\tsomebody will", "undrivable or undriven"},
-		{"a row that is not three fields", "get_file.include_labels\tundriven", "three tab-separated"},
+		{"a row that is not three fields", "get_file.include_labels\tundriven", "3 tab-separated columns"},
 		{"the same option twice",
 			"get_file.include_labels\tundriven\tone\nget_file.include_labels\tundrivable\ttwo", "listed twice"},
 	} {
@@ -88,5 +88,26 @@ func TestTheDriverIsMeasuredAgainstTheBinaryItDrives(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "options driven") {
 		t.Errorf("the gate reports no number: %s", out.String())
+	}
+}
+
+// TestTheUndrivenCeilingOnlyEverGoesDown. Without it the record is a
+// place to park work rather than a budget: a new tool option is always
+// cheaper to excuse than to drive, so 122 of 188 would move the wrong
+// way by default and nothing would say so.
+func TestTheUndrivenCeilingOnlyEverGoesDown(t *testing.T) {
+	t.Chdir("../..")
+	recorded, err := readLiveCover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, undriven := verdictCounts(recorded)
+	if undriven > maxUndriven {
+		t.Errorf("%d undriven rows against a ceiling of %d", undriven, maxUndriven)
+	}
+	if undriven < maxUndriven {
+		t.Errorf("%d undriven rows and the ceiling is still %d; lower it to %d, since a ceiling "+
+			"above the count is slack the next row spends without anybody deciding to",
+			undriven, maxUndriven, undriven)
 	}
 }

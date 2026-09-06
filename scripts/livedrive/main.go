@@ -213,7 +213,7 @@ func run(o options, t *transcript.Transcript) error {
 		t.Say("\n(pass -file REF to also exercise get_file and a recursive listing)")
 	}
 	if o.write {
-		failures, err := runWrites(sess, t, dir, o.parent, o)
+		failures, err := runWrites(sess, t, dir, o)
 		unexpected += failures
 		if err != nil {
 			return err
@@ -247,12 +247,10 @@ func run(o options, t *transcript.Transcript) error {
 // the run did not send. That is a step which exists and does not run.
 func coverage(rec *livecover.Recorder, sess *mcpstdio.Session) string {
 	published := sess.Options()
-	believed, err := livecover.FromSource(filepath.Join("scripts", "livedrive"), published)
-	if err != nil {
-		// Reading the source is a convenience here and the recording is
-		// not: a driver run from somewhere else still knows what it
-		// sent, and should say so rather than fail.
-		return rec.Report(published, nil)
-	}
+	// The error is deliberately dropped, and FromSource returns a nil map
+	// with it: reading the source is a convenience here and the recording
+	// is not. A driver run from a directory without the source still
+	// knows what it sent, and should say so rather than fail.
+	believed, _ := livecover.FromSource(filepath.Join("scripts", "livedrive"), published)
 	return rec.Report(published, believed)
 }

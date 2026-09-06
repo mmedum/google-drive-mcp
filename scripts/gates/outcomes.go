@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,10 +48,17 @@ import (
 // is the wrong unit. The BRANCH is the right one, and what makes a
 // branch honest is that it consults something before it speaks.
 func outcomes(out io.Writer, _ []string) error {
-	fields, err := boolInputFields()
+	fset := token.NewFileSet()
+	files, err := parseService(fset)
 	if err != nil {
 		return err
 	}
+	// A scan that read too little reports a clean package for ever.
+	if len(files) < 10 {
+		return fmt.Errorf("only %d Go file(s) under internal/service were read; this check is not "+
+			"looking at the code it is meant to", len(files))
+	}
+	fields := boolInputFields(files)
 	if len(fields) < 20 {
 		return fmt.Errorf("found %d boolean input fields in internal/service; this check is not looking "+
 			"at the code it is meant to", len(fields))
@@ -64,19 +69,11 @@ func outcomes(out io.Writer, _ []string) error {
 	}
 
 	var problems []string
-	claims, read, err := outcomeClaims(fields)
-	if err != nil {
-		return err
-	}
-	if read < 10 {
-		return fmt.Errorf("only %d Go files under internal/service were read", read)
-	}
 	used := map[string]bool{}
-	for _, c := range claims {
+	for _, c := range outcomeClaims(files, fields, fset) {
 		key := fmt.Sprintf("%s:%s", c.file, c.field)
-		if reason, ok := exempt[key]; ok {
+		if _, ok := exempt[key]; ok {
 			used[key] = true
-			_ = reason
 			continue
 		}
 		problems = append(problems, fmt.Sprintf(
@@ -102,8 +99,34 @@ func outcomes(out io.Writer, _ []string) error {
 		return fmt.Errorf("%d outcome(s) asserted from the request", len(problems))
 	}
 	_, _ = fmt.Fprintf(out, "outcome check ok (%d boolean inputs across %d files, %d branch(es) excused)\n",
-		len(fields), read, len(exempt))
+		len(fields), len(files), len(exempt))
 	return nil
+}
+
+// parsedFile is one file of the service package, kept with its path so a
+// failure names a place rather than a syntax tree.
+type parsedFile struct {
+	path string
+	file *ast.File
+}
+
+// parseService reads the package once. Both passes below need all of it
+// — a field declared in one file is tested in another — and parsing it
+// twice was how this started.
+func parseService(fset *token.FileSet) ([]parsedFile, error) {
+	paths, err := goFiles(filepath.Join("internal", "service"))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]parsedFile, 0, len(paths))
+	for _, path := range paths {
+		file, parseErr := parser.ParseFile(fset, path, nil, 0)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse %s: %w", path, parseErr)
+		}
+		out = append(out, parsedFile{path: path, file: file})
+	}
+	return out, nil
 }
 
 const outcomeFile = "testdata/outcome-claims.tsv"
@@ -125,18 +148,10 @@ type claim struct {
 // A boolean input is exactly the shape: a string carries a value, and a
 // boolean asks for a state. Deriving it means a new one is covered by
 // the gate on the commit that adds it, with nothing to remember.
-func boolInputFields() (map[string]bool, error) {
+func boolInputFields(files []parsedFile) map[string]bool {
 	out := map[string]bool{}
-	fset := token.NewFileSet()
-	err := filepath.WalkDir(filepath.Join("internal", "service"), func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return err
-		}
-		file, parseErr := parser.ParseFile(fset, path, nil, 0)
-		if parseErr != nil {
-			return fmt.Errorf("parse %s: %w", path, parseErr)
-		}
-		ast.Inspect(file, func(n ast.Node) bool {
+	for _, pf := range files {
+		ast.Inspect(pf.file, func(n ast.Node) bool {
 			spec, ok := n.(*ast.TypeSpec)
 			if !ok || !strings.HasSuffix(spec.Name.Name, "Input") {
 				return true
@@ -151,78 +166,94 @@ func boolInputFields() (map[string]bool, error) {
 					continue
 				}
 				for _, name := range f.Names {
-					// DryRun is the one boolean this rule cannot be about.
-					// A dry run makes no call by construction, so "the
-					// response did not carry it" is trivially true of
-					// every one of them — and what it says is in the
-					// conditional: "would be gone for good" is the
-					// honest form of exactly this sentence, not a
-					// violation of it.
-					if name.Name == "DryRun" {
-						continue
-					}
 					out[name.Name] = true
 				}
 			}
 			return true
 		})
-		return nil
-	})
-	return out, err
+	}
+	return out
 }
 
 // outcomeClaims finds the branches that state an outcome from a request.
-func outcomeClaims(fields map[string]bool) ([]claim, int, error) {
+//
+// It walks a function at a time so that "the request" can be resolved by
+// TYPE rather than guessed: the request is the parameter whose type is
+// an Input, and a selector on anything else is not one. An earlier
+// version matched any selector whose field name happened to be a
+// boolean input's, and needed a hardcoded exception for the service
+// receiver to survive at all. It still reported the RENDERER's
+// `out.DryRun` — a field of the outcome, tested to decide how to print
+// it — as a request being asserted from. A rule that needs one exception
+// usually needs two, and the second is the one nobody adds.
+func outcomeClaims(files []parsedFile, fields map[string]bool, fset *token.FileSet) []claim {
 	var found []claim
-	read := 0
-	fset := token.NewFileSet()
-	err := filepath.WalkDir(filepath.Join("internal", "service"), func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return err
-		}
-		file, parseErr := parser.ParseFile(fset, path, nil, 0)
-		if parseErr != nil {
-			return fmt.Errorf("parse %s: %w", path, parseErr)
-		}
-		read++
-		ast.Inspect(file, func(n ast.Node) bool {
-			stmt, ok := n.(*ast.IfStmt)
-			if !ok {
+	for _, pf := range files {
+		for _, decl := range pf.file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			requests := inputParams(fn)
+			if len(requests) == 0 {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				stmt, ok := n.(*ast.IfStmt)
+				if !ok {
+					return true
+				}
+				field := testedField(stmt.Cond, fields, requests)
+				if field == "" {
+					return true
+				}
+				if consultsDrive(stmt.Body) || refuses(stmt.Body) || saysItIsADryRun(stmt.Body) {
+					return true
+				}
+				if quote, line := proseIn(stmt.Body, fset); quote != "" {
+					found = append(found, claim{file: pf.path, line: line, field: field, quote: quote})
+				}
 				return true
-			}
-			field := testedField(stmt.Cond, fields)
-			if field == "" {
-				return true
-			}
-			if consultsDrive(stmt.Body) || refuses(stmt.Body) {
-				return true
-			}
-			if quote, line := proseIn(stmt.Body, fset); quote != "" {
-				found = append(found, claim{file: path, line: line, field: field, quote: quote})
-			}
-			return true
-		})
-		return nil
-	})
-	sort.Slice(found, func(i, j int) bool {
-		if found[i].file != found[j].file {
-			return found[i].file < found[j].file
+			})
 		}
-		return found[i].line < found[j].line
-	})
-	return found, read, err
+	}
+	return found
+}
+
+// inputParams names the parameters that carry the caller's request: the
+// ones whose type is an Input, however it is spelled.
+func inputParams(fn *ast.FuncDecl) map[string]bool {
+	out := map[string]bool{}
+	if fn.Type.Params == nil {
+		return out
+	}
+	for _, p := range fn.Type.Params.List {
+		t := p.Type
+		if star, ok := t.(*ast.StarExpr); ok {
+			t = star.X
+		}
+		id, ok := t.(*ast.Ident)
+		if !ok || !strings.HasSuffix(id.Name, "Input") {
+			continue
+		}
+		for _, name := range p.Names {
+			out[name.Name] = true
+		}
+	}
+	return out
 }
 
 // testedField names the request field a condition tests, if any.
-func testedField(cond ast.Expr, fields map[string]bool) string {
+func testedField(cond ast.Expr, fields, requests map[string]bool) string {
 	name := ""
 	ast.Inspect(cond, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok || name != "" {
 			return true
 		}
-		if id, ok := sel.X.(*ast.Ident); ok && fields[sel.Sel.Name] && id.Name != "s" {
+		if id, ok := sel.X.(*ast.Ident); ok && requests[id.Name] && fields[sel.Sel.Name] {
 			name = sel.Sel.Name
+			return false
 		}
 		return true
 	})
@@ -307,36 +338,29 @@ func short(v string) string {
 }
 
 // readOutcomeExemptions reads the branches recorded as honest anyway.
+//
+// A missing file means nothing is excused, which is a legitimate state:
+// this gate's record is exceptions only, and a repository with none
+// should not have to keep an empty one.
 func readOutcomeExemptions() (map[string]string, error) {
-	f, err := os.Open(outcomeFile)
-	if os.IsNotExist(err) {
+	if _, err := os.Stat(outcomeFile); os.IsNotExist(err) {
 		return map[string]string{}, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
+	rows, problems := readTSV(outcomeFile, 2, 0)
 	out := map[string]string{}
-	scan := bufio.NewScanner(f)
-	line := 0
-	for scan.Scan() {
-		line++
-		text := strings.TrimRight(scan.Text(), " \r")
-		if text == "" || strings.HasPrefix(text, "#") {
+	for _, row := range rows {
+		if strings.TrimSpace(row.fields[1]) == "" {
+			problems = append(problems, fmt.Sprintf(
+				"%s:%d: %s carries no reason, and an exemption without one is not a decision",
+				outcomeFile, row.line, row.fields[0]))
 			continue
 		}
-		fields := strings.Split(text, "\t")
-		if len(fields) != 2 {
-			return nil, fmt.Errorf("%s:%d: want file:field and a reason, tab-separated", outcomeFile, line)
-		}
-		if strings.TrimSpace(fields[1]) == "" {
-			return nil, fmt.Errorf("%s:%d: %s carries no reason, and an exemption without one is not a decision",
-				outcomeFile, line, fields[0])
-		}
-		out[fields[0]] = fields[1]
+		out[row.fields[0]] = row.fields[1]
 	}
-	return out, scan.Err()
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(problems, "\n"))
+	}
+	return out, nil
 }
 
 // refuses reports whether a branch ends in an error rather than in a
@@ -383,6 +407,41 @@ func refuses(body *ast.BlockStmt) bool {
 				}
 				return !found
 			})
+		}
+		return !found
+	})
+	return found
+}
+
+// saysItIsADryRun reports whether a branch marks its own result as a dry
+// run, which is the thing that makes its sentence honest.
+//
+// A dry run makes no call by construction, so "the response did not
+// carry it" is trivially true of every one of them, and what it says is
+// in the conditional: "would be gone for good" is the honest form of
+// exactly this sentence rather than a violation of it.
+//
+// The first version of this gate excluded the FIELD named DryRun
+// instead, which is the same answer by a worse route. It made
+// `if in.DryRun { note = "the file was deleted" }` invisible for ever,
+// because a field removed from the set is removed from every branch that
+// tests it. Reading the result's own DryRun marker asks the question
+// that matters — does this branch tell the caller it is describing
+// something that has not happened — and every dry-run branch in this
+// package that carries prose sets it.
+func saysItIsADryRun(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		kv, ok := n.(*ast.KeyValueExpr)
+		if !ok {
+			return true
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok || key.Name != "DryRun" {
+			return true
+		}
+		if value, ok := kv.Value.(*ast.Ident); ok && value.Name == "true" {
+			found = true
 		}
 		return !found
 	})

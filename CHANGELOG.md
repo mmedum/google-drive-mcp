@@ -8,6 +8,28 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The transcript gate had a second way out, found by trying it.** A
+  review of the gate wrote `log.Printf("owner: %s", addr)` into the live
+  driver and the gate passed: `log` and `log/slog` write to a terminal
+  with the name left out, exactly as `fmt.Print` does, and the gate
+  enumerated call shapes rather than destinations. Its own test
+  enumerated the same six shapes as the implementation, so it could never
+  have found this.
+
+  The fix is a rule about what a driver may reach rather than a longer
+  list of ways to reach it: these packages may not import `log` or
+  `log/slog` at all. Enumerating those calls would have been the same
+  mistake again — `log` alone has nine printing functions plus a Logger
+  with all of them.
+
+  Two more holes went with it. The package list could not notice a THIRD
+  driver, which is the worst way for a check to go quiet, so a program
+  under `scripts/` that imports the redactor and is not covered now
+  fails by name. And `scripts/internal/mcpstdio`, the session both
+  drivers print through, was not covered at all: it prints nothing today
+  and a debugging `Println` there would have leaked past every check in
+  the file.
+
 - **`copy_file` claimed the comments came across, and nothing could know
   that.** With `copy_comments: true` the result said "The comment threads
   were copied with it, so everybody who can see the copy can read what

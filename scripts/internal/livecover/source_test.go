@@ -109,3 +109,43 @@ func TestAnEmptyDirectoryIsAnError(t *testing.T) {
 		t.Error("a directory with no Go source was read as a driver that sends nothing")
 	}
 }
+
+// TestOnlyTheArgumentMapBelongsToTheNamedTool. The helper that names a
+// tool for its caller reads the arguments out of the `call` it was
+// given; every other map in that function belongs to something else.
+//
+// The first version recorded them all, which is right for the one
+// function that has this shape today and silently wrong the day it
+// builds a second map. The failure would be invisible in the worst
+// direction: coverage goes UP, and the rows excusing those options get
+// deleted as driven.
+func TestOnlyTheArgumentMapBelongsToTheNamedTool(t *testing.T) {
+	dir := t.TempDir()
+	src := `package main
+
+func scoped(c call) {
+	c.tool = "empty_trash"
+	c.args["drive"] = d.driveID
+	unrelated := map[string]any{"not_an_option": true}
+	d.note(unrelated)
+	d.call(c)
+}
+
+func caller() {
+	d.scoped(call{args: map[string]any{"confirm": true}})
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "driver.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sent, err := FromSource(dir, map[string][]string{"empty_trash": {"confirm", "drive"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sent["empty_trash"]["drive"] || !sent["empty_trash"]["confirm"] {
+		t.Errorf("the arguments of the named tool were not read: %v", sent)
+	}
+	if sent["empty_trash"]["not_an_option"] {
+		t.Error("a map the function built for something else was recorded as this tool's options")
+	}
+}
