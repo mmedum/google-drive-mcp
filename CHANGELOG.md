@@ -259,15 +259,24 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Note for whoever picks this up
 
 Everything above is unreleased and sits on a topic branch. Nothing is
-pushed. The open decision is whether it goes out as 1.0.1 or waits for
-company: no code path changed, so nothing forces a release — but the
-README people read is the one on the default branch, which updates on
-merge rather than on a tag, and it was two releases stale until now.
+pushed. The release decision has changed since this note was first
+written: a code path DID change — `copy_file`'s note no longer claims the
+comments came across — so this is no longer only documentation, and
+1.0.1 is a patch release with something in it.
 
-Four things are recorded in §17a rather than done: the MCP registry
-entry, a `live-cover` gate over the driver's option coverage, the
-`transcript` gate, and a gate for "never assert an outcome the response
-did not carry".
+Three of the four things that were recorded in §17a rather than done are
+done: the `transcript` gate, the `live-cover` gate and the number behind
+it, and the outcome gate. The MCP registry entry is the one left, and it
+is the one that cannot be tested locally at all: the registry does a HEAD
+on the bundle's download URL before accepting the entry, so the step runs
+last in the release workflow, after the release exists.
+
+What is unverified and would be settled by one live run: the driver now
+lists the copied file's comments, which is the question `gates outcomes`
+raised and no run has answered; and the fifty-six `undriven` rows in
+`testdata/live-cover.tsv` are each one argument on a call that already
+happens. Neither blocks a release. Both are the first thing to do with an
+account in front of you.
 
 ## [1.0.0] - 2026-09-06
 
