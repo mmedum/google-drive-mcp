@@ -25,10 +25,12 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/scripts/internal/transcript"
 )
 
 func main() {
@@ -49,8 +51,12 @@ func main() {
 	if *only != "" {
 		o.only = strings.Split(*only, ",")
 	}
-	if err := run(o); err != nil {
-		fmt.Fprintln(os.Stderr, "evals: "+err.Error())
+	// The transcript is made here rather than inside run, so that the
+	// run's own failure is redacted by the same thing that redacted
+	// everything leading up to it.
+	t := transcript.New(redact.NewRedactor(*raw))
+	if err := run(o, t); err != nil {
+		t.Fail("evals: %v", err)
 		os.Exit(1)
 	}
 }

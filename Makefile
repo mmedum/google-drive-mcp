@@ -111,6 +111,10 @@ api-coverage: ## Every API method is used on purpose or left out on purpose
 mcpb: ## The committed bundle manifest must name files the packer will stage
 	$(GO) run ./scripts/gates mcpb
 
+.PHONY: transcript
+transcript: ## A program driving a real account may only print through the redactor
+	$(GO) run ./scripts/gates transcript
+
 .PHONY: parity
 parity: ## `make check` and CI must run the same gates
 	$(GO) run ./scripts/gates parity
@@ -120,7 +124,7 @@ api-diff: ## Refetch the three discovery documents and report what has changed (
 	$(GO) run ./scripts/gates api-diff
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage mcpb schema-diff smoke staleness parity ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage mcpb transcript schema-diff smoke staleness parity ## Everything CI runs
 
 .PHONY: clean
 clean:

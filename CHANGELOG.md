@@ -26,6 +26,43 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The live driver's transcript is redacted by construction now, not by
+  habit.** §17a has described this since phase 4 and deferred it three
+  times, and the reason it kept being deferred is that the version with
+  teeth is a rewrite of every print in the program rather than a check
+  bolted beside them.
+
+  Every line HAPPENED to go through the redactor before, which is not the
+  same as every line HAVING to. Phase 4 found the proof — the driver
+  echoed each call's arguments unredacted, which was arguably nobody's
+  problem while the only address there was one the operator had typed,
+  and became one the moment starting an approval put the signed-in
+  account's own address into the arguments of every write run. It was
+  fixed line by line. The next print somebody added while debugging would
+  have looked exactly like the two beside it that are safe.
+
+  So `scripts/internal/transcript` is now the only way these programs
+  write anything, and `gates transcript` refuses every other way out:
+  `fmt.Print*`, any mention of `os.Stdout` or `os.Stderr`, and the
+  builtins `print` and `println`. The rule is about the DESTINATION
+  rather than the function, so `fmt.Fprintf` into a buffer — which is how
+  an eval task builds its fixture — is untouched, and the gate needs no
+  allowlist. An allowlist is how a gate stops being believed.
+
+  Two programs share it rather than one having it. The eval harness runs
+  against the same real account and prints the same kinds of thing, and a
+  rule covering one of two identical programs is a rule waiting to be
+  drifted around. The gate also refuses a HOLLOW exemption: if nothing in
+  the transcript package passed what it writes through the redactor,
+  every other check here would be worth nothing, and moving each
+  `fmt.Println` into a passthrough helper would have satisfied all of
+  them. Six ways to a terminal are watched being refused in tests, and
+  what comes out of the transcript is asserted rather than assumed.
+
+  The run's own failure was the one line that never went through the
+  redactor at all: it was the last thing printed, after the session, and
+  it carries whatever the error carried.
+
 - **The README carries the things a released server's README should**, and
   did not: a **Versioning** section saying what is stable within a major
   version and what counts as breaking, a **Security** section pointing at

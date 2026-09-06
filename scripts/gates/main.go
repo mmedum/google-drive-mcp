@@ -58,6 +58,8 @@ func init() {
 		"api-coverage": {run: apiCoverage,
 			doc: "every API method is used on purpose or left out on purpose", gate: true},
 		"parity": {run: parity, doc: "`make check` and CI run the same gates", gate: true},
+		"transcript": {run: transcript,
+			doc: "a program that drives a real account cannot reach a terminal except through the redactor", gate: true},
 		"mcpb": {run: mcpbCheck,
 			doc: "the committed bundle manifest names files the packer will stage", gate: true},
 		"api-diff": {run: apiDiff,

@@ -2,11 +2,13 @@
 // Google account, which is the check no fake can make: that the tools
 // behave against Drive itself.
 //
-// Every result is printed with ids, links and addresses replaced by
-// stable placeholders. What it cannot replace is the names of files,
-// folders and shared drives: nothing distinguishes one from prose. Read
-// a transcript before sharing it — the summary at the end says the same
-// thing, every run.
+// Every line is printed with ids, links and addresses replaced by
+// stable placeholders — every line, not every line somebody remembered:
+// this program prints through the transcript package and `gates
+// transcript` refuses any other way out. What it cannot replace is the
+// names of files, folders and shared drives: nothing distinguishes one
+// from prose. Read a transcript before sharing it — the summary at the
+// end says the same thing, every run.
 //
 //	go run ./scripts/livedrive -bin ./google-drive-mcp
 //	go run ./scripts/livedrive -bin ./google-drive-mcp -file /Projects
@@ -45,6 +47,7 @@ import (
 
 	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
 	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/scripts/internal/transcript"
 )
 
 func main() {
@@ -61,10 +64,16 @@ func main() {
 	blocked := flag.String("blocked", "", "an address the organisation's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
 	flag.Parse()
 
-	if err := run(options{binary: *binary, file: *file, raw: *raw, write: *write,
+	// The transcript is made here rather than inside run, so that the
+	// run's own failure is redacted by the same thing that redacted
+	// everything leading up to it: an error carrying a file name or an
+	// address is the last line of a session and was the one line that
+	// never went through the redactor.
+	t := transcript.New(redact.NewRedactor(*raw))
+	if err := run(options{binary: *binary, file: *file, write: *write,
 		parent: *parent, drive: *drive, share: *share, blocked: *blocked,
-		labels: *labels, activity: *activity, destructive: *destructive}); err != nil {
-		fmt.Fprintln(os.Stderr, "livedrive: "+err.Error())
+		labels: *labels, activity: *activity, destructive: *destructive}, t); err != nil {
+		t.Fail("livedrive: %v", err)
 		os.Exit(1)
 	}
 }
@@ -100,7 +109,6 @@ func outcomeWord(isError bool) string {
 type options struct {
 	binary   string
 	file     string
-	raw      bool
 	write    bool
 	parent   string
 	drive    string
@@ -115,8 +123,7 @@ type options struct {
 	destructive bool
 }
 
-func run(o options) error {
-	red := redact.NewRedactor(o.raw)
+func run(o options, t *transcript.Transcript) error {
 	// The transfer tools need a local directory, and an MCP client passes
 	// one only through the environment.
 	dir, err := os.MkdirTemp("", "livedrive-")
@@ -149,8 +156,8 @@ func run(o options) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("protocol:", proto)
-	fmt.Println("tools:   ", strings.Join(tools, ", "))
+	t.Sayf("protocol: %s", proto)
+	t.Sayf("tools:    %s", strings.Join(tools, ", "))
 
 	calls := []call{
 		{tool: "get_account", args: map[string]any{}},
@@ -172,50 +179,50 @@ func run(o options) error {
 
 	unexpected := 0
 	for _, c := range calls { //nolint:dupl // the read loop and the write loop print differently on purpose
-		fmt.Printf("\n=== %s %s ===\n", c.tool, red.Do(mcpstdio.Encode(c.args)))
+		t.Sayf("\n=== %s %s ===", c.tool, mcpstdio.Encode(c.args))
 		if c.why != "" {
-			fmt.Printf("(expecting a refusal: %s)\n", c.why)
+			t.Sayf("(expecting a refusal: %s)", c.why)
 		}
 		text, isError, err := sess.CallTool(c.tool, c.args)
 		if err != nil {
 			return err
 		}
-		fmt.Println(strings.TrimRight(red.Do(text), "\n"))
+		t.Say(text)
 		switch {
 		case c.tolerant:
-			fmt.Println("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
+			t.Say("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
 		case isError != c.expectError:
 			unexpected++
 			if c.expectError {
-				fmt.Println("!! expected a refusal and did not get one")
+				t.Say("!! expected a refusal and did not get one")
 			} else {
-				fmt.Println("!! unexpected tool error")
+				t.Say("!! unexpected tool error")
 			}
 		}
 	}
 
 	if file == "" {
-		fmt.Println("\n(pass -file REF to also exercise get_file and a recursive listing)")
+		t.Say("\n(pass -file REF to also exercise get_file and a recursive listing)")
 	}
 	if o.write {
-		failures, err := runWrites(sess, red, dir, o.parent, o)
+		failures, err := runWrites(sess, t, dir, o.parent, o)
 		unexpected += failures
 		if err != nil {
 			return err
 		}
 	} else {
-		fmt.Println("(pass -write to exercise the tools that change Drive, in a scratch folder)")
+		t.Say("(pass -write to exercise the tools that change Drive, in a scratch folder)")
 	}
 	if logs := sess.StderrTail(20); len(logs) > 0 {
-		fmt.Println("\n=== stderr ===")
+		t.Say("\n=== stderr ===")
 		for _, line := range logs {
-			fmt.Println(red.Do(line))
+			t.Say(line)
 		}
 	}
-	fmt.Println("\n" + red.Summary())
+	t.Say("\n" + t.Summary())
 	if unexpected > 0 {
 		return fmt.Errorf("%d call(s) did not behave as expected", unexpected)
 	}
-	fmt.Println("all calls behaved as expected")
+	t.Say("all calls behaved as expected")
 	return nil
 }

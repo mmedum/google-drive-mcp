@@ -83,8 +83,8 @@ func (d *destroyRun) destroyFile(id string, tolerant bool) {
 // every call below is only safe inside one.
 func runDestructive(w *writeRun, name string) {
 	d := &destroyRun{writeRun: w, driveName: name}
-	fmt.Println("\n--- destructive five, in a shared drive of their own ---")
-	fmt.Println("(everything below happens in a shared drive this run creates and destroys again)")
+	d.out.Say("\n--- destructive five, in a shared drive of their own ---")
+	d.out.Say("(everything below happens in a shared drive this run creates and destroys again)")
 
 	d.driveID = w.createAndKeepID("manage_drive", map[string]any{
 		"action": "create", "name": name,
@@ -120,7 +120,7 @@ func runDestructive(w *writeRun, name string) {
 // TestEmptyTrashIsNamedInOnePlace holds it.
 func (d *destroyRun) emptyTrash(c call) {
 	if d.driveID == "" {
-		fmt.Println("\n=== empty_trash: skipped, there is no scratch drive to scope it to ===")
+		d.out.Say("\n=== empty_trash: skipped, there is no scratch drive to scope it to ===")
 		return
 	}
 	c.tool = "empty_trash"
@@ -165,7 +165,7 @@ func (d *destroyRun) refusalsWithoutConfirm() {
 func (d *destroyRun) deleteAFile() {
 	id := d.makeFile("delete me.txt", "gone for good\n")
 	if id == "" {
-		fmt.Println("\n=== delete_file: skipped, the file it needs was never created ===")
+		d.out.Say("\n=== delete_file: skipped, the file it needs was never created ===")
 		return
 	}
 	d.destroyFile(id, false)
@@ -181,7 +181,7 @@ func (d *destroyRun) deleteAFile() {
 func (d *destroyRun) deleteARevision() {
 	id := d.makeFile("revisions.txt", "first\n")
 	if id == "" {
-		fmt.Println("\n=== delete_revision: skipped, the file it needs was never created ===")
+		d.out.Say("\n=== delete_revision: skipped, the file it needs was never created ===")
 		return
 	}
 	d.call(call{tool: "update_content", args: map[string]any{
@@ -194,7 +194,7 @@ func (d *destroyRun) deleteARevision() {
 		// which is how delete_revision came to be "verified" by a run
 		// that never called it. A pause is fine here: this is a driver,
 		// not a tool call somebody is waiting on.
-		fmt.Println("\n(only the current revision is listed yet; waiting for Drive to catch up)")
+		d.out.Say("\n(only the current revision is listed yet; waiting for Drive to catch up)")
 		time.Sleep(10 * time.Second)
 		first = d.revisionID(id, true)
 	}
@@ -214,7 +214,7 @@ func (d *destroyRun) deleteARevision() {
 		// which is Drive disagreeing with itself for a moment after a
 		// write. One retry after a pause, the same treatment the drive
 		// delete gets and for the same reason.
-		fmt.Println("\n(the revision was there for the dry run and not for the delete; waiting)")
+		d.out.Say("\n(the revision was there for the dry run and not for the delete; waiting)")
 		time.Sleep(10 * time.Second)
 		d.call(call{tool: "delete_revision", args: map[string]any{
 			"file": id, "revision": first, "confirm": true,
@@ -231,14 +231,14 @@ func (d *destroyRun) deleteARevision() {
 func (d *destroyRun) deleteAComment() {
 	id := d.makeFile("commented.txt", "worth discussing\n")
 	if id == "" {
-		fmt.Println("\n=== delete_comment: skipped, the file it needs was never created ===")
+		d.out.Say("\n=== delete_comment: skipped, the file it needs was never created ===")
 		return
 	}
 	comment := commentFromResult(d.call(call{tool: "add_comment", args: map[string]any{
 		"file": id, "content": "this thread is about to be removed",
 	}}))
 	if comment == "" {
-		fmt.Println("\n=== delete_comment: skipped, the comment it needs was never made ===")
+		d.out.Say("\n=== delete_comment: skipped, the comment it needs was never made ===")
 		return
 	}
 	d.call(call{tool: "delete_comment", args: map[string]any{"file": id, "comment": comment},
@@ -263,7 +263,7 @@ func (d *destroyRun) deleteAComment() {
 func (d *destroyRun) approvalLock() {
 	me := d.accountAddress()
 	if me == "" {
-		fmt.Println("\n=== approval lock: skipped, this run could not read its own address ===")
+		d.out.Say("\n=== approval lock: skipped, this run could not read its own address ===")
 		return
 	}
 	// A blob, not a Google Doc. The promise being checked is that the
@@ -272,7 +272,7 @@ func (d *destroyRun) approvalLock() {
 	// would look exactly like the lock working.
 	id := d.makeFile("locked.txt", "before the approval\n")
 	if id == "" {
-		fmt.Println("\n=== approval lock: skipped, the file it needs was never created ===")
+		d.out.Say("\n=== approval lock: skipped, the file it needs was never created ===")
 		return
 	}
 
@@ -282,7 +282,7 @@ func (d *destroyRun) approvalLock() {
 		"file": id, "action": "start", "reviewers": []string{me},
 		"message": "a scratch approval that locks the file", "lock_file": true,
 	}}))
-	fmt.Println("\n(the card below is the whole question: manage_approval has just said the file " +
+	d.out.Say("\n(the card below is the whole question: manage_approval has just said the file " +
 		"is LOCKED, so a content restriction should be on it)")
 	d.call(call{tool: "get_file", args: map[string]any{"file": id}})
 	// NOT expected to be refused, which is the finding: two runs agree
@@ -290,7 +290,7 @@ func (d *destroyRun) approvalLock() {
 	// the content change goes through. Left as a plain call so that a
 	// Drive which starts locking shows up here as an unexpected refusal
 	// rather than as silence.
-	fmt.Println("\n(this content change is expected to SUCCEED: lock_file applied no restriction)")
+	d.out.Say("\n(this content change is expected to SUCCEED: lock_file applied no restriction)")
 	d.call(call{tool: "update_content", args: map[string]any{
 		"file": id, "content": "changed while locked\n",
 	}})
@@ -301,7 +301,7 @@ func (d *destroyRun) approvalLock() {
 		"file": id, "name": "renamed while locked.txt",
 	}})
 	if locked == "" {
-		fmt.Println("\n=== approval lock: the approval id was not readable, so it cannot be approved ===")
+		d.out.Say("\n=== approval lock: the approval id was not readable, so it cannot be approved ===")
 		return
 	}
 

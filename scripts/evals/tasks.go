@@ -331,7 +331,7 @@ func sharingTasks() []task {
 				// -share this task scores the trace — the role and the
 				// silence — and says which half it could not see.
 				if !s.realAddress {
-					fmt.Println("   (no -share ADDRESS: the grant itself was not verified, only the call)")
+					s.out.Say("   (no -share ADDRESS: the grant itself was not verified, only the call)")
 					return out
 				}
 				perms, err := s.call("list_permissions", map[string]any{"file": s.get("target_id")})

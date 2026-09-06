@@ -323,10 +323,12 @@ race tests with a per-package coverage floor, `govulncheck`, a licence
 check, a leak check over the working tree, pinned-version and error-class
 gates, an API-coverage gate holding every method of all three APIs to a
 recorded decision, a bundle-manifest gate holding the committed manifest
-to the files the packer stages, a stdio smoke test, a schema diff against
-the released tool surface, a staleness gate that fails when this README,
-the docs or the changelog drift from the code, and a parity gate asserting that
-`make check` and CI run the same set of gates.
+to the files the packer stages, a transcript gate refusing any way for a
+program that drives a real account to reach a terminal except through the
+redactor, a stdio smoke test, a schema diff against the released tool
+surface, a staleness gate that fails when this README, the docs or the
+changelog drift from the code, and a parity gate asserting that `make
+check` and CI run the same set of gates.
 
 Conventions are in [CONTRIBUTING.md](CONTRIBUTING.md); building, testing
 and releasing are in [docs/development.md](docs/development.md).
