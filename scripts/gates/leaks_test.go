@@ -252,3 +252,77 @@ func TestASubdomainOfADocumentedDomainIsDocumented(t *testing.T) {
 		}
 	}
 }
+
+// TestAFileNobodyHasStagedIsStillScanned. `git ls-files` lists the
+// INDEX, so the working-tree scan used to be blind to a file nobody had
+// staged yet — and a phase's new files are precisely the ones nobody has
+// scanned before. `make check` would go green all afternoon over the
+// last phase's files while this phase's fixtures went unread, and the
+// leak would arrive with the commit that finally staged them, in front
+// of whoever was trying to push.
+//
+// A sibling repository found the same hole in its own copy the same
+// week, and found a real fixture id with the fix.
+func TestAFileNobodyHasStagedIsStillScanned(t *testing.T) {
+	dir := gitRepo(t, sample("a.tester", "@", "example", ".com"), "Add a file\n")
+	// Assembled rather than written out, for the reason at the top of
+	// this file: a leak-shaped literal here makes the gate flag its own
+	// test.
+	id := sample("1QwErTyUiOp2", "AsDfGhJkL3", "ZxCvBnM4", "pLmNbVcXz")
+	if err := os.WriteFile(filepath.Join(dir, "unstaged.md"), []byte("an id: "+id+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	var out strings.Builder
+	if err := leaks(&out, nil); err == nil {
+		t.Errorf("a file nobody has staged was not scanned:\n%s", out.String())
+	}
+
+	// And .gitignore is still kept: an ignored build output is not
+	// something to scan, and keeping it out of the tree is what the
+	// ignore file is for.
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("unstaged.md\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := leaks(&out, nil); err != nil {
+		t.Errorf("an ignored file was scanned: %v\n%s", err, out.String())
+	}
+}
+
+// TestACompiledBinaryIsAFindingAndNotASkip.
+//
+// Three sessions across sibling repositories concluded from reading this
+// gate that a compiled artifact is invisible to it — that a content
+// scanner cannot see a binary by construction, so only .gitignore stands
+// between a build output and the history. All three were wrong here, and
+// all three found out the same way: by building one and watching the
+// gate name it. Nothing in this file had ever run that check, which is
+// what left the question to be settled by reading.
+//
+// A NUL byte in the first few kilobytes is what git itself uses to
+// decide, so the fixture needs no real executable.
+func TestACompiledBinaryIsAFindingAndNotASkip(t *testing.T) {
+	dir := gitRepo(t, sample("a.tester", "@", "example", ".com"), "Add a file\n")
+	body := append([]byte("\x7fELF\x00\x00\x00"), make([]byte, 4096)...)
+	if err := os.WriteFile(filepath.Join(dir, "built"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	var out strings.Builder
+	err := leaks(&out, nil)
+	if err == nil {
+		t.Fatalf("a compiled artifact in the tree was accepted:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "compiled binary") {
+		t.Errorf("the report does not say what was found:\n%s", out.String())
+	}
+	// And it fails while the file is still untracked, which is the
+	// ordering that matters: the alternative is failing after the
+	// `git add -A` that would have swept it into a commit.
+	if !strings.Contains(out.String(), "built") {
+		t.Errorf("the report does not name the file:\n%s", out.String())
+	}
+}

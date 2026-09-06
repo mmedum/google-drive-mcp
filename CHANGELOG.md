@@ -4,6 +4,409 @@ All notable changes to this project are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-09-06
+
+### Fixed
+
+- **A run that Drive could not present the state for reported a
+  failure.** `delete_revision` needs an older revision to delete, and
+  Drive's revision endpoints lag a write in both directions — one run
+  had `update_content` told "Revision not found" for a revision Drive had
+  named in its own response a moment earlier. The driver waited, found
+  only the current revision, and counted a failed call, so a healthy run
+  exited non-zero for a reason outside anybody's control.
+
+  It says UNVERIFIED THIS RUN now, loudly, and does not count it — which
+  is what the property search two hundred lines away already did for the
+  identical thing. Loud matters: a step being counted as verified by a
+  run that never reached it is exactly how `delete_revision` got its
+  reputation. An exit code nobody reads is the worse loss.
+
+- **The leak gate could not see a file nobody had staged.** It listed
+  files with `git ls-files`, which reads the INDEX, so a new file was
+  invisible to it until somebody added it — and a phase's new files are
+  precisely the ones nobody has scanned before. `make check` would go
+  green over the last phase's files while this phase's fixtures, written
+  that afternoon, went unread, and the leak would arrive with the commit
+  that finally staged them, in front of whoever was trying to push.
+
+  It reads the working tree now: everything tracked, plus everything
+  untracked that `.gitignore` does not exclude. The ignore rules are
+  still kept, because a build output at the repository root is the one
+  thing they exist to keep out.
+
+  Found by a sibling repository hitting it in its own copy the same week,
+  where the first `git add -A` of a phase took the count from 167 files
+  to 195 and immediately found a fixture id that did not declare itself
+  synthetic. Reproduced here before fixing: an id the gate refuses sat in
+  an unstaged file with the gate reporting ok.
+
+- **The outcome gate could be silenced by one error check.** `refuses`
+  looked for `return nil, x` anywhere in a branch, so ordinary error
+  propagation excused everything after it. A review probe put the phase-5
+  `lock_file` defect back verbatim behind an `if err != nil { return nil,
+  err }` and the gate reported nothing at all — the one shape it exists
+  for, made invisible by the commonest line in the package. It reads the
+  branch's terminal statement now.
+
+- **The bundle would have shipped a Mach-O binary to Windows and nothing
+  would have said so.** `checkManifest` asked whether a
+  `platform_overrides` command names a staged file, and whether an
+  override exists for a platform the bundle does not claim — but never
+  whether a platform it DOES claim spawns the file staged for it. Delete
+  the `win32` override and the gate passed: Windows would then run the
+  default command, which is the darwin universal binary, and that file
+  really is in the bundle. Every claimed platform is now held to its own
+  entry point.
+
+- **Renaming a staged Linux binary passed every gate and every test.**
+  The launcher picks between `google-drive-mcp-amd64` and `-arm64` by
+  `uname -m`, and those names live in a shell script no manifest
+  mentions, so nothing tied them to what the packer stages. The bundle
+  would have failed for every Linux user with the launcher's own "missing
+  from the bundle" message. The names are held to `binaries` now — and
+  the launcher test's comment claimed that guarantee while hardcoding the
+  names, so the test staged what it had typed and the launcher looked for
+  what it had typed, and the two agreed with each other rather than with
+  the packer.
+
+- **A composed `${user_config.x}` skipped the check.** It matched only a
+  value that is nothing but a reference, so
+  `"${user_config.local_dir}/sub"` with nothing declaring `local_dir`
+  passed, and the server would start with the variable unsubstituted.
+
+- **The transcript gate could not see the redactor itself.** It is on the
+  path of every line the drivers print, and it is the one package the
+  unlisted-driver rule can never find, because the mark is importing the
+  redactor and the redactor does not import itself. A `fmt.Println` added
+  there reported ok.
+
+- **One outcome exemption covered every branch in its file.** A row is
+  keyed by file and field, so a second branch testing the same boolean in
+  the same file was excused by an argument written about the first —
+  silently, and it is the new branch nobody has looked at. The ambiguity
+  is refused now rather than keyed on a line number, which would make
+  every row stale on the next edit above it.
+
+- **The transcript gate had a second way out, found by trying it.** A
+  review of the gate wrote `log.Printf("owner: %s", addr)` into the live
+  driver and the gate passed: `log` and `log/slog` write to a terminal
+  with the name left out, exactly as `fmt.Print` does, and the gate
+  enumerated call shapes rather than destinations. Its own test
+  enumerated the same six shapes as the implementation, so it could never
+  have found this.
+
+  The fix is a rule about what a driver may reach rather than a longer
+  list of ways to reach it: these packages may not import `log` or
+  `log/slog` at all. Enumerating those calls would have been the same
+  mistake again — `log` alone has nine printing functions plus a Logger
+  with all of them.
+
+  Two more holes went with it. The package list could not notice a THIRD
+  driver, which is the worst way for a check to go quiet, so a program
+  under `scripts/` that imports the redactor and is not covered now
+  fails by name. And `scripts/internal/mcpstdio`, the session both
+  drivers print through, was not covered at all: it prints nothing today
+  and a debugging `Println` there would have leaked past every check in
+  the file.
+
+- **`copy_file` claimed the comments came across, and nothing could know
+  that.** With `copy_comments: true` the result said "The comment threads
+  were copied with it, so everybody who can see the copy can read what
+  was said on the original" — asserted from the argument. `files.copy`
+  answers with a File and mentions comments nowhere, so the claim had no
+  source. It is the `lock_file` defect exactly, with somebody else's
+  words in place of a restriction, and the class of claim this server is
+  most careful about everywhere else.
+
+  Three things kept it alive. The live driver has copied with that
+  parameter since phase 4 and never looked at the copy. The test asserted
+  the sentence, so a fixture written from the belief kept the belief. And
+  §18 recorded the overpromise as though it were a feature: "the result
+  says out loud when a copy carried somebody else's words somewhere new."
+
+  It now says what Drive was ASKED to do, says outright that Drive does
+  not report whether it did, and names `list_comments` on the copy as the
+  It now says what Drive was ASKED to do, says outright that Drive does
+  not report whether it did, and names `list_comments` on the copy as the
+  call that settles it. Reading it back inside `copy_file` was the other
+  option and was rejected for a reason phase 5 paid for: `comments.list`
+  lags a copy, so an empty answer would report threads as dropped when
+  they were merely late — the `empty_trash` mistake in the opposite
+  direction.
+
+  **Then the driver looked, and the answer is a split.** An uploaded
+  CSV's threads did not come across — checked again minutes later with
+  `include_deleted: true`, still none and none deleted, so not the
+  listing lagging. A Google Doc's threads DID, on the next run, same
+  session, same argument. So the parameter works and not for every kind,
+  and both the note and the SCHEMA now say so and name the two kinds
+  actually seen. The schema matters more, because it is read BEFORE the
+  call: the `lock_file` lesson, on a second parameter, in the same phase.
+
+  What is an inference rather than a finding is the rule behind it —
+  Drive's own formats carry them, uploaded bytes do not. That is two data
+  points and the obvious reading of them, and Google documents no such
+  limit. The driver copies both kinds now and says which carried, so the
+  next run re-checks a fact that has already changed once.
+
+- **The parity gate could be defeated by typing one `#`.** It read the
+  whole workflow file for `go run ./scripts/gates NAME`, so a step
+  commented out to unblock a red build still counted as running — which
+  is exactly the divergence between `make check` and CI that this gate
+  exists to catch, reached by the commonest way of causing it. The
+  Makefile side had the same hole: an indented `#` is a line Make hands
+  to the shell, which does nothing with it.
+
+  Comment lines are dropped from both files now, and on the CI side a
+  gate counts only where a `run:` step names it — on the step's own line
+  or inside a `run: |` block, found by indentation rather than by parsing
+  YAML. Four ways a gate's name can be in the file without running are
+  tested. What is left is a step disabled by an `if:` that is never true,
+  which needs a real YAML parser and a dependency to see; it is a smaller
+  hole than a `#`, which needs nothing.
+
+  Found by a sibling repository porting these gates and hitting it there.
+
+- **The error-class gate never read the published vocabulary.** It held
+  every declared class to being emitted somewhere in the code, and
+  `gapi.Classes()` — the list `doctor` prints, and what a model is told
+  the vocabulary is — was a third list nothing checked. A class could be
+  declared, emitted and missing from it, which is a class nobody can look
+  up; or listed twice, which is a list edited without being read.
+
+  Both are refused now, and the duplicate check counts occurrences rather
+  than comparing lengths after a compaction: the sibling that reported
+  this had used `slices.Compact`, which removes only ADJACENT equals, so
+  a class written twice anywhere but beside itself passed. The fixtures
+  here put the repeat at the far end.
+
+- **The stdio smoke test threw away the reason it failed.** When the
+  write of the request frames fails, it fails because the server has
+  already gone — so the error in hand is a broken pipe and the
+  explanation is in the server's stderr, which this discarded. A server
+  that panicked during initialisation reported `write frames: broken
+  pipe` and nothing else. It reports the stderr with it now.
+
+- **The README's status line was two releases stale.** It said "Status:
+  v0.3.0, phase 3" through v0.4.0 and v1.0.0, and promised Workspace
+  labels as something that would "arrive in v0.4.0" after they had
+  shipped. The list of unverified paths was out of date too: it named
+  two, where there are four, and the five destructive tools it implied
+  were unverified have since run against Drive.
+
+  The staleness gate did not catch it, and the reason is worth writing
+  down: that gate reads the README's tool TABLE, which was correct the
+  whole time, and its architecture check greps for a single phase-0
+  placeholder. A document can be wrong about what it *is* while every
+  list inside it is right. Both status lines are now held to the newest
+  version in this file — only the version, because a number that must
+  match another number is the part a gate can hold, and the prose around
+  it is a person's job.
+
+### Added
+
+- **The rule against asserting an outcome from the request has a gate,
+  and §17a's proposed version of it was wrong.** The entry said: fail if
+  the field is read in the same function that builds the outcome note.
+  Two CORRECT sites do exactly that — the lock sentence branches on
+  `lock_file` and then reads the file back, and the pinning note branches
+  on `keep_previous_revision` and then asks Drive to pin and words the
+  result from the answer. The function is the wrong unit; the BRANCH is
+  the right one, and what makes a branch honest is that it consults
+  something before it speaks.
+
+  `gates outcomes` fails a branch that tests a boolean the caller sent
+  and then writes prose describing the result without asking Drive
+  anything in between. A dry run and a refusal are excluded by the rule
+  itself rather than by a list: a dry run makes no call by construction
+  and says "would", which is the honest form of exactly this sentence,
+  and a refusal says what this server did, which is true whatever Drive
+  would have answered.
+
+  The other half of §17a's design question — which fields — is answered
+  by deriving rather than choosing. Every boolean field on a service
+  input struct is in scope, because a boolean input asks for a state
+  where a string carries a value, so a new one is covered on the commit
+  that adds it with nothing to remember.
+
+  What the gate cannot do is judge the words: the honest form of the
+  shape parses identically to the dishonest one. A branch that is right
+  anyway carries a row in `testdata/outcome-claims.tsv` with the reason,
+  and a row that stops matching fails, so an excuse cannot outlive the
+  code it excused. There are two.
+
+- **The live driver's option coverage is measured, and it reads 122 of
+  188.** §17a has wanted this number since phase 5 grew the driver a
+  great deal, and the entry said the honest thing about not having it: a
+  number nobody has is not evidence of a good one.
+
+  `gates live-cover` holds every option the binary publishes to a
+  decision, recorded in `testdata/live-cover.tsv` the way
+  `api-coverage.tsv` records API methods. An option the driver does not
+  send is `undrivable` from this account, with what blocks it, or
+  `undriven`, with what closing it would take. Ten are undrivable, and
+  the reasons repeat: a second person, an administrator, or a state
+  nothing here may create — a file Google has flagged as malware, a scan
+  to run OCR over. The other fifty-six are gaps with a recipe, and most
+  are one argument on a call that already happens. They are written down
+  rather than closed, because a step added to a live driver is unverified
+  until somebody runs it, and adding sixty blind is how a driver starts
+  lying.
+
+  **The driver also records what it actually sent**, which is the half
+  that catches what a source reader cannot. A step can exist and never
+  run — behind a condition that was false, in a list nothing passes on —
+  and the words are there either way. A sibling repository proved that by
+  deleting one call and watching its own static gate report full
+  coverage. So every run now ends with what it sent, what it never
+  called, and any option the source claims that the run did not send. The
+  first run named five, all behind `-file`; passing `-file` took it to
+  three.
+
+- **The live driver's transcript is redacted by construction now, not by
+  habit.** §17a has described this since phase 4 and deferred it three
+  times, and the reason it kept being deferred is that the version with
+  teeth is a rewrite of every print in the program rather than a check
+  bolted beside them.
+
+  Every line HAPPENED to go through the redactor before, which is not the
+  same as every line HAVING to. Phase 4 found the proof — the driver
+  echoed each call's arguments unredacted, which was arguably nobody's
+  problem while the only address there was one the operator had typed,
+  and became one the moment starting an approval put the signed-in
+  account's own address into the arguments of every write run. It was
+  fixed line by line. The next print somebody added while debugging would
+  have looked exactly like the two beside it that are safe.
+
+  So `scripts/internal/transcript` is now the only way these programs
+  write anything, and `gates transcript` refuses every other way out:
+  `fmt.Print*`, any mention of `os.Stdout` or `os.Stderr`, and the
+  builtins `print` and `println`. The rule is about the DESTINATION
+  rather than the function, so `fmt.Fprintf` into a buffer — which is how
+  an eval task builds its fixture — is untouched, and the gate needs no
+  allowlist. An allowlist is how a gate stops being believed.
+
+  Two programs share it rather than one having it. The eval harness runs
+  against the same real account and prints the same kinds of thing, and a
+  rule covering one of two identical programs is a rule waiting to be
+  drifted around. The gate also refuses a HOLLOW exemption: if nothing in
+  the transcript package passed what it writes through the redactor,
+  every other check here would be worth nothing, and moving each
+  `fmt.Println` into a passthrough helper would have satisfied all of
+  them. Six ways to a terminal are watched being refused in tests, and
+  what comes out of the transcript is asserted rather than assumed.
+
+  The run's own failure was the one line that never went through the
+  redactor at all: it was the last thing printed, after the session, and
+  it carries whatever the error carried.
+
+- **The README carries the things a released server's README should**, and
+  did not: a **Versioning** section saying what is stable within a major
+  version and what counts as breaking, a **Security** section pointing at
+  `SECURITY.md`, the actual commands to verify a release rather than a
+  sentence saying it can be verified, and how to complete `login` over
+  SSH — the callback lands on the remote host's loopback and the port is
+  drawn at random, so it has to be forwarded, and nothing said so.
+
+  The verification commands are the ones run against v1.0.0 itself, not
+  transcribed from a template.
+
+- **A code of conduct**, the Contributor Covenant 3.0, linked from the
+  README and from `CONTRIBUTING.md`. Reports go through GitHub's private
+  security-advisory flow, the same route `SECURITY.md` already used —
+  no address, because the leak gate refuses one anywhere in the tree and
+  a policy document is the wrong place to make the first exception.
+  `SECURITY.md` existed and nothing linked to it either; both are in the
+  documentation list now.
+
+- **A Claude Desktop bundle on every release.** Open the `.mcpb` and
+  Claude Desktop installs the server and asks for your OAuth client
+  JSON, with no config file to edit — macOS, Windows and Linux on both
+  architectures each.
+
+  The version comes from one place: goreleaser's, which stamps the
+  binary and is written into the manifest as it packs. The committed
+  manifest carries a placeholder and the packer refuses anything else,
+  so a manifest in the tree cannot claim a stale version. Packing runs
+  as the universal binary's post hook — the one point where every binary
+  exists and `checksums.txt` has not been written — which is what makes
+  it possible for the bundle to be in that file, and therefore under the
+  same signature as the archives. It is not what puts it there:
+  goreleaser hashes the artifacts it built, and a file a hook drops into
+  `dist/` is not one, so `checksum.extra_files` covers it and
+  `release.extra_files` uploads it. A sibling repository following the
+  hook alone packed a bundle that agreed about its version everywhere it
+  was asked and was absent from `checksums.txt`, which is
+  indistinguishable from a correct build unless somebody looks.
+
+  The referential half of the packer's validation now runs on every
+  commit as `gates mcpb`, with no build at all: whether `entry_point`,
+  the platform commands and every `${user_config.x}` name something that
+  will be staged is a question about the NAMES, and the names are static
+  even when the binaries are not. A manifest pointing at a file nobody
+  packs used to be a release-day failure and is a commit-day one now.
+  The manifest is also refused for declaring a `platform_overrides` entry
+  for a platform `compatibility.platforms` does not claim — an override
+  nothing can reach is the same defect as a command nobody staged.
+
+  macOS needed a universal binary, which this repository did not build;
+  it is built for the bundle alone and kept out of the ordinary
+  archives. Linux gets a launcher instead, because a manifest names a
+  command per platform and has no key for the architecture.
+
+  The bundle is packed in Go. The official packer is Node, and reaching
+  for it would make `make check` depend on an interpreter nobody
+  declared — a `.mcpb` is a deflate zip and the standard library writes
+  one. What that CLI buys is validating the manifest against its
+  published schema, and the replacement is better aimed rather than
+  merely equivalent: the manifest is checked against the FILES ACTUALLY
+  BEING PACKED. An `entry_point`, a platform override or a
+  `${user_config.x}` that names something absent is well formed by any
+  schema and produces a bundle that installs and then does nothing. All
+  three are tested.
+
+- **The README now looks like a released project's.** Status badges for
+  CI, the latest release, the Go reference and the licence; a link to the
+  latest release beside the `go install` line, with `--ignore-missing` on
+  the checksum command because `checksums.txt` covers every archive and
+  you will have taken one; a **How it works** section with the package
+  layout and what each part is for; and a **Development** section naming
+  the make targets and what `make check` actually runs.
+
+### Note for whoever picks this up
+
+Everything above is unreleased and sits on a topic branch. Nothing is
+pushed. The release decision has changed since this note was first
+written: a code path DID change — `copy_file`'s note no longer claims the
+comments came across — so this is no longer only documentation, and
+1.0.1 is a patch release with something in it.
+
+Three of the four things that were recorded in §17a rather than done are
+done: the `transcript` gate, the `live-cover` gate and the number behind
+it, and the outcome gate. The MCP registry entry is the one left, and it
+is the one that cannot be tested locally at all: the registry does a HEAD
+on the bundle's download URL before accepting the entry, so the step runs
+last in the release workflow, after the release exists.
+
+Both halves of the live driver have now run against a real account. The
+write half: 143 calls, all as expected. The full run, with `-destructive
+-labels -activity`: 193 calls across all 39 tools, 111 of 188 options,
+one step UNVERIFIED because Drive's revision listing lagged, and the
+scratch shared drive created and destroyed with nothing left behind.
+
+Between them they answered the question `gates outcomes` raised —
+`copy_comments` carries a Google Doc's threads and not an uploaded CSV's
+— and turned one counted "failure" into the UNVERIFIED it always was.
+
+What is still unverified, and none of it blocks a release: the fifty-six
+`undriven` rows in `testdata/live-cover.tsv`, each one argument on a call
+that already happens; ownership transfer and a policy-blocked share,
+which need a second account and an administrator; `manage_labels`, which
+needs an administrator to publish a label; and whether the copy_comments
+split is really "Drive's own formats yes, uploaded bytes no" rather than
+two data points that happen to line up.
+
 ## [1.0.0] - 2026-09-06
 
 ### Added
@@ -898,6 +1301,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[1.0.1]: https://github.com/mmedum/google-drive-mcp/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.2.0...v0.3.0

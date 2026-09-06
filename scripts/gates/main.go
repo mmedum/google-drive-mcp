@@ -58,10 +58,22 @@ func init() {
 		"api-coverage": {run: apiCoverage,
 			doc: "every API method is used on purpose or left out on purpose", gate: true},
 		"parity": {run: parity, doc: "`make check` and CI run the same gates", gate: true},
+		"transcript": {run: transcript,
+			doc: "a program that drives a real account cannot reach a terminal except through the redactor", gate: true},
+		"live-cover": {run: liveCover, args: "[BINARY]",
+			doc: "every tool option is driven live or recorded as not, with the reason", gate: true},
+		"outcomes": {run: outcomes,
+			doc: "no result sentence is written from the request rather than from the response", gate: true},
+		"mcpb": {run: mcpbCheck,
+			doc: "the committed bundle manifest names files the packer will stage", gate: true},
 		"api-diff": {run: apiDiff,
 			doc: "refetch the discovery documents and report what changed (needs the network)"},
 		"precommit":     {run: precommit, doc: "gofmt, vet and a secret scan"},
 		"install-hooks": {run: installHooks, doc: "write the git pre-commit hook"},
+		"mcpb-manifest": {run: mcpbManifest, args: "VERSION [MANIFEST]",
+			doc: "print the packaging manifest with a real version in it"},
+		"mcpb-pack": {run: mcpbPack, args: "VERSION [DIST]",
+			doc: "pack the Claude Desktop bundle from goreleaser's output"},
 	}
 }
 

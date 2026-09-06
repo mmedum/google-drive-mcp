@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,12 @@ type Session struct {
 	stdin  io.WriteCloser
 	lines  *bufio.Scanner
 	nextID int
+	// onCall sees every tool invocation, and options is what the server
+	// published at initialize. Together they are what lets a run say how
+	// much of the surface it actually drove — measured where the calls
+	// go out, so a call cannot be made without being counted.
+	onCall  func(tool string, args map[string]any)
+	options map[string][]string
 
 	mu     sync.Mutex
 	stderr []string
@@ -185,18 +192,44 @@ func (s *Session) Initialize(name string) (protocol string, tools []string, err 
 	}
 	result, _ = listed["result"].(map[string]any)
 	raw, _ := result["tools"].([]any)
+	s.options = map[string][]string{}
 	for _, t := range raw {
-		if m, ok := t.(map[string]any); ok {
-			if name, ok := m["name"].(string); ok {
-				tools = append(tools, name)
-			}
+		m, ok := t.(map[string]any)
+		if !ok {
+			continue
 		}
+		name, ok := m["name"].(string)
+		if !ok {
+			continue
+		}
+		tools = append(tools, name)
+		schema, _ := m["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		names := make([]string, 0, len(props))
+		for option := range props {
+			names = append(names, option)
+		}
+		sort.Strings(names)
+		s.options[name] = names
 	}
 	return protocol, tools, nil
 }
 
+// OnCall registers a watcher for every tool call this session makes.
+// It is here rather than in the caller because here is the one place
+// every call passes through: a count kept beside the call sites is a
+// count that misses the next call site.
+func (s *Session) OnCall(f func(tool string, args map[string]any)) { s.onCall = f }
+
+// Options is the tool surface the server published at initialize: each
+// registered tool and the option names its schema declares.
+func (s *Session) Options() map[string][]string { return s.options }
+
 // CallTool runs one tool and returns its text and whether it refused.
 func (s *Session) CallTool(name string, args map[string]any) (text string, isError bool, err error) {
+	if s.onCall != nil {
+		s.onCall(name, args)
+	}
 	reply, err := s.request("tools/call", map[string]any{"name": name, "arguments": args})
 	if err != nil {
 		return "", false, err

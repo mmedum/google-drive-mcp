@@ -1,0 +1,21 @@
+# Branches that state an outcome after testing a request field, and are
+# right to.
+#
+# §11's rule is: never assert an outcome the response did not carry.
+# `gates outcomes` holds the checkable shape of it — a branch that tests
+# a boolean the caller sent, and then writes the sentence describing the
+# result, without asking Drive anything. That is how `lock_file` came to
+# report a lock Drive had not applied, printed directly above a card
+# showing no restriction.
+#
+# Two shapes are excluded by the rule itself rather than by this file: a
+# dry run, which makes no call by construction and says "would" (the
+# honest form of exactly this sentence), and a refusal, which says what
+# THIS SERVER did and is true whatever Drive would have answered.
+#
+# Columns, tab-separated: file:Field, and the reason. A row that stops
+# matching a branch fails, so an excuse cannot outlive the code it
+# excused.
+
+internal/service/drives.go:IncludeHidden	the count comes from the listing Drive just answered, and what the sentence claims — that this server left those drives out — is this server's own filtering, which is the one thing it can assert without asking anybody
+internal/service/organise.go:CopyComments	it states what Drive was ASKED to do and says outright that Drive does not report whether it did, then names list_comments as the call that settles it. The sentence this replaced said the threads "were copied with it", which files.copy cannot know — it answers with a File and mentions comments nowhere. Reading it back was the other option and was rejected: comments.list lags a copy, so an empty answer would report threads as dropped when they were merely late

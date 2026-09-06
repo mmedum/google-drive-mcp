@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
-	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/scripts/internal/transcript"
 )
 
 // harness is one run: a session with the server for setting a task up
@@ -18,7 +18,9 @@ import (
 // inside.
 type harness struct {
 	sess *mcpstdio.Session
-	red  *redact.Redactor
+	// out is the only way this run prints anything; see the transcript
+	// package, and `gates transcript`, which is what makes that true.
+	out *transcript.Transcript
 	// folder is the scratch folder's id; every task works inside it.
 	folder string
 	// address is who a sharing task shares with, and realAddress says
@@ -76,7 +78,7 @@ func fill(prompt string, values map[string]string) (string, error) {
 }
 
 // run drives every task and prints the score.
-func run(o options) error {
+func run(o options, t *transcript.Transcript) error {
 	tasks := selected(o.only)
 	if len(tasks) == 0 {
 		return fmt.Errorf("no task matched %q; the names are %s",
@@ -101,7 +103,7 @@ func run(o options) error {
 	if _, _, err := sess.Initialize("evals"); err != nil {
 		return err
 	}
-	h := &harness{sess: sess, red: redact.NewRedactor(o.raw), dir: dir,
+	h := &harness{sess: sess, out: t, dir: dir,
 		address: "someone@example.com"}
 	if o.share != "" {
 		h.address, h.realAddress = o.share, true
@@ -118,18 +120,18 @@ func run(o options) error {
 	if h.folder == "" {
 		return errors.New("could not read the scratch folder's id out of create_folder's result")
 	}
-	fmt.Printf("scratch folder: %s\n", h.red.Do(h.folder))
+	h.out.Sayf("scratch folder: %s", h.folder)
 	defer func() {
 		if o.keep {
-			fmt.Printf("\nthe scratch folder was left behind: %s\n", h.red.Do(h.folder))
+			h.out.Sayf("\nthe scratch folder was left behind: %s", h.folder)
 			return
 		}
 		if _, err := h.call("trash_file", map[string]any{"file": h.folder}); err != nil {
-			fmt.Printf("\n!! the scratch folder was NOT cleaned up (%v); trash it by hand: %s\n",
-				err, h.red.Do(h.folder))
+			h.out.Sayf("\n!! the scratch folder was NOT cleaned up (%v); trash it by hand: %s",
+				err, h.folder)
 			return
 		}
-		fmt.Println("\nscratch folder trashed")
+		h.out.Say("\nscratch folder trashed")
 	}()
 
 	config, err := mcpConfig(o.binary, dir)
@@ -139,7 +141,7 @@ func run(o options) error {
 
 	passed, failed, skipped := 0, 0, 0
 	for _, t := range tasks {
-		fmt.Printf("\n=== %s ===\n%s\n", t.name, t.prompt)
+		h.out.Sayf("\n=== %s ===\n%s", t.name, t.prompt)
 		// A task the world will not permit today is not a failure, and
 		// counting it as one teaches everybody to ignore the verdict.
 		// Asked BEFORE the agent runs, so an unwinnable task costs no
@@ -149,29 +151,29 @@ func run(o options) error {
 			ok, why := t.reachable(state)
 			if !ok {
 				skipped++
-				fmt.Println("UNREACHABLE: " + h.red.Do(why))
+				h.out.Say("UNREACHABLE: " + why)
 				continue
 			}
 		}
 		problems := h.score(o, config, t)
 		if len(problems) == 0 {
 			passed++
-			fmt.Println("PASS")
+			h.out.Say("PASS")
 			continue
 		}
 		failed++
-		fmt.Println("FAIL")
+		h.out.Say("FAIL")
 		for _, p := range problems {
-			fmt.Println("  - " + h.red.Do(p))
+			h.out.Say("  - " + p)
 		}
 	}
 
-	fmt.Printf("\n%d passed, %d failed, %d unreachable, of %d\n", passed, failed, skipped, len(tasks))
+	h.out.Sayf("\n%d passed, %d failed, %d unreachable, of %d", passed, failed, skipped, len(tasks))
 	if skipped > 0 {
-		fmt.Println("An unreachable task is one this account cannot present the conditions for — " +
+		h.out.Say("An unreachable task is one this account cannot present the conditions for — " +
 			"it was NOT checked, and is not a pass.")
 	}
-	fmt.Println(h.red.Summary())
+	h.out.Say(h.out.Summary())
 	if failed > 0 {
 		return fmt.Errorf("%d task(s) failed", failed)
 	}
@@ -205,7 +207,7 @@ func (h *harness) score(o options, config string, t task) []string {
 	if err != nil {
 		return []string{err.Error()}
 	}
-	fmt.Println("→ " + h.red.Do(prompt))
+	h.out.Say("→ " + prompt)
 
 	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
 	defer cancel()
@@ -215,9 +217,9 @@ func (h *harness) score(o options, config string, t task) []string {
 	if err != nil {
 		return []string{"the agent failed: " + err.Error()}
 	}
-	fmt.Printf("← %s\n(%d tool calls in %s)\n", h.red.Do(strings.TrimSpace(run.Answer)), len(run.Calls), took.Round(time.Second))
+	h.out.Sayf("← %s\n(%d tool calls in %s)", strings.TrimSpace(run.Answer), len(run.Calls), took.Round(time.Second))
 	for _, c := range run.Calls {
-		fmt.Printf("   %s %s\n", c.Name, h.red.Do(mcpstdio.Encode(c.Args)))
+		h.out.Sayf("   %s %s", c.Name, mcpstdio.Encode(c.Args))
 	}
 
 	problems := commonChecks(state, run)
