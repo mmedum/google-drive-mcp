@@ -85,20 +85,52 @@ func (s *Server) serveElsewhere(w http.ResponseWriter, r *http.Request) bool {
 		s.handleRenderedDownload(w, id)
 		return true
 	}
-	if labels, ok := strings.CutPrefix(r.URL.Path, "/labels/v2"); ok {
-		if labels == "/labels" && r.Method == http.MethodGet {
-			s.handleListLabelDefinitions(w, r)
+	// The two hosts that are not Drive, each with the scope that reaches
+	// it. The scope is checked HERE rather than in the handlers: it is a
+	// property of the host, not of the endpoint, and a second endpoint
+	// added under either prefix would otherwise have to remember the
+	// guard — producing a fake that answers something the real API
+	// refuses for want of a scope, which is the failure this whole file
+	// exists to prevent.
+	for _, host := range []struct {
+		prefix  string
+		enabled bool
+		serve   func(http.ResponseWriter, *http.Request) bool
+	}{
+		{"/labels/v2", s.LabelsEnabled, s.serveLabelsAPI},
+		{"/activity/v2", s.ActivityEnabled, s.serveActivityAPI},
+	} {
+		rest, ok := strings.CutPrefix(r.URL.Path, host.prefix)
+		if !ok {
+			continue
+		}
+		if !host.enabled {
+			s.scopeDenied(w)
 			return true
 		}
-		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+labels)
+		if !host.serve(w, r) {
+			s.errorJSON(w, http.StatusNotFound, "notFound",
+				"the fake does not implement "+r.Method+" "+rest)
+		}
 		return true
 	}
-	if activity, ok := strings.CutPrefix(r.URL.Path, "/activity/v2"); ok {
-		if activity == "/activity:query" && r.Method == http.MethodPost {
-			s.handleActivityQuery(w, r)
-			return true
-		}
-		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+activity)
+	return false
+}
+
+// serveLabelsAPI routes the Drive Labels API's endpoints, and reports
+// whether it answered.
+func (s *Server) serveLabelsAPI(w http.ResponseWriter, r *http.Request) bool {
+	if strings.HasSuffix(r.URL.Path, "/labels") && r.Method == http.MethodGet {
+		s.handleListLabelDefinitions(w, r)
+		return true
+	}
+	return false
+}
+
+// serveActivityAPI routes the Drive Activity API's one endpoint.
+func (s *Server) serveActivityAPI(w http.ResponseWriter, r *http.Request) bool {
+	if strings.HasSuffix(r.URL.Path, "/activity:query") && r.Method == http.MethodPost {
+		s.handleActivityQuery(w, r)
 		return true
 	}
 	return false

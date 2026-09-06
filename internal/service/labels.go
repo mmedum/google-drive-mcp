@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
@@ -21,17 +23,16 @@ import (
 // manage_labels without list_labels would be asking a model to guess a
 // generated id, so the flag governs both.
 
-// labelActions are what manage_labels does, in the order they read.
-var labelActions = map[string]string{
-	"apply":       "apply",
-	"set_field":   "set_field",
-	"unset_field": "unset_field",
-	"remove":      "remove",
-}
+// labelActions are what manage_labels does, in the order they read. The
+// sibling tables in this package (roles, orderByKeys, activityActions)
+// map a caller's word onto a different word Google uses; these are the
+// same word either way, so this is a list rather than a map pretending
+// to be a translation.
+var labelActions = []string{"apply", "set_field", "unset_field", "remove"}
 
 // LabelActions lists the actions manage_labels accepts, so the tool
 // description and the error messages offer the words the code takes.
-func LabelActions() []string { return sortedKeys(labelActions) }
+func LabelActions() []string { return labelActions }
 
 // ListLabelsInput selects a page of label definitions.
 type ListLabelsInput struct {
@@ -79,7 +80,7 @@ func (s *Service) ListLabels(ctx context.Context, in ListLabelsInput) (string, e
 		// disagree with the count an administrator sees in the console,
 		// with nothing to explain the difference.
 		note = fmt.Sprintf("%s on this page not published and cannot be applied, so left out of the list.",
-			model.Plural(dropped, "There is one label", "There are labels"))
+			model.Plural(dropped, "label", "labels"))
 	}
 	return render.Labels(defs, render.LabelsOptions{NextPageToken: page.NextPageToken, Note: note}), nil
 }
@@ -112,8 +113,8 @@ func (s *Service) ManageLabels(ctx context.Context, in ManageLabelsInput) (*Resu
 	if err := s.writable("manage_labels"); err != nil {
 		return nil, err
 	}
-	action, ok := labelActions[strings.TrimSpace(in.Action)]
-	if !ok {
+	action := strings.TrimSpace(in.Action)
+	if !slices.Contains(labelActions, action) {
 		return nil, Errorf(ClassInvalid, "action must be one of %s; got %q",
 			strings.Join(LabelActions(), ", "), in.Action)
 	}
@@ -137,7 +138,13 @@ func (s *Service) ManageLabels(ctx context.Context, in ManageLabelsInput) (*Resu
 			f.Name)
 	}
 
-	def, defErr := s.labelDefinition(ctx, labelID)
+	// Only set_field needs the definition, and it needs it enough to pay
+	// a listing for: the API has one setter per field type and the type
+	// is only there. apply, remove and unset_field need the label id and
+	// nothing else, so they use the definitions when those are already in
+	// hand — a wrong id is worth answering with the real ones — and go
+	// straight to Drive when they are not.
+	def, defErr := s.definitionFor(ctx, action, labelID)
 	mod, err := s.labelModification(action, labelID, in, def, defErr)
 	if err != nil {
 		return nil, err
@@ -193,12 +200,7 @@ func (s *Service) labelModification(action, labelID string, in ManageLabelsInput
 		return mod, nil
 	}
 
-	values := make([]string, 0, len(in.Values))
-	for _, v := range in.Values {
-		if v = strings.TrimSpace(v); v != "" {
-			values = append(values, v)
-		}
-	}
+	values := nonEmpty(in.Values)
 	if len(values) == 0 {
 		return mod, Errorf(ClassInvalid,
 			"values is required for set_field; to clear a field use action: unset_field")
@@ -285,7 +287,7 @@ func checkChoices(field string, values []string, fd model.LabelFieldDefinition) 
 	}
 	if len(values) > max {
 		return Errorf(ClassInvalid, "field %q takes %s; %d were given",
-			field, model.Plural(max, "one value", "values"), len(values))
+			field, model.Plural(max, "value", "values"), len(values))
 	}
 	for _, v := range values {
 		if _, ok := fd.Choice(v); ok {
@@ -298,37 +300,47 @@ func checkChoices(field string, values []string, fd model.LabelFieldDefinition) 
 }
 
 // isCalendarDate reports whether a value is the YYYY-MM-DD the API asks
-// for. It is deliberately strict: the API's own wording is RFC 3339
-// full-date, and accepting a timestamp here would send something that
-// fails one call later with a worse message.
+// for. time.Parse with that layout rejects trailing text, so it is as
+// strict as picking the string apart by hand — and stricter where it
+// counts: it refuses 2026-13-45, which a digit-by-digit check accepts
+// and forwards to Drive to fail one call later with a worse message.
 func isCalendarDate(v string) bool {
-	if len(v) != len("2006-01-02") {
-		return false
-	}
-	if v[4] != '-' || v[7] != '-' {
-		return false
-	}
-	for i, r := range v {
-		if i == 4 || i == 7 {
-			continue
-		}
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+	_, err := time.Parse("2006-01-02", v)
+	return err == nil
 }
 
-// labelDefinition reads one definition, so a field can be validated
-// against what it actually is. A failure is carried rather than raised:
-// applying and removing a label need no definition at all, and refusing
-// those because the definitions API is out of reach would be refusing
-// work that would have succeeded.
+// definitionFor finds the definition an action needs, paying for it only
+// when the action cannot proceed without it.
+//
+// A failure is carried rather than raised. Applying and removing a label
+// need no definition at all, and refusing those because the definitions
+// API is out of reach would be refusing work that would have succeeded —
+// only set_field is stuck, because the setter follows from the field's
+// type.
+func (s *Service) definitionFor(ctx context.Context, action, id string) (*model.LabelDefinition, error) {
+	if action == "set_field" {
+		return s.labelDefinition(ctx, id)
+	}
+	defs, ok := s.cachedLabelDefinitions()
+	if !ok {
+		return nil, nil
+	}
+	return pickDefinition(defs, id)
+}
+
+// labelDefinition reads one definition, fetching the listing if it is
+// not in hand.
 func (s *Service) labelDefinition(ctx context.Context, id string) (*model.LabelDefinition, error) {
 	defs, err := s.allLabelDefinitions(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return pickDefinition(defs, id)
+}
+
+// pickDefinition names the one failure a caller can act on: an id that
+// no published label has.
+func pickDefinition(defs map[string]*model.LabelDefinition, id string) (*model.LabelDefinition, error) {
 	if def, ok := defs[id]; ok {
 		return def, nil
 	}
@@ -336,22 +348,57 @@ func (s *Service) labelDefinition(ctx context.Context, id string) (*model.LabelD
 		"no published label has the id %q; list_labels shows the ones this account can use", id)
 }
 
-// allLabelDefinitions reads every page of definitions once and keeps
-// them for the process's file TTL. A definition changes when an
-// administrator republishes a label, which is not something that happens
-// between two calls of one conversation.
-func (s *Service) allLabelDefinitions(ctx context.Context) (map[string]*model.LabelDefinition, error) {
+// cachedLabelDefinitions returns the definitions already in hand, and
+// whether there are any. It never reaches the network.
+//
+// It exists so that a call which does not NEED the definitions can still
+// use them when they are free. Applying and removing a label need only
+// its id, but a wrong id is worth catching with the list of real ones
+// rather than with Drive's refusal — and that is worth a lookup, not a
+// listing.
+func (s *Service) cachedLabelDefinitions() (map[string]*model.LabelDefinition, bool) {
 	s.mu.Lock()
-	defs, ok := cacheGet(s.labelDefs, labelDefsKey, s.now(), s.opts.FileTTL)
-	s.mu.Unlock()
-	if ok {
+	defer s.mu.Unlock()
+	if s.labelDefs.value == nil {
+		return nil, false
+	}
+	if s.now().Sub(s.labelDefs.at) > s.opts.LabelTTL {
+		return nil, false
+	}
+	return s.labelDefs.value, true
+}
+
+// allLabelDefinitions reads every page of definitions and keeps them.
+//
+// The listing is per account and changes when an administrator
+// republishes a label, which does not happen between two calls of one
+// conversation — so it has a TTL of its own rather than borrowing
+// FileTTL, which is five seconds and exists to coalesce a burst of reads
+// of the same file. Under FileTTL this cache expired between almost
+// every pair of calls, and the comment defending it said the opposite of
+// what the code did.
+//
+// The page size is the API's maximum for the same reason: this is the
+// one caller that wants every definition, and asking 50 at a time makes
+// a large domain four times as many round trips.
+func (s *Service) allLabelDefinitions(ctx context.Context) (map[string]*model.LabelDefinition, error) {
+	if defs, ok := s.cachedLabelDefinitions(); ok {
 		return defs, nil
 	}
 	out := map[string]*model.LabelDefinition{}
 	token := ""
 	for {
-		page, err := s.api.ListLabelDefinitions(ctx, gapi.ListLabelDefinitionsOptions{PageToken: token})
+		page, err := s.api.ListLabelDefinitions(ctx, gapi.ListLabelDefinitionsOptions{
+			PageSize: gapi.MaxLabelPageSize, PageToken: token,
+		})
 		if err != nil {
+			// The failure is cached too, as an empty set. The case this is
+			// for is a deployer who turned labels on without enabling the
+			// Labels API, and without it every labelled file card pays a
+			// fresh failing listing for as long as that lasts.
+			s.mu.Lock()
+			s.labelDefs = cached[map[string]*model.LabelDefinition]{value: map[string]*model.LabelDefinition{}, at: s.now()}
+			s.mu.Unlock()
 			return nil, s.labelAPIError(err, "reading the label definitions")
 		}
 		for _, d := range page.Labels {
@@ -365,40 +412,20 @@ func (s *Service) allLabelDefinitions(ctx context.Context) (map[string]*model.La
 		token = page.NextPageToken
 	}
 	s.mu.Lock()
-	s.labelDefs[labelDefsKey] = cached[map[string]*model.LabelDefinition]{value: out, at: s.now()}
+	s.labelDefs = cached[map[string]*model.LabelDefinition]{value: out, at: s.now()}
 	s.mu.Unlock()
 	return out, nil
 }
 
-// labelDefsKey is the one key the definitions cache uses: the listing is
-// per account, not per anything the caller passes.
-const labelDefsKey = "labels"
-
 // labelsOn refuses when the deployer has not turned labels on. The tools
 // are unregistered in that case, so this is the belt to that braces: a
 // service used directly, or a tool list that grows a caller.
-func (s *Service) labelsOn() error {
-	if s.opts.Labels {
-		return nil
-	}
-	return Errorf(ClassUnsupported,
-		"labels are off: this server was started without GDRIVE_LABELS=true, which is also what adds "+
-			"the label scopes at login")
-}
+func (s *Service) labelsOn() error { return labelsAPI.enabled(s.opts.Labels) }
 
 // labelAPIError names the setup step behind the one failure a deployer
-// can fix, which is the same failure everybody hits first: the Drive
-// Labels API is a separate API, with a separate scope and a separate
-// enablement in the Cloud project.
+// can fix, which is the same failure everybody hits first.
 func (s *Service) labelAPIError(err error, doing string) error {
-	if gapi.Class(err) == ClassAuth || gapi.Class(err) == ClassForbidden {
-		return &Error{Class: ClassForbidden, Message: fmt.Sprintf(
-			"%s failed because the Drive Labels API refused the token. It is a separate API from Drive: "+
-				"enable the Drive Labels API in the Cloud project, add the label scopes to the consent "+
-				"screen, and run `google-drive-mcp login` again with GDRIVE_LABELS=true. Google said: %s",
-			doing, gapi.Message(err)), Err: err}
-	}
-	return wrap(err, doing)
+	return labelsAPI.refused(err, doing)
 }
 
 // modifyLabelsError says which half of the setup a refusal points at.

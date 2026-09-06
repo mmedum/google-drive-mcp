@@ -128,6 +128,11 @@ type Options struct {
 	PathTTL time.Duration
 	// FileTTL coalesces repeated reads of one file. Default 5s.
 	FileTTL time.Duration
+	// LabelTTL is how long the label definitions are kept. They are a
+	// property of the organisation rather than of a file: an
+	// administrator republishing a label is not something that happens
+	// between two calls of one conversation. Default 10m.
+	LabelTTL time.Duration
 	// ExportTTL is how long one exported document is kept so that a model
 	// can page through it. It is longer than FileTTL because paging
 	// happens across turns, and it is safe to be: the cache key carries
@@ -149,11 +154,11 @@ type Service struct {
 	paths map[string]cached[string]
 	// files caches whole file reads for a few seconds.
 	files map[string]cached[*gdrive.File]
-	// labelDefs caches the whole label definition listing under one key.
-	// It is per account rather than per file: what a label means does not
-	// change between two calls of one conversation, and naming the labels
-	// on a card would otherwise cost a listing per card.
-	labelDefs map[string]cached[map[string]*model.LabelDefinition]
+	// labelDefs caches the whole label definition listing. It is one
+	// value rather than a map because there is one listing: it is per
+	// account, not per anything a caller passes. Naming the labels on a
+	// card would otherwise cost a listing per card.
+	labelDefs cached[map[string]*model.LabelDefinition]
 	// drives caches the shared drive list, which changes rarely and is
 	// needed to name a location.
 	drivesAt time.Time
@@ -197,8 +202,7 @@ type exported struct {
 // New builds a service.
 func New(api API, o Options) *Service {
 	s := &Service{api: api, opts: o, log: o.Logger, now: o.Now,
-		paths: map[string]cached[string]{}, files: map[string]cached[*gdrive.File]{},
-		labelDefs: map[string]cached[map[string]*model.LabelDefinition]{}}
+		paths: map[string]cached[string]{}, files: map[string]cached[*gdrive.File]{}}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
@@ -210,6 +214,9 @@ func New(api API, o Options) *Service {
 	}
 	if s.opts.FileTTL == 0 {
 		s.opts.FileTTL = 5 * time.Second
+	}
+	if s.opts.LabelTTL == 0 {
+		s.opts.LabelTTL = 10 * time.Minute
 	}
 	if s.opts.ExportTTL == 0 {
 		s.opts.ExportTTL = 5 * time.Minute

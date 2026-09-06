@@ -117,6 +117,14 @@ func TestEveryGoogleKindThatReadsAlsoDownloads(t *testing.T) {
 		if e.DownloadAs != "" && mediatype.ExportMime(e.DownloadAs) == "" {
 			t.Errorf("%s downloads as %q, which is not an export format", e.Mime, e.DownloadAs)
 		}
+		// An operation-only kind cannot also be exported: the whole reason
+		// it goes through the long-running download is that Drive refuses
+		// to export it. A row claiming both would send the download path
+		// down a branch Drive answers fileNotExportable to.
+		if e.OperationAs != "" && (e.DownloadAs != "" || e.ReadAs != "") {
+			t.Errorf("%s renders through an operation AND claims an export format; Drive refuses "+
+				"to export such a kind at all", e.Mime)
+		}
 	}
 	if checked == 0 {
 		t.Fatal("no entry carries a read or download format, so this test is looking at nothing")
@@ -161,5 +169,23 @@ func TestGroupsAreEitherAListOrAPrefix(t *testing.T) {
 	// name one or match a prefix.
 	if got := mediatype.GroupMimes("office"); len(got) != 6 {
 		t.Errorf("the office kind covers %v, want the six Office formats", got)
+	}
+}
+
+// The download path asks the registry which kinds render through an
+// operation rather than comparing a media type itself, so adding such a
+// kind is a row here. This is the assertion that keeps the registry the
+// authority: a Vid renders through one, and the kinds beside it do not.
+func TestOnlyAVidRendersThroughAnOperation(t *testing.T) {
+	if got := mediatype.OperationAs(gdrive.MimeVid); got != "mp4" {
+		t.Errorf("a Vid renders as %q, want mp4", got)
+	}
+	for _, mime := range []string{
+		gdrive.MimeDocument, gdrive.MimeSheet, gdrive.MimeSlides, gdrive.MimeDrawing,
+		gdrive.MimeFolder, "application/pdf", "video/mp4",
+	} {
+		if got := mediatype.OperationAs(mime); got != "" {
+			t.Errorf("%s claims to render through an operation, as %q", mime, got)
+		}
 	}
 }

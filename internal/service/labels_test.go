@@ -1,9 +1,11 @@
 package service_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/internal/service"
@@ -322,5 +324,54 @@ func TestTheFileCardNamesTheLabelsOnAFile(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("the card does not carry %q:\n%s", want, out)
 		}
+	}
+}
+
+// AllFileLabels and allLabelDefinitions both page to the end, and until
+// phase 4's cleanup the fake served every result in one answer with no
+// next token — so neither loop had a test that could fail. These are
+// them.
+func TestAFilesLabelsAreReadPastTheFirstPage(t *testing.T) {
+	svc, fake := labelled(t)
+	// More labels on one file than a page holds, which is what makes the
+	// loop run at all.
+	for i := range gapi.MaxFileLabelPageSize + 3 {
+		fake.ApplyLabel("id-budget-fixture", &gdrive.Label{
+			ID: fmt.Sprintf("id-label-bulk-%03d", i), RevisionID: "1",
+		})
+	}
+	labels, err := drivetest.Client(t, fake).AllFileLabels(t.Context(), "id-budget-fixture")
+	if err != nil {
+		t.Fatalf("AllFileLabels: %v", err)
+	}
+	if len(labels) != gapi.MaxFileLabelPageSize+3 {
+		t.Errorf("read %d labels, want %d: the paging loop stopped early",
+			len(labels), gapi.MaxFileLabelPageSize+3)
+	}
+	_ = svc
+}
+
+func TestLabelDefinitionsAreReadPastTheFirstPage(t *testing.T) {
+	svc, fake := labelled(t)
+	for i := range gapi.DefaultLabelPageSize + 2 {
+		fake.AddLabelDefinition(fmt.Sprintf("id-label-many-%03d", i), fmt.Sprintf("Label %d", i))
+	}
+	out, err := svc.ListLabels(t.Context(), service.ListLabelsInput{})
+	if err != nil {
+		t.Fatalf("ListLabels: %v", err)
+	}
+	// list_labels shows one page; the cache behind manage_labels reads
+	// them all, and that is the loop under test.
+	if !strings.Contains(out, "labels available") {
+		t.Fatalf("the listing did not render:\n%s", out)
+	}
+	if _, err := svc.ManageLabels(t.Context(), service.ManageLabelsInput{
+		File: "id-budget-fixture", Label: "id-label-many-051", Action: "set_field",
+		Field: "id-field-owner", Values: []string{"x"},
+	}); err == nil || !strings.Contains(err.Error(), "id-field-owner") {
+		// The label exists only past the first page. Reaching it at all
+		// proves the loop ran; the error is about the field, which that
+		// definition does not have.
+		t.Errorf("a definition past the first page was not found: %v", err)
 	}
 }

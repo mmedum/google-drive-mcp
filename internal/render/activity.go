@@ -53,10 +53,11 @@ func Activity(events []*model.Activity, o ActivityOptions) string {
 
 // activityLine writes one event: when, who, what, and what it was about.
 func activityLine(e *model.Activity, now time.Time) string {
-	parts := []string{model.Ago(e.When, now)}
+	when := model.Ago(e.When, now)
 	if !e.Over.IsZero() && !e.Over.Equal(e.When) {
-		parts[0] = model.Ago(e.When, now) + " (over " + model.Ago(e.Over, e.When) + ")"
+		when += " (over " + model.Ago(e.Over, e.When) + ")"
 	}
+	parts := []string{when}
 	sentence := e.Who + " " + e.What
 	if e.Detail != "" {
 		sentence += " " + e.Detail
@@ -68,6 +69,8 @@ func activityLine(e *model.Activity, now time.Time) string {
 	return strings.Join(parts, "  ")
 }
 
+// writeActivityNotes says why nobody is named, then closes the listing
+// the way every other one closes.
 func writeActivityNotes(b *buf, o ActivityOptions, named bool) {
 	if named {
 		// Said once at the end rather than on every line: the API's limit,
@@ -76,10 +79,5 @@ func writeActivityNotes(b *buf, o ActivityOptions, named bool) {
 		b.line("Drive's activity feed identifies people only as the signed-in account or not, " +
 			"so this cannot say who anybody else was.")
 	}
-	if o.Note != "" {
-		b.line(o.Note)
-	}
-	if o.NextPageToken != "" {
-		b.field("next_page_token", o.NextPageToken)
-	}
+	writeFooter(b, o.Note, o.NextPageToken, "activity")
 }

@@ -396,13 +396,13 @@ func (s *Service) DownloadFile(ctx context.Context, in DownloadFileInput) (strin
 // for a Google-native document, an old revision's own link or bytes, and
 // alt=media for everything else.
 func (s *Service) openDownload(ctx context.Context, f *gdrive.File, in DownloadFileInput) (*gapi.Content, string, string, error) {
-	// A Google Vid comes only through the long-running download: Drive
-	// answers fileNotExportable to files.export on one, and there are no
-	// bytes on the file endpoint either. It is checked before the
-	// Workspace-document branch because a Vid IS one, and that branch
-	// would try to export it.
-	if f.MimeType == gdrive.MimeVid {
-		return s.downloadVid(ctx, f, in)
+	// A kind whose bytes come only through the long-running download is
+	// checked before the Workspace-document branch, because such a kind
+	// IS a Workspace document and that branch would try to export it —
+	// which Drive refuses. Which kinds those are is the registry's to
+	// say, not this function's.
+	if format := mediatype.OperationAs(f.MimeType); format != "" {
+		return s.downloadOperation(ctx, f, in, format)
 	}
 	if f.IsWorkspaceDoc() {
 		mime, ext, err := s.exportFormat(f, in.Format)
@@ -436,19 +436,22 @@ func (s *Service) openDownload(ctx context.Context, f *gdrive.File, in DownloadF
 	return c, extensionFor(f), "", nil
 }
 
-// downloadVid fetches a Google Vid through the long-running download.
+// downloadOperation fetches a kind whose bytes come only through the
+// long-running download — a Google Vid today, and whatever Google gives
+// the same treatment next.
 //
 // The bytes are never on the file endpoint and an export is refused, so
 // this is the whole of it: start the operation, poll until Drive has
-// rendered the video, then fetch the address it hands back. Rendering
+// rendered the file, then fetch the address it hands back. Rendering
 // takes time — the guide says a new operation is usually pending "for
 // Vids files" especially — so a caller who waits too long is told the
 // operation is still running rather than told it failed.
-func (s *Service) downloadVid(ctx context.Context, f *gdrive.File, in DownloadFileInput) (*gapi.Content, string, string, error) {
+func (s *Service) downloadOperation(ctx context.Context, f *gdrive.File, in DownloadFileInput,
+	format string) (*gapi.Content, string, string, error) {
 	if in.Format != "" {
 		return nil, "", "", Errorf(ClassInvalid,
-			"%s is a Google Vid, and Drive renders one as MP4 and nothing else, so format does not apply",
-			f.Name)
+			"%s is %s, and Drive renders one as %s and nothing else, so format does not apply",
+			f.Name, model.KindWithArticle(f), strings.ToUpper(format))
 	}
 	op, err := s.api.StartDownload(ctx, f.ID, "", in.Revision)
 	if err != nil {
@@ -469,7 +472,8 @@ func (s *Service) downloadVid(ctx context.Context, f *gdrive.File, in DownloadFi
 	if err != nil {
 		return nil, "", "", s.contentError(err, f, "fetching the rendered video of")
 	}
-	return c, "mp4", "rendered by Drive as MP4, which is the only form a Vid comes in", nil
+	return c, format, "rendered by Drive as " + strings.ToUpper(format) +
+		", which is the only form this kind comes in", nil
 }
 
 // exportRevision reaches an old version of a Google-native document.

@@ -32,7 +32,7 @@ func Approvals(approvals []*model.Approval, o ApprovalsOptions) string {
 	b.field("location", o.Location)
 	if len(approvals) == 0 {
 		b.line("no approvals: nobody has asked for a review of this file")
-		writeApprovalNotes(&b, o)
+		writeFooter(&b, o.Note, o.NextPageToken, "approvals")
 		return b.String()
 	}
 	for i, a := range approvals {
@@ -44,7 +44,7 @@ func Approvals(approvals []*model.Approval, o ApprovalsOptions) string {
 		}
 		writeApproval(&b, a, o.Now)
 	}
-	writeApprovalNotes(&b, o)
+	writeFooter(&b, o.Note, o.NextPageToken, "approvals")
 	return b.String()
 }
 
@@ -81,7 +81,7 @@ func approvalHead(a *model.Approval) string {
 	case a.WaitingOnMe():
 		return "WAITING ON YOU"
 	case a.Status == model.ApprovalInProgress:
-		return "in progress, waiting on " + model.Plural(a.Outstanding(), "1 reviewer", "reviewers")
+		return "in progress, waiting on " + model.Plural(a.Outstanding(), "reviewer", "reviewers")
 	case a.Status == model.ApprovalApproved:
 		return "approved"
 	case a.Status == model.ApprovalDeclined:
@@ -101,14 +101,5 @@ func responseWords(response string) string {
 		return "declined by"
 	default:
 		return "waiting on"
-	}
-}
-
-func writeApprovalNotes(b *buf, o ApprovalsOptions) {
-	if o.Note != "" {
-		b.line(o.Note)
-	}
-	if o.NextPageToken != "" {
-		b.field("next_page_token", o.NextPageToken)
 	}
 }

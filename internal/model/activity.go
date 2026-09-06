@@ -125,10 +125,10 @@ func renameWords(r *gdrive.ActivityRename) string {
 func permissionWords(p *gdrive.ActivityPermission) string {
 	var parts []string
 	if n := len(p.AddedPermissions); n > 0 {
-		parts = append(parts, Plural(n, "1 grant added", "grants added"))
+		parts = append(parts, Plural(n, "grant added", "grants added"))
 	}
 	if n := len(p.RemovedPermissions); n > 0 {
-		parts = append(parts, Plural(n, "1 grant removed", "grants removed"))
+		parts = append(parts, Plural(n, "grant removed", "grants removed"))
 	}
 	return strings.Join(parts, ", ")
 }

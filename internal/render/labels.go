@@ -34,7 +34,7 @@ func Labels(defs []*model.LabelDefinition, o LabelsOptions) string {
 		b.line("no labels: this account has no published label available to apply")
 		b.line("A Workspace administrator publishes labels in the admin console; " +
 			"a label that exists only as a draft cannot be put on a file.")
-		writeLabelNotes(&b, o)
+		writeFooter(&b, o.Note, o.NextPageToken, "labels")
 		return b.String()
 	}
 	b.line(model.Plural(shown, "label", "labels") + " available")
@@ -45,7 +45,7 @@ func Labels(defs []*model.LabelDefinition, o LabelsOptions) string {
 		b.line("")
 		writeLabelDefinition(&b, d)
 	}
-	writeLabelNotes(&b, o)
+	writeFooter(&b, o.Note, o.NextPageToken, "labels")
 	return b.String()
 }
 
@@ -133,46 +133,4 @@ func fieldTypeWords(f model.LabelFieldDefinition) string {
 		return "one of the choices below, by id"
 	}
 	return "a type this server does not know; setting it may be refused"
-}
-
-func writeLabelNotes(b *buf, o LabelsOptions) {
-	if o.Note != "" {
-		b.line(o.Note)
-	}
-	if o.NextPageToken != "" {
-		b.field("next_page_token", o.NextPageToken)
-	}
-}
-
-// AppliedLabelsOptions tune the report of what a file carries.
-type AppliedLabelsOptions struct {
-	// Subject heads the report: the file the labels are on.
-	Subject string
-	// Location is where that file sits.
-	Location string
-	// Note carries what the caller should know, such as a definition that
-	// could not be read.
-	Note string
-}
-
-// AppliedLabels renders the labels on one file. It is what manage_labels
-// answers with, so it reports the whole state after the change rather
-// than the modification that was made: what a label is now is the thing
-// worth knowing, and a diff of one field invites a second call to find
-// out the rest.
-func AppliedLabels(labels []model.AppliedLabel, o AppliedLabelsOptions) string {
-	var b buf
-	if o.Subject != "" {
-		b.line(o.Subject)
-	}
-	b.field("location", o.Location)
-	if len(labels) == 0 {
-		b.line("no labels are on this file")
-	} else {
-		writeAppliedLabels(&b, labels)
-	}
-	if o.Note != "" {
-		b.line(o.Note)
-	}
-	return b.String()
 }
