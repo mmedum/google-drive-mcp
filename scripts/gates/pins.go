@@ -64,14 +64,56 @@ func pins(out io.Writer, _ []string) error {
 	if checked == 0 {
 		return fmt.Errorf("no tool versions found in %d workflow(s); has the input naming changed?", len(files))
 	}
+	for _, path := range files {
+		source, err := os.ReadFile(path) //nolint:gosec // a path this repository owns
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		if !pinsShell(string(source)) {
+			problems = append(problems, fmt.Sprintf(
+				"%s: no workflow-level `defaults: run: shell:`. The Windows runner's default shell is "+
+					"PowerShell and it does not read every command line the way bash does; one line has to "+
+					"mean one thing on every runner. Job level does not count: a job added later would not "+
+					"inherit it.", path))
+		}
+	}
 	if len(problems) > 0 {
 		for _, p := range problems {
 			_, _ = fmt.Fprintln(out, p)
 		}
 		return fmt.Errorf("%d unpinned tool version(s)", len(problems))
 	}
-	_, _ = fmt.Fprintf(out, "pin check ok (%d tool versions in %d workflows)\n", checked, len(files))
+	_, _ = fmt.Fprintf(out, "pin check ok (%d tool versions, %d workflows, all pinning the shell)\n",
+		checked, len(files))
 	return nil
+}
+
+// pinsShell reports whether a workflow sets the shell at WORKFLOW level.
+//
+// It is a line scan rather than a YAML parse because the distinction it
+// has to make is positional: `defaults:` at column zero applies to every
+// job in the file, and the same three lines indented under a job apply
+// to that job alone. A parser would answer "is there a defaults block"
+// just as easily and that is the question that passes when the answer
+// should be no.
+func pinsShell(source string) bool {
+	inDefaults, inRun := false, false
+	for _, line := range strings.Split(source, "\n") {
+		switch {
+		case line == "defaults:":
+			inDefaults, inRun = true, false
+		case inDefaults && line == "  run:":
+			inRun = true
+		case inRun && strings.HasPrefix(line, "    shell:"):
+			return true
+		case line != "" && !strings.HasPrefix(line, " "):
+			// Any other top-level key ends the block.
+			inDefaults, inRun = false, false
+		case inRun && !strings.HasPrefix(line, "    "):
+			inRun = false
+		}
+	}
+	return false
 }
 
 // versionInput matches the inputs that name the version of a tool an
