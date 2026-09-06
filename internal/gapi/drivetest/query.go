@@ -293,8 +293,13 @@ func (p *parser) parseHas(field string) (predicate, error) {
 			return nil, fmt.Errorf("unknown member %q inside `has`", name.text)
 		}
 	}
-	if !haveKey {
-		return nil, fmt.Errorf("`properties has` needs a key")
+	// Drive requires BOTH, whatever its search guide says: the key-only
+	// form the guide gives as an example answers 400 "Invalid Value",
+	// confirmed live in phase 4 twice in each of three spellings. A fake
+	// that accepted it would let a test pass on a query production is
+	// refused.
+	if !haveKey || !haveValue {
+		return nil, fmt.Errorf("`properties has` needs both a key and a value")
 	}
 	return func(f *gdrive.File, _ *Server) bool {
 		got, ok := f.Properties[key]
