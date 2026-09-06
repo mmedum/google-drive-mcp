@@ -265,3 +265,33 @@ func TestAnsweringAFinishedApprovalSaysThatIsPossible(t *testing.T) {
 		}
 	}
 }
+
+// TestARefusedListingDoesNotBlameAFinishedApproval keeps the message
+// above to the calls it can be true of.
+//
+// approvalError serves all four call sites. A listing and a start name
+// no approval, so neither can be refused for one being finished — and
+// telling a caller whose list_approvals just failed that "list_approvals
+// says which of those it is" points at the call that failed.
+func TestARefusedListingDoesNotBlameAFinishedApproval(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.Contains(r.URL.Path, "/approvals") {
+			return &drivetest.Failure{Status: http.StatusForbidden,
+				Reason: "insufficientFilePermissions", Message: "Permission denied."}
+		}
+		return nil
+	}
+
+	_, err := svc.ListApprovals(t.Context(), service.ListApprovalsInput{File: "id-notes-fixture"})
+	if err == nil {
+		t.Fatal("a refused listing succeeded")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "already approved, declined or cancelled") {
+		t.Errorf("a listing was blamed on a finished approval:\n%s", msg)
+	}
+	if strings.Contains(msg, "list_approvals says") {
+		t.Errorf("a failed listing was told to call list_approvals:\n%s", msg)
+	}
+}

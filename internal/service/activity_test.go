@@ -248,3 +248,31 @@ func setDetail(t *testing.T, fake *drivetest.Server, a *gdrive.DriveActivity, de
 		t.Fatalf("set action detail %s: %v", detail, err)
 	}
 }
+
+// TestOneNewKindTwiceIsStillOneKind is the shape the note exists for and
+// the shape it got wrong: Google adds a kind, so it arrives on several
+// entries of the same page.
+//
+// The names are deduplicated for the list but the count came from the
+// undeduplicated slice, so two entries of one new kind announced "kinds"
+// over a list of one — a count saying what the evidence does not, which
+// is the defect this whole area was fixed for.
+func TestOneNewKindTwiceIsStillOneKind(t *testing.T) {
+	svc, fake := active(t)
+	fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-03T09:00:00Z")
+	for _, at := range []string{"2026-03-02T09:00:00Z", "2026-03-01T09:00:00Z"} {
+		setDetail(t, fake, fake.AddActivity("id-budget-fixture", "EDIT", true, at),
+			`{"approvalChange":{"approvalId":"a"}}`)
+	}
+
+	out, err := svc.ListActivity(t.Context(), service.ListActivityInput{File: "id-budget-fixture"})
+	if err != nil {
+		t.Fatalf("ListActivity: %v", err)
+	}
+	if !strings.Contains(out, "2 entries of a kind Drive has grown") {
+		t.Errorf("two entries of one new kind did not report one kind:\n%s", out)
+	}
+	if strings.Contains(out, "of kinds Drive has grown") {
+		t.Errorf("one kind was announced as several:\n%s", out)
+	}
+}

@@ -131,9 +131,15 @@ func activityNote(silent, unknown int, kinds []string) string {
 			model.Plural(silent, "entry", "entries")))
 	}
 	if unknown > 0 {
+		// Named before counted, and counted from the named: kinds holds
+		// one entry per ACTIVITY, so a new kind appearing three times in
+		// a page would otherwise say "kinds" over a list of one — the
+		// same "the count says what the evidence does not" this whole
+		// area exists to stop.
+		named := uniqueStrings(kinds)
 		parts = append(parts, fmt.Sprintf("%s of %s Drive has grown that this server cannot "+
 			"name (%s)", model.Plural(unknown, "entry", "entries"),
-			model.Word(len(kinds), "a kind", "kinds"), strings.Join(uniqueStrings(kinds), ", ")))
+			model.Word(len(named), "a kind", "kinds"), strings.Join(named, ", ")))
 	}
 	if len(parts) == 0 {
 		return ""
