@@ -40,6 +40,7 @@ func Register(s *mcp.Server, d Deps) []string {
 	names = append(names, registerDrives(s, d)...)
 	names = append(names, registerHistory(s, d)...)
 	names = append(names, registerComments(s, d)...)
+	names = append(names, registerLabels(s, d)...)
 	names = append(names, registerDestructive(s, d)...)
 	return names
 }

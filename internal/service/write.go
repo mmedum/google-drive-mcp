@@ -162,9 +162,14 @@ type UploadFileInput struct {
 	ConvertTo string
 	// OCRLanguage hints the language of the text in a scan being
 	// converted to a document.
-	OCRLanguage    string
-	Description    string
-	AllowDuplicate bool
+	OCRLanguage string
+	// UseContentAsIndexableText asks Drive to index the bytes as this
+	// file's searchable text. It is for a type Drive does not index on
+	// its own, and it is what makes such a file findable by its words
+	// rather than only by its name.
+	UseContentAsIndexableText bool
+	Description               string
+	AllowDuplicate            bool
 }
 
 // UploadFile sends a file from GDRIVE_LOCAL_DIR to Drive: one request up
@@ -214,8 +219,11 @@ func (s *Service) UploadFile(ctx context.Context, in UploadFileInput) (*Result, 
 	}
 
 	req := gapi.UploadRequest{
-		WriteOptions: gapi.WriteOptions{OCRLanguage: in.OCRLanguage},
-		Meta:         meta, ContentType: sending,
+		WriteOptions: gapi.WriteOptions{
+			OCRLanguage:               in.OCRLanguage,
+			UseContentAsIndexableText: in.UseContentAsIndexableText,
+		},
+		Meta: meta, ContentType: sending,
 	}
 	uploaded, err := s.send(ctx, req, file, info.Size())
 	if err != nil {

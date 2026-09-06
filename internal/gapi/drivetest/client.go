@@ -27,6 +27,7 @@ func Client(t testing.TB, s *Server, overrides ...func(*gapi.Options)) *gapi.Cli
 	t.Helper()
 	o := gapi.Options{
 		BaseURL:        s.BaseURL(),
+		LabelsBaseURL:  s.LabelsBaseURL(),
 		Timeout:        5 * time.Second,
 		ReadLimiter:    rate.NewLimiter(rate.Inf, 1),
 		WriteLimiter:   rate.NewLimiter(rate.Inf, 1),

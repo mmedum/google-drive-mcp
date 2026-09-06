@@ -26,9 +26,13 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Default endpoints.
+// Default endpoints. Labels and activity are separate APIs on their own
+// hosts, with their own scopes and their own enablement in the Cloud
+// project: a Drive token alone reaches neither.
 const (
-	DefaultBaseURL = "https://www.googleapis.com/drive/v3"
+	DefaultBaseURL         = "https://www.googleapis.com/drive/v3"
+	DefaultLabelsBaseURL   = "https://drivelabels.googleapis.com/v2"
+	DefaultActivityBaseURL = "https://driveactivity.googleapis.com/v2"
 )
 
 // RetryPolicy bounds retries for transient failures.
@@ -49,7 +53,11 @@ type Options struct {
 	// BaseTransport sits under the OAuth transport. nil uses http.DefaultTransport.
 	BaseTransport http.RoundTripper
 	BaseURL       string
-	Logger        *slog.Logger
+	// LabelsBaseURL and ActivityBaseURL point at the two APIs that are
+	// not Drive. Tests point all three at one fake.
+	LabelsBaseURL   string
+	ActivityBaseURL string
+	Logger          *slog.Logger
 	// Timeout applies per attempt and per transfer chunk.
 	Timeout time.Duration
 	Retry   RetryPolicy
@@ -69,17 +77,19 @@ type Options struct {
 
 // Client talks to Drive with one user's credentials.
 type Client struct {
-	httpc      *http.Client
-	base       string
-	log        *slog.Logger
-	timeout    time.Duration
-	retry      RetryPolicy
-	readLim    *rate.Limiter
-	writeLim   *rate.Limiter
-	sharingLim *rate.Limiter
-	ua         string
-	sleep      func(context.Context, time.Duration) error
-	allowURL   func(*url.URL) bool
+	httpc        *http.Client
+	base         string
+	labelsBase   string
+	activityBase string
+	log          *slog.Logger
+	timeout      time.Duration
+	retry        RetryPolicy
+	readLim      *rate.Limiter
+	writeLim     *rate.Limiter
+	sharingLim   *rate.Limiter
+	ua           string
+	sleep        func(context.Context, time.Duration) error
+	allowURL     func(*url.URL) bool
 
 	// Resource keys seen in URLs or responses. A link-shared file under
 	// the 2021 security update needs its key on every later call, and
@@ -95,24 +105,32 @@ func New(ts oauth2.TokenSource, o Options) *Client {
 		base = http.DefaultTransport
 	}
 	c := &Client{
-		httpc:      &http.Client{Transport: &oauth2.Transport{Source: ts, Base: base}},
-		base:       strings.TrimRight(o.BaseURL, "/"),
-		log:        o.Logger,
-		timeout:    o.Timeout,
-		retry:      o.Retry,
-		readLim:    o.ReadLimiter,
-		writeLim:   o.WriteLimiter,
-		sharingLim: o.SharingLimiter,
-		ua:         o.UserAgent,
-		sleep:      o.Sleep,
-		allowURL:   o.AllowURL,
-		keys:       map[string]string{},
+		httpc:        &http.Client{Transport: &oauth2.Transport{Source: ts, Base: base}},
+		base:         strings.TrimRight(o.BaseURL, "/"),
+		labelsBase:   strings.TrimRight(o.LabelsBaseURL, "/"),
+		activityBase: strings.TrimRight(o.ActivityBaseURL, "/"),
+		log:          o.Logger,
+		timeout:      o.Timeout,
+		retry:        o.Retry,
+		readLim:      o.ReadLimiter,
+		writeLim:     o.WriteLimiter,
+		sharingLim:   o.SharingLimiter,
+		ua:           o.UserAgent,
+		sleep:        o.Sleep,
+		allowURL:     o.AllowURL,
+		keys:         map[string]string{},
 	}
 	if c.allowURL == nil {
 		c.allowURL = func(u *url.URL) bool { return u.Scheme == "https" && googleHost(u.Host) }
 	}
 	if c.base == "" {
 		c.base = DefaultBaseURL
+	}
+	if c.labelsBase == "" {
+		c.labelsBase = DefaultLabelsBaseURL
+	}
+	if c.activityBase == "" {
+		c.activityBase = DefaultActivityBaseURL
 	}
 	if c.log == nil {
 		c.log = slog.New(slog.DiscardHandler)

@@ -42,6 +42,18 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The Drive Labels API lives on a host of its own. The fake stands in
+	// for it under a prefix instead, which is enough to hold the client
+	// to the right base URL: a call that went to Drive's would 404 here.
+	if labels, ok := strings.CutPrefix(r.URL.Path, "/labels/v2"); ok {
+		if labels == "/labels" && r.Method == http.MethodGet {
+			s.handleListLabelDefinitions(w, r)
+			return
+		}
+		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+labels)
+		return
+	}
+
 	path := strings.TrimPrefix(r.URL.Path, "/drive/v3")
 	switch {
 	case path == "/about" && r.Method == http.MethodGet:
@@ -123,6 +135,10 @@ func (s *Server) serveFileChild(w http.ResponseWriter, r *http.Request, path, re
 		s.handleExport(w, r, strings.TrimSuffix(rest, "/export"))
 	case strings.HasSuffix(path, "/copy") && r.Method == http.MethodPost:
 		s.handleCopy(w, r, strings.TrimSuffix(rest, "/copy"))
+	case strings.HasSuffix(path, "/listLabels") && r.Method == http.MethodGet:
+		s.handleListFileLabels(w, r, strings.TrimSuffix(rest, "/listLabels"))
+	case strings.HasSuffix(path, "/modifyLabels") && r.Method == http.MethodPost:
+		s.handleModifyLabels(w, r, strings.TrimSuffix(rest, "/modifyLabels"))
 	case commentPath.MatchString(path):
 		m := commentPath.FindStringSubmatch(path)
 		s.serveComments(w, r, m[1], m[2])
@@ -339,7 +355,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, id string) {
 		s.errorJSON(w, http.StatusNotFound, "notFound", "File not found: "+id+".")
 		return
 	}
-	writeJSON(w, s.project(f, r.URL.Query().Get("fields"), r.URL.Query().Get("includeLabels") != ""))
+	s.writeProjected(w, f, r.URL.Query())
 }
 
 func (s *Server) handleListPermissions(w http.ResponseWriter, id string) {
@@ -408,7 +424,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	page := gdrive.FileList{Files: []*gdrive.File{}}
 	for _, f := range matched[start:end] {
-		page.Files = append(page.Files, s.project(f, q.Get("fields"), false))
+		page.Files = append(page.Files, s.project(f, q.Get("fields"), nil))
 	}
 	if end < len(matched) {
 		page.NextPageToken = "offset-" + strconv.Itoa(end)
@@ -499,7 +515,20 @@ func sizeOf(f *gdrive.File) int64 {
 // project returns the file with only the requested fields, the way Drive
 // does: asking for a narrow field list and reading a field that was not
 // requested is a bug the fake will surface.
-func (s *Server) project(f *gdrive.File, fields string, includeLabels bool) *gdrive.File {
+// writeProjected answers with one file, honouring fields and
+// includeLabels. It is the one place that reads includeLabels, so the
+// rule that a wildcard is not a label id is enforced for every endpoint
+// that takes the parameter rather than for the one somebody remembered.
+func (s *Server) writeProjected(w http.ResponseWriter, f *gdrive.File, q url.Values) {
+	ids, ok := labelIDsFrom(q.Get("includeLabels"))
+	if !ok {
+		s.errorJSON(w, http.StatusBadRequest, "badRequest", "Bad Request")
+		return
+	}
+	writeJSON(w, s.project(f, q.Get("fields"), ids))
+}
+
+func (s *Server) project(f *gdrive.File, fields string, labelIDs []string) *gdrive.File {
 	out := *f
 	if formats := exportFormatsFor[f.MimeType]; len(formats) > 0 {
 		links := make(map[string]string, len(formats))
@@ -517,10 +546,21 @@ func (s *Server) project(f *gdrive.File, fields string, includeLabels bool) *gdr
 		}
 		out.PermissionIDs = ids
 	}
-	s.mu.Unlock()
-	if !includeLabels {
+	if len(labelIDs) > 0 {
+		var picked []*gdrive.Label
+		for _, l := range s.FileLabels[f.ID] {
+			for _, want := range labelIDs {
+				if l.ID == want {
+					picked = append(picked, l)
+					break
+				}
+			}
+		}
+		out.LabelInfo = &gdrive.LabelInfo{Labels: picked}
+	} else {
 		out.LabelInfo = nil
 	}
+	s.mu.Unlock()
 	if fields == "" || strings.Contains(fields, "*") {
 		return &out
 	}

@@ -108,20 +108,185 @@ type Label struct {
 	Fields     map[string]LabelField `json:"fields,omitempty"`
 }
 
-// LabelField is one field of an applied label.
+// LabelField is one field of an applied label. Drive names the date
+// member `dateString`, not `date`: it is an RFC 3339 calendar date with
+// no time, and the name says so. Phase 4 read the discovery document and
+// found this tag saying `date`, which decoded every date-valued field to
+// nothing at all — silently, because a missing member is indistinguishable
+// from an unset one.
 type LabelField struct {
 	ID        string   `json:"id,omitempty"`
 	ValueType string   `json:"valueType,omitempty"`
 	Text      []string `json:"text,omitempty"`
 	Selection []string `json:"selection,omitempty"`
 	Integer   []string `json:"integer,omitempty"`
-	Date      []string `json:"date,omitempty"`
+	Date      []string `json:"dateString,omitempty"`
 	User      []*User  `json:"user,omitempty"`
 }
 
-// LabelInfo carries the labels files.get returns with includeLabels.
+// LabelInfo carries the labels a files.get returns. It is populated by
+// the includeLabels parameter, which takes a comma-separated list of
+// label ids and nothing else — see LabelList for the way to ask for all
+// of them.
 type LabelInfo struct {
 	Labels []*Label `json:"labels,omitempty"`
+}
+
+// LabelList is one page of files.listLabels: the labels applied to a
+// file, without having to know their ids in advance.
+type LabelList struct {
+	Labels        []*Label `json:"labels,omitempty"`
+	NextPageToken string   `json:"nextPageToken,omitempty"`
+}
+
+// ModifyLabelsRequest applies, changes or removes labels on a file. The
+// reference is explicit that the modifications either all succeed or all
+// fail, so a partial application is not a state this server has to
+// describe.
+type ModifyLabelsRequest struct {
+	LabelModifications []LabelModification `json:"labelModifications,omitempty"`
+}
+
+// LabelModification is one label's worth of change. RemoveLabel and
+// FieldModifications are alternatives: removing a label takes its fields
+// with it.
+type LabelModification struct {
+	LabelID            string                   `json:"labelId,omitempty"`
+	RemoveLabel        bool                     `json:"removeLabel,omitempty"`
+	FieldModifications []LabelFieldModification `json:"fieldModifications,omitempty"`
+}
+
+// LabelFieldModification sets or unsets one field. Every setter replaces
+// the field's values rather than adding to them, which is the reference's
+// wording and the reason this server's tool speaks of setting a field
+// rather than adding to it.
+type LabelFieldModification struct {
+	FieldID            string   `json:"fieldId,omitempty"`
+	SetTextValues      []string `json:"setTextValues,omitempty"`
+	SetSelectionValues []string `json:"setSelectionValues,omitempty"`
+	SetIntegerValues   []string `json:"setIntegerValues,omitempty"`
+	SetDateValues      []string `json:"setDateValues,omitempty"`
+	SetUserValues      []string `json:"setUserValues,omitempty"`
+	UnsetValues        bool     `json:"unsetValues,omitempty"`
+}
+
+// ModifyLabelsResponse carries only the labels the request added or
+// changed, so a removal comes back as an empty list rather than as
+// evidence of itself.
+type ModifyLabelsResponse struct {
+	ModifiedLabels []*Label `json:"modifiedLabels,omitempty"`
+}
+
+// LabelDefinition is a label as the separate Drive Labels API defines
+// it, which is where a field's id, type and permitted values live. The
+// Drive API only ever reports the values applied to a file.
+//
+// This is a subset: the definition carries creator, publisher, display
+// hints, lock status and per-revision permissions besides, none of which
+// help a model decide what it may set on a file.
+type LabelDefinition struct {
+	// Name is `labels/{id}` or `labels/{id}@{revision}`, depending on
+	// whether the request asked for published revisions only.
+	Name       string `json:"name,omitempty"`
+	ID         string `json:"id,omitempty"`
+	RevisionID string `json:"revisionId,omitempty"`
+	// LabelType is ADMIN or SHARED: who may change the definition.
+	LabelType           string                     `json:"labelType,omitempty"`
+	Properties          *LabelDefinitionProperties `json:"properties,omitempty"`
+	Lifecycle           *LabelLifecycle            `json:"lifecycle,omitempty"`
+	Fields              []*LabelFieldDefinition    `json:"fields,omitempty"`
+	AppliedCapabilities *LabelAppliedCapabilities  `json:"appliedCapabilities,omitempty"`
+}
+
+// LabelDefinitionProperties is the label's own title and description.
+type LabelDefinitionProperties struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// LabelLifecycle says whether a definition is published, and so whether
+// it can be applied at all.
+type LabelLifecycle struct {
+	State                 string `json:"state,omitempty"`
+	HasUnpublishedChanges bool   `json:"hasUnpublishedChanges,omitempty"`
+}
+
+// LabelAppliedCapabilities is what this user may do with the label on a
+// file, as distinct from what they may do to the definition.
+type LabelAppliedCapabilities struct {
+	CanRead   bool `json:"canRead,omitempty"`
+	CanApply  bool `json:"canApply,omitempty"`
+	CanRemove bool `json:"canRemove,omitempty"`
+}
+
+// LabelFieldDefinition is one field of a definition. The value type is
+// not a member: the API says which type a field is by which options
+// object is present, so ValueType below is derived rather than decoded.
+type LabelFieldDefinition struct {
+	ID string `json:"id,omitempty"`
+	// QueryKey is the term a Drive search uses to find files by this
+	// field's value.
+	QueryKey            string                         `json:"queryKey,omitempty"`
+	Properties          *LabelFieldProperties          `json:"properties,omitempty"`
+	Lifecycle           *LabelLifecycle                `json:"lifecycle,omitempty"`
+	AppliedCapabilities *LabelFieldAppliedCapabilities `json:"appliedCapabilities,omitempty"`
+	TextOptions         *struct{}                      `json:"textOptions,omitempty"`
+	IntegerOptions      *struct{}                      `json:"integerOptions,omitempty"`
+	DateOptions         *LabelDateOptions              `json:"dateOptions,omitempty"`
+	SelectionOptions    *LabelSelectionOptions         `json:"selectionOptions,omitempty"`
+	UserOptions         *struct{}                      `json:"userOptions,omitempty"`
+}
+
+// LabelFieldProperties is a field's display name and whether it is
+// required.
+type LabelFieldProperties struct {
+	DisplayName string `json:"displayName,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+// LabelFieldAppliedCapabilities is what this user may do with the field's
+// value on a file.
+type LabelFieldAppliedCapabilities struct {
+	CanRead   bool `json:"canRead,omitempty"`
+	CanWrite  bool `json:"canWrite,omitempty"`
+	CanSearch bool `json:"canSearch,omitempty"`
+}
+
+// LabelDateOptions says how a date field is displayed. The format is the
+// only part that helps a caller: the value itself is always YYYY-MM-DD.
+type LabelDateOptions struct {
+	DateFormatType string `json:"dateFormatType,omitempty"`
+}
+
+// LabelSelectionOptions carries the choices a selection field permits.
+type LabelSelectionOptions struct {
+	ListOptions *LabelListOptions `json:"listOptions,omitempty"`
+	Choices     []*LabelChoice    `json:"choices,omitempty"`
+}
+
+// LabelListOptions says whether a field takes more than one value.
+type LabelListOptions struct {
+	MaxEntries int `json:"maxEntries,omitempty"`
+}
+
+// LabelChoice is one permitted value of a selection field. The id is
+// what a modification sets; the display name is what a person reads.
+type LabelChoice struct {
+	ID         string                 `json:"id,omitempty"`
+	Properties *LabelChoiceProperties `json:"properties,omitempty"`
+	Lifecycle  *LabelLifecycle        `json:"lifecycle,omitempty"`
+}
+
+// LabelChoiceProperties is a choice's display name and description.
+type LabelChoiceProperties struct {
+	DisplayName string `json:"displayName,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// LabelDefinitionList is one page of the Labels API's labels.list.
+type LabelDefinitionList struct {
+	Labels        []*LabelDefinition `json:"labels,omitempty"`
+	NextPageToken string             `json:"nextPageToken,omitempty"`
 }
 
 // File is a Drive file, folder or shortcut. Drive returns only the
@@ -373,6 +538,13 @@ type FileMeta struct {
 
 	WritersCanShare              *bool `json:"writersCanShare,omitempty"`
 	CopyRequiresWriterPermission *bool `json:"copyRequiresWriterPermission,omitempty"`
+
+	// ViewedByMeTime is when the signed-in person last opened the file.
+	// It is the one "output only in spirit" field the API lets a caller
+	// write: viewedByMe beside it IS output only, so marking a file as
+	// seen means stamping this. Drive uses it for the Recent view and for
+	// the viewedByMeTime sort.
+	ViewedByMeTime string `json:"viewedByMeTime,omitempty"`
 
 	// Properties are public custom properties. A nil value deletes the
 	// key, which is what the reference means by "entries with null values

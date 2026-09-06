@@ -56,8 +56,12 @@ func (c *Client) About(ctx context.Context) (*gdrive.About, error) {
 type GetFileOptions struct {
 	// Fields overrides FileFields.
 	Fields string
-	// IncludeLabels asks for labelInfo, which needs the labels scopes.
-	IncludeLabels bool
+	// IncludeLabelIDs names the labels whose applied values to return in
+	// labelInfo. Drive's includeLabels parameter is a list of ids and
+	// nothing else: there is no wildcard, and asking for one is a 400.
+	// Reading a file's labels without knowing their ids is
+	// ListFileLabels.
+	IncludeLabelIDs []string
 	// ResourceKey is a key learned from a URL; it is remembered for the
 	// process before the call goes out.
 	ResourceKey string
@@ -73,14 +77,14 @@ func (c *Client) GetFile(ctx context.Context, id string, o GetFileOptions) (*gdr
 	if fields == "" {
 		fields = FileFields
 	}
-	if o.IncludeLabels {
+	if len(o.IncludeLabelIDs) > 0 {
 		fields += ",labelInfo"
 	}
 	q := url.Values{}
 	q.Set("fields", fields)
 	q.Set("supportsAllDrives", "true")
-	if o.IncludeLabels {
-		q.Set("includeLabels", "*")
+	if len(o.IncludeLabelIDs) > 0 {
+		q.Set("includeLabels", strings.Join(o.IncludeLabelIDs, ","))
 	}
 	segment, err := fileSegment(id)
 	if err != nil {
@@ -277,6 +281,18 @@ type WriteOptions struct {
 	OCRLanguage string
 	// KeepRevisionForever pins the revision the call creates.
 	KeepRevisionForever bool
+	// UseContentAsIndexableText makes Drive index the uploaded bytes as
+	// the file's searchable text. It applies to a create and an update
+	// that carry content, and to nothing else.
+	UseContentAsIndexableText bool
+	// CopyComments brings a file's comment threads along on a copy.
+	//
+	// Phase 1 recorded this parameter as not existing in v3 (§18) and
+	// dropped it. The discovery document lists it, and phase 4's reading
+	// of that document is what found the entry wrong: either it was added
+	// since, or the check read the reference page rather than the
+	// document. It is only meaningful on files.copy.
+	CopyComments bool
 	// ResourceIDs carry resource keys for the ids this call names.
 	ResourceIDs []string
 }
@@ -310,6 +326,12 @@ func (o WriteOptions) values() url.Values {
 	}
 	if o.KeepRevisionForever {
 		v.Set("keepRevisionForever", "true")
+	}
+	if o.UseContentAsIndexableText {
+		v.Set("useContentAsIndexableText", "true")
+	}
+	if o.CopyComments {
+		v.Set("copyComments", "true")
 	}
 	return v
 }

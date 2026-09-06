@@ -72,13 +72,32 @@ func cardTags(b *buf, f *model.File) {
 		}
 		b.field("properties", strings.Join(pairs, ", "))
 	}
-	if len(f.Labels) > 0 {
-		names := make([]string, 0, len(f.Labels))
-		for _, l := range f.Labels {
-			names = append(names, l.ID)
+	writeAppliedLabels(b, f.Labels)
+}
+
+// writeAppliedLabels puts each label on its own line with the values set
+// on it. A label whose definition this account cannot read has no title
+// and no field names, so it is written by id: the id is still true, and
+// saying nothing would hide a label that is on the file.
+func writeAppliedLabels(b *buf, labels []model.AppliedLabel) {
+	for _, l := range labels {
+		name := l.Title
+		if name == "" {
+			name = l.ID
 		}
-		sort.Strings(names)
-		b.field("labels", strings.Join(names, ", "))
+		if len(l.Fields) == 0 {
+			b.field("label", name)
+			continue
+		}
+		pairs := make([]string, 0, len(l.Fields))
+		for _, f := range l.Fields {
+			key := f.DisplayName
+			if key == "" {
+				key = f.ID
+			}
+			pairs = append(pairs, key+"="+strings.Join(f.Values, "; "))
+		}
+		b.field("label", name+" ("+strings.Join(pairs, ", ")+")")
 	}
 }
 

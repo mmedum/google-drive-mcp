@@ -123,7 +123,9 @@ type File struct {
 	ExportFormats []string
 	Properties    map[string]string
 	// Labels are the applied Workspace labels, when they were requested.
-	Labels []*gdrive.Label
+	// Their titles and field names come from the definitions where those
+	// were available; without them a label is still reported, by id.
+	Labels []AppliedLabel
 	// WritersCanShare and CopyRequiresWriterPermission are the two
 	// sharing switches a file carries.
 	WritersCanShare              bool
@@ -155,6 +157,11 @@ type Options struct {
 	// SharedDriveName names the shared drive the file lives in, so the
 	// sharing summary can say that drive access reaches it.
 	SharedDriveName string
+	// LabelDefinitions, by label id, name the labels applied to the file
+	// and the fields inside them. It is allowed to be empty or partial:
+	// the definitions live behind a separate API and a separate scope, so
+	// a label whose definition is out of reach is reported by id.
+	LabelDefinitions map[string]*LabelDefinition
 }
 
 // New builds the model view of a Drive file.
@@ -227,7 +234,7 @@ func New(f *gdrive.File, o Options) *File {
 	m.Can = Can(f.Capabilities)
 	m.BoundaryNote = BoundaryNote(f.MimeType)
 	if f.LabelInfo != nil {
-		m.Labels = f.LabelInfo.Labels
+		m.Labels = NewAppliedLabels(f.LabelInfo.Labels, o.LabelDefinitions)
 	}
 	for _, r := range f.ContentRestrictions {
 		if r != nil && r.ReadOnly {

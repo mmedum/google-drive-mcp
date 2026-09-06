@@ -17,6 +17,7 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/config"
 	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/internal/model"
 )
 
 // API is the subset of the Drive client the service uses. It is an
@@ -78,6 +79,12 @@ type API interface {
 	UpdateReply(ctx context.Context, fileID, commentID, replyID string, meta *gdrive.ReplyMeta) (*gdrive.Reply, error)
 	DeleteReply(ctx context.Context, fileID, commentID, replyID string) error
 
+	// Labels. The values on a file are Drive's and need no labels scope;
+	// the definitions are a separate API and do.
+	AllFileLabels(ctx context.Context, fileID string) ([]*gdrive.Label, error)
+	ModifyLabels(ctx context.Context, fileID string, req gdrive.ModifyLabelsRequest) (*gdrive.ModifyLabelsResponse, error)
+	ListLabelDefinitions(ctx context.Context, o gapi.ListLabelDefinitionsOptions) (*gdrive.LabelDefinitionList, error)
+
 	// Access requests. There is no create: only somebody who was refused
 	// can ask.
 	ListAccessProposals(ctx context.Context, fileID string) ([]*gdrive.AccessProposal, error)
@@ -123,6 +130,11 @@ type Service struct {
 	paths map[string]cached[string]
 	// files caches whole file reads for a few seconds.
 	files map[string]cached[*gdrive.File]
+	// labelDefs caches the whole label definition listing under one key.
+	// It is per account rather than per file: what a label means does not
+	// change between two calls of one conversation, and naming the labels
+	// on a card would otherwise cost a listing per card.
+	labelDefs map[string]cached[map[string]*model.LabelDefinition]
 	// drives caches the shared drive list, which changes rarely and is
 	// needed to name a location.
 	drivesAt time.Time
@@ -166,7 +178,8 @@ type exported struct {
 // New builds a service.
 func New(api API, o Options) *Service {
 	s := &Service{api: api, opts: o, log: o.Logger, now: o.Now,
-		paths: map[string]cached[string]{}, files: map[string]cached[*gdrive.File]{}}
+		paths: map[string]cached[string]{}, files: map[string]cached[*gdrive.File]{},
+		labelDefs: map[string]cached[map[string]*model.LabelDefinition]{}}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
