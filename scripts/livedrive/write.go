@@ -126,11 +126,25 @@ func (w *writeRun) phase4Extras(m made) {
 		// And then LOOK. The copy was made with copy_comments since phase
 		// 4 and nobody ever asked whether the threads arrived, while the
 		// server told the caller they had — which `gates outcomes` found
-		// and no run here could have, because the run never looked. This
-		// is the call that settles it, and an empty answer settles
-		// nothing on its own: comments.list lags a copy the way every
-		// other Drive listing lags a write.
-		w.needing("list_comments", copied, map[string]any{"file": copied, "include_deleted": false})
+		// and no run here could have, because the run never looked.
+		//
+		// The first run that did look found none, and none again minutes
+		// later, so this is not comments.list lagging. It is said out
+		// loud rather than left in the transcript: the answer is one line
+		// among thirteen hundred, and "all calls behaved as expected" is
+		// true of it either way — which is the thing this repository has
+		// been caught by twice.
+		if copied != "" {
+			threads := w.call(call{tool: "list_comments",
+				args: map[string]any{"file": copied, "include_deleted": false}})
+			if strings.Contains(threads, "0 comment threads") {
+				w.out.Say("!! the copy asked for the comment threads and has NONE. Check it again in a " +
+					"minute — comments.list can lag a copy — and if it is still empty then Drive did " +
+					"not carry them, whatever copy_comments was set to.")
+			}
+		} else {
+			w.out.Say("\n=== list_comments: skipped, the copy it needs was never made ===")
+		}
 		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
 	}
 
