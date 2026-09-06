@@ -8,6 +8,14 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The download eval asserts the behaviour it was explaining.** It had
+  been rewritten to stop failing on a working download — `download_file`
+  appends a short id so two files of one name land beside each other
+  rather than on each other — and then carried a comment saying why it
+  did not check the name. It now downloads two files that really do share
+  a name and asserts both survive, which is the same cost and does not
+  decay into a comment. Suggested by a sibling repository.
+
 - **A share refused for a fixable reason no longer claims your
   organisation forbade it.** Sharing with an address that has no Google
   account behind it answers 400 `invalidSharingRequest`, and every
