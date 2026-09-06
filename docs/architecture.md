@@ -1,14 +1,33 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 5 complete (2026-09-06), released as v1.0.0. A default
-build registers **31** tools; eight more exist behind a flag — the
-destructive five, plus `list_labels` and `manage_labels` under
-`GDRIVE_LABELS` and `list_activity` under `GDRIVE_ACTIVITY`. Those last
+**Status:** phase 5 complete (2026-09-06), released as v1.0.0; phase 6 is
+on a topic branch and unreleased. A default build registers **31** tools;
+eight more exist behind a flag — the destructive five, plus `list_labels`
+and `manage_labels` under `GDRIVE_LABELS` and `list_activity` under
+`GDRIVE_ACTIVITY`. Those last
 three each need a Google API enabled in the Cloud project AND a scope the
 consent screen would otherwise not carry, which is why they are off by
-default — 39 tools in all, and 13 in read-only mode. Phase 5 added no
-tools. Every method of all three APIs is recorded as used on purpose or
+default — 39 tools in all, and 13 in read-only mode. Neither phase 5 nor
+phase 6 added a tool. Every method of all three APIs is recorded as used on purpose or
 left out on purpose, and a gate holds the record to the code.
+
+**What phase 6 is, and it is unreleased.** No new tools. The bundle, the
+README a released project should have, and the three gates §17a had
+described for three phases rather than built: `transcript`, `live-cover`
+and the outcome gate. The lesson §17a names about itself is the one
+phase 6 proves — **a guard that would be expensive to make automatic gets
+described as though it were, because the description is free.** Building
+the three cost a day and found two defects no test and no live run had:
+`copy_file` claiming comments it could not know had arrived, and the
+parity gate being defeatable by one `#`.
+
+And a proposed rule is not a rule. §17a's version of the outcome gate
+would have failed two sites that are already correct — it named the
+function as the unit where the branch is the unit — and the entry read as
+though only the typing remained. The live driver's option coverage is
+122 of 188, measured for the first time; a reader that silently read 2 of
+188 and printed it as a figure is what stands between a measurement and a
+number.
 
 **What phase 5 was for.** Everything was implemented; the question was
 what had never actually been run. The destructive five had not, because
@@ -1279,6 +1298,50 @@ out of bounds. `manage_labels`'s writes need an administrator to publish
 a label. Each is in §17a with what would close it. Use in anger and an
 eval round with a second client are what 1.1 wants.
 
+**Phase 6 — the gates that were described rather than built (unreleased).**
+No new tools. A Claude Desktop bundle on every release, a README a
+released project should have, a code of conduct — and then the three
+gates §17a had described for three phases: `transcript`, `live-cover`,
+and one for §11's rule against asserting an outcome the response did not
+carry.
+
+The through-line is the one §17a itself names: **a guard that would be
+expensive to make automatic gets described as though it were, because the
+description is free.** Each of the three was a paragraph explaining what
+would catch a defect. Building them cost a day and caught two defects
+neither the tests nor eight live runs had found — `copy_file` claiming
+comments it could not know had arrived, and the parity gate itself being
+defeatable by one `#`.
+
+Three things are worth carrying forward.
+
+**A proposed rule is not a rule.** §17a's version of the outcome gate
+would have failed two sites that are already correct, because it named
+the function as the unit where the branch is the unit. The entry had been
+sitting there for a phase reading as though the work were decided and
+only the typing remained. It was not: the design was wrong, and only
+writing it against the code said so.
+
+**A measurement can fail by returning a number.** The live-coverage
+reader's first working draft read 2 of 188 options and printed it as a
+figure, because `any` is an identifier and not an interface node. Nothing
+crashed. A gate that reports a number needs either a floor it refuses to
+report below or a record that fails when the number moves, and this one
+has the second: 122 of 188, with every gap holding a decision.
+
+**Watch a gate fail before believing it, including one written an hour
+ago.** The transcript gate was reviewed by writing `log.Printf` into the
+driver and running it. It passed. Its own test enumerated the same six
+call shapes the implementation did, which is how a test comes to agree
+with the bug it should catch — the phase-4 lesson, one level up.
+
+Four sibling repositories were building the same gates the same week, and
+the cross-checking found more than any of them found alone: the bundle
+reaching `checksums.txt` only through `extra_files`, three parity and
+vocabulary holes, and the argument for a live driver recording what it
+SENT rather than a gate reading what it says it sends.
+
+
 ### Closing a phase
 
 1. `make check` green on all three platforms; the live driver run, and
@@ -1652,6 +1715,30 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   terminal are watched being refused in tests, and the failure line is
   one of the three addresses `TestEveryLinePrintedIsRedacted` sends
   through.
+
+- **The outcome gate subtracts rather than selects.** It collects every
+  long string in a request-tested branch and then takes away the ones
+  that are not outcomes — a refusal, a log line — which is why it needs a
+  list of function names, a 25-character heuristic AND a record file to
+  be right. The positive form is one question: does this literal reach
+  the caller's `Result`? In this package that is two shapes — appended to
+  a `notes` slice that ends in an `outcome{Note: ...}`, or assigned to a
+  note field — and both current exemptions are one of them. With it,
+  `Errorf` prose and `slog` prose are excluded by construction rather
+  than by name, and the length heuristic goes.
+
+  Not done because it wants a walk from the literal to the returned
+  outcome, which is real work against a gate that is currently correct on
+  every branch in the package. Raised by the phase-6 altitude review.
+
+- **`gates mcpb` stages four binaries and nothing holds that list to
+  `.goreleaser.yaml`.** A platform added to the build matrix would
+  silently not reach the bundle; a platform removed fails loudly at pack
+  time, when `onlyMatch` finds no file. So one direction rots quietly,
+  which is the shape `gates parity` exists for one file over. Deriving
+  the globs from the matrix, or failing when the matrix names a platform
+  the bundle does not stage, is the same idea. Raised by the phase-6
+  altitude review.
 
 - **`manage_labels` is unverified live, and `list_labels` is not.** The
   Drive Labels API answers (`doctor` calls `labels.list` and it
