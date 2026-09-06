@@ -58,6 +58,8 @@ func init() {
 		"api-coverage": {run: apiCoverage,
 			doc: "every API method is used on purpose or left out on purpose", gate: true},
 		"parity": {run: parity, doc: "`make check` and CI run the same gates", gate: true},
+		"mcpb": {run: mcpbCheck,
+			doc: "the committed bundle manifest names files the packer will stage", gate: true},
 		"api-diff": {run: apiDiff,
 			doc: "refetch the discovery documents and report what changed (needs the network)"},
 		"precommit":     {run: precommit, doc: "gofmt, vet and a secret scan"},

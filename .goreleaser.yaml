@@ -33,8 +33,13 @@ universal_binaries:
     replace: false
     hooks:
       # The one point in the pipeline where every binary exists and
-      # checksums.txt has not been written. Packing here is what puts the
-      # bundle in that file, under the same signature as the archives.
+      # checksums.txt has not been written, which is what MAKES it
+      # possible for the bundle to be in that file and therefore under
+      # the signature. It is not what puts it there: goreleaser hashes
+      # the artifacts it built, and a file a hook drops into dist/ is not
+      # one. `checksum.extra_files` below covers it and
+      # `release.extra_files` uploads it — both, or the bundle ships
+      # unsigned, or not at all, while looking no different here.
       post: go run ./scripts/gates mcpb-pack {{ .Version }} dist
 
 archives:

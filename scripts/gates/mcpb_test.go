@@ -111,6 +111,13 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			want: "which user_config does not declare",
 		},
 		{
+			name: "an override for a platform the bundle does not claim",
+			break_: func(m map[string]any) {
+				m["compatibility"] = map[string]any{"platforms": []any{"darwin", "win32"}}
+			},
+			want: "platform_overrides.linux is an override for a platform compatibility.platforms does not claim",
+		},
+		{
 			name:   "a server that is not a binary",
 			break_: func(m map[string]any) { m["server"].(map[string]any)["type"] = "node" },
 			want:   "this bundle ships binaries",
@@ -170,5 +177,64 @@ func TestTheBundleIsAZipWithTheModesItNeeds(t *testing.T) {
 	}
 	if _, ok := modes["manifest.json"]; !ok {
 		t.Error("the bundle has no manifest.json at its root")
+	}
+}
+
+// TestTheCommittedManifestNamesFilesThePackerStages is the half of the
+// packer's validation that needs no build, and it is a gate for that
+// reason: every question checkManifest asks is referential — does this
+// name a file that will be there — and the names are static even when
+// the binaries are not.
+//
+// Before this ran on every commit, a manifest naming a file nobody
+// stages was a release-day failure. It is a commit-day one now.
+func TestTheCommittedManifestNamesFilesThePackerStages(t *testing.T) {
+	t.Chdir("../..")
+	var out bytes.Buffer
+	if err := mcpbCheck(&out, nil); err != nil {
+		t.Fatalf("the committed manifest does not match what the packer stages: %v\n%s", err, out.String())
+	}
+}
+
+// TestAManifestNamingAnUnstagedFileIsRefused proves the gate above
+// bites, against the real staged names rather than an invented set: a
+// check nobody has watched fail is a check nobody knows the shape of.
+func TestAManifestNamingAnUnstagedFileIsRefused(t *testing.T) {
+	t.Chdir("../..")
+	manifest, err := readManifest(mcpbManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, _ := manifest["server"].(map[string]any)
+	server["entry_point"] = "server/google-drive-mcp-riscv64"
+	problems := checkManifest(manifest, stagedNames())
+	if len(problems) == 0 {
+		t.Fatal("an entry point the packer never stages was accepted")
+	}
+	if !strings.Contains(strings.Join(problems, "\n"), "riscv64") {
+		t.Errorf("the report does not name the file:\n%s", strings.Join(problems, "\n"))
+	}
+}
+
+// TestTheStagedNamesAreTheOnesThePackerWrites holds the two halves
+// together. mcpbCheck answers a referential question from stagedNames
+// alone; if the packer put a file in the bundle that stagedNames does
+// not know about, the gate would be checking against a tree that is not
+// the one shipped.
+func TestTheStagedNamesAreTheOnesThePackerWrites(t *testing.T) {
+	names := stagedNames()
+	for _, b := range binaries {
+		if _, ok := names[b.as]; !ok {
+			t.Errorf("the packer stages %s and stagedNames does not list it", b.as)
+		}
+	}
+	for name := range alongside {
+		if _, ok := names[name]; !ok {
+			t.Errorf("the packer stages %s and stagedNames does not list it", name)
+		}
+	}
+	if len(names) != len(binaries)+len(alongside) {
+		t.Errorf("stagedNames has %d entries and the packer stages %d",
+			len(names), len(binaries)+len(alongside))
 	}
 }
