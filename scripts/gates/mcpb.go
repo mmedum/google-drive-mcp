@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -37,6 +38,10 @@ import (
 // tree can never be stale: it does not claim a version at all.
 const mcpbPlaceholder = "0.0.0-dev"
 
+// mcpbManifestPath is the committed manifest, which both the gate and
+// the packer read: one file, so a check of it is a check of what ships.
+const mcpbManifestPath = "packaging/mcpb/manifest.json"
+
 // mcpbManifest prints the packaging manifest with a real version in it.
 //
 // Through a decode and an encode rather than a text substitution,
@@ -46,7 +51,7 @@ const mcpbPlaceholder = "0.0.0-dev"
 // instead of shipping under the wrong number.
 func mcpbManifest(out io.Writer, args []string) error {
 	version := arg(args, 0, "")
-	path := arg(args, 1, "packaging/mcpb/manifest.json")
+	path := arg(args, 1, mcpbManifestPath)
 	if version == "" {
 		return fmt.Errorf("usage: gates mcpb-manifest VERSION [MANIFEST]")
 	}
@@ -88,13 +93,88 @@ type staged struct {
 	glob, as, what string
 }
 
+// binaries are the four built files the bundle carries.
+//
+// A manifest picks a binary by platform and has no key for the
+// architecture, so every platform it claims has to work on both. macOS
+// does through the universal binary and Windows through amd64, which its
+// arm64 build runs under emulation. Linux has neither, so the bundle
+// carries both Linux binaries and a launcher that picks between them.
+var binaries = []staged{
+	{"*darwin_all*/google-drive-mcp", "server/google-drive-mcp", "darwin universal binary"},
+	{"*windows_amd64*/google-drive-mcp.exe", "server/google-drive-mcp.exe", "windows amd64 binary"},
+	{"*linux_amd64*/google-drive-mcp", "server/google-drive-mcp-amd64", "linux amd64 binary"},
+	{"*linux_arm64*/google-drive-mcp", "server/google-drive-mcp-arm64", "linux arm64 binary"},
+}
+
+// alongside are the files that come from the tree rather than from the
+// build, so they are the same on every platform and at any moment.
+var alongside = map[string]string{
+	"server/linux-launch.sh": "packaging/mcpb/linux-launch.sh",
+	"LICENSE":                "LICENSE",
+	"README.md":              "README.md",
+}
+
+// stagedNames is every name the bundle will carry, with no build.
+//
+// The names are static and the FILES are not, which is the whole reason
+// this is a function of its own: everything checkManifest asks is
+// referential — does entry_point name something that will be there — and
+// a referential question needs the names alone. So `gates mcpb` answers
+// it on every commit, and a manifest that names a file nobody stages
+// fails the day it is written rather than on release day.
+func stagedNames() map[string]string {
+	out := make(map[string]string, len(binaries)+len(alongside))
+	for _, b := range binaries {
+		out[b.as] = ""
+	}
+	for name, src := range alongside {
+		out[name] = src
+	}
+	return out
+}
+
+// mcpbCheck holds the COMMITTED manifest to the tree, with no build.
+//
+// It is the half of the packer's validation that does not need binaries,
+// and it is a gate rather than a release step for that reason: a
+// manifest naming a file nobody will stage is a fact about two files in
+// the repository, and waiting for a tagged release to learn it is
+// waiting for the most expensive moment there is.
+func mcpbCheck(out io.Writer, _ []string) error {
+	manifest, err := readManifest(mcpbManifestPath)
+	if err != nil {
+		return err
+	}
+	if got, _ := manifest["version"].(string); got != mcpbPlaceholder {
+		return fmt.Errorf("%s carries version %q; the committed manifest must carry %q, "+
+			"so that a version in the tree can never be a stale one", mcpbManifestPath, got, mcpbPlaceholder)
+	}
+	contents := stagedNames()
+	if problems := checkManifest(manifest, contents); len(problems) > 0 {
+		for _, p := range problems {
+			_, _ = fmt.Fprintln(out, "  "+p)
+		}
+		return fmt.Errorf("%d problem(s) in %s", len(problems), mcpbManifestPath)
+	}
+	_, _ = fmt.Fprintf(out, "mcpb manifest ok (%d files staged, %d platforms)\n",
+		len(contents)+1, len(manifestPlatforms(manifest)))
+	return nil
+}
+
 // mcpbPack builds the bundle from the binaries goreleaser has just made.
 //
 // It runs as the universal binary's post hook, which is the one point in
 // the pipeline where every binary exists and the checksum file has not
-// been written yet. That is what puts the bundle into checksums.txt with
-// the archives, under the same signature. Anywhere later and it ships
-// unsigned.
+// been written yet. That is what MAKES it possible for the bundle to be
+// in checksums.txt, and therefore under the signature, since the
+// signature is over that file — but it is not what puts it there.
+// goreleaser hashes the artifacts IT built, and a file a hook drops into
+// dist/ is not one of those: `checksum.extra_files` in .goreleaser.yaml
+// is what covers it, and `release.extra_files` is what uploads it. A
+// sibling repository following this hook alone produced a bundle that
+// packed, agreed about its version everywhere it was asked, and was
+// absent from checksums.txt — which looks exactly like a correct build.
 func mcpbPack(out io.Writer, args []string) error {
 	version := arg(args, 0, "")
 	dist := arg(args, 1, "dist")
@@ -103,38 +183,21 @@ func mcpbPack(out io.Writer, args []string) error {
 	}
 	version = strings.TrimPrefix(version, "v")
 
-	// A manifest picks a binary by platform and has no key for the
-	// architecture, so every platform it claims has to work on both.
-	// macOS does through the universal binary and Windows through amd64,
-	// which its arm64 build runs under emulation. Linux has neither, so
-	// the bundle carries both Linux binaries and a launcher.
-	//
-	files := []staged{
-		{"*darwin_all*/google-drive-mcp", "server/google-drive-mcp", "darwin universal binary"},
-		{"*windows_amd64*/google-drive-mcp.exe", "server/google-drive-mcp.exe", "windows amd64 binary"},
-		{"*linux_amd64*/google-drive-mcp", "server/google-drive-mcp-amd64", "linux amd64 binary"},
-		{"*linux_arm64*/google-drive-mcp", "server/google-drive-mcp-arm64", "linux arm64 binary"},
-	}
-
-	contents := map[string]string{}
-	for _, f := range files {
-		src, err := onlyMatch(filepath.Join(dist, f.glob), f.what)
+	contents := stagedNames()
+	for _, b := range binaries {
+		src, err := onlyMatch(filepath.Join(dist, b.glob), b.what)
 		if err != nil {
 			return err
 		}
-		contents[f.as] = src
+		contents[b.as] = src
 	}
-	contents["server/linux-launch.sh"] = "packaging/mcpb/linux-launch.sh"
-	contents["LICENSE"] = "LICENSE"
-	contents["README.md"] = "README.md"
 
-	manifest, err := readManifest("packaging/mcpb/manifest.json")
+	manifest, err := readManifest(mcpbManifestPath)
 	if err != nil {
 		return err
 	}
 	if got, _ := manifest["version"].(string); got != mcpbPlaceholder {
-		return fmt.Errorf("packaging/mcpb/manifest.json carries version %q; it must carry %q",
-			got, mcpbPlaceholder)
+		return fmt.Errorf("%s carries version %q; it must carry %q", mcpbManifestPath, got, mcpbPlaceholder)
 	}
 	manifest["version"] = version
 	if problems := checkManifest(manifest, contents); len(problems) > 0 {
@@ -271,10 +334,22 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	inBundle("server.mcp_config.command", bundlePath(command))
 
 	overrides, _ := cfg["platform_overrides"].(map[string]any)
+	claimed := manifestPlatforms(manifest)
 	for _, platform := range sortedKeys(overrides) {
 		over, _ := overrides[platform].(map[string]any)
 		c, _ := over["command"].(string)
 		inBundle("platform_overrides."+platform+".command", bundlePath(c))
+		// An override for a platform the bundle does not claim is the
+		// same class of defect as a command nobody staged: well formed,
+		// packs, and reaches nobody. Claude Desktop picks the override
+		// by platform, so one for a platform compatibility rules out is
+		// a command that can never run.
+		if len(claimed) > 0 && !slices.Contains(claimed, platform) {
+			problems = append(problems, fmt.Sprintf(
+				"platform_overrides.%s is an override for a platform compatibility.platforms does not "+
+					"claim (%s), so nothing will ever use it",
+				platform, strings.Join(claimed, ", ")))
+		}
 	}
 
 	// Every ${user_config.x} the config spends has to be a key somebody
@@ -335,4 +410,20 @@ func onlyMatch(pattern, what string) (string, error) {
 			what, pattern, len(found), strings.Join(found, " "))
 	}
 	return found[0], nil
+}
+
+// manifestPlatforms is what compatibility.platforms claims, in the order
+// it claims it. An empty list means the manifest says nothing, which the
+// callers treat as "no opinion" rather than as "no platforms": a bundle
+// with no compatibility block installs everywhere.
+func manifestPlatforms(manifest map[string]any) []string {
+	compat, _ := manifest["compatibility"].(map[string]any)
+	raw, _ := compat["platforms"].([]any)
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }

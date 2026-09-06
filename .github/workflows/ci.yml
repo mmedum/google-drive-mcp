@@ -111,6 +111,7 @@ jobs:
       # or listed and never emitted, and both read as silence.
       - run: go run ./scripts/gates classes
       - run: go run ./scripts/gates api-coverage
+      - run: go run ./scripts/gates mcpb
       - run: go run ./scripts/gates parity
 
   smoke:
