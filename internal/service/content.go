@@ -453,7 +453,7 @@ func (s *Service) downloadOperation(ctx context.Context, f *gdrive.File, in Down
 			"%s is %s, and Drive renders one as %s and nothing else, so format does not apply",
 			f.Name, model.KindWithArticle(f), strings.ToUpper(format))
 	}
-	op, err := s.api.StartDownload(ctx, f.ID, "", in.Revision)
+	op, err := s.resumeOrStartDownload(ctx, f, in.Revision)
 	if err != nil {
 		return nil, "", "", s.contentError(err, f, "starting the download of")
 	}
@@ -461,19 +461,67 @@ func (s *Service) downloadOperation(ctx context.Context, f *gdrive.File, in Down
 	if err != nil {
 		var pending *gapi.OperationPendingError
 		if errors.As(err, &pending) {
+			// The name is kept, so the next call continues this render
+			// rather than asking Drive to do the work again. Without that
+			// the sentence below would be a promise the code does not keep.
+			s.rememberDownload(f.ID, pending.Name)
 			return nil, "", "", Errorf(ClassPending,
-				"Drive is still rendering %s as MP4. That can take a while for a video; "+
-					"call download_file again in a minute or two and it will pick up the finished render.",
-				f.Name)
+				"Drive is still rendering %s as %s. That can take a while for a video; "+
+					"call download_file again in a minute or two and it will pick up this same render "+
+					"rather than starting another.", f.Name, strings.ToUpper(format))
 		}
 		return nil, "", "", s.contentError(err, f, "downloading")
 	}
+	s.forgetDownload(f.ID)
 	c, err := s.api.DownloadURL(ctx, ready.DownloadURI)
 	if err != nil {
 		return nil, "", "", s.contentError(err, f, "fetching the rendered video of")
 	}
 	return c, format, "rendered by Drive as " + strings.ToUpper(format) +
 		", which is the only form this kind comes in", nil
+}
+
+// resumeOrStartDownload continues a render this process already asked
+// for, or begins one.
+//
+// Resuming matters more than it looks: an operation's name comes back
+// only from the call that starts it, and Google documents no way to list
+// operations and find it again. A name dropped is a render dropped, and
+// the caller pays for the whole thing twice.
+func (s *Service) resumeOrStartDownload(ctx context.Context, f *gdrive.File, revision string) (*gdrive.Operation, error) {
+	s.mu.Lock()
+	name, ok := cacheGet(s.downloads, f.ID, s.now(), s.opts.DownloadOpTTL)
+	s.mu.Unlock()
+	if ok {
+		op, err := s.api.GetOperation(ctx, name)
+		if err == nil {
+			return op, nil
+		}
+		// The operation expired or Drive forgot it. That is not a failure
+		// worth reporting: starting another is exactly what the caller
+		// wanted.
+		s.log.DebugContext(ctx, "a kept download operation could not be read; starting another",
+			"class", gapi.Class(err))
+		s.forgetDownload(f.ID)
+	}
+	return s.api.StartDownload(ctx, f.ID, "", revision)
+}
+
+// rememberDownload keeps an unfinished render's name.
+func (s *Service) rememberDownload(fileID, name string) {
+	if name == "" {
+		return
+	}
+	s.mu.Lock()
+	s.downloads[fileID] = cached[string]{value: name, at: s.now()}
+	s.mu.Unlock()
+}
+
+// forgetDownload drops a render that finished or expired.
+func (s *Service) forgetDownload(fileID string) {
+	s.mu.Lock()
+	delete(s.downloads, fileID)
+	s.mu.Unlock()
 }
 
 // exportRevision reaches an old version of a Google-native document.
