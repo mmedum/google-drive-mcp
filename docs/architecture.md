@@ -1,15 +1,15 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 5 complete (2026-09-06), released as v1.0.0; phase 6 is
-on a topic branch and unreleased. A default build registers **31** tools;
-eight more exist behind a flag — the destructive five, plus `list_labels`
-and `manage_labels` under `GDRIVE_LABELS` and `list_activity` under
-`GDRIVE_ACTIVITY`. Those last three each need a Google API enabled in the
-Cloud project AND a scope the consent screen would otherwise not carry,
-which is why they are off by default — 39 tools in all, and 13 in
-read-only mode. Neither phase 5 nor phase 6 added a tool. Every method of
-all three APIs is recorded as used on purpose or left out on purpose, and
-a gate holds the record to the code.
+**Status:** phase 6 complete (2026-09-06), released as v1.0.1. A default
+build registers **31** tools; eight more exist behind a flag — the
+destructive five, plus `list_labels` and `manage_labels` under
+`GDRIVE_LABELS` and `list_activity` under `GDRIVE_ACTIVITY`. Those last
+three each need a Google API enabled in the Cloud project AND a scope the
+consent screen would otherwise not carry, which is why they are off by
+default — 39 tools in all, and 13 in read-only mode. Neither phase 5 nor
+phase 6 added a tool. Every method of all three APIs is recorded as used
+on purpose or left out on purpose, and a gate holds the record to the
+code.
 
 **What phase 6 is, and it is unreleased.** No new tools. The bundle, the
 README a released project should have, and the three gates §17a had
@@ -1298,7 +1298,8 @@ out of bounds. `manage_labels`'s writes need an administrator to publish
 a label. Each is in §17a with what would close it. Use in anger and an
 eval round with a second client are what 1.1 wants.
 
-**Phase 6 — the gates that were described rather than built (unreleased).**
+**Phase 6 — the gates that were described rather than built (v1.0.1).
+Done 2026-09-06.**
 No new tools. A Claude Desktop bundle on every release, a README a
 released project should have, a code of conduct — and then the three
 gates §17a had described for three phases: `transcript`, `live-cover`,
