@@ -272,8 +272,16 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The names come from the packer, so a rename that broke the pairing
-	// fails here rather than on somebody's machine.
-	for _, name := range []string{"google-drive-mcp-amd64", "google-drive-mcp-arm64"} {
+	// fails here rather than on somebody's machine. Read from `binaries`
+	// and not written out: a review pointed out that this comment was
+	// false while the names were literals, since the test then staged
+	// what it had typed and the launcher looked for what IT had typed,
+	// and the two agreed with each other rather than with the packer.
+	for _, b := range binaries {
+		if b.platform != "" {
+			continue
+		}
+		name := strings.TrimPrefix(b.as, "server/")
 		script := "#!/bin/sh\necho ran " + name + "\n"
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o700); err != nil {
 			t.Fatal(err)

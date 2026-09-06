@@ -8,6 +8,53 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The outcome gate could be silenced by one error check.** `refuses`
+  looked for `return nil, x` anywhere in a branch, so ordinary error
+  propagation excused everything after it. A review probe put the phase-5
+  `lock_file` defect back verbatim behind an `if err != nil { return nil,
+  err }` and the gate reported nothing at all — the one shape it exists
+  for, made invisible by the commonest line in the package. It reads the
+  branch's terminal statement now.
+
+- **The bundle would have shipped a Mach-O binary to Windows and nothing
+  would have said so.** `checkManifest` asked whether a
+  `platform_overrides` command names a staged file, and whether an
+  override exists for a platform the bundle does not claim — but never
+  whether a platform it DOES claim spawns the file staged for it. Delete
+  the `win32` override and the gate passed: Windows would then run the
+  default command, which is the darwin universal binary, and that file
+  really is in the bundle. Every claimed platform is now held to its own
+  entry point.
+
+- **Renaming a staged Linux binary passed every gate and every test.**
+  The launcher picks between `google-drive-mcp-amd64` and `-arm64` by
+  `uname -m`, and those names live in a shell script no manifest
+  mentions, so nothing tied them to what the packer stages. The bundle
+  would have failed for every Linux user with the launcher's own "missing
+  from the bundle" message. The names are held to `binaries` now — and
+  the launcher test's comment claimed that guarantee while hardcoding the
+  names, so the test staged what it had typed and the launcher looked for
+  what it had typed, and the two agreed with each other rather than with
+  the packer.
+
+- **A composed `${user_config.x}` skipped the check.** It matched only a
+  value that is nothing but a reference, so
+  `"${user_config.local_dir}/sub"` with nothing declaring `local_dir`
+  passed, and the server would start with the variable unsubstituted.
+
+- **The transcript gate could not see the redactor itself.** It is on the
+  path of every line the drivers print, and it is the one package the
+  unlisted-driver rule can never find, because the mark is importing the
+  redactor and the redactor does not import itself. A `fmt.Println` added
+  there reported ok.
+
+- **One outcome exemption covered every branch in its file.** A row is
+  keyed by file and field, so a second branch testing the same boolean in
+  the same file was excused by an argument written about the first —
+  silently, and it is the new branch nobody has looked at. The ambiguity
+  is refused now rather than keyed on a line number, which would make
+  every row stale on the next edit above it.
+
 - **The transcript gate had a second way out, found by trying it.** A
   review of the gate wrote `log.Printf("owner: %s", addr)` into the live
   driver and the gate passed: `log` and `log/slog` write to a terminal

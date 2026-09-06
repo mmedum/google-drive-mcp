@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -105,6 +106,9 @@ func readManifest(path string) (map[string]any, error) {
 // execute bit and nothing else does.
 type staged struct {
 	glob, as, what string
+	// platform is the manifest platform this file is the entry point
+	// for, or empty for one that is carried but never spawned.
+	platform string
 }
 
 // binaries are the four built files the bundle carries.
@@ -115,18 +119,26 @@ type staged struct {
 // arm64 build runs under emulation. Linux has neither, so the bundle
 // carries both Linux binaries and a launcher that picks between them.
 var binaries = []staged{
-	{"*darwin_all*/google-drive-mcp", "server/google-drive-mcp", "darwin universal binary"},
-	{"*windows_amd64*/google-drive-mcp.exe", "server/google-drive-mcp.exe", "windows amd64 binary"},
-	{"*linux_amd64*/google-drive-mcp", "server/google-drive-mcp-amd64", "linux amd64 binary"},
-	{"*linux_arm64*/google-drive-mcp", "server/google-drive-mcp-arm64", "linux arm64 binary"},
+	{"*darwin_all*/google-drive-mcp", "server/google-drive-mcp", "darwin universal binary", "darwin"},
+	{"*windows_amd64*/google-drive-mcp.exe", "server/google-drive-mcp.exe", "windows amd64 binary", "win32"},
+	// Neither Linux binary is an entry point: the launcher below is, and
+	// it picks between these two from `uname -m`.
+	{"*linux_amd64*/google-drive-mcp", "server/google-drive-mcp-amd64", "linux amd64 binary", ""},
+	{"*linux_arm64*/google-drive-mcp", "server/google-drive-mcp-arm64", "linux arm64 binary", ""},
 }
+
+// linuxLauncher is the Linux entry point, and the only staged file that
+// is not a binary. It is here rather than in alongside because it is
+// spawned, and because the two names it chooses between have to match
+// what the packer stages — see checkLauncher.
+const linuxLauncher = "server/linux-launch.sh"
 
 // alongside are the files that come from the tree rather than from the
 // build, so they are the same on every platform and at any moment.
 var alongside = map[string]string{
-	"server/linux-launch.sh": "packaging/mcpb/linux-launch.sh",
-	"LICENSE":                "LICENSE",
-	"README.md":              "README.md",
+	linuxLauncher: "packaging/mcpb/linux-launch.sh",
+	"LICENSE":     "LICENSE",
+	"README.md":   "README.md",
 }
 
 // stagedNames is every name the bundle will carry, with no build.
@@ -161,7 +173,9 @@ func mcpbCheck(out io.Writer, _ []string) error {
 		return err
 	}
 	contents := stagedNames()
-	if problems := checkManifest(manifest, contents); len(problems) > 0 {
+	problems := checkManifest(manifest, contents)
+	problems = append(problems, checkLauncher()...)
+	if len(problems) > 0 {
 		for _, p := range problems {
 			_, _ = fmt.Fprintln(out, "  "+p)
 		}
@@ -207,7 +221,9 @@ func mcpbPack(out io.Writer, args []string) error {
 		return err
 	}
 	manifest["version"] = version
-	if problems := checkManifest(manifest, contents); len(problems) > 0 {
+	problems := checkManifest(manifest, contents)
+	problems = append(problems, checkLauncher()...)
+	if len(problems) > 0 {
 		for _, p := range problems {
 			_, _ = fmt.Fprintln(out, "  "+p)
 		}
@@ -354,37 +370,76 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 		}
 	}
 
+	// And the direction that matters more, which the check above does
+	// not cover: every platform the bundle CLAIMS must spawn the file
+	// staged for it. A review found that deleting the win32 override
+	// passed — Windows would then have spawned the default command,
+	// which is the darwin universal binary, because that file really is
+	// in the bundle and inBundle only asks whether a name is staged. A
+	// Mach-O binary on Windows is exactly the "packs cleanly and then
+	// does nothing" failure this function exists to catch.
+	for _, platform := range claimed {
+		want := entryPointFor(platform)
+		if want == "" {
+			problems = append(problems, fmt.Sprintf(
+				"compatibility.platforms claims %s and this packer stages no entry point for it",
+				platform))
+			continue
+		}
+		got := bundlePath(command)
+		if over, ok := overrides[platform].(map[string]any); ok {
+			if c, ok := over["command"].(string); ok {
+				got = bundlePath(c)
+			}
+		}
+		if got != want {
+			problems = append(problems, fmt.Sprintf(
+				"on %s the bundle would spawn %q, and the file staged for %s is %q. Give %s a "+
+					"platform_overrides entry, or make the default command name %q",
+				platform, got, platform, want, platform, want))
+		}
+	}
+
 	// Every ${user_config.x} the config spends has to be a key somebody
 	// is asked for at install, or the server starts without it.
 	declared, _ := manifest["user_config"].(map[string]any)
 	env, _ := cfg["env"].(map[string]any)
 	for _, name := range sorted(env) {
 		value, _ := env[name].(string)
-		key, ok := userConfigKey(value)
-		if !ok {
-			continue
-		}
-		if _, found := declared[key]; !found {
-			problems = append(problems, fmt.Sprintf(
-				"env %s spends ${user_config.%s}, which user_config does not declare", name, key))
+		for _, key := range userConfigKeys(value) {
+			if _, found := declared[key]; !found {
+				problems = append(problems, fmt.Sprintf(
+					"env %s spends ${user_config.%s}, which user_config does not declare", name, key))
+			}
 		}
 	}
 	return problems
 }
 
+// userConfigKeys reads every ${user_config.x} a value spends.
+//
+// Every one, not the value when it is nothing but a reference. An
+// earlier version matched the whole value, so a composed one —
+// "${user_config.local_dir}/sub" — skipped the check entirely and the
+// server would start with the variable unsubstituted. Found by review,
+// with a probe.
+func userConfigKeys(value string) []string {
+	found := userConfigRef.FindAllStringSubmatch(value, -1)
+	out := make([]string, 0, len(found))
+	for _, m := range found {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+// userConfigRef matches one ${user_config.x} reference anywhere in a
+// value.
+var userConfigRef = regexp.MustCompile(`\$\{user_config\.([^}]+)\}`)
+
 // bundlePath turns a manifest command into the name it has inside the
 // bundle. ${__dirname} is where the bundle was unpacked.
 func bundlePath(command string) string {
 	return path.Clean(strings.TrimPrefix(strings.TrimPrefix(command, "${__dirname}"), "/"))
-}
-
-// userConfigKey reads the key out of a ${user_config.x} reference.
-func userConfigKey(value string) (string, bool) {
-	const prefix = "${user_config."
-	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, "}") {
-		return "", false
-	}
-	return strings.TrimSuffix(strings.TrimPrefix(value, prefix), "}"), true
 }
 
 // onlyMatch resolves a glob that must name exactly one file.
@@ -419,4 +474,62 @@ func manifestPlatforms(manifest map[string]any) []string {
 		}
 	}
 	return out
+}
+
+// entryPointFor is the file a platform spawns: its own binary, or the
+// launcher where the platform needs one binary per architecture.
+func entryPointFor(platform string) string {
+	if platform == "linux" {
+		return linuxLauncher
+	}
+	for _, b := range binaries {
+		if b.platform == platform {
+			return b.as
+		}
+	}
+	return ""
+}
+
+// checkLauncher holds the Linux launcher to the names the packer stages.
+//
+// The launcher picks a binary from `uname -m` and spawns it by name, and
+// those names are written out in a shell script that no manifest
+// mentions — so checkManifest cannot see them, and a review found that
+// renaming a staged Linux binary passed every gate and every test. The
+// bundle would then have failed for every Linux user, with the
+// launcher's own "missing from the bundle" message, which is the failure
+// this file exists to make impossible.
+//
+// It asserts the names rather than generating the script: a launcher is
+// a thing a person should be able to read, and generating it would trade
+// a checkable fact for a harder-to-read one.
+func checkLauncher() []string {
+	source, ok := alongside[linuxLauncher]
+	if !ok {
+		return []string{"the packer stages no " + linuxLauncher}
+	}
+	body, err := os.ReadFile(source) //nolint:gosec // a path this repository owns
+	if err != nil {
+		return []string{"cannot read " + source + ": " + err.Error()}
+	}
+	var problems []string
+	named := 0
+	for _, b := range binaries {
+		if !strings.HasPrefix(b.as, "server/") || b.platform != "" {
+			continue
+		}
+		name := strings.TrimPrefix(b.as, "server/")
+		if !strings.Contains(string(body), name) {
+			problems = append(problems, fmt.Sprintf(
+				"%s stages %s and %s never names it, so the launcher would spawn something that is "+
+					"not in the bundle", linuxLauncher, b.as, source))
+			continue
+		}
+		named++
+	}
+	if named == 0 && len(problems) == 0 {
+		return []string{source + " names none of the staged binaries; this check is not reading what it " +
+			"is meant to"}
+	}
+	return problems
 }
