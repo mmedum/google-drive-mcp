@@ -55,9 +55,25 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   manifest carries a placeholder and the packer refuses anything else,
   so a manifest in the tree cannot claim a stale version. Packing runs
   as the universal binary's post hook — the one point where every binary
-  exists and `checksums.txt` has not been written — which is what puts
-  the bundle in that file and therefore under the same signature as the
-  archives.
+  exists and `checksums.txt` has not been written — which is what makes
+  it possible for the bundle to be in that file, and therefore under the
+  same signature as the archives. It is not what puts it there:
+  goreleaser hashes the artifacts it built, and a file a hook drops into
+  `dist/` is not one, so `checksum.extra_files` covers it and
+  `release.extra_files` uploads it. A sibling repository following the
+  hook alone packed a bundle that agreed about its version everywhere it
+  was asked and was absent from `checksums.txt`, which is
+  indistinguishable from a correct build unless somebody looks.
+
+  The referential half of the packer's validation now runs on every
+  commit as `gates mcpb`, with no build at all: whether `entry_point`,
+  the platform commands and every `${user_config.x}` name something that
+  will be staged is a question about the NAMES, and the names are static
+  even when the binaries are not. A manifest pointing at a file nobody
+  packs used to be a release-day failure and is a commit-day one now.
+  The manifest is also refused for declaring a `platform_overrides` entry
+  for a platform `compatibility.platforms` does not claim — an override
+  nothing can reach is the same defect as a command nobody staged.
 
   macOS needed a universal binary, which this repository did not build;
   it is built for the bundle alone and kept out of the ordinary
