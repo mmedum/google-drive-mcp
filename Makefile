@@ -107,12 +107,16 @@ gate-classes: ## The error classes the code emits must be the ones it declares
 api-coverage: ## Every API method is used on purpose or left out on purpose
 	$(GO) run ./scripts/gates api-coverage
 
+.PHONY: parity
+parity: ## `make check` and CI must run the same gates
+	$(GO) run ./scripts/gates parity
+
 .PHONY: api-diff
 api-diff: ## Refetch the three discovery documents and report what has changed (needs the network)
 	$(GO) run ./scripts/gates api-diff
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage smoke staleness ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage schema-diff smoke staleness parity ## Everything CI runs
 
 .PHONY: clean
 clean:

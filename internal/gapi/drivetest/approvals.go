@@ -185,6 +185,29 @@ const gdriveInProgress = "IN_PROGRESS"
 // approval when that settles it. One decline decides it; an approval
 // waits for everybody, which is the asymmetry worth having in the fake.
 func (s *Server) answerLocked(a *gdrive.Approval, verb string) {
+	// A completed approval locks the file, which was verified live: the
+	// card came back carrying "Locked for File Approval" and the next
+	// update_content was refused for violating a content restriction.
+	// Starting one with lockFile did neither, which is why the lock is
+	// applied here and nowhere else.
+	defer func() {
+		if a.Status != "APPROVED" {
+			return
+		}
+		f := s.Files[a.TargetFileID]
+		if f == nil {
+			return
+		}
+		for _, r := range f.ContentRestrictions {
+			if r != nil && r.ReadOnly {
+				return
+			}
+		}
+		f.ContentRestrictions = append(f.ContentRestrictions, &gdrive.ContentRestriction{
+			ReadOnly: true, Reason: "Locked for File Approval", Type: "globalContentRestriction",
+		})
+	}()
+
 	response := "APPROVED"
 	if verb == "decline" {
 		response = "DECLINED"
@@ -223,7 +246,13 @@ func (s *Server) handleStartApproval(w http.ResponseWriter, r *http.Request, fil
 	s.nextID++
 	a := s.addApprovalLocked(fileID, fmt.Sprintf("id-approval-fixture-%d", s.nextID),
 		s.me(), body.DueTime, body.ReviewerEmails)
-	if body.LockFile {
+	// lockFile does NOT put a content restriction on the file by default.
+	// A live run asked for one and Drive applied none: the card came
+	// back unrestricted and the next update_content succeeded. Approving
+	// is what locks a file. A fake that locked here unconditionally —
+	// which this one did — proves the server's old claim rather than
+	// Drive's behaviour, and that is how the claim survived a phase.
+	if body.LockFile && s.LockOnApprovalStart {
 		if f := s.Files[fileID]; f != nil {
 			f.ContentRestrictions = append(f.ContentRestrictions, &gdrive.ContentRestriction{
 				ReadOnly: true, Reason: "Locked for an approval", Type: "globalContentRestriction",

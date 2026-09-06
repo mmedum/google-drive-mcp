@@ -62,7 +62,7 @@ func (s *Service) ListApprovals(ctx context.Context, in ListApprovalsInput) (str
 		PageSize: size, PageToken: in.PageToken,
 	})
 	if err != nil {
-		return "", s.approvalError(err, f, "reading the approvals on")
+		return "", s.approvalError(err, f, "reading the approvals on", "")
 	}
 	approvals := make([]*model.Approval, 0, len(page.Items))
 	waiting := 0
@@ -132,6 +132,10 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 			"approvals are on files, and %s is a folder", f.Name)
 	}
 
+	// Read before the action, so a lock that was already there is not
+	// reported as this call's doing. See lockWords.
+	lockedBefore, _ := model.ContentLocked(f)
+
 	approval, note, err := s.approvalAction(ctx, f, action, in)
 	if err != nil {
 		return nil, err
@@ -142,10 +146,20 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 	// for them again.
 	s.forget(f, false)
 	after, err := s.Resolve(ctx, f.ID, ResolveOptions{FollowShortcut: false, Fresh: true})
+	reread := err == nil
 	if err != nil {
 		// The action landed; failing here would report a failure that did
-		// not happen. Report what is known instead.
+		// not happen. Report what is known instead — and remember that
+		// this is the BEFORE snapshot, so nothing downstream reads it as
+		// evidence of what the action did.
 		after = res
+	}
+	// The lock sentence is written HERE rather than where the approval
+	// is started, because it is the one part of the note that is about
+	// the FILE and not about the call, and the file has just been read
+	// back. See lockWords.
+	if action == ApprovalStart && in.LockFile {
+		note += " " + lockWords(after.File, lockedBefore, reread)
 	}
 	return s.report(ctx, after, outcome{
 		Action: approvalOutcome(action),
@@ -197,18 +211,47 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 	}
 	started, err := s.api.StartApproval(ctx, f.ID, body)
 	if err != nil {
-		return nil, "", s.approvalError(err, f, "starting an approval on")
+		return nil, "", s.approvalError(err, f, "starting an approval on", "")
 	}
 	// The id is in the note because every other verb needs it, and this
 	// is the only place it is ever handed out: there is no listing a
 	// caller can find it in before the approval exists.
 	note := fmt.Sprintf("Approval %s started on %s and %s been mailed about it.",
 		started.ApprovalID, f.Name, model.Plural(len(reviewers), "reviewer has", "reviewers have"))
-	if in.LockFile {
-		note += " The file is LOCKED while the approval is open: nobody can change its content, " +
-			"including you."
-	}
 	return started, note, nil
+}
+
+// lockWords says whether the lock lock_file asked for is on the file,
+// rather than predicting it from the argument.
+//
+// It predicted, until a live run put "the file is LOCKED: nobody can
+// change its content, including you" directly beneath a card showing no
+// restriction at all — and then changed the content, successfully, on
+// the next call. Approving is what locked that file; lock_file at the
+// start did not. Whether that is Drive in general or this edition cannot
+// be told from one account, which is the argument for reading it back
+// instead of asserting either way: a re-read is right in both worlds.
+// lockedBefore says whether the file was already restricted when the
+// call began, so the sentence does not credit this approval with
+// somebody else's lock — an earlier approval that was approved, or an
+// administrator's restriction. Claiming a cause from a state is the same
+// mistake as claiming a state from an argument, one level down.
+func lockWords(f *gdrive.File, lockedBefore, reread bool) string {
+	if !reread {
+		return "lock_file was asked for. The file could not be read back, so this cannot say " +
+			"whether Drive applied it; get_file shows a lock as \"content locked\"."
+	}
+	if locked, _ := model.ContentLocked(f); locked {
+		if lockedBefore {
+			return "The file's content is LOCKED — as it already was before this call, so the " +
+				"lock is not necessarily this approval's."
+		}
+		return "The file is LOCKED while the approval is open: nobody can change its " +
+			"content, including you."
+	}
+	return "lock_file was asked for, and Drive reports no content restriction on the file: " +
+		"the card above is what it actually did. An approval that is APPROVED locks the file, " +
+		"and that lock does not come off."
 }
 
 // answerApproval records this account's answer, withdraws the approval,
@@ -249,7 +292,7 @@ func (s *Service) answerApproval(ctx context.Context, f *gdrive.File, action str
 		note = "Your message is on the approval, and the person who asked and every reviewer have been mailed it."
 	}
 	if err != nil {
-		return nil, "", s.approvalError(err, f, action+" the approval on")
+		return nil, "", s.approvalError(err, f, action+" the approval on", id)
 	}
 	return out, note, nil
 }
@@ -280,7 +323,7 @@ func (s *Service) reassignApproval(ctx context.Context, f *gdrive.File, in Manag
 	}
 	out, err := s.api.ReassignApproval(ctx, f.ID, id, body)
 	if err != nil {
-		return nil, "", s.approvalError(err, f, "reassigning the approval on")
+		return nil, "", s.approvalError(err, f, "reassigning the approval on", id)
 	}
 	return out, "The reviewers changed and the new ones have been mailed.", nil
 }
@@ -364,7 +407,12 @@ func nonEmpty(in []string) []string {
 // The endpoint is GA in the API and answers for any account; whether the
 // feature is available is a property of the edition, and Drive says so
 // with a refusal rather than with an absence.
-func (s *Service) approvalError(err error, f *gdrive.File, doing string) error {
+// id is the approval being acted on, empty where the call names none.
+// It decides what a refusal can honestly blame: only a call that reaches
+// an EXISTING approval can be refused for that approval being finished,
+// and leading with that cause where it cannot apply — a listing, or a
+// start — points the reader at a state that is not there.
+func (s *Service) approvalError(err error, f *gdrive.File, doing, id string) error {
 	switch gapi.Class(err) {
 	case ClassNotFound, ClassUnsupported:
 		return &Error{Class: ClassUnsupported, Message: fmt.Sprintf(
@@ -372,10 +420,24 @@ func (s *Service) approvalError(err error, f *gdrive.File, doing string) error {
 				"this can also mean the approval id is wrong. Google said: %s",
 			doing, f.Name, gapi.Message(err)), Err: err}
 	case ClassForbidden:
+		// Drive answers every one of these with a bare Permission denied,
+		// so the message has to offer the whole set it could be. The
+		// finished case leads because it is the one the caller can have
+		// caused itself, and the live run met exactly it: the driver
+		// cancelled an approval and then answered it, and a message
+		// naming only the others sent a reader to check a reviewer list
+		// the account was already on.
+		why := "Approvals are not offered by every Workspace edition, and reaching them at all " +
+			"needs access to the file — starting one needs write access."
+		if id != "" {
+			why = "An approval that is already approved, declined or cancelled cannot be answered " +
+				"or changed again; acting on an open one needs to be one of its reviewers, and " +
+				"cancelling it needs write access to the file. list_approvals says which of those " +
+				"it is."
+		}
 		return &Error{Class: ClassForbidden, Message: fmt.Sprintf(
-			"%s %s was refused. Answering an approval needs to be one of its reviewers, and starting "+
-				"or cancelling one needs write access to the file. Google said: %s",
-			doing, f.Name, gapi.Message(err)), Err: err}
+			"%s %s was refused. %s Google said: %s",
+			doing, f.Name, why, gapi.Message(err)), Err: err}
 	}
 	return wrap(err, doing+" "+f.Name)
 }

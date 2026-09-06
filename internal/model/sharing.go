@@ -285,6 +285,17 @@ func Plural(n int, one, many string) string {
 	return fmt.Sprintf("%d %s", n, many)
 }
 
+// Word is Plural's other half: the singular or plural form with no count
+// in front of it, for a sentence that has already given the number or
+// must not repeat it. Hand-written copies of this rule are how two lines
+// about the same thing come to disagree, which is Plural's own argument.
+func Word(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 // capabilityWords maps the capabilities a person cares about to the verb
 // this server uses for them, in the order a file card lists them.
 var capabilityWords = []struct {
