@@ -58,6 +58,20 @@ func TestTheGateCatchesTheMistakeItWasWrittenFor(t *testing.T) {
 			want: true,
 		},
 		{
+			// The hole a review probe found: one ordinary error check
+			// used to silence everything after it, so the phase-5
+			// defect verbatim plus an `if err != nil` produced no
+			// claims at all.
+			name: "an error propagated, and then an outcome stated anyway",
+			body: `	if in.LockFile {
+		if err := doThing(); err != nil {
+			return nil, err
+		}
+		note += "The file is LOCKED while the approval is open: nobody can change its content."
+	}`,
+			want: true,
+		},
+		{
 			name: "a refusal, which says what this server did",
 			body: `	if !in.Confirm {
 		return nil, s.confirmed(false, "empty_trash", "destroy everything in the trash, with no way back")

@@ -106,11 +106,17 @@ func transcript(out io.Writer, _ []string) error {
 var transcriptPackages = []string{
 	filepath.Join("scripts", "livedrive"),
 	filepath.Join("scripts", "evals"),
-	// Not a program: the stdio session both drivers talk through. It
-	// prints nothing today, and it is on the path of every line they do
-	// print, so a debugging Println added there would leak past every
-	// check in this file.
+	// Not programs: the stdio session both drivers talk through, and
+	// the redactor itself. Neither prints today, and both are on the
+	// path of every line the drivers do print, so a debugging Println
+	// in either would leak past every other check in this file.
+	//
+	// The redactor is also the one package unlistedDrivers can never
+	// find, because the mark it looks for is importing the redactor and
+	// the redactor does not import itself. A review found it by adding
+	// a Println there and watching this gate report ok.
 	filepath.Join("scripts", "internal", "mcpstdio"),
+	filepath.Join("scripts", "internal", "redact"),
 }
 
 // transcriptPackage is the exemption: the one place a line may reach a

@@ -69,11 +69,11 @@ func outcomes(out io.Writer, _ []string) error {
 	}
 
 	var problems []string
-	used := map[string]bool{}
+	used := map[string]int{}
 	for _, c := range outcomeClaims(files, fields, fset) {
 		key := fmt.Sprintf("%s:%s", c.file, c.field)
 		if _, ok := exempt[key]; ok {
-			used[key] = true
+			used[key]++
 			continue
 		}
 		problems = append(problems, fmt.Sprintf(
@@ -85,10 +85,24 @@ func outcomes(out io.Writer, _ []string) error {
 	// A stale exemption outlives the code it excused and reads as a
 	// decision somebody made about today's code.
 	for _, key := range sorted(exempt) {
-		if !used[key] {
+		switch {
+		case used[key] == 0:
 			problems = append(problems, fmt.Sprintf(
 				"%s excuses %s and nothing there states an outcome from the request any more; delete the row",
 				outcomeFile, key))
+		case used[key] > 1:
+			// One row, more than one branch. A key names a file and a
+			// field, so a second branch testing the same boolean in
+			// the same file would be excused by an argument written
+			// about the first — silently, and it is the new branch
+			// nobody has looked at. Refusing the ambiguity is what
+			// makes somebody look; the alternative, keying on the line,
+			// would make every row stale on the next edit above it.
+			problems = append(problems, fmt.Sprintf(
+				"%s excuses %s once and %d branches there state an outcome after testing it. One "+
+					"argument cannot cover two branches: make them one, or word the second so it "+
+					"does not state an outcome",
+				outcomeFile, key, used[key]))
 		}
 	}
 	if len(problems) > 0 {
@@ -363,53 +377,58 @@ func readOutcomeExemptions() (map[string]string, error) {
 	return out, nil
 }
 
-// refuses reports whether a branch ends in an error rather than in a
+// refuses reports whether a branch ENDS in an error rather than in a
 // result.
 //
 // A refusal is not an outcome. It says what THIS SERVER did — it
 // declined — which is a fact about the call and true whatever Drive
 // would have answered, and the sentence in it is usually the longest
-// prose in the file. isRefusalOrLog catches the ordinary shape, where
-// the words are arguments to Errorf; this catches the other one, where a
-// list of candidates is built up in a strings.Builder first and handed
-// to an Error at the end. The ambiguity refusals are all written that
-// way, because they print the candidates.
+// prose in the file.
+//
+// The terminal statement, not any return anywhere inside. An earlier
+// version inspected the whole branch and excused it on any `return nil,
+// x` it found, which meant one ordinary error check silenced everything
+// after it — a review probe put the phase-5 lock_file defect verbatim
+// behind an `if err != nil { return nil, err }` and the gate reported
+// nothing at all. A branch that propagates an error and then goes on to
+// state an outcome is exactly the shape this gate is for, and it was the
+// one shape it could not see.
 func refuses(body *ast.BlockStmt) bool {
-	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
-		ret, ok := n.(*ast.ReturnStmt)
-		if !ok {
+	if body == nil || len(body.List) == 0 {
+		return false
+	}
+	ret, ok := body.List[len(body.List)-1].(*ast.ReturnStmt)
+	if !ok {
+		return false
+	}
+	// `return nil, something` is this codebase's refusal, whatever builds
+	// the something: Errorf, an Error literal, or a helper like
+	// s.confirmed that words the confirm-flag refusals. A result return
+	// is `return s.report(...), nil`, whose first value is not nil, so
+	// the two are told apart by shape rather than by a list of helper
+	// names that would need adding to.
+	if len(ret.Results) > 1 {
+		if id, ok := ret.Results[0].(*ast.Ident); ok && id.Name == "nil" {
 			return true
 		}
-		// `return nil, something` is this codebase's refusal, whatever
-		// builds the something: Errorf, an Error literal, or a helper like
-		// s.confirmed that words the confirm-flag refusals. A result
-		// return is `return s.report(...), nil`, whose first value is not
-		// nil, so the two are told apart by shape rather than by a list of
-		// helper names that would need adding to.
-		if len(ret.Results) > 1 {
-			if id, ok := ret.Results[0].(*ast.Ident); ok && id.Name == "nil" {
-				found = true
-				return false
-			}
-		}
-		for _, result := range ret.Results {
-			ast.Inspect(result, func(inner ast.Node) bool {
-				switch v := inner.(type) {
-				case *ast.CallExpr:
-					if isRefusalOrLog(v) {
-						found = true
-					}
-				case *ast.CompositeLit:
-					if id, ok := v.Type.(*ast.Ident); ok && id.Name == "Error" {
-						found = true
-					}
+		return false
+	}
+	found := false
+	for _, result := range ret.Results {
+		ast.Inspect(result, func(n ast.Node) bool {
+			switch v := n.(type) {
+			case *ast.CallExpr:
+				if isRefusalOrLog(v) {
+					found = true
 				}
-				return !found
-			})
-		}
-		return !found
-	})
+			case *ast.CompositeLit:
+				if id, ok := v.Type.(*ast.Ident); ok && id.Name == "Error" {
+					found = true
+				}
+			}
+			return !found
+		})
+	}
 	return found
 }
 
