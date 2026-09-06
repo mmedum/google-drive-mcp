@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **An MCP registry entry, so the server can be found without already
+  knowing the repository exists.** §17a raised this in phase 0 and it
+  stayed open for six phases for one reason: the registry sends a HEAD to
+  the bundle's download URL before it accepts an entry, so there was
+  nothing to point at until a release carried a `.mcpb`. v1.0.1 does.
+
+  The rules are read from the registry's own validator rather than from
+  its schema or from another repository's account of it, because the
+  schema does not carry them: the identifier must be HTTPS, on
+  `github.com`, shaped like a release asset, containing "mcp" somewhere,
+  with no `registryBaseUrl` beside it and a `fileSha256` the registry
+  requires and never checks — MCP clients check it, before installing.
+  Each is refused by `gates registry`, and each is watched failing.
+
+  The entry is generated at release time from `checksums.txt`, the file
+  cosign has just signed, so the hash a client verifies is the number
+  under the signature. The committed file carries a placeholder version
+  for the reason the bundle manifest does, and the release writes its
+  entry to stdout rather than over the tree, so a half-finished release
+  cannot leave a real version behind.
+
+  §17a said this step "cannot be tested locally at all". That was true
+  until a release existed, and it is now false in both halves: the
+  generated entry was produced from v1.0.1's real signed checksums, and
+  the HEAD the registry makes was made by hand against the published URL.
+  GitHub answers it with a **302** to a signed asset URL — which the
+  validator accepts explicitly, and which a check written to expect 200
+  would have rejected for every GitHub release there is.
+
+### Fixed
+
+- **The pins gate could not see a tool downloaded in a run step.** It
+  read the version inputs an action takes and nothing else, so a `curl`
+  of `releases/latest/download` floated straight past the gate whose
+  stated purpose is that what builds a release must not float. The MCP
+  registry's own published example installs its publisher exactly that
+  way, so the first thing this repository copied from a primary source
+  would have been the first thing to defeat the gate. Both spellings are
+  refused now — a latest-release download and a Go module at `@latest` —
+  and `runs-on: ubuntu-latest` deliberately is not one, because an image
+  label is not a tool a release comes out of.
+
 ## [1.0.1] - 2026-09-06
 
 ### Fixed

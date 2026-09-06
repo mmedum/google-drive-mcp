@@ -1401,19 +1401,28 @@ difference is a decision rather than a drift.
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
 
-- **No MCP registry entry.** The bundle ships and nothing lists it, so
-  the only way to find this server is to already know the repository
-  exists. A sibling has one and has offered its implementation: the entry
-  is written from the release's own `checksums.txt`, and the registry
-  enforces its MCPB rules in code rather than in the published schema — a
-  hash, a `github.com` release-asset URL carrying "mcp", no
-  `registryBaseUrl`, and a HEAD on that URL before the entry is accepted.
+- ~~No MCP registry entry.~~ **Done, and the thing that blocked it was
+  real.** The entry is `packaging/registry/server.json`, `gates registry`
+  holds it to the rules, and the release workflow publishes it LAST,
+  authenticating with GitHub OIDC — the `io.github.` namespace is what
+  that proves.
 
-  That last part decides where it goes: the step runs LAST in the release
-  workflow, after the release exists, because an entry pointing at a
-  download nobody can fetch is worse than no entry. It also means the
-  step cannot be tested locally at all, which is the reason it is not
-  done here yet rather than an argument against doing it.
+  This entry said the step "cannot be tested locally at all", and that
+  was true only while no release carried a bundle. Both halves are tested
+  now. The generated entry was produced from v1.0.1's own signed
+  `checksums.txt` and checked; the HEAD the registry makes was made by
+  hand against the published URL, which answers **302** to a signed asset
+  URL rather than 200. The registry's validator accepts a 3xx carrying a
+  Location, explicitly — a check written to expect 200 would reject every
+  GitHub release there is, and this one would have been written that way
+  from the description alone.
+
+  What was verified rather than adopted: a sibling's account of the rules
+  was accurate in every particular, and reading the validator confirmed
+  it AND turned up the redirect case nobody had mentioned. §18 has the
+  entry. The rules are in code and not in the published schema, which is
+  why a document that lints clean can still be rejected at the end of a
+  release.
 
 - ~~The live driver's option coverage has never been measured.~~
   **Measured, and gated: 122 of 188.** `gates live-cover` holds every one
@@ -2021,6 +2030,7 @@ own numbers.
 | Rate limiting only has to gate the first attempt of a call | Refuted in the phase-0 review: retries are triggered by 429 and by Google's three rate-limit reasons, so exempting them pushes hardest exactly when Drive has asked for less. Four of five attempts bypassed the limiter | The limiter is taken inside the retry loop, once per attempt |
 | An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
 | Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
+| The MCP registry's MCPB rules are in its published schema, so a document that validates will be accepted | **Refuted against the registry's own validator** (`internal/validators/registries/mcpb.go`, read 2026-09-06). None of them is in the schema. The identifier must be HTTPS, must be `github.com` or `gitlab.com`, must be shaped like a release asset, must contain "mcp" somewhere case-insensitively, must not sit beside a `registryBaseUrl`, and must answer a **HEAD** — 200, or a 3xx carrying a `Location`. `fileSha256` is required and never verified by the registry; its own documentation says so, and clients check it before installing. A sibling's account of these was accurate in every particular; reading the code confirmed it and added the redirect case, which nobody had mentioned and which decides the outcome: GitHub answers a release-asset HEAD with 302, so a check written to expect 200 would reject every GitHub release there is | `gates registry` enforces all of them on the committed entry, each watched failing. The HEAD was made by hand against the published v1.0.1 URL rather than reasoned about, which is what turned "cannot be tested locally at all" into two things that are tested |
 | `copy_file` with `copy_comments: true` brings the threads with it (the note this server printed, phases 4-6) | **Half true, and the halves were found on two runs.** A CSV carrying one OPEN thread with two replies was copied with the parameter set. `list_comments` on the copy, immediately: `0 comment threads` / `no comments: nobody has commented on this file`. The same call minutes later with `include_deleted: true`: `0 comment threads` / `no comments: nobody has commented on this file, and none has been deleted either` — so not `comments.list` lagging, which was the other explanation and the one the code had been written to allow for. The second run copied a **Google Doc** the same way in the same session and its threads DID come across. So the parameter works, and not for every kind: two data points, a Doc and an uploaded CSV, and the obvious reading — Drive's own formats carry them and uploaded bytes do not — is an inference from two points rather than something Google documents | The note and the SCHEMA both say Drive does not always do it, name the two kinds the run actually saw, and point at `list_comments` on the copy. The schema matters more: it is read before the call, which is the `lock_file` lesson exactly. The driver copies BOTH kinds now and says which carried and which did not, so the next run re-checks a fact that has already changed once |
 | `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference — and the refutation was itself **refuted in phase 4** against the discovery document, which lists `copyComments` on `files.copy` with a default of `false`. Whether Google added it since or the phase-1 check read the reference page rather than the document cannot be told from here, and the difference does not matter: the lesson is that a parameter list read once is a fact with a date on it | `copy_comments` is back on `copy_file`, off by default. The result said out loud "when a copy carried somebody else's words somewhere new" — which was this overpromise written down as a feature: files.copy answers with a File and mentions comments nowhere, so nothing could know it had. `gates outcomes` found it. The result now says what Drive was ASKED to do and names list_comments on the copy as the call that settles it This is the argument for re-reading the discovery document every phase rather than trusting §18 |
 | An old revision of a Docs editors file is fetched with `files.download` (§18, from the revisions guide) | Refined in phase 1: `files.download` is a long-running operation that hands back an `Operation` to poll, while the `Revision` resource itself carries `exportLinks` for exactly this — a direct URL per format, on a Google host the allowlist already permits. The simpler documented route was taken | `download_file revision:` reads the revision, then fetches its export link. `files.download` stays for Vids in phase 4. To be confirmed by the live run |
