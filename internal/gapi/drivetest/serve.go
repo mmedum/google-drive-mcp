@@ -448,6 +448,9 @@ func (s *Server) handleListDrives(w http.ResponseWriter, _ *http.Request) {
 	// setting, not a filter on the API.
 	out := make([]*gdrive.Drive, 0, len(s.Drives))
 	for _, d := range s.Drives {
+		if s.UnlistedDrives[d.ID] {
+			continue
+		}
 		out = append(out, d)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
