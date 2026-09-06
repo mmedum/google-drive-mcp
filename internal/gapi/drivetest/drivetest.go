@@ -95,6 +95,23 @@ type Server struct {
 	// token is an offset into it, which is enough to exercise what the
 	// client has to get right about an opaque token.
 	Changes []*gdrive.Change
+	// Activity is the Drive Activity feed, newest last.
+	Activity []*gdrive.DriveActivity
+	// ActivityEnabled stands for the Drive Activity scope having been
+	// granted and the API enabled. Off is where every account starts.
+	ActivityEnabled bool
+	// Approvals are the reviews on a file id, oldest first.
+	Approvals map[string][]*gdrive.Approval
+	// FileLabels are the label values applied to a file id, which Drive
+	// serves under the ordinary scope.
+	FileLabels map[string][]*gdrive.Label
+	// LabelDefinitions are what the separate Drive Labels API defines.
+	LabelDefinitions []*gdrive.LabelDefinition
+	// LabelsEnabled stands for the scope having been granted and the
+	// Labels API enabled in the Cloud project. Off is the state every
+	// account starts in, so a test that forgets it sees what a deployer
+	// who has not done the setup sees.
+	LabelsEnabled bool
 	// About is what about.get answers.
 	About *gdrive.About
 
@@ -114,6 +131,13 @@ type Server struct {
 	// progress sends the same chunk for ever.
 	StallUploads bool
 
+	// PendingDownloads is how many times a new download operation answers
+	// as unfinished before it completes. Zero finishes at once; a Vid in
+	// production is usually pending at least once.
+	PendingDownloads int
+
+	// operations are the long-running downloads in progress.
+	operations map[string]*fakeOperation
 	// sessions are the resumable uploads in progress.
 	sessions map[string]*uploadSession
 	// driveRequests maps a drives.create requestId to the drive it made,
@@ -139,6 +163,8 @@ func New() *Server {
 		Drives:          map[string]*gdrive.Drive{},
 		Comments:        map[string][]*gdrive.Comment{},
 		Proposals:       map[string][]*gdrive.AccessProposal{},
+		Approvals:       map[string][]*gdrive.Approval{},
+		FileLabels:      map[string][]*gdrive.Label{},
 		sessions:        map[string]*uploadSession{},
 		driveRequests:   map[string]string{},
 		now:             time.Now,
@@ -183,6 +209,16 @@ func (s *Server) Close() { s.Server.Close() }
 
 // BaseURL is the value to pass as gapi.Options.BaseURL.
 func (s *Server) BaseURL() string { return s.URL + "/drive/v3" }
+
+// LabelsBaseURL is where the fake stands in for the Drive Labels API. It
+// is a separate prefix rather than the same one, so a client that built a
+// labels URL against Drive's base would 404 here instead of quietly
+// working against a fake that answers everything.
+func (s *Server) LabelsBaseURL() string { return s.URL + "/labels/v2" }
+
+// ActivityBaseURL is where the fake stands in for the Drive Activity
+// API, for the same reason the labels one is separate.
+func (s *Server) ActivityBaseURL() string { return s.URL + "/activity/v2" }
 
 func (s *Server) me() *gdrive.User {
 	return &gdrive.User{DisplayName: AccountName, EmailAddress: AccountEmail, Me: true}
@@ -446,6 +482,7 @@ func defaultCapabilities(mime string) *gdrive.Capabilities {
 		CanRename: true, CanTrash: true, CanUntrash: true, CanDelete: true,
 		CanModifyContent: true, CanReadRevisions: true,
 		CanMoveItemWithinDrive: true, CanMoveItemOutOfDrive: true,
+		CanModifyLabels: true, CanReadLabels: true,
 	}
 	if mime == gdrive.MimeFolder {
 		c.CanListChildren = true

@@ -109,7 +109,7 @@ func TestToolsListed(t *testing.T) {
 		"get_account": false, "get_file": false, "search_files": false, "list_folder": false,
 		"read_file": false, "download_file": false,
 		"list_permissions": false, "list_drives": false, "list_revisions": false, "list_changes": false,
-		"list_comments": false, "list_access_requests": false,
+		"list_comments": false, "list_access_requests": false, "list_approvals": false,
 	}
 	want := map[string]bool{
 		"create_file": false, "upload_file": false, "update_content": false, "create_folder": false,
@@ -117,6 +117,7 @@ func TestToolsListed(t *testing.T) {
 		"trash_file": false, "restore_file": false,
 		"share_file": false, "unshare_file": false, "manage_drive": false, "manage_revision": false,
 		"add_comment": false, "reply_comment": false, "resolve_access_request": false,
+		"manage_approval": false,
 	}
 	for name := range readTools {
 		want[name] = false
@@ -172,6 +173,9 @@ func TestSchemasAreFlat(t *testing.T) {
 				AdditionalProperties *struct {
 					Type string `json:"type"`
 				} `json:"additionalProperties"`
+				Items *struct {
+					Type string `json:"type"`
+				} `json:"items"`
 			} `json:"properties"`
 		}
 		if err := json.Unmarshal(raw, &schema); err != nil {
@@ -182,11 +186,14 @@ func TestSchemasAreFlat(t *testing.T) {
 			t.Errorf("%s: schema type = %q", tool.Name, schema.Type)
 		}
 		for name, prop := range schema.Properties {
-			if err := flatType(prop.Type, prop.AdditionalProperties != nil); err != nil {
+			if err := flatType(prop.Type, prop.AdditionalProperties != nil, prop.Items != nil); err != nil {
 				t.Errorf("%s.%s: %v", tool.Name, name, err)
 			}
 			if prop.AdditionalProperties != nil && !isScalar(prop.AdditionalProperties.Type) {
 				t.Errorf("%s.%s maps to %q; a map's values stay scalar", tool.Name, name, prop.AdditionalProperties.Type)
+			}
+			if prop.Items != nil && !isScalar(prop.Items.Type) {
+				t.Errorf("%s.%s is a list of %q; a list's items stay scalar", tool.Name, name, prop.Items.Type)
 			}
 			if prop.Description == "" {
 				t.Errorf("%s.%s has no description", tool.Name, name)
@@ -198,12 +205,24 @@ func TestSchemasAreFlat(t *testing.T) {
 // flatType checks one argument's type. Flat means a model can fill the
 // argument in without building a structure: a scalar, a nullable scalar
 // (where leaving the argument out and passing its zero value mean
-// different things), or a map of scalars for the custom properties Drive
-// itself stores as a map.
-func flatType(raw json.RawMessage, isMap bool) error {
+// different things), a map of scalars for the custom properties Drive
+// itself stores as a map, or a list of scalars.
+//
+// The list arrived in phase 4 and is the rule §18 always stated — "no
+// nested objects and no arrays of objects" — rather than a loosening of
+// it. This check had been stricter than the written rule since phase 1
+// only because nothing needed a list until an approval wanted its
+// reviewers and a label field wanted its values. Both are lists of
+// strings, which a model writes out in one go; neither is a structure.
+// A list of OBJECTS is still refused, by the items check at the call
+// site.
+func flatType(raw json.RawMessage, isMap, isList bool) error {
 	var one string
 	if err := json.Unmarshal(raw, &one); err == nil {
-		if one == "object" && isMap {
+		switch {
+		case one == "object" && isMap:
+			return nil
+		case one == "array" && isList:
 			return nil
 		}
 		if !isScalar(one) {
@@ -217,6 +236,12 @@ func flatType(raw json.RawMessage, isMap bool) error {
 	}
 	for _, t := range many {
 		if t == "null" || isScalar(t) {
+			continue
+		}
+		if t == "array" && isList {
+			continue
+		}
+		if t == "object" && isMap {
 			continue
 		}
 		return fmt.Errorf("has type %v; schemas stay flat", many)
@@ -362,7 +387,7 @@ func TestDumpSchemas(t *testing.T) {
 	if out.Server != server.Name || out.SDK != server.SDKVersion {
 		t.Errorf("dump header = %+v", out)
 	}
-	const registeredTools = 29
+	const registeredTools = 31
 	if len(out.Tools) != registeredTools {
 		t.Fatalf("dumped %d tools, want %d", len(out.Tools), registeredTools)
 	}
@@ -656,7 +681,7 @@ func TestReadOnlyModeRegistersNoWriteTools(t *testing.T) {
 			t.Errorf("read-only mode registered %q, which changes Drive", tool.Name)
 		}
 	}
-	const readOnlyTools = 12 // four reads, two content reads, phase 2's four listings, and phase 3's two
+	const readOnlyTools = 13 // four reads, two content reads, phase 2's four listings, phase 3's two, and phase 4's list_approvals
 	if len(res.Tools) != readOnlyTools {
 		t.Errorf("read-only mode registered %d tools, want the %d that only read", len(res.Tools), readOnlyTools)
 	}
@@ -1016,6 +1041,14 @@ func toolArgs() map[string][]map[string]any {
 			{"file": "id-notes-fixture", "comment": "id-comment-fixture", "action": "not-an-action"},
 		},
 		"list_access_requests": {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"list_approvals":       {{"file": "id-notes-fixture"}, {"file": "id-nothing"}},
+		"manage_approval": {
+			{"file": "id-notes-fixture", "action": "start", "reviewers": []any{"reviewer@example.com"}},
+			{"file": "id-notes-fixture", "action": "approve", "approval": "id-nothing"},
+			{"file": "id-notes-fixture", "action": "comment", "approval": "id-nothing"},
+			{"file": "id-notes-fixture", "action": "start"},
+			{"file": "id-notes-fixture", "action": "not-an-action"},
+		},
 		"resolve_access_request": {
 			{"file": "id-notes-fixture", "request": "id-request-fixture", "action": "accept", "dry_run": true},
 			{"file": "id-notes-fixture", "request": "id-nothing", "action": "deny"},

@@ -17,7 +17,21 @@ func staleness(out io.Writer, args []string) error {
 	binary := arg(args, 0, "./google-drive-mcp")
 	var problems []string
 
-	dump, _, err := dumpSchemas(binary)
+	// The README documents every tool that can be registered, not only
+	// the ones a default build carries, so the surface it is compared
+	// against is the one with the feature flags on. Without this a tool
+	// behind a flag could be documented and deleted, or added and never
+	// documented, and this gate would say nothing either way.
+	//
+	// The destructive five ARE in that surface and are deliberately not
+	// in the README's table: it names them in a paragraph instead,
+	// because a row beside the ordinary tools is the wrong prominence for
+	// them. checkReadmeTools knows them by name.
+	env, err := fullSurfaceEnv()
+	if err != nil {
+		return err
+	}
+	dump, _, err := dumpSchemas(binary, env...)
 	if err != nil {
 		return err
 	}
@@ -49,6 +63,20 @@ func staleness(out io.Writer, args []string) error {
 // readmeToolRow matches a row of the README's tool table.
 var readmeToolRow = regexp.MustCompile("(?m)^\\| `([a-z_]+)` \\|")
 
+// documentedInProse are the tools the README describes in a paragraph
+// rather than in its table, with the reason. A row beside the ordinary
+// tools is the wrong prominence for a tool that destroys without a way
+// back — but "not in the table" still has to be a decision the gate
+// knows about, or a tool could go undocumented by looking like one of
+// these.
+var documentedInProse = map[string]string{
+	"delete_file":     "permanent, skips the trash",
+	"empty_trash":     "the whole account's trash",
+	"delete_drive":    "an empty shared drive",
+	"delete_revision": "one blob revision",
+	"delete_comment":  "a thread or one reply",
+}
+
 // checkReadmeTools keeps the README's table and the registered tools in
 // step, in both directions: a tool nobody documented, and a documented
 // tool that no longer exists.
@@ -63,6 +91,16 @@ func checkReadmeTools(registered []string) []string {
 	}
 	var problems []string
 	for _, name := range registered {
+		if _, prose := documentedInProse[name]; prose {
+			// Named in a paragraph on purpose. It still has to be MENTIONED
+			// somewhere, which is checked below.
+			if !strings.Contains(string(readme), "`"+name+"`") {
+				problems = append(problems, "README does not mention the registered tool "+name+
+					" at all; it is meant to be described in prose rather than in the table")
+			}
+			delete(documented, name)
+			continue
+		}
 		if !documented[name] {
 			problems = append(problems, "README's tool table does not list the registered tool "+name)
 		}

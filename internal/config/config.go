@@ -87,8 +87,11 @@ type Config struct {
 	// MaxDownload caps a single download in bytes.
 	MaxDownload int64
 	// HTTPTimeout applies per attempt and per transfer chunk.
-	HTTPTimeout      time.Duration
-	Labels           bool
+	HTTPTimeout time.Duration
+	Labels      bool
+	// Activity turns on list_activity, which reads the separate Drive
+	// Activity API and asks for its scope at login.
+	Activity         bool
 	ClientSecretPath string
 }
 
@@ -105,6 +108,7 @@ type Settings struct {
 	MaxDownload       string
 	HTTPTimeout       string
 	Labels            string
+	Activity          string
 	ClientSecretPath  string
 }
 
@@ -131,6 +135,8 @@ func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	def(&s.MaxDownload, "max-download", "MAX_DOWNLOAD", "1GiB", "largest single download, e.g. 500MB or 2GiB")
 	def(&s.HTTPTimeout, "http-timeout", "HTTP_TIMEOUT", "60s", "per-attempt and per-chunk timeout for Google API calls")
 	def(&s.Labels, "labels", "LABELS", "false", "enable Workspace labels (adds the Drive Labels API scopes at login)")
+	def(&s.Activity, "activity", "ACTIVITY", "false",
+		"enable list_activity (adds the Drive Activity API scope at login)")
 	def(&s.ClientSecretPath, "client-secret", "CLIENT_SECRET", "", "path to the OAuth Desktop client JSON (overrides the stored profile setting)")
 	return s
 }
@@ -169,6 +175,9 @@ func (s *Settings) Build() (Config, error) {
 		errs = append(errs, err)
 	}
 	if c.EnableDestructive, err = parseBool("enable-destructive", s.EnableDestructive); err != nil {
+		errs = append(errs, err)
+	}
+	if c.Activity, err = parseBool("activity", s.Activity); err != nil {
 		errs = append(errs, err)
 	}
 	if c.Labels, err = parseBool("labels", s.Labels); err != nil {

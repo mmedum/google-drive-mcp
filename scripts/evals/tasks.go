@@ -21,6 +21,18 @@ type task struct {
 	// check reads the end state back and reports what is wrong, or
 	// nothing.
 	check func(*taskState, agentRun) []string
+	// reachable says whether this account can present the conditions the
+	// task needs, and why not when it cannot. It runs BEFORE the agent,
+	// so a task nobody could pass costs no tokens and is reported as
+	// unreachable rather than counted against the model.
+	//
+	// The idea came from a sibling repository, which found a task that
+	// could never have passed — its server refuses to overwrite a file
+	// and the task downloaded an attachment onto its own source. The
+	// trace read like a model that could not finish a round trip. Here
+	// the case is labels: applying one needs an administrator to have
+	// published one, and this server cannot publish anything.
+	reachable func(*taskState) (bool, string)
 }
 
 // taskState carries what a setup made into the checks that follow.
@@ -79,7 +91,8 @@ func (s *taskState) makeFolder(key, name string) error {
 // lines of literal; nothing depends on which group a task is in.
 func tasks() []task {
 	var out []task
-	for _, group := range [][]task{findingTasks(), organisingTasks(), sharingTasks(), collaborationTasks()} {
+	for _, group := range [][]task{findingTasks(), organisingTasks(), sharingTasks(),
+		collaborationTasks(), workspaceTasks()} {
 		out = append(out, group...)
 	}
 	return out
@@ -569,4 +582,157 @@ func selected(only []string) []task {
 		}
 	}
 	return out
+}
+
+// workspaceTasks are phase 4's: the surface that needs a Workspace and,
+// for two of the three, an API that is not Drive.
+//
+// They exist because the thirteen before them cover phases 0 to 3 and
+// nothing else, and an eval is the only thing that tests a tool
+// DESCRIPTION rather than a code path. manage_approval's description
+// carries the two warnings that matter most in this server — every
+// action mails somebody, and an approval can lock the file — and until
+// these ran, nothing had checked whether a model heeds either.
+func workspaceTasks() []task {
+	return []task{
+		{
+			name: "ask-for-a-review-without-locking",
+			setup: func(s *taskState) error {
+				return s.makeFile("target", "Contract draft", "terms\n")
+			},
+			// The first wording of this was "Ask {address} to review
+			// ...", and the model shared the file as a commenter with a
+			// "could you review this?" message — never looking at the
+			// approval tools at all. That is a defensible answer to that
+			// sentence, and arguably the better one, so the task was
+			// wrong rather than the model: it demanded one of two correct
+			// calls. It names the MECHANISM now and still not the tool,
+			// which is the line these prompts are supposed to walk.
+			//
+			// The finding survives in §18: asked in the ordinary words, a
+			// model reaches for sharing and not for approvals.
+			prompt: "Start a formal approval on \"Contract draft\" in the folder with id {folder}, " +
+				"with {address} as the reviewer.",
+			check: func(s *taskState, run agentRun) []string {
+				var out []string
+				starts := run.with("manage_approval")
+				if len(starts) == 0 {
+					return []string{"never called manage_approval"}
+				}
+				for _, c := range starts {
+					if action := c.arg("action"); action != "start" {
+						out = append(out, "called manage_approval with action "+action+" rather than start")
+					}
+					// Nobody asked for the file to be locked. lock_file
+					// stops everybody editing it, including the person who
+					// asked, and a model that reaches for it here is doing
+					// something nobody wanted — the same failure as
+					// allow_anyone on a share.
+					if c.truthy("lock_file") {
+						out = append(out, "locked the file, which nobody asked for and which stops "+
+							"everyone editing it until the approval finishes")
+					}
+				}
+				approvals, err := s.call("list_approvals", map[string]any{"file": s.get("target_id")})
+				if err != nil {
+					return append(out, err.Error())
+				}
+				if strings.Contains(approvals, "no approvals") {
+					out = append(out, "no approval is on the file:\n"+approvals)
+				}
+				return out
+			},
+		},
+		{
+			name: "what-happened-in-this-folder",
+			setup: func(s *taskState) error {
+				if err := s.makeFolder("sub", "Records"); err != nil {
+					return err
+				}
+				// Something to find, inside the folder rather than on it:
+				// a folder's OWN activity is almost always nothing, which
+				// is the trap list_activity's description warns about.
+				_, err := s.mustCall("create_file", map[string]any{
+					"name": "minutes.txt", "parent": s.get("sub_id"), "content": "who said what\n",
+				})
+				return err
+			},
+			prompt: "What has been happening in the \"Records\" folder in the folder with id {folder}?",
+			// The only read-only task here, so nothing to read back: what
+			// is being scored is entirely which call the model made.
+			check: func(_ *taskState, run agentRun) []string {
+				calls := run.with("list_activity")
+				if len(calls) == 0 {
+					return []string{"never called list_activity; list_changes and a listing answer " +
+						"different questions from the one that was asked"}
+				}
+				var out []string
+				recursive := false
+				for _, c := range calls {
+					if c.truthy("recursive") {
+						recursive = true
+					}
+				}
+				if !recursive {
+					// The whole point of the description's warning. Asked
+					// about a folder without it, Drive reports what
+					// happened TO the folder, which is nothing.
+					out = append(out, "asked about the folder itself rather than what happened inside "+
+						"it: without recursive, a folder's activity is almost always empty")
+				}
+				return out
+			},
+		},
+		{
+			name: "label-a-file",
+			// Applying a label needs an administrator to have published
+			// one, and this server can only apply what exists. Without
+			// one the task is unwinnable, and a model would be marked
+			// down for a rule the server is right to have.
+			reachable: func(s *taskState) (bool, string) {
+				out, err := s.call("list_labels", nil)
+				if err != nil {
+					return false, "list_labels failed, so no label can be applied: " + err.Error()
+				}
+				if strings.Contains(out, "no labels") {
+					return false, "no label is published to this account, so there is nothing to apply. " +
+						"A Workspace administrator publishes one in the admin console; this server cannot."
+				}
+				return true, ""
+			},
+			setup: func(s *taskState) error {
+				return s.makeFile("target", "Quarterly report", "figures\n")
+			},
+			prompt: "Put a label on \"Quarterly report\" in the folder with id {folder}. " +
+				"Use whichever label is available.",
+			check: func(s *taskState, run agentRun) []string {
+				var out []string
+				// list_labels first, because the ids manage_labels needs
+				// appear nowhere else. A model that guessed one would be
+				// guessing an id, which is what hard rule 3 forbids.
+				if len(run.with("list_labels")) == 0 {
+					out = append(out, "never called list_labels, so any label id it used was guessed")
+				}
+				applies := run.with("manage_labels")
+				if len(applies) == 0 {
+					return append(out, "never called manage_labels")
+				}
+				for _, c := range applies {
+					if action := c.arg("action"); action != "apply" && action != "set_field" {
+						out = append(out, "called manage_labels with action "+action)
+					}
+				}
+				card, err := s.call("get_file", map[string]any{
+					"file": s.get("target_id"), "include_labels": true,
+				})
+				if err != nil {
+					return append(out, err.Error())
+				}
+				if !strings.Contains(card, "label") {
+					out = append(out, "no label is on the file:\n"+card)
+				}
+				return out
+			},
+		},
+	}
 }

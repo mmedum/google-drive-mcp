@@ -26,12 +26,14 @@ import (
 func Client(t testing.TB, s *Server, overrides ...func(*gapi.Options)) *gapi.Client {
 	t.Helper()
 	o := gapi.Options{
-		BaseURL:        s.BaseURL(),
-		Timeout:        5 * time.Second,
-		ReadLimiter:    rate.NewLimiter(rate.Inf, 1),
-		WriteLimiter:   rate.NewLimiter(rate.Inf, 1),
-		SharingLimiter: rate.NewLimiter(rate.Inf, 1),
-		Sleep:          func(context.Context, time.Duration) error { return nil },
+		BaseURL:         s.BaseURL(),
+		LabelsBaseURL:   s.LabelsBaseURL(),
+		ActivityBaseURL: s.ActivityBaseURL(),
+		Timeout:         5 * time.Second,
+		ReadLimiter:     rate.NewLimiter(rate.Inf, 1),
+		WriteLimiter:    rate.NewLimiter(rate.Inf, 1),
+		SharingLimiter:  rate.NewLimiter(rate.Inf, 1),
+		Sleep:           func(context.Context, time.Duration) error { return nil },
 		// The fake is not a Google host, so the production allowlist has
 		// to be stood down here and nowhere else.
 		AllowURL: func(*url.URL) bool { return true },

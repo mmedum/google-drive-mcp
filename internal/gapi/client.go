@@ -26,9 +26,13 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Default endpoints.
+// Default endpoints. Labels and activity are separate APIs on their own
+// hosts, with their own scopes and their own enablement in the Cloud
+// project: a Drive token alone reaches neither.
 const (
-	DefaultBaseURL = "https://www.googleapis.com/drive/v3"
+	DefaultBaseURL         = "https://www.googleapis.com/drive/v3"
+	DefaultLabelsBaseURL   = "https://drivelabels.googleapis.com/v2"
+	DefaultActivityBaseURL = "https://driveactivity.googleapis.com/v2"
 )
 
 // RetryPolicy bounds retries for transient failures.
@@ -49,7 +53,11 @@ type Options struct {
 	// BaseTransport sits under the OAuth transport. nil uses http.DefaultTransport.
 	BaseTransport http.RoundTripper
 	BaseURL       string
-	Logger        *slog.Logger
+	// LabelsBaseURL and ActivityBaseURL point at the two APIs that are
+	// not Drive. Tests point all three at one fake.
+	LabelsBaseURL   string
+	ActivityBaseURL string
+	Logger          *slog.Logger
 	// Timeout applies per attempt and per transfer chunk.
 	Timeout time.Duration
 	Retry   RetryPolicy
@@ -69,17 +77,19 @@ type Options struct {
 
 // Client talks to Drive with one user's credentials.
 type Client struct {
-	httpc      *http.Client
-	base       string
-	log        *slog.Logger
-	timeout    time.Duration
-	retry      RetryPolicy
-	readLim    *rate.Limiter
-	writeLim   *rate.Limiter
-	sharingLim *rate.Limiter
-	ua         string
-	sleep      func(context.Context, time.Duration) error
-	allowURL   func(*url.URL) bool
+	httpc        *http.Client
+	base         string
+	labelsBase   string
+	activityBase string
+	log          *slog.Logger
+	timeout      time.Duration
+	retry        RetryPolicy
+	readLim      *rate.Limiter
+	writeLim     *rate.Limiter
+	sharingLim   *rate.Limiter
+	ua           string
+	sleep        func(context.Context, time.Duration) error
+	allowURL     func(*url.URL) bool
 
 	// Resource keys seen in URLs or responses. A link-shared file under
 	// the 2021 security update needs its key on every later call, and
@@ -95,24 +105,32 @@ func New(ts oauth2.TokenSource, o Options) *Client {
 		base = http.DefaultTransport
 	}
 	c := &Client{
-		httpc:      &http.Client{Transport: &oauth2.Transport{Source: ts, Base: base}},
-		base:       strings.TrimRight(o.BaseURL, "/"),
-		log:        o.Logger,
-		timeout:    o.Timeout,
-		retry:      o.Retry,
-		readLim:    o.ReadLimiter,
-		writeLim:   o.WriteLimiter,
-		sharingLim: o.SharingLimiter,
-		ua:         o.UserAgent,
-		sleep:      o.Sleep,
-		allowURL:   o.AllowURL,
-		keys:       map[string]string{},
+		httpc:        &http.Client{Transport: &oauth2.Transport{Source: ts, Base: base}},
+		base:         strings.TrimRight(o.BaseURL, "/"),
+		labelsBase:   strings.TrimRight(o.LabelsBaseURL, "/"),
+		activityBase: strings.TrimRight(o.ActivityBaseURL, "/"),
+		log:          o.Logger,
+		timeout:      o.Timeout,
+		retry:        o.Retry,
+		readLim:      o.ReadLimiter,
+		writeLim:     o.WriteLimiter,
+		sharingLim:   o.SharingLimiter,
+		ua:           o.UserAgent,
+		sleep:        o.Sleep,
+		allowURL:     o.AllowURL,
+		keys:         map[string]string{},
 	}
 	if c.allowURL == nil {
 		c.allowURL = func(u *url.URL) bool { return u.Scheme == "https" && googleHost(u.Host) }
 	}
 	if c.base == "" {
 		c.base = DefaultBaseURL
+	}
+	if c.labelsBase == "" {
+		c.labelsBase = DefaultLabelsBaseURL
+	}
+	if c.activityBase == "" {
+		c.activityBase = DefaultActivityBaseURL
 	}
 	if c.log == nil {
 		c.log = slog.New(slog.DiscardHandler)
@@ -246,6 +264,20 @@ type request struct {
 	// A forgotten `sharing: true` now costs throughput; a forgotten kind
 	// used to cost idempotency.
 	sharing bool
+	// reads marks a POST that does not WRITE. Two of them exist: the
+	// Drive Activity API's only method, a POST because its query does not
+	// fit in a URL, and files.download, which starts server-side work but
+	// creates nothing and can be asked for again. Without this they spend
+	// from the write budget and, worse, fail closed on a retry after a
+	// dropped connection, because a POST is not repeatable by default.
+	//
+	// Its zero value is the safe one, which is the property that matters:
+	// a write added later and given no thought is still treated as a
+	// write. Section 17a raised this shape as "a POST that only reads
+	// would take the wrong limiter"; deriving from the method alone fixed
+	// the dangerous direction and left this one, which phase 4 met the
+	// first time a read-only POST existed.
+	reads bool
 	// idempotent marks a POST that a second attempt cannot apply twice —
 	// a create carrying a pre-generated id, which Drive collapses into
 	// the first. It is only consulted for a POST: every other method
@@ -268,10 +300,16 @@ func (r request) repeatable() bool {
 	case http.MethodGet, http.MethodHead, http.MethodPatch, http.MethodPut, http.MethodDelete:
 		return true
 	case http.MethodPost:
-		return r.idempotent
+		return r.idempotent || r.reads
 	}
 	return false
 }
+
+// reading reports whether this request only asks. It is one function
+// because three places need the answer — the limiter, the retry rule for
+// a network failure, and repeatable() — and three copies of
+// `readMethod(r.method) || r.reads` is how they come to disagree.
+func (r request) reading() bool { return readMethod(r.method) || r.reads }
 
 // ok reports whether a response status is a success for this request.
 func (r request) ok(status int) bool {
@@ -297,7 +335,7 @@ func (c *Client) limiter(r request) *rate.Limiter {
 	switch {
 	case r.sharing:
 		return c.sharingLim
-	case readMethod(r.method):
+	case r.reading():
 		return c.readLim
 	default:
 		return c.writeLim
@@ -494,7 +532,10 @@ func (c *Client) newRequest(ctx context.Context, r request) (*http.Request, erro
 // reported rather than repeated.
 //
 // A network failure on a write is ambiguous in the other direction: the
-// request may never have arrived. Those are never repeated.
+// request may never have arrived. Those are never repeated — but the
+// question there is whether the request WRITES, not which method it
+// used, and a POST that only asks a question is on the reading side of
+// that line.
 func retryable(r request, err error) (bool, time.Duration) {
 	var te *transientError
 	if errors.As(err, &te) {
@@ -505,7 +546,7 @@ func retryable(r request, err error) (bool, time.Duration) {
 		return te.refused || r.repeatable(), te.after
 	}
 	if errors.Is(err, ErrNetwork) {
-		return readMethod(r.method), 0
+		return r.reading(), 0
 	}
 	return false, 0
 }

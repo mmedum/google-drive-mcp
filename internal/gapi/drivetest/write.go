@@ -42,7 +42,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, err)
 		return
 	}
-	writeJSON(w, s.project(f, r.URL.Query().Get("fields"), false))
+	writeJSON(w, s.project(f, r.URL.Query().Get("fields"), nil))
 }
 
 // maxRequestBytes bounds a request body the fake will read. It is a test
@@ -203,6 +203,9 @@ func applyMeta(f *gdrive.File, meta *gdrive.FileMeta) {
 	if meta.CopyRequiresWriterPermission != nil {
 		f.CopyRequiresWriterPermission = *meta.CopyRequiresWriterPermission
 	}
+	if meta.ViewedByMeTime != "" {
+		f.ViewedByMeTime = meta.ViewedByMeTime
+	}
 	for k, v := range meta.Properties {
 		if v == nil {
 			delete(f.Properties, k)
@@ -241,7 +244,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request, id string)
 	f.ModifiedTime = s.now().UTC().Format(time.RFC3339)
 	s.recordChangeLocked(f)
 	s.mu.Unlock()
-	writeJSON(w, s.project(f, q.Get("fields"), q.Get("includeLabels") != ""))
+	s.writeProjected(w, f, q)
 }
 
 // moveLocked applies addParents and removeParents with the rules that
@@ -351,7 +354,39 @@ func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request, id string) {
 		s.writeAPIError(w, err)
 		return
 	}
-	writeJSON(w, s.project(f, r.URL.Query().Get("fields"), false))
+	// copyComments brings the source's threads to the copy. Drive copies
+	// the words, not the thread ids, so the fake gives each one a fresh
+	// id: a copy whose comments carried the originals' ids would let a
+	// test pass that the real API would fail.
+	if r.URL.Query().Get("copyComments") == "true" {
+		s.copyCommentsTo(id, f.ID)
+	}
+	writeJSON(w, s.project(f, r.URL.Query().Get("fields"), nil))
+}
+
+// copyCommentsTo duplicates a file's comment threads onto another file.
+func (s *Server) copyCommentsTo(from, to string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.Comments[from] {
+		if c == nil {
+			continue
+		}
+		s.nextID++
+		dup := *c
+		dup.ID = fmt.Sprintf("id-comment-copied-%d", s.nextID)
+		dup.Replies = nil
+		for _, r := range c.Replies {
+			if r == nil {
+				continue
+			}
+			s.nextID++
+			dupReply := *r
+			dupReply.ID = fmt.Sprintf("id-reply-copied-%d", s.nextID)
+			dup.Replies = append(dup.Replies, &dupReply)
+		}
+		s.Comments[to] = append(s.Comments[to], &dup)
+	}
 }
 
 // handleUpload serves both upload types. The multipart form carries the
@@ -427,7 +462,7 @@ func (s *Server) finishUpload(w http.ResponseWriter, fileID string,
 			s.writeAPIError(w, err)
 			return
 		}
-		writeJSON(w, s.project(f, fields, false))
+		writeJSON(w, s.project(f, fields, nil))
 		return
 	}
 	s.mu.Lock()
@@ -445,7 +480,7 @@ func (s *Server) finishUpload(w http.ResponseWriter, fileID string,
 	f.ModifiedTime = s.now().UTC().Format(time.RFC3339)
 	s.recordChangeLocked(f)
 	s.mu.Unlock()
-	writeJSON(w, s.project(f, fields, false))
+	writeJSON(w, s.project(f, fields, nil))
 }
 
 // startSession opens a resumable upload session and answers with its
@@ -556,7 +591,7 @@ func (s *Server) answerSession(w http.ResponseWriter, sess *uploadSession) {
 	s.mu.Unlock()
 	switch {
 	case done:
-		writeJSON(w, s.project(f, sess.fields, false))
+		writeJSON(w, s.project(f, sess.fields, nil))
 	case stored >= sess.total:
 		s.completeSession(w, "", sess)
 	default:

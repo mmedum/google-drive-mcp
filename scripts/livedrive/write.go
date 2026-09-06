@@ -39,6 +39,11 @@ type writeRun struct {
 	// refuses, or empty. It needs a Workspace administrator to have put
 	// it out of bounds; §17a is what it closes.
 	blocked string
+	// labels and activity say whether the server was started with those
+	// features on, which is also what decides whether their tools are
+	// registered at all.
+	labels   bool
+	activity bool
 	// failures counts calls that did not behave as expected.
 	failures int
 }
@@ -49,8 +54,9 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 
 // runWrites drives the whole write surface and reports how many calls
 // behaved unexpectedly.
-func runWrites(s *mcpstdio.Session, red *redact.Redactor, dir, parent, drive, share, blocked string) (int, error) {
-	w := &writeRun{sess: s, red: red, dir: dir, drive: drive, share: share, blocked: blocked}
+func runWrites(s *mcpstdio.Session, red *redact.Redactor, dir, parent string, o options) (int, error) {
+	w := &writeRun{sess: s, red: red, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
+		labels: o.labels, activity: o.activity}
 	name := fmt.Sprintf("%s %s", scratchPrefix, time.Now().UTC().Format("2006-01-02 15:04:05"))
 	args := map[string]any{"name": name}
 	if parent != "" {
@@ -79,10 +85,211 @@ func (w *writeRun) exercise() {
 	w.access(ids)
 	w.history(ids)
 	w.collaboration(ids)
+	w.phase4Extras(ids)
+	w.approvals(ids)
+	w.labelling(ids)
+	w.activityFeed(ids)
 	w.policyRefusal(ids)
 	w.resources(ids)
 	w.refusals(ids)
 	w.sharedDrive(ids)
+}
+
+// phase4Extras covers the three Drive parameters phase 4 added that
+// nothing else here reaches: bringing a file's comments along on a copy,
+// marking a file as opened, and finding a file by a custom property.
+//
+// The property search runs LAST of the three deliberately: it looks for
+// the key update_file set earlier in this run, so it is checking that
+// what this server wrote is what Drive indexed, not merely that a query
+// parses. Drive's index is eventually consistent, so an empty answer is
+// reported rather than counted as a failure — the same caution the
+// changes feed needed in phase 2.
+func (w *writeRun) phase4Extras(m made) {
+	fmt.Println("\n--- phase 4 parameters ---")
+	if m.text != "" {
+		// The comments were made on this file a moment ago, so a copy
+		// asking for them has something to carry.
+		w.needing("copy_file", m.text, map[string]any{
+			"file": m.text, "name": "rows with its comments.csv",
+			"to": w.scratchID, "copy_comments": true, "allow_duplicate": true,
+		})
+		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
+	}
+
+	// A property set HERE, on purpose. The earlier one is deleted before
+	// this step runs, so searching for it could only ever answer nothing
+	// — a check whose pass and fail look identical, which is no check.
+	if m.text != "" {
+		w.needing("update_file", m.text, map[string]any{
+			"file": m.text, "properties": map[string]any{"livedrive_found": "yes"},
+		})
+		w.pollProperty("livedrive_found=yes")
+	}
+	w.expecting("search_files", w.scratchID, map[string]any{"property": "=nothing"},
+		"a property clause with no key")
+	// The form Google's own guide gives as an example and Drive refuses.
+	// It is checked here so that a day when Drive starts accepting it
+	// shows up as this server being needlessly strict, rather than never
+	// showing up at all.
+	w.expecting("search_files", w.scratchID, map[string]any{"property": "livedrive"},
+		"a key with no value, which Drive answers Invalid Value despite its guide")
+	fmt.Println("(an empty property search moments after the write is Drive's index catching up, " +
+		"not a defect — read the hits above against what update_file set)")
+}
+
+// pollProperty searches for a property until Drive's index has caught
+// up, or says it did not. Drive indexes a property change within seconds
+// usually, but not always — and an empty answer moments after a write
+// looks exactly like a broken query, which is what phase 2 learned about
+// the changes feed and phase 4 nearly repeated here.
+func (w *writeRun) pollProperty(property string) {
+	const attempts = 10
+	for i := range attempts {
+		if i > 0 {
+			time.Sleep(3 * time.Second)
+		}
+		out := w.call(call{tool: "search_files", args: map[string]any{
+			"property": property, "in_folder": w.scratchID,
+		}})
+		if !strings.Contains(out, "0 hits") {
+			return
+		}
+		fmt.Printf("(the property index reports nothing yet; waiting — attempt %d of %d)\n", i+1, attempts)
+	}
+	// NOT a failure, and the difference matters. Phase 4 measured this:
+	// the file tagged in a run was still missing from the index after
+	// twelve seconds, and a direct query minutes later found it — so the
+	// query is right and the index is slow. Counting a slow index as a
+	// defect would make this run fail for something the server does not
+	// control, and a verdict that cries wolf is a verdict nobody reads.
+	//
+	// What it must not do is pass quietly, because "not indexed yet" and
+	// "the query is broken" produce the same empty page.
+	fmt.Println("UNVERIFIED THIS RUN: the property search did not find the file this run tagged, after " +
+		"30 seconds. Drive's property index is eventually consistent and has been measured slower than " +
+		"that, so this is expected often enough not to be a failure — but it means the search was not " +
+		"checked, rather than checked and passed. Run search_files with the property by hand a few " +
+		"minutes from now to close it.")
+}
+
+// approvals exercises phase 4's review surface, and stops short of one
+// verb on purpose.
+//
+// It starts an approval, reads it back, comments on it and CANCELS it.
+// It never approves one: the default file-content-change behaviour is
+// RESET_APPROVAL, and under that an approved file is LOCKED — which
+// would leave the scratch folder holding something this driver cannot
+// clean up, and cleaning up after itself is the whole contract of the
+// -write mode. Cancelling leaves nothing locked.
+//
+// lock_file is not used either, for the same reason.
+//
+// Every verb here mails somebody. The reviewer is the signed-in account,
+// so the only mail this sends is to the person running it.
+func (w *writeRun) approvals(m made) {
+	if m.doc == "" {
+		fmt.Println("\n(no document was created, so the approval surface is skipped)")
+		return
+	}
+	fmt.Println("\n--- approvals ---")
+	w.needing("list_approvals", m.doc, map[string]any{"file": m.doc})
+
+	account := w.accountAddress()
+	if account == "" {
+		w.problem("get_account did not report an address, so there is nobody to review the approval",
+			errors.New("no address"))
+		return
+	}
+	started := w.call(call{tool: "manage_approval", args: map[string]any{
+		"file": m.doc, "action": "start", "reviewers": []any{account},
+		"message": "a scratch approval from the live driver",
+	}})
+	id := approvalFromResult(started)
+	if id == "" {
+		// Not necessarily a defect: approvals are a Workspace feature and
+		// not every edition has them. What matters is that the refusal
+		// said so rather than looking like a bug.
+		fmt.Println("(no approval id came back — read the refusal above: an edition without approvals " +
+			"is a legitimate answer, a confusing error is not)")
+		return
+	}
+	w.needing("list_approvals", m.doc, map[string]any{"file": m.doc})
+	w.needing("manage_approval", m.doc, map[string]any{
+		"file": m.doc, "action": "comment", "approval": id, "message": "still looking",
+	})
+	w.expecting("manage_approval", m.doc, map[string]any{
+		"file": m.doc, "action": "comment", "approval": id,
+	}, "a comment with nothing to say")
+	w.needing("manage_approval", m.doc, map[string]any{
+		"file": m.doc, "action": "cancel", "approval": id,
+	})
+	w.expecting("manage_approval", m.doc, map[string]any{
+		"file": m.doc, "action": "approve", "approval": id,
+	}, "answering an approval that is already finished")
+}
+
+// labelling exercises the two label tools. They are registered only with
+// GDRIVE_LABELS=true, and even then the account may have no label
+// published to it, which is not a failure.
+func (w *writeRun) labelling(m made) {
+	if !w.labels {
+		fmt.Println("\n(pass -labels to exercise the label tools, which need GDRIVE_LABELS and its scopes)")
+		return
+	}
+	fmt.Println("\n--- labels ---")
+	listing := w.call(call{tool: "list_labels", args: map[string]any{}})
+	id, field, choice := labelFromResult(listing)
+	if id == "" {
+		fmt.Println("(no label is published to this account, so there is nothing to apply — " +
+			"the listing above should say so in as many words)")
+		return
+	}
+	if m.doc == "" {
+		return
+	}
+	w.needing("manage_labels", m.doc, map[string]any{"file": m.doc, "label": id, "action": "apply"})
+	if field != "" && choice != "" {
+		w.needing("manage_labels", m.doc, map[string]any{
+			"file": m.doc, "label": id, "action": "set_field", "field": field, "values": []any{choice},
+		})
+		w.expecting("manage_labels", m.doc, map[string]any{
+			"file": m.doc, "label": id, "action": "set_field", "field": field,
+			"values": []any{"not-a-choice-anybody-defined"},
+		}, "a value the field's definition does not offer")
+		w.needing("manage_labels", m.doc, map[string]any{
+			"file": m.doc, "label": id, "action": "unset_field", "field": field,
+		})
+	}
+	// The card is where a label is normally read, so the round trip is
+	// what proves the two halves agree.
+	w.needing("get_file", m.doc, map[string]any{"file": m.doc})
+	w.needing("manage_labels", m.doc, map[string]any{"file": m.doc, "label": id, "action": "remove"})
+	w.expecting("manage_labels", m.doc, map[string]any{
+		"file": m.doc, "label": "a-label-that-was-never-published", "action": "apply",
+	}, "a label id that names nothing")
+}
+
+// activityFeed exercises list_activity. Drive's feed is eventually
+// consistent, so an empty answer moments after a write is a real
+// possibility rather than a defect — phase 2 learned that about the
+// changes feed the hard way, and the same caution applies here.
+func (w *writeRun) activityFeed(m made) {
+	if !w.activity {
+		fmt.Println("\n(pass -activity to exercise list_activity, which needs GDRIVE_ACTIVITY and its scope)")
+		return
+	}
+	fmt.Println("\n--- activity ---")
+	w.needing("list_activity", w.scratchID, map[string]any{"file": w.scratchID, "recursive": true})
+	if m.doc != "" {
+		w.needing("list_activity", m.doc, map[string]any{"file": m.doc})
+		w.needing("list_activity", m.doc, map[string]any{"file": m.doc, "actions": []any{"create", "edit"}})
+	}
+	w.expecting("list_activity", m.doc, map[string]any{"file": m.doc, "actions": []any{"eaten"}},
+		"an action filter nobody implemented")
+	w.expecting("list_activity", m.doc, map[string]any{"file": m.doc, "recursive": true},
+		"recursive on a file, where the API's ancestorName means nothing")
+	fmt.Println("(an empty feed moments after a write is Drive being eventually consistent, not a defect)")
 }
 
 // collaboration exercises what phase 3 added: comments, the access
@@ -186,6 +393,60 @@ func commentFromResult(out string) string {
 
 var commentIDInNote = regexp.MustCompile(`comment (\S+) added to `)
 
+// approvalFromResult pulls the new approval's id out of the note that
+// manage_approval start writes. It is the only place the id appears:
+// there is no listing to find it in before the approval exists.
+func approvalFromResult(out string) string {
+	m := approvalIDInNote.FindStringSubmatch(out)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+var approvalIDInNote = regexp.MustCompile(`Approval (\S+) started on `)
+
+// labelFromResult picks the first label out of a list_labels result,
+// with a field and one of its choices where there is one. The driver
+// cannot know what an organisation has published, so it works with
+// whatever the account actually has.
+func labelFromResult(out string) (label, field, choice string) {
+	if m := labelInListing.FindStringSubmatch(out); len(m) > 1 {
+		label = m[1]
+	}
+	if m := fieldInListing.FindStringSubmatch(out); len(m) > 1 {
+		field = m[1]
+	}
+	if m := choiceInListing.FindStringSubmatch(out); len(m) > 1 {
+		choice = m[1]
+	}
+	if field == "" {
+		// A choice without the field it belongs to is no use.
+		choice = ""
+	}
+	return label, field, choice
+}
+
+var (
+	labelInListing  = regexp.MustCompile(`(?m)^\S.* — (\S+)$`)
+	fieldInListing  = regexp.MustCompile(`(?m)^\s*field (\S+):`)
+	choiceInListing = regexp.MustCompile(`(?m)^\s*choices:\s*(\S+?)(?:\s|\(|,|$)`)
+)
+
+// accountAddress reads the signed-in address out of get_account, which
+// is what an approval needs for its reviewer. The driver reviews with
+// the account running it, so the only mail a run sends goes to whoever
+// started it.
+func (w *writeRun) accountAddress() string {
+	out, _, err := w.sess.CallTool("get_account", map[string]any{})
+	if err != nil {
+		return ""
+	}
+	return addressInAccount.FindString(out)
+}
+
+var addressInAccount = regexp.MustCompile(`[A-Za-z0-9._%%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
+
 // access exercises the sharing surface. Everything happens on files
 // inside the scratch folder, and every grant made here is removed again
 // before the folder is trashed: a share that outlived the run would be
@@ -272,7 +533,7 @@ func (w *writeRun) spikeF() {
 	}
 	before := ownerFromResult(w.call(call{tool: "get_file", args: map[string]any{"file": transfer}}))
 
-	fmt.Println("\n!! the next call hands this file to " + w.share + " for good.")
+	fmt.Println("\n!! the next call hands this file to " + w.red.Do(w.share) + " for good.")
 	w.needing("share_file", transfer, map[string]any{
 		"file": transfer, "principal": w.share, "role": "owner", "transfer_ownership": true,
 	})
@@ -294,7 +555,7 @@ func (w *writeRun) spikeF() {
 		fmt.Println("\n(spike F: the owner changed, so the transfer really happened. " +
 			"This account is a writer on it now.)")
 	}
-	fmt.Println("!! that file now belongs to " + w.share + " and has moved to their Drive. Trashing the " +
+	fmt.Println("!! that file now belongs to " + w.red.Do(w.share) + " and has moved to their Drive. Trashing the " +
 		"scratch folder does not take it back: only its new owner can remove it.")
 }
 
@@ -697,7 +958,13 @@ func (w *writeRun) trashScratch() {
 
 // call runs one tool and prints the redacted result.
 func (w *writeRun) call(c call) string {
-	fmt.Printf("\n=== %s %s ===\n", c.tool, mcpstdio.Encode(c.args))
+	// The arguments go through the redactor too. Until phase 4 the only
+	// address that ever reached them was one the operator typed as
+	// -share or -blocked, and a transcript echoing it back was arguably
+	// their own business. Starting an approval put the SIGNED-IN
+	// account's address there automatically, on every -write run, which
+	// is nobody's choice at all.
+	fmt.Printf("\n=== %s %s ===\n", c.tool, w.red.Do(mcpstdio.Encode(c.args)))
 	if c.why != "" {
 		fmt.Printf("(expecting a refusal: %s)\n", c.why)
 	}

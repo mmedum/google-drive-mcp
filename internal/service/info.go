@@ -40,7 +40,27 @@ func (s *Service) Model(ctx context.Context, res *Resolved) *model.File {
 		PermissionsKnown: known,
 		ExportFormats:    model.ExportFormats(f),
 		SharedDriveName:  res.DriveName,
+		LabelDefinitions: s.labelNames(ctx, f),
 	})
+}
+
+// labelNames reads the definitions of the labels on a file, so the card
+// can name them and their fields instead of printing generated ids.
+//
+// It is best effort on purpose. The definitions are a separate API
+// behind a separate scope, and a file card that failed because a label's
+// title could not be read would be refusing to report the file over a
+// decoration. Without them the labels still appear, by id.
+func (s *Service) labelNames(ctx context.Context, f *gdrive.File) map[string]*model.LabelDefinition {
+	if f == nil || f.LabelInfo == nil || len(f.LabelInfo.Labels) == 0 || !s.opts.Labels {
+		return nil
+	}
+	defs, err := s.allLabelDefinitions(ctx)
+	if err != nil {
+		s.log.DebugContext(ctx, "label definitions unavailable", "class", gapi.Class(err))
+		return nil
+	}
+	return defs
 }
 
 // permissionsFor returns the grants on a file and whether the list could

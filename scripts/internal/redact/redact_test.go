@@ -215,3 +215,38 @@ func TestRedactionLeavesTheProseAlone(t *testing.T) {
 		}
 	}
 }
+
+// A Workspace account with no display name set shows the address's local
+// part instead, which has no capital in it anywhere. The live run of
+// phase 4 found one surviving every position the redactor knows —
+// beside "(you)", after "by", after "owner:" — because the NAME SHAPE
+// refused it, not the position. Every invented name in the fixtures was
+// capitalised, so the tests agreed with the bug.
+func TestALowercaseDisplayNameIsStillAName(t *testing.T) {
+	cases := []string{
+		"modified 2026-09-06 09:50Z by first.last  ",
+		"owner: first.last",
+		"asked by: first.last (you)",
+		"  waiting on: first.last (you)",
+		"first.last, 2026-03-04 09:00",
+	}
+	for _, in := range cases {
+		r := NewRedactor(false)
+		got := r.Do(in)
+		if strings.Contains(got, "first.last") {
+			t.Errorf("a name with no capital survived %q: %s", in, got)
+		}
+	}
+}
+
+// The dotted shape is only safe because the positions are anchored. A
+// field name, a flag or a filename in ordinary prose must still come
+// through: an unreadable transcript is one nobody checks before pasting.
+func TestDottedProseIsNotMistakenForAName(t *testing.T) {
+	r := NewRedactor(false)
+	in := "modified_before and created_after are search fields; see docs/architecture.md and " +
+		"scripts/gates/api-coverage.tsv; run go-licenses check"
+	if got := r.Do(in); got != in {
+		t.Errorf("prose was redacted:\n%s", got)
+	}
+}

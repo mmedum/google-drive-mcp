@@ -1,0 +1,112 @@
+# Every method of every API this server can reach, and the verdict on it.
+#
+# Phase 4's last deliverable in §16: the discovery documents diffed
+# against what the client calls, so that the gap between the API and this
+# server is a set of decisions rather than an accident.
+#
+# Columns, tab-separated: method, HTTP verb, path, verdict, reason.
+# A verdict of `used` names the gapi.Client method that implements it;
+# `out` gives the reason it is deliberately not used. `gates
+# api-coverage` holds both directions and runs in `make check`; `gates
+# api-diff` refetches the three discovery documents and reports what has
+# changed, and reaches the network, so it is a target rather than a gate.
+#
+# Three parameters are deliberately unused and have no row of their own,
+# because a row is per method:
+#   useDomainAdminAccess  an administrator acting across an organisation
+#                         is not what a per-user server is for.
+#   supportsTeamDrives    the pre-2020 spelling of supportsAllDrives,
+#                         which every request already carries.
+#   enforceSingleParent   Google documents it as deprecated and Drive
+#                         gives a file one parent regardless.
+about.get	GET	about	used	Client.About
+accessproposals.get	GET	files/{fileId}/accessproposals/{proposalId}	out	the listing carries every field a proposal has, so fetching one by id would be a second call for the same bytes
+accessproposals.list	GET	files/{fileId}/accessproposals	used	Client.ListAccessProposals
+accessproposals.resolve	POST	files/{fileId}/accessproposals/{proposalId}:resolve	used	Client.ResolveAccessProposal
+approvals.approve	POST	files/{fileId}/approvals/{approvalId}:approve	used	Client.ApproveApproval
+approvals.cancel	POST	files/{fileId}/approvals/{approvalId}:cancel	used	Client.CancelApproval
+approvals.comment	POST	files/{fileId}/approvals/{approvalId}:comment	used	Client.CommentApproval
+approvals.decline	POST	files/{fileId}/approvals/{approvalId}:decline	used	Client.DeclineApproval
+approvals.get	GET	files/{fileId}/approvals/{approvalId}	used	Client.GetApproval
+approvals.list	GET	files/{fileId}/approvals	used	Client.ListApprovals
+approvals.reassign	POST	files/{fileId}/approvals/{approvalId}:reassign	used	Client.ReassignApproval
+approvals.start	POST	files/{fileId}/approvals:start	used	Client.StartApproval
+apps.get	GET	apps/{appId}	out	which third-party apps the account has installed says nothing about a file this server can act on
+apps.list	GET	apps	out	as apps.get
+changes.getStartPageToken	GET	changes/startPageToken	used	Client.StartPageToken
+changes.list	GET	changes	used	Client.ListChanges
+changes.watch	POST	changes/watch	out	push needs a public HTTPS endpoint to receive callbacks, and a stdio server has none
+channels.stop	POST	channels/stop	out	there is nothing to stop: no channel is ever opened (see changes.watch)
+comments.create	POST	files/{fileId}/comments	used	Client.CreateComment
+comments.delete	DELETE	files/{fileId}/comments/{commentId}	used	Client.DeleteComment
+comments.get	GET	files/{fileId}/comments/{commentId}	used	Client.GetComment
+comments.list	GET	files/{fileId}/comments	used	Client.ListComments
+comments.update	PATCH	files/{fileId}/comments/{commentId}	used	Client.UpdateComment
+drives.create	POST	drives	used	Client.CreateDrive
+drives.delete	DELETE	drives/{driveId}	used	Client.DeleteDrive
+drives.get	GET	drives/{driveId}	used	Client.GetDrive
+drives.hide	POST	drives/{driveId}/hide	used	Client.HideDrive
+drives.list	GET	drives	used	Client.ListDrives
+drives.unhide	POST	drives/{driveId}/unhide	used	Client.UnhideDrive
+drives.update	PATCH	drives/{driveId}	used	Client.UpdateDrive
+files.copy	POST	files/{fileId}/copy	used	Client.CopyFile
+files.create	POST	files	used	Client.CreateFile
+files.delete	DELETE	files/{fileId}	used	Client.DeleteFile
+files.download	POST	files/{fileId}/download	used	Client.StartDownload
+files.emptyTrash	DELETE	files/trash	used	Client.EmptyTrash
+files.export	GET	files/{fileId}/export	used	Client.Export
+files.generateCseToken	GET	files/generateCseToken	out	client-side encryption needs a key service this server does not have and cannot stand in for
+files.generateIds	GET	files/generateIds	used	Client.GenerateIDs
+files.get	GET	files/{fileId}	used	Client.GetFile
+files.list	GET	files	used	Client.ListFiles
+files.listLabels	GET	files/{fileId}/listLabels	used	Client.ListFileLabels
+files.modifyLabels	POST	files/{fileId}/modifyLabels	used	Client.ModifyLabels
+files.update	PATCH	files/{fileId}	used	Client.UpdateFile
+files.watch	POST	files/{fileId}/watch	out	as changes.watch
+operations.get	GET	operations/{name}	used	Client.GetOperation
+permissions.create	POST	files/{fileId}/permissions	used	Client.CreatePermission
+permissions.delete	DELETE	files/{fileId}/permissions/{permissionId}	used	Client.DeletePermission
+permissions.get	GET	files/{fileId}/permissions/{permissionId}	out	permissions.list returns every grant in full, so one grant by id is a second call for bytes already in hand
+permissions.list	GET	files/{fileId}/permissions	used	Client.ListPermissions
+permissions.update	PATCH	files/{fileId}/permissions/{permissionId}	used	Client.UpdatePermission
+replies.create	POST	files/{fileId}/comments/{commentId}/replies	used	Client.CreateReply
+replies.delete	DELETE	files/{fileId}/comments/{commentId}/replies/{replyId}	used	Client.DeleteReply
+replies.get	GET	files/{fileId}/comments/{commentId}/replies/{replyId}	out	comments.list carries a thread's replies inline, so a reply is never fetched on its own
+replies.list	GET	files/{fileId}/comments/{commentId}/replies	out	as replies.get
+replies.update	PATCH	files/{fileId}/comments/{commentId}/replies/{replyId}	used	Client.UpdateReply
+revisions.delete	DELETE	files/{fileId}/revisions/{revisionId}	used	Client.DeleteRevision
+revisions.get	GET	files/{fileId}/revisions/{revisionId}	used	Client.GetRevision
+revisions.list	GET	files/{fileId}/revisions	used	Client.ListRevisions
+revisions.update	PATCH	files/{fileId}/revisions/{revisionId}	used	Client.UpdateRevision
+teamdrives.create	POST	teamdrives	out	teamdrives is the pre-2020 name for drives and Google documents it as deprecated; drives.* is the same surface
+teamdrives.delete	DELETE	teamdrives/{teamDriveId}	out	as teamdrives.create
+teamdrives.get	GET	teamdrives/{teamDriveId}	out	as teamdrives.create
+teamdrives.list	GET	teamdrives	out	as teamdrives.create
+teamdrives.update	PATCH	teamdrives/{teamDriveId}	out	as teamdrives.create
+drivelabels.labels.create	POST	v2/labels	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.delete	DELETE	v2/{+name}	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.delta	POST	v2/{+name}:delta	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.disable	POST	v2/{+name}:disable	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.enable	POST	v2/{+name}:enable	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.get	GET	v2/{+name}	out	the listing carries every definition this account may use, and a label is always reached from that listing rather than by an id typed from nowhere
+drivelabels.labels.list	GET	v2/labels	used	Client.ListLabelDefinitions
+drivelabels.labels.locks.list	GET	v2/{+parent}/locks	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.permissions.batchDelete	POST	v2/{+parent}/permissions:batchDelete	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.permissions.batchUpdate	POST	v2/{+parent}/permissions:batchUpdate	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.permissions.create	POST	v2/{+parent}/permissions	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.permissions.delete	DELETE	v2/{+name}	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.permissions.list	GET	v2/{+parent}/permissions	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.publish	POST	v2/{+name}:publish	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.revisions.locks.list	GET	v2/{+parent}/locks	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.revisions.permissions.batchDelete	POST	v2/{+parent}/permissions:batchDelete	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.revisions.permissions.batchUpdate	POST	v2/{+parent}/permissions:batchUpdate	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.revisions.permissions.create	POST	v2/{+parent}/permissions	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.revisions.permissions.delete	DELETE	v2/{+name}	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.revisions.permissions.list	GET	v2/{+parent}/permissions	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.revisions.updatePermissions	PATCH	v2/{+parent}/permissions	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.updateLabelCopyMode	POST	v2/{+name}:updateLabelCopyMode	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.updateLabelEnabledAppSettings	POST	v2/{+name}:updateLabelEnabledAppSettings	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.labels.updatePermissions	PATCH	v2/{+parent}/permissions	out	this server applies labels, it does not define them: creating, publishing, disabling or permissioning a definition is an administrator's job in the admin console, and a server that could do it would be a different tool
+drivelabels.limits.getLabel	GET	v2/limits/label	out	the limits on how big a label may be matter to whoever designs one, which is not this server
+drivelabels.users.getCapabilities	GET	v2/{+name}	out	whether the account may use labels at all is answered by the listing succeeding or being refused, which is one call rather than two
+driveactivity.activity.query	POST	v2/activity:query	used	Client.QueryActivity

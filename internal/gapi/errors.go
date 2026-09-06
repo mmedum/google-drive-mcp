@@ -353,7 +353,15 @@ const (
 	ClassNetwork     = "network"
 	// ClassAmbiguousIO is a write that may or may not have been applied.
 	ClassAmbiguousIO = "ambiguous_outcome"
-	ClassUnexpected  = "unexpected"
+	// ClassPending is work Google has begun and not finished: a
+	// long-running download whose operation is still running. It is not
+	// `server`, which says something went wrong, and not `rate_limited`,
+	// which says you asked too often. Nothing is wrong and nothing needs
+	// backing off from — the same call in a minute picks up the finished
+	// work. Phase 4 added it for files.download, which is the only
+	// long-running operation this server starts.
+	ClassPending    = "pending"
+	ClassUnexpected = "unexpected"
 )
 
 // Classes lists every class Class can return, so a test can check that
@@ -361,7 +369,7 @@ const (
 func Classes() []string {
 	return []string{ClassAuth, ClassForbidden, ClassNotFound, ClassAmbiguous, ClassExists,
 		ClassInvalid, ClassUnsupported, ClassBlocked, ClassRateLimited, ClassServer,
-		ClassNetwork, ClassAmbiguousIO, ClassUnexpected}
+		ClassNetwork, ClassAmbiguousIO, ClassPending, ClassUnexpected}
 }
 
 // Class returns the short class name that goes in front of an LLM-facing

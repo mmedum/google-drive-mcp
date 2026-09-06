@@ -280,7 +280,7 @@ func pathSoFar(root string, walked []string) string {
 func (s *Service) fetch(ctx context.Context, id string, o ResolveOptions) (*gdrive.File, error) {
 	key := id
 	if o.IncludeLabels {
-		key += "\x00labels"
+		key = labelsKey(id)
 	}
 	if !o.Fresh {
 		s.mu.Lock()
@@ -290,9 +290,27 @@ func (s *Service) fetch(ctx context.Context, id string, o ResolveOptions) (*gdri
 			return f, nil
 		}
 	}
-	f, err := s.api.GetFile(ctx, id, gapi.GetFileOptions{IncludeLabels: o.IncludeLabels})
+	f, err := s.api.GetFile(ctx, id, gapi.GetFileOptions{})
 	if err != nil {
 		return nil, err
+	}
+	// Labels cost a second call. Drive's includeLabels parameter would
+	// fold them into the first, but only for label ids the caller already
+	// knows, and a file card's whole question is which labels are on this
+	// file. files.listLabels answers that, and needs no labels scope.
+	if o.IncludeLabels {
+		// Best effort, the way the definitions are. A file whose labels
+		// cannot be read — canReadLabels is false on plenty of
+		// shared-drive items — still has a card worth showing, and
+		// failing the whole read over a decoration would also turn a
+		// label change that LANDED into a reported error, because the
+		// read-back asks for labels.
+		labels, err := s.api.AllFileLabels(ctx, id)
+		if err != nil {
+			s.log.DebugContext(ctx, "labels unavailable", "file", gapi.ShortID(id), "class", gapi.Class(err))
+		} else {
+			f.LabelInfo = &gdrive.LabelInfo{Labels: labels}
+		}
 	}
 	s.mu.Lock()
 	s.files[key] = cached[*gdrive.File]{value: f, at: s.now()}
@@ -300,9 +318,22 @@ func (s *Service) fetch(ctx context.Context, id string, o ResolveOptions) (*gdri
 	// that entry too: without this, moving a file into a folder read it,
 	// and then the location walk read the same folder again.
 	s.files[parentKey(id)] = cached[*gdrive.File]{value: f, at: s.now()}
+	// A labelled read is a strict superset of a plain one, so it answers
+	// a plain read as well. Without this a get_file with labels followed
+	// by one without paid for the same file twice.
+	if o.IncludeLabels {
+		s.files[id] = cached[*gdrive.File]{value: f, at: s.now()}
+	}
 	s.mu.Unlock()
 	return f, nil
 }
+
+// labelsKey is the cache key for a read that carries a file's labels.
+// It is a function rather than a spelling at each site because forget
+// has to delete it and did not: a write left the labelled entry behind,
+// and the next card with labels on served the state from before the
+// write for as long as the entry lasted.
+func labelsKey(id string) string { return id + "\x00labels" }
 
 // Location works out where a file sits by climbing its parents. Names
 // are not unique in Drive and a file's meaning depends on where it is,

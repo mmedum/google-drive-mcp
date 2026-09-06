@@ -33,6 +33,7 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/config"
 	"github.com/mmedum/google-drive-mcp/internal/credentials"
 	"github.com/mmedum/google-drive-mcp/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/internal/model"
 	"github.com/mmedum/google-drive-mcp/internal/server"
 	"github.com/mmedum/google-drive-mcp/internal/service"
@@ -142,7 +143,11 @@ func openProfile(cfg config.Config, warn func(string)) (*profile, error) {
 }
 
 // scopes are the ones this configuration asks for.
-func (p *profile) scopes() []string { return auth.Scopes(p.cfg.ReadOnly, p.cfg.Labels) }
+func (p *profile) scopes() []string {
+	return auth.Scopes(auth.Access{
+		ReadOnly: p.cfg.ReadOnly, Labels: p.cfg.Labels, Activity: p.cfg.Activity,
+	})
+}
 
 // tokenSource builds the refresh-token-backed source, or reports why not.
 func (p *profile) tokenSource(ctx context.Context) (oauth2.TokenSource, credentials.Source, error) {
@@ -169,7 +174,8 @@ func newClient(ts oauth2.TokenSource, cfg config.Config, logger *slog.Logger) *g
 func newService(api service.API, cfg config.Config, logger *slog.Logger) *service.Service {
 	return service.New(api, service.Options{
 		ReadOnly: cfg.ReadOnly, Destructive: cfg.EnableDestructive, Sharing: cfg.Sharing,
-		LocalDir: cfg.LocalDir, MaxDownload: cfg.MaxDownload, Labels: cfg.Labels, Logger: logger,
+		LocalDir: cfg.LocalDir, MaxDownload: cfg.MaxDownload,
+		Labels: cfg.Labels, Activity: cfg.Activity, Logger: logger,
 	})
 }
 
@@ -497,6 +503,32 @@ func cmdDoctor(args []string) int {
 		}
 	} else {
 		fmt.Println("• this account cannot create shared drives; they are a Google Workspace feature")
+	}
+
+	// The two APIs that are not Drive. They are the likeliest thing to be
+	// wrong in a setup — each needs enabling in the Cloud project AND a
+	// scope on the consent screen, and the two fail identically — so
+	// doctor saying "all checks passed" without having called either of
+	// them is the report a deployer least needs. §10 has said doctor
+	// checks the Labels API since phase 0; until phase 4 it did not.
+	if cfg.Labels {
+		if _, err := api.ListLabelDefinitions(ctx, gapi.ListLabelDefinitionsOptions{PageSize: 1}); err != nil {
+			check("Drive Labels API (labels.list)", fmt.Errorf(
+				"%w; enable the Drive Labels API in the Cloud project as well as granting the scope", err), "")
+		} else {
+			check("Drive Labels API (labels.list)", nil, "")
+		}
+	}
+	if cfg.Activity {
+		// itemName is required, and the root folder is the one item every
+		// account has.
+		_, err := api.QueryActivity(ctx, gdrive.ActivityQuery{ItemName: "items/root", PageSize: 1})
+		if err != nil {
+			check("Drive Activity API (activity.query)", fmt.Errorf(
+				"%w; enable the Drive Activity API in the Cloud project as well as granting the scope", err), "")
+		} else {
+			check("Drive Activity API (activity.query)", nil, "")
+		}
 	}
 
 	svc := newService(api, cfg, slog.New(slog.DiscardHandler))
