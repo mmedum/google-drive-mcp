@@ -86,7 +86,13 @@ func mcpConfig(binary, localDir string) (string, error) {
 	cfg := map[string]any{"mcpServers": map[string]any{
 		serverName: map[string]any{
 			"command": binary,
-			"env":     map[string]string{"GDRIVE_LOCAL_DIR": localDir},
+			// The features behind a flag are on, or the agent never sees
+			// their tools and a task about them scores nothing.
+			"env": map[string]string{
+				"GDRIVE_LOCAL_DIR": localDir,
+				"GDRIVE_LABELS":    "true",
+				"GDRIVE_ACTIVITY":  "true",
+			},
 		},
 	}}
 	raw, err := json.Marshal(cfg)
