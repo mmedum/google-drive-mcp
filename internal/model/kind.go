@@ -5,96 +5,18 @@
 package model
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/internal/mediatype"
 )
 
-// googleKinds names Drive's own file types the way the Drive interface
-// does, so the model reads a result and sees what a person would see.
-var googleKinds = map[string]string{
-	gdrive.MimeFolder:   "folder",
-	gdrive.MimeDocument: "Google Doc",
-	gdrive.MimeSheet:    "Google Sheet",
-	gdrive.MimeSlides:   "Google Slides",
-	gdrive.MimeForm:     "Google Form",
-	gdrive.MimeDrawing:  "Google Drawing",
-	gdrive.MimeScript:   "Apps Script",
-	gdrive.MimeSite:     "Google Site",
-	gdrive.MimeMap:      "Google My Map",
-	gdrive.MimeVid:      "Google Vid",
-	gdrive.MimeJam:      "Jamboard",
-	gdrive.MimeShortcut: "shortcut",
-}
-
-// blobKinds names the common uploaded formats.
-var blobKinds = map[string]string{
-	"application/pdf": "PDF",
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   "Word document",
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         "Excel spreadsheet",
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation": "PowerPoint presentation",
-	"application/msword":                              "Word document (legacy)",
-	"application/vnd.ms-excel":                        "Excel spreadsheet (legacy)",
-	"application/vnd.ms-powerpoint":                   "PowerPoint presentation (legacy)",
-	"application/vnd.oasis.opendocument.text":         "OpenDocument text",
-	"application/vnd.oasis.opendocument.spreadsheet":  "OpenDocument spreadsheet",
-	"application/vnd.oasis.opendocument.presentation": "OpenDocument presentation",
-	"application/rtf":                                 "rich text file",
-	"application/zip":                                 "zip archive",
-	"application/gzip":                                "gzip archive",
-	"application/x-tar":                               "tar archive",
-	"application/json":                                "JSON file",
-	"application/xml":                                 "XML file",
-	"application/epub+zip":                            "EPUB book",
-	"application/octet-stream":                        "binary file",
-	"text/plain":                                      "text file",
-	"text/csv":                                        "CSV file",
-	"text/tab-separated-values":                       "TSV file",
-	"text/markdown":                                   "Markdown file",
-	"text/html":                                       "HTML file",
-	"text/xml":                                        "XML file",
-	"image/svg+xml":                                   "SVG image",
-}
-
-// KindName describes a MIME type in the words the Drive interface uses.
-func KindName(mime string) string {
-	mime = strings.TrimSpace(mime)
-	if mime == "" {
-		return "file"
-	}
-	if name, ok := googleKinds[mime]; ok {
-		return name
-	}
-	if name, ok := blobKinds[mime]; ok {
-		return name
-	}
-	base, sub, _ := strings.Cut(mime, "/")
-	switch base {
-	case "image":
-		return strings.ToUpper(subtypeWord(sub)) + " image"
-	case "video":
-		return strings.ToUpper(subtypeWord(sub)) + " video"
-	case "audio":
-		return strings.ToUpper(subtypeWord(sub)) + " audio"
-	case "text":
-		return subtypeWord(sub) + " text file"
-	}
-	return mime
-}
-
-// subtypeWord strips the vendor and suffix decoration from a MIME
-// subtype: "x-matroska" becomes "matroska", "vnd.wave" becomes "wave".
-func subtypeWord(sub string) string {
-	sub = strings.TrimPrefix(sub, "x-")
-	sub = strings.TrimPrefix(sub, "vnd.")
-	if i := strings.IndexByte(sub, '+'); i > 0 {
-		sub = sub[:i]
-	}
-	if sub == "" {
-		return "file"
-	}
-	return sub
-}
+// KindName describes a media type in the words the Drive interface
+// uses. The table behind it is internal/mediatype, which is also where
+// the export names and the kind filters come from: one media type, one
+// place that knows what it means.
+func KindName(mime string) string { return mediatype.Name(mime) }
 
 // Kind describes a file, following a shortcut into its own description
 // so a listing says "shortcut to a Google Doc" rather than "shortcut".
@@ -188,4 +110,25 @@ func IsTextLike(mime string) bool {
 		return true
 	}
 	return strings.HasSuffix(mime, "+json") || strings.HasSuffix(mime, "+xml")
+}
+
+// ExportFormats turns the exportLinks map Drive returns into the short
+// format names the tools speak, without exposing the links themselves.
+// It lives here rather than in internal/gapi because a short format name
+// is a word this server made up for a person to type, and that package
+// speaks only Drive's own wire types.
+func ExportFormats(f *gdrive.File) []string {
+	if f == nil || len(f.ExportLinks) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for mime := range f.ExportLinks {
+		if name := mediatype.ExportName(mime); name != "" && !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }

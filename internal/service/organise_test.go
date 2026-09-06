@@ -193,11 +193,17 @@ func TestCopyFile(t *testing.T) {
 	}
 }
 
-func TestCopyFileRefusesAFolder(t *testing.T) {
+func TestCopyFileRefusesAFolderUntilItIsAskedRecursively(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 	_, err := svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-2026-fixture"})
-	if err == nil || !strings.Contains(err.Error(), "create_folder") {
+	if err == nil || !strings.Contains(err.Error(), "recursive: true") {
 		t.Fatalf("err = %v, want a refusal naming the way round it", err)
+	}
+	// And the other way: recursive on something that is not a folder is
+	// a misunderstanding worth naming rather than ignoring.
+	_, err = svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-budget-fixture", Recursive: true})
+	if err == nil || !strings.Contains(err.Error(), "not a folder") {
+		t.Fatalf("err = %v, want a refusal", err)
 	}
 }
 

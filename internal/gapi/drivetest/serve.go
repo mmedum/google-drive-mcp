@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -122,6 +123,12 @@ func (s *Server) serveFileChild(w http.ResponseWriter, r *http.Request, path, re
 		s.handleExport(w, r, strings.TrimSuffix(rest, "/export"))
 	case strings.HasSuffix(path, "/copy") && r.Method == http.MethodPost:
 		s.handleCopy(w, r, strings.TrimSuffix(rest, "/copy"))
+	case commentPath.MatchString(path):
+		m := commentPath.FindStringSubmatch(path)
+		s.serveComments(w, r, m[1], m[2])
+	case proposalPath.MatchString(path):
+		m := proposalPath.FindStringSubmatch(path)
+		s.serveProposals(w, r, m[1], m[2])
 	case revisionPath.MatchString(path):
 		m := revisionPath.FindStringSubmatch(path)
 		switch {
@@ -139,6 +146,17 @@ func (s *Server) serveFileChild(w http.ResponseWriter, r *http.Request, path, re
 
 // revisionPath matches /files/{fileId}/revisions/{revisionId}.
 var revisionPath = regexp.MustCompile(`^/files/([^/]+)/revisions/([^/]+)$`)
+
+// commentPath matches everything under one file's comments: the
+// collection, one thread, its replies and one reply. The tail is passed
+// on whole, because the comment routing has to tell four shapes apart
+// and doing it with four regexps here would put half of that decision in
+// this file and half in the other.
+var commentPath = regexp.MustCompile(`^/files/([^/]+)/comments(?:/(.*))?$`)
+
+// proposalPath matches a file's access proposals, including the
+// colon-suffixed :resolve verb, which is not a path segment of its own.
+var proposalPath = regexp.MustCompile(`^/files/([^/]+)/accessproposals(?:/(.*))?$`)
 
 // permissionPath matches /files/{fileId}/permissions/{permissionId}.
 var permissionPath = regexp.MustCompile(`^/files/([^/]+)/permissions/([^/]+)$`)
@@ -384,22 +402,9 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 
 	sortFiles(matched, q.Get("orderBy"))
 
-	pageSize := 100
-	if n, err := strconv.Atoi(q.Get("pageSize")); err == nil && n > 0 {
-		pageSize = n
-	}
-	start := 0
-	if tok := q.Get("pageToken"); tok != "" {
-		n, err := strconv.Atoi(strings.TrimPrefix(tok, "offset-"))
-		if err != nil {
-			s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid page token")
-			return
-		}
-		start = n
-	}
-	end := min(start+pageSize, len(matched))
-	if start > len(matched) {
-		start = len(matched)
+	start, end, ok := s.pageWindow(w, q, len(matched), 100, MaxPageSize)
+	if !ok {
+		return
 	}
 	page := gdrive.FileList{Files: []*gdrive.File{}}
 	for _, f := range matched[start:end] {
@@ -409,6 +414,39 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		page.NextPageToken = "offset-" + strconv.Itoa(end)
 	}
 	writeJSON(w, page)
+}
+
+// MaxPageSize is the largest page the fake will serve, which is Drive's
+// own ceiling for a file listing.
+const MaxPageSize = 1000
+
+// pageWindow reads pageSize and pageToken and returns the slice bounds
+// of the page they ask for, answering the 400 itself for a token it
+// cannot read.
+//
+// The token is an offset, which is enough to exercise what a client has
+// to get right about an opaque one. It lives here rather than in each
+// handler because two copies of it had already drifted: one clamped the
+// start before computing the end and the other after, which is the kind
+// of difference that is correct in both spellings until it is not.
+func (s *Server) pageWindow(w http.ResponseWriter, q url.Values, total, size, maxSize int) (start, end int, ok bool) {
+	if n, err := strconv.Atoi(q.Get("pageSize")); err == nil && n > 0 {
+		size = n
+	}
+	if size > maxSize {
+		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid Value for pageSize")
+		return 0, 0, false
+	}
+	if tok := q.Get("pageToken"); tok != "" {
+		n, err := strconv.Atoi(strings.TrimPrefix(tok, "offset-"))
+		if err != nil || n < 0 {
+			s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid page token")
+			return 0, 0, false
+		}
+		start = n
+	}
+	start = min(start, total)
+	return start, min(start+size, total), true
 }
 
 // sortFiles applies the orderBy keys Drive supports, so a listing's

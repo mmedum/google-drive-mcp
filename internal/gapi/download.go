@@ -67,7 +67,7 @@ func (c *Client) Download(ctx context.Context, fileID string, o DownloadOptions)
 	}
 	u += "?" + v.Encode()
 
-	r := request{kind: kindRead, method: http.MethodGet, url: u, accept: "*/*", resourceIDs: []string{fileID}}
+	r := request{method: http.MethodGet, url: u, accept: "*/*", resourceIDs: []string{fileID}}
 	if h := rangeHeader(o.Offset, o.Length); h != "" {
 		r.header = http.Header{"Range": []string{h}}
 	}
@@ -86,7 +86,7 @@ func (c *Client) Export(ctx context.Context, fileID, mimeType string) (*Content,
 		return nil, err
 	}
 	u := c.base + "/files/" + segment + "/export?" + v.Encode()
-	return c.content(ctx, request{kind: kindRead, method: http.MethodGet, url: u,
+	return c.content(ctx, request{method: http.MethodGet, url: u,
 		accept: "*/*", resourceIDs: []string{fileID}})
 }
 
@@ -94,7 +94,7 @@ func (c *Client) Export(ctx context.Context, fileID, mimeType string) (*Content,
 // revision's export link. The host allowlist still decides whether the
 // credentials go with it.
 func (c *Client) DownloadURL(ctx context.Context, raw string) (*Content, error) {
-	return c.content(ctx, request{kind: kindRead, method: http.MethodGet, url: raw, accept: "*/*"})
+	return c.content(ctx, request{method: http.MethodGet, url: raw, accept: "*/*"})
 }
 
 func (c *Client) content(ctx context.Context, r request) (*Content, error) {
@@ -160,7 +160,7 @@ func (c *Client) GetRevision(ctx context.Context, fileID, revisionID string) (*g
 	v := url.Values{}
 	v.Set("fields", RevisionFields)
 	u := c.base + "/files/" + segment + "/revisions/" + url.PathEscape(revisionID) + "?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (c *Client) UpdateRevision(ctx context.Context, fileID, revisionID string, 
 	v := url.Values{}
 	v.Set("fields", RevisionFields)
 	u := c.base + "/files/" + segment + "/revisions/" + url.PathEscape(revisionID) + "?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindWrite, method: http.MethodPatch, url: u,
+	body, err := c.do(ctx, request{method: http.MethodPatch, url: u,
 		body: payload, resourceIDs: []string{fileID}})
 	if err != nil {
 		return nil, err

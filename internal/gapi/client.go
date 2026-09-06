@@ -214,17 +214,8 @@ func (c *Client) resourceKeyHeader(ids []string) string {
 	return strings.Join(parts, ",")
 }
 
-type reqKind int
-
-const (
-	kindRead reqKind = iota
-	kindWrite
-	kindSharing
-)
-
 // request is one logical call to Drive.
 type request struct {
-	kind   reqKind
 	method string
 	url    string
 	body   []byte
@@ -239,6 +230,22 @@ type request struct {
 	// nil means 2xx: a resumable upload's 308 is progress, not a failure,
 	// and it is the only caller that needs to say so.
 	accepted func(int) bool
+	// sharing marks a call against Drive's own sharing quota, which is
+	// separate from the general write budget and much tighter
+	// (sharingRateLimitExceeded). It is the ONE thing about a request's
+	// rate class that the method cannot say, so it is the one thing a
+	// call site declares.
+	//
+	// Everything else is derived. An earlier version of this client had a
+	// `kind` field set by hand at every call site, with kindRead as its
+	// zero value — so a write added later and given no thought took the
+	// read limiter AND inherited a read's willingness to repeat itself
+	// after a network failure. That is the same defect §11 records
+	// fixing one level down, in the rule about which POSTs may be
+	// retried, and the fix there was the same: derive it from the method.
+	// A forgotten `sharing: true` now costs throughput; a forgotten kind
+	// used to cost idempotency.
+	sharing bool
 	// idempotent marks a POST that a second attempt cannot apply twice —
 	// a create carrying a pre-generated id, which Drive collapses into
 	// the first. It is only consulted for a POST: every other method
@@ -284,15 +291,26 @@ func (c *Client) do(ctx context.Context, r request) ([]byte, error) {
 	return resp.body, nil
 }
 
-func (c *Client) limiter(k reqKind) *rate.Limiter {
-	switch k {
-	case kindWrite:
-		return c.writeLim
-	case kindSharing:
+// limiter is the budget a request spends from, worked out from what the
+// request is rather than from what a call site remembered to write.
+func (c *Client) limiter(r request) *rate.Limiter {
+	switch {
+	case r.sharing:
 		return c.sharingLim
-	default:
+	case readMethod(r.method):
 		return c.readLim
+	default:
+		return c.writeLim
 	}
+}
+
+// readMethod reports whether a method only asks. files.generateIds is
+// the one call that is a GET and still allocates something; repeating it
+// is safe, because an unused id costs nothing and becomes a file only
+// when a create carries it, so it belongs on the read budget with the
+// rest of the GETs.
+func readMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
 }
 
 func (c *Client) doResponse(ctx context.Context, r request) (*attemptResult, error) {
@@ -310,7 +328,7 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 	once func(context.Context, request) (T, error), fields func(T) []any,
 ) (T, error) {
 	var zero T
-	limiter := c.limiter(r.kind)
+	limiter := c.limiter(r)
 	path := redactPath(r.url)
 	var lastErr error
 	for attempt := 1; attempt <= c.retry.MaxAttempts; attempt++ {
@@ -487,7 +505,7 @@ func retryable(r request, err error) (bool, time.Duration) {
 		return te.refused || r.repeatable(), te.after
 	}
 	if errors.Is(err, ErrNetwork) {
-		return r.kind == kindRead, 0
+		return readMethod(r.method), 0
 	}
 	return false, 0
 }

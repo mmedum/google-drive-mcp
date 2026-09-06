@@ -14,6 +14,7 @@ import (
 
 	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/internal/mediatype"
 	"github.com/mmedum/google-drive-mcp/internal/model"
 	"github.com/mmedum/google-drive-mcp/internal/render"
 )
@@ -35,26 +36,65 @@ type ReadFileInput struct {
 // so the head of a large log costs one small request. Anything else says
 // what to do instead.
 func (s *Service) ReadFile(ctx context.Context, in ReadFileInput) (string, error) {
-	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: true})
+	res, plan, w, err := s.readText(ctx, in)
 	if err != nil {
 		return "", err
+	}
+	return s.renderText(ctx, res, plan, in, w), nil
+}
+
+// readText is the whole read: resolve the reference, refuse what has no
+// text, decide how this kind becomes text, and fetch the window asked
+// for. Both callers are the same read with a different wrapping —
+// read_file lays the window out under a header, a resource hands back
+// the text alone — and the head of it is shared for the same reason the
+// tail is: a rule added to one of them has to reach the other.
+func (s *Service) readText(ctx context.Context, in ReadFileInput,
+) (*Resolved, readPlan, textWindow, error) {
+	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: true})
+	if err != nil {
+		return nil, readPlan{}, textWindow{}, err
 	}
 	f := res.File
 	if f.IsFolder() {
-		return "", Errorf(ClassInvalid, "%s is a folder. list_folder shows what is inside it.", f.Name)
+		return nil, readPlan{}, textWindow{}, Errorf(ClassInvalid,
+			"%s is a folder. list_folder shows what is inside it, and %s is the same listing as a resource.",
+			f.Name, ResourceURI(f.ID, "children"))
 	}
-	budget := render.Budget(in.MaxChars)
 	if in.Offset < 0 {
-		return "", Errorf(ClassInvalid, "offset cannot be negative")
+		return nil, readPlan{}, textWindow{}, Errorf(ClassInvalid, "offset cannot be negative")
 	}
-
 	plan, err := s.readPlan(f, in.Format)
 	if err != nil {
-		return "", err
+		return nil, readPlan{}, textWindow{}, err
 	}
+	w, err := s.textWindow(ctx, res, plan, in, render.Budget(in.MaxChars))
+	if err != nil {
+		return nil, readPlan{}, textWindow{}, err
+	}
+	return res, plan, w, nil
+}
 
+// textWindow is one window of a file's text and what a header needs to
+// describe it. It exists because a tool result and a resource want the
+// same bytes and different wrappings: read_file lays the window out
+// under a header saying which part of the file it is, and a resource
+// hands back the text alone, because a resource IS the content and a
+// client may feed it to something that parses the media type.
+type textWindow struct {
+	text  string
+	used  int64
+	total int64
+	more  bool
+}
+
+// textWindow reads the window a caller asked for, from an export or from
+// the file's own bytes.
+func (s *Service) textWindow(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput, budget int,
+) (textWindow, error) {
+	f := res.File
 	if plan.exportMime != "" {
-		return s.readExport(ctx, res, plan, in, budget)
+		return s.exportWindow(ctx, res, plan, in, budget)
 	}
 	// A blob's size does not bound this call: only the window shown is
 	// fetched, so the head of a 200 MB log is one small request, and
@@ -63,21 +103,21 @@ func (s *Service) ReadFile(ctx context.Context, in ReadFileInput) (string, error
 	if size, known := f.SizeBytes(); known && in.Offset >= size {
 		// Drive answers a range that starts past the end with a 416,
 		// which says nothing useful. The file's own size already does.
-		return s.renderText(ctx, res, plan, in, "", 0, size, false), nil
+		return textWindow{total: size}, nil
 	}
 	content, err := s.api.Download(ctx, f.ID, gapi.DownloadOptions{
 		Offset: in.Offset, Length: int64(budget) + utf8.UTFMax,
 	})
 	if err != nil {
-		return "", s.contentError(err, f, "reading")
+		return textWindow{}, s.contentError(err, f, "reading")
 	}
 	defer func() { _ = content.Body.Close() }()
 
 	window, used, more, err := readWindow(content.Body, budget)
 	if err != nil {
-		return "", wrap(err, "reading "+f.Name)
+		return textWindow{}, wrap(err, "reading "+f.Name)
 	}
-	return s.renderText(ctx, res, plan, in, window, used, totalOf(content, f), more), nil
+	return textWindow{text: window, used: used, total: totalOf(content, f), more: more}, nil
 }
 
 // readExport returns a window of a Google-native document. Drive takes
@@ -86,21 +126,22 @@ func (s *Service) ReadFile(ctx context.Context, in ReadFileInput) (string, error
 // the first cost nothing. The key carries the revision and the
 // modification time, so a document that changed under a paging model is
 // exported again rather than served from a stale copy.
-func (s *Service) readExport(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput, budget int) (string, error) {
+func (s *Service) exportWindow(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput, budget int,
+) (textWindow, error) {
 	f := res.File
 	key := f.ID + "\x00" + f.HeadRevisionID + "\x00" + f.ModifiedTime + "\x00" + plan.exportMime
 	text, ok := s.exportedText(key)
 	if !ok {
 		content, err := s.api.Export(ctx, f.ID, plan.exportMime)
 		if err != nil {
-			return "", s.contentError(err, f, "reading")
+			return textWindow{}, s.contentError(err, f, "reading")
 		}
 		defer func() { _ = content.Body.Close() }()
 		// The cap is Google's own: an export larger than this does not
 		// arrive, so reading to the end is bounded whatever the file is.
 		raw, err := io.ReadAll(io.LimitReader(content.Body, MaxExport))
 		if err != nil {
-			return "", wrap(err, "reading "+f.Name)
+			return textWindow{}, wrap(err, "reading "+f.Name)
 		}
 		text = string(raw)
 		if plan.stripDataURIs {
@@ -114,13 +155,32 @@ func (s *Service) readExport(ctx context.Context, res *Resolved, plan readPlan, 
 
 	total := int64(len(text))
 	if in.Offset >= total {
-		return s.renderText(ctx, res, plan, in, "", 0, total, false), nil
+		return textWindow{total: total}, nil
 	}
-	window, used, more, err := readWindow(strings.NewReader(text[in.Offset:]), budget)
-	if err != nil {
-		return "", wrap(err, "reading "+f.Name)
+	// Sliced, not copied. The bytes are already a string in memory, and
+	// readWindow's job is to bound an io.Reader: putting one around this
+	// allocates the whole budget and memcpys into it, which on a resource
+	// read is 400 KB whatever the document's size — for a 200-byte Doc
+	// as much as for a long one.
+	window, used := stringWindow(text[in.Offset:], budget)
+	return textWindow{text: window, used: used, total: total,
+		more: in.Offset+used < total}, nil
+}
+
+// stringWindow returns at most budget bytes from the front of text,
+// ending on a rune boundary, and how many bytes it took. A slice of a
+// string shares the backing array, so nothing is copied.
+func stringWindow(text string, budget int) (string, int64) {
+	if len(text) <= budget {
+		return text, int64(len(text))
 	}
-	return s.renderText(ctx, res, plan, in, window, used, total, more || in.Offset+used < total), nil
+	cut := budget
+	// Back up to a boundary, so a window never ends in half a character.
+	// utf8.UTFMax bounds how far that can be.
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut], int64(cut)
 }
 
 // MaxExport is Google's own ceiling on files.export.
@@ -144,7 +204,7 @@ func (s *Service) keepExport(key, text string) {
 // renderText lays out one window under the header that says which part
 // of the file it is.
 func (s *Service) renderText(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput,
-	window string, used, total int64, more bool,
+	w textWindow,
 ) string {
 	return render.FileText(s.Model(ctx, res), render.FileTextOptions{
 		Now:              s.now(),
@@ -152,10 +212,10 @@ func (s *Service) renderText(ctx context.Context, res *Resolved, plan readPlan, 
 		Format:           plan.formatName,
 		Note:             plan.note,
 		Offset:           in.Offset,
-		Bytes:            used,
-		Total:            total,
-		More:             more,
-		Text:             window,
+		Bytes:            w.used,
+		Total:            w.total,
+		More:             w.more,
+		Text:             w.text,
 	})
 }
 
@@ -177,19 +237,25 @@ type readPlan struct {
 // result.
 func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 	format = strings.ToLower(strings.TrimSpace(format))
+	// The export media type comes from internal/mediatype, so the format
+	// a read takes and the format a download defaults to are two fields
+	// of one entry rather than two tables that agree by hand. What stays
+	// here is what the registry cannot say: which alternatives a caller
+	// may ask for, and what the result has to warn about.
 	switch f.MimeType {
 	case gdrive.MimeDocument:
 		if format != "" && format != "md" && format != "markdown" {
 			return readPlan{}, Errorf(ClassInvalid, "read_file returns a Google Doc as markdown; "+
 				"download_file writes it as %s.", format)
 		}
-		return readPlan{exportMime: "text/markdown", formatName: "markdown", stripDataURIs: true}, nil
+		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "markdown",
+			stripDataURIs: true}, nil
 	case gdrive.MimeSheet:
-		mime, name := "text/csv", "csv"
+		mime, name := mediatype.ReadAs(f.MimeType), "csv"
 		switch format {
 		case "", "csv":
 		case "tsv":
-			mime, name = "text/tab-separated-values", "tsv"
+			mime, name = mediatype.ExportMime("tsv"), "tsv"
 		default:
 			return readPlan{}, Errorf(ClassInvalid, "a spreadsheet reads as csv or tsv, not %q. "+
 				"download_file writes it as xlsx or pdf.", format)
@@ -198,10 +264,10 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 			"Another sheet, or one range of cells, is a Sheets API read, which this server does not offer; " +
 			"download_file writes the whole workbook as xlsx."}, nil
 	case gdrive.MimeSlides:
-		return readPlan{exportMime: "text/plain", formatName: "plain text",
+		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "plain text",
 			note: "the text of the slides, without their layout"}, nil
 	case gdrive.MimeScript:
-		return readPlan{exportMime: "application/vnd.google-apps.script+json", formatName: "JSON"}, nil
+		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "JSON"}, nil
 	case gdrive.MimeShortcut:
 		return readPlan{}, Errorf(ClassInvalid, "%s is a shortcut whose target could not be read", f.Name)
 	}
@@ -374,12 +440,12 @@ func (s *Service) exportRevision(ctx context.Context, f *gdrive.File, revisionID
 	if link == "" {
 		have := make([]string, 0, len(rev.ExportLinks))
 		for m := range rev.ExportLinks {
-			if name := gapi.ExportFormatName(m); name != "" {
+			if name := mediatype.ExportName(m); name != "" {
 				have = append(have, name)
 			}
 		}
 		return nil, Errorf(ClassUnsupported, "that revision of %s cannot be exported as %s%s",
-			f.Name, gapi.ExportFormatName(mime), listOrNothing(have, ". It offers: ", ""))
+			f.Name, mediatype.ExportName(mime), listOrNothing(have, ". It offers: ", ""))
 	}
 	c, err := s.api.DownloadURL(ctx, link)
 	if err != nil {
@@ -394,33 +460,22 @@ func (s *Service) exportRevision(ctx context.Context, f *gdrive.File, revisionID
 func (s *Service) exportFormat(f *gdrive.File, name string) (mime, ext string, err error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
-		name = defaultExport[f.MimeType]
+		name = mediatype.DownloadAs(f.MimeType)
 	}
 	if name == "" {
 		return "", "", Errorf(ClassUnsupported, "%s is %s, which Drive does not export. get_file lists "+
 			"the formats a file offers.", f.Name, model.KindWithArticle(f))
 	}
-	mime = gapi.ExportMime(name)
+	mime = mediatype.ExportMime(name)
 	if mime == "" {
 		return "", "", Errorf(ClassInvalid, "%q is not an export format. Drive offers: %s",
-			name, strings.Join(gapi.ExportFormatNames(), ", "))
+			name, strings.Join(mediatype.ExportNames(), ", "))
 	}
 	if _, ok := f.ExportLinks[mime]; !ok && len(f.ExportLinks) > 0 {
 		return "", "", Errorf(ClassUnsupported, "%s cannot be exported as %s. It offers: %s",
-			f.Name, name, strings.Join(gapi.ExportFormats(f), ", "))
+			f.Name, name, strings.Join(model.ExportFormats(f), ", "))
 	}
 	return mime, name, nil
-}
-
-// defaultExport is the format each Google-native kind comes back as when
-// the caller names none: the Office format it converts to and from, and
-// png for a drawing, which has no document form.
-var defaultExport = map[string]string{
-	gdrive.MimeDocument: "docx",
-	gdrive.MimeSheet:    "xlsx",
-	gdrive.MimeSlides:   "pptx",
-	gdrive.MimeDrawing:  "png",
-	gdrive.MimeScript:   "json",
 }
 
 // downloadBuffer is the block a download is copied in. io.Copy's own
@@ -485,7 +540,7 @@ func extensionFor(f *gdrive.File) string {
 	if ext := strings.TrimPrefix(filepath.Ext(f.Name), "."); ext != "" {
 		return ext
 	}
-	return gapi.ExportFormatName(f.MimeType)
+	return mediatype.ExportName(f.MimeType)
 }
 
 // contentError explains the refusals a transfer meets that a metadata

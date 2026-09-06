@@ -285,11 +285,18 @@ type CopyFileInput struct {
 	// KeepRevisionForever pins the copy's first revision.
 	KeepRevisionForever bool
 	AllowDuplicate      bool
+	// Recursive copies a folder and everything inside it. Drive has no
+	// call for that, so it is a walk and a write per item, which is why
+	// it has to be asked for.
+	Recursive bool
+	// MaxItems bounds what a recursive copy will attempt. Over it, the
+	// copy is refused before it starts rather than stopped halfway.
+	MaxItems int
+	DryRun   bool
 }
 
 // CopyFile copies one file, optionally converting it as Google imports
-// it. Folders are refused: copying one is a tree walk with a budget, and
-// that arrives with the recursive option in a later phase.
+// it, or — with recursive — a folder and everything inside it.
 func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, error) {
 	if err := s.writable("copy_file"); err != nil {
 		return nil, err
@@ -300,8 +307,21 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 	}
 	f := res.File
 	if f.IsFolder() {
-		return nil, Errorf(ClassUnsupported, "Drive has no copy for a folder, and this server does not walk "+
-			"one yet. create_folder makes the destination, and copy_file moves each file into it.")
+		if !in.Recursive {
+			return nil, Errorf(ClassInvalid, "%s is a folder, and Drive has no call that copies one: it is a "+
+				"walk and a write for every item inside. Pass recursive: true to do that, and dry_run: true "+
+				"first to see how much it is.", f.Name)
+		}
+		if strings.TrimSpace(in.ConvertTo) != "" {
+			return nil, Errorf(ClassInvalid, "convert_to asks Google to import a file as one of its own "+
+				"kinds, and a folder is not a file with content to import. Copy the folder, then convert "+
+				"what is inside it.")
+		}
+		return s.copyTree(ctx, res, in)
+	}
+	if in.Recursive {
+		return nil, Errorf(ClassInvalid, "%s is %s, not a folder; recursive is for copying a folder and "+
+			"everything inside it. Leave it out to copy this.", f.Name, model.KindWithArticle(f))
 	}
 	convert, err := convertTarget(in.ConvertTo)
 	if err != nil {
