@@ -386,9 +386,21 @@ func collaborationTasks() []task {
 		{
 			name: "download-a-file",
 			setup: func(s *taskState) error {
-				return s.makeFile("target", "handbook.txt", "the handbook")
+				// Two files of one name, which is legal in Drive and the
+				// reason download_file appends a short id: they have to
+				// land beside each other rather than on each other. The
+				// task asks for both so that behaviour is asserted rather
+				// than explained — an earlier version checked for
+				// "handbook.txt" on disk, failed a download that had
+				// worked, and was then given a comment saying why it did
+				// not check. A comment decays; an assertion does not.
+				if err := s.makeFile("first", "handbook.txt", "the first handbook"); err != nil {
+					return err
+				}
+				return s.makeFile("second", "handbook.txt", "the second handbook")
 			},
-			prompt: "Save \"handbook.txt\" from the folder with id {folder} to the server's local directory.",
+			prompt: "There are two files called \"handbook.txt\" in the folder with id {folder}. " +
+				"Save both of them to the server's local directory.",
 			check: func(s *taskState, run agentRun) []string {
 				if !run.used("download_file") {
 					return []string{"never called download_file"}
@@ -398,18 +410,21 @@ func collaborationTasks() []task {
 				// each other rather than on each other. An earlier version
 				// of this check looked for "handbook.txt" exactly and
 				// failed a download that had worked.
+				// Both, side by side, under names that differ. That is
+				// the whole point of the short id download_file appends:
+				// the second download must not land on the first.
 				landed := localMatching(s, "handbook")
-				if len(landed) == 0 {
+				switch {
+				case len(landed) == 0:
 					return []string{"nothing from handbook.txt reached the local directory"}
+				case len(landed) == 1:
+					return []string{fmt.Sprintf("only %v landed; the second download either overwrote the "+
+						"first or never happened", landed)}
+				case len(landed) > 2:
+					return []string{fmt.Sprintf("two downloads left %v behind", landed)}
 				}
-				if len(landed) > 1 {
-					return []string{fmt.Sprintf("one download left %v behind", landed)}
-				}
-				// And the result has to name what it wrote, or nobody can
-				// find it.
-				if !strings.Contains(run.Answer, strings.TrimSuffix(landed[0], ".txt")) &&
-					!mentionsAny(run.Answer, landed[0], "handbook") {
-					return []string{"the answer does not say where the file landed: " + mcpstdio.FirstLine(run.Answer)}
+				if landed[0] == landed[1] {
+					return []string{"both files landed under one name, so one has overwritten the other"}
 				}
 				return nil
 			},
