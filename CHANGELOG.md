@@ -40,6 +40,12 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   which is a dead end. The finished case is named first now, and the
   message points at `list_approvals`, which says which of the three it is.
 
+  Only where it can be true: the same refusal serves `list_approvals` and
+  starting an approval, and neither names one that could be finished.
+  Leading those with it would point the reader at a state that is not
+  there — and tell somebody whose `list_approvals` just failed to call
+  `list_approvals`.
+
 ## [0.4.0] - 2026-09-06
 
 ### Added
