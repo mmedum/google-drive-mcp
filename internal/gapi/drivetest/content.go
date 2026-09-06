@@ -224,3 +224,100 @@ func (s *Server) handleRevisionExport(w http.ResponseWriter, r *http.Request, re
 	}
 	s.serveBytes(w, r, []byte(content), r.URL.Query().Get("mimeType"))
 }
+
+// fakeOperation is one long-running download in the fake: which file it
+// is for, and how many more polls it answers as pending.
+type fakeOperation struct {
+	file    string
+	pending int
+}
+
+// handleStartDownload serves files.download, the long-running operation
+// that is the only way to reach a Google Vid's bytes.
+//
+// PendingDownloads makes the first answers pending ones, with `done`
+// absent rather than false — which is the shape the guide shows and the
+// reason gdrive.Operation.Done is a pointer. A fake that always finished
+// at once would never exercise the polling.
+func (s *Server) handleStartDownload(w http.ResponseWriter, _ *http.Request, id string) {
+	s.mu.Lock()
+	f := s.fileLocked(id)
+	if f == nil {
+		s.mu.Unlock()
+		s.errorJSON(w, http.StatusNotFound, "notFound", "File not found: "+id+".")
+		return
+	}
+	s.nextID++
+	name := fmt.Sprintf("operations/id-operation-fixture-%d", s.nextID)
+	if s.operations == nil {
+		s.operations = map[string]*fakeOperation{}
+	}
+	op := &fakeOperation{file: id, pending: s.PendingDownloads}
+	s.operations[name] = op
+	pending := op.pending
+	s.mu.Unlock()
+
+	if pending > 0 {
+		writeJSON(w, gdrive.Operation{Name: name})
+		return
+	}
+	writeJSON(w, s.finishedOperation(name, id))
+}
+
+// handleGetOperation polls one operation, finishing it once its pending
+// count runs out.
+func (s *Server) handleGetOperation(w http.ResponseWriter, _ *http.Request, id string) {
+	name := "operations/" + id
+	s.mu.Lock()
+	op, known := s.operations[name]
+	if !known {
+		s.mu.Unlock()
+		s.errorJSON(w, http.StatusNotFound, "notFound", "Operation not found.")
+		return
+	}
+	if op.pending > 0 {
+		op.pending--
+	}
+	pending, file := op.pending, op.file
+	s.mu.Unlock()
+
+	if pending > 0 {
+		writeJSON(w, gdrive.Operation{Name: name})
+		return
+	}
+	writeJSON(w, s.finishedOperation(name, file))
+}
+
+// finishedOperation builds the answer of a completed download.
+func (s *Server) finishedOperation(name, fileID string) gdrive.Operation {
+	done := true
+	return gdrive.Operation{
+		Name: name, Done: &done,
+		Response: &gdrive.DownloadResponse{
+			DownloadURI:            s.URL + "/download-uri/" + fileID,
+			PartialDownloadAllowed: true,
+		},
+	}
+}
+
+// handleRenderedDownload serves the bytes a finished download operation
+// points at.
+//
+// It is deliberately NOT handleDownload: that one enforces Drive's rule
+// that only binary content comes off the file endpoint, which is exactly
+// the rule the long-running download exists to get around. A Vid is a
+// Google-native type with no bytes on files.get, and the whole point of
+// the operation is that Drive renders it and puts the result somewhere
+// else.
+func (s *Server) handleRenderedDownload(w http.ResponseWriter, id string) {
+	s.mu.Lock()
+	content, ok := s.Content[id]
+	s.mu.Unlock()
+	if !ok {
+		s.errorJSON(w, http.StatusNotFound, "notFound", "File not found: "+id+".")
+		return
+	}
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	_, _ = w.Write([]byte(content))
+}

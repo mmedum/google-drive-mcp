@@ -396,6 +396,14 @@ func (s *Service) DownloadFile(ctx context.Context, in DownloadFileInput) (strin
 // for a Google-native document, an old revision's own link or bytes, and
 // alt=media for everything else.
 func (s *Service) openDownload(ctx context.Context, f *gdrive.File, in DownloadFileInput) (*gapi.Content, string, string, error) {
+	// A Google Vid comes only through the long-running download: Drive
+	// answers fileNotExportable to files.export on one, and there are no
+	// bytes on the file endpoint either. It is checked before the
+	// Workspace-document branch because a Vid IS one, and that branch
+	// would try to export it.
+	if f.MimeType == gdrive.MimeVid {
+		return s.downloadVid(ctx, f, in)
+	}
 	if f.IsWorkspaceDoc() {
 		mime, ext, err := s.exportFormat(f, in.Format)
 		if err != nil {
@@ -426,6 +434,42 @@ func (s *Service) openDownload(ctx context.Context, f *gdrive.File, in DownloadF
 		return nil, "", "", s.contentError(err, f, "downloading")
 	}
 	return c, extensionFor(f), "", nil
+}
+
+// downloadVid fetches a Google Vid through the long-running download.
+//
+// The bytes are never on the file endpoint and an export is refused, so
+// this is the whole of it: start the operation, poll until Drive has
+// rendered the video, then fetch the address it hands back. Rendering
+// takes time — the guide says a new operation is usually pending "for
+// Vids files" especially — so a caller who waits too long is told the
+// operation is still running rather than told it failed.
+func (s *Service) downloadVid(ctx context.Context, f *gdrive.File, in DownloadFileInput) (*gapi.Content, string, string, error) {
+	if in.Format != "" {
+		return nil, "", "", Errorf(ClassInvalid,
+			"%s is a Google Vid, and Drive renders one as MP4 and nothing else, so format does not apply",
+			f.Name)
+	}
+	op, err := s.api.StartDownload(ctx, f.ID, "", in.Revision)
+	if err != nil {
+		return nil, "", "", s.contentError(err, f, "starting the download of")
+	}
+	ready, err := s.api.AwaitDownload(ctx, op)
+	if err != nil {
+		var pending *gapi.OperationPendingError
+		if errors.As(err, &pending) {
+			return nil, "", "", Errorf(ClassPending,
+				"Drive is still rendering %s as MP4. That can take a while for a video; "+
+					"call download_file again in a minute or two and it will pick up the finished render.",
+				f.Name)
+		}
+		return nil, "", "", s.contentError(err, f, "downloading")
+	}
+	c, err := s.api.DownloadURL(ctx, ready.DownloadURI)
+	if err != nil {
+		return nil, "", "", s.contentError(err, f, "fetching the rendered video of")
+	}
+	return c, "mp4", "rendered by Drive as MP4, which is the only form a Vid comes in", nil
 }
 
 // exportRevision reaches an old version of a Google-native document.
