@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The README's status line was two releases stale.** It said "Status:
+  v0.3.0, phase 3" through v0.4.0 and v1.0.0, and promised Workspace
+  labels as something that would "arrive in v0.4.0" after they had
+  shipped. The list of unverified paths was out of date too: it named
+  two, where there are four, and the five destructive tools it implied
+  were unverified have since run against Drive.
+
+  The staleness gate did not catch it, and the reason is worth writing
+  down: that gate reads the README's tool TABLE, which was correct the
+  whole time, and its architecture check greps for a single phase-0
+  placeholder. A document can be wrong about what it *is* while every
+  list inside it is right. Both status lines are now held to the newest
+  version in this file — only the version, because a number that must
+  match another number is the part a gate can hold, and the prose around
+  it is a person's job.
+
+### Added
+
+- **The README carries the things a released server's README should**, and
+  did not: a **Versioning** section saying what is stable within a major
+  version and what counts as breaking, a **Security** section pointing at
+  `SECURITY.md`, the actual commands to verify a release rather than a
+  sentence saying it can be verified, and how to complete `login` over
+  SSH — the callback lands on the remote host's loopback and the port is
+  drawn at random, so it has to be forwarded, and nothing said so.
+
+  The verification commands are the ones run against v1.0.0 itself, not
+  transcribed from a template.
+
 ## [1.0.0] - 2026-09-06
 
 ### Added

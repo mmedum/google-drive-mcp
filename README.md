@@ -12,14 +12,17 @@ Single binary, stdio, one Google account per profile. You run it against
 a Google Cloud project you own, so nothing about this repository is tied
 to any particular organisation or account.
 
-**Status: v0.3.0, phase 3 of the plan in
+**Status: v1.0.0, phase 5 of the plan in
 [docs/architecture.md](docs/architecture.md).** The tools below work, and
 every one of them is verified against a real Google Workspace account as
-well as against the in-memory Drive the tests use. Two paths are not:
-handing over ownership of a file, and a share an organisation's policy
-refuses — both need a second account or an administrator to exercise, and
+well as against the in-memory Drive the tests use — the five that remove
+something for good included, which run inside a shared drive the live
+driver creates and destroys again. Four paths are not: handing over
+ownership of a file, opening a link-shared file that needs its resource
+key, a share an organisation's policy refuses, and applying a label. Each
+needs a second Google account or an administrator to exercise, and
 [docs/architecture.md](docs/architecture.md) §17a says what stands in for
-them. Workspace labels arrive in v0.4.0.
+each of them.
 
 ## What it does today
 
@@ -116,9 +119,22 @@ export PATH="$(go env GOPATH)/bin:$PATH"             # or add it to your shell p
 
 Or download a release archive from the releases page and put the binary
 on your `PATH`. Every archive carries the binary, `LICENSE` and this
-README; `checksums.txt` is signed with a keyless Sigstore certificate and
-each archive has a build provenance attestation you can check with
-`gh attestation verify`.
+README. Nothing about a release has to be taken on trust:
+
+```bash
+sha256sum -c checksums.txt
+
+# checksums.txt is signed with a keyless Sigstore certificate tied to the
+# release workflow's identity; the bundle carries the signature and the
+# certificate together.
+cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
+  --certificate-identity-regexp '^https://github.com/mmedum/google-drive-mcp' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# And each archive carries build provenance naming the workflow and tag
+# that produced it.
+gh attestation verify google-drive-mcp_*.tar.gz --repo mmedum/google-drive-mcp
+```
 
 ## Set up Google, once per person
 
@@ -162,6 +178,22 @@ and stores the refresh token in your OS keyring (Secret Service, Keychain
 or Credential Manager). If no keyring is available it falls back to a
 `0600` file and says so. `logout` revokes the token at Google and deletes
 it locally.
+
+### Logging in over SSH
+
+The callback goes to the *remote* host's loopback address and your browser
+is local, so the port has to be forwarded. It is drawn at random and
+printed only once login is already waiting, so read it out of the printed
+URL — it appears percent-encoded there, as `127.0.0.1%3A<port>` — and in a
+second local terminal:
+
+```bash
+ssh -N -L <port>:127.0.0.1:<port> user@remote-host
+```
+
+Then open the URL in your local browser. If `ssh` says `bind: Address
+already in use`, cancel the login with Ctrl-C and start it again to draw
+a different port.
 
 ## Connect a client
 
@@ -229,6 +261,20 @@ the server will do at all:
 - Write anything private into its logs. They carry truncated ids, counts,
   byte counts and latencies; never file names, paths, addresses, queries
   or content.
+
+## Versioning
+
+Tool names, their arguments and the shape of their output are stable
+within a major version. A change that needs you to do something — a new
+scope, another `login`, a different command in your client config — is
+marked **Breaking:** in [CHANGELOG.md](CHANGELOG.md), which is what the
+release notes are made from. A tool moving from the default surface to
+behind a feature flag, or the other way, counts as breaking.
+
+## Security
+
+[SECURITY.md](SECURITY.md) says how to report a vulnerability. Please do
+not open a public issue for one.
 
 ## Documentation
 
