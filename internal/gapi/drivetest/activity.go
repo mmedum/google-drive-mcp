@@ -94,9 +94,14 @@ func (s *Server) activityWireLocked(a *gdrive.DriveActivity) (json.RawMessage, e
 //
 // It is how a test presents an action detail gdrive.ActionDetail cannot
 // hold — a member it has no field for, which is what a kind Google added
-// after this server was written looks like on the wire. The typed field
-// is set from the same JSON so that the fake's own action filter sees
-// what it serves.
+// after this server was written looks like on the wire.
+//
+// The typed field is REPLACED by whatever the JSON names, so the fake's
+// action filter never disagrees with the bytes it serves. For the details
+// this helper exists for that is nothing at all: `{}` and a member no
+// field names both decode to an empty detail, so such an activity
+// answers no action filter — which is what Drive does with them too, and
+// what any AddActivity kind passed alongside is deliberately losing to.
 func (s *Server) SetActivityDetail(a *gdrive.DriveActivity, detail string) error {
 	var d gdrive.ActionDetail
 	if err := json.Unmarshal([]byte(detail), &d); err != nil {
