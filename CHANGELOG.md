@@ -6,6 +6,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-09-06
+
 ### Added
 
 - **Three more agent evals, and the thirteen that existed have all run.**
@@ -778,6 +782,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
-[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.2.0...v0.3.0
 [0.0.1]: https://github.com/mmedum/google-drive-mcp/releases/tag/v0.0.1
