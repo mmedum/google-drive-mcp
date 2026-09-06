@@ -21,6 +21,10 @@ type harness struct {
 	red  *redact.Redactor
 	// folder is the scratch folder's id; every task works inside it.
 	folder string
+	// address is who a sharing task shares with, and realAddress says
+	// whether Google will accept it.
+	address     string
+	realAddress bool
 	// dir is the local directory the transfer tools use.
 	dir string
 }
@@ -96,7 +100,11 @@ func run(o options) error {
 	if _, _, err := sess.Initialize("evals"); err != nil {
 		return err
 	}
-	h := &harness{sess: sess, red: redact.NewRedactor(o.raw), dir: dir}
+	h := &harness{sess: sess, red: redact.NewRedactor(o.raw), dir: dir,
+		address: "someone@example.com"}
+	if o.share != "" {
+		h.address, h.realAddress = o.share, true
+	}
 
 	// One scratch folder for the whole run, named so that anybody who
 	// finds it knows what it is and that it can go.
@@ -164,6 +172,12 @@ func (h *harness) score(o options, config string, t task) []string {
 	// wanted a refusal and got one for the wrong reason — which is the
 	// end-state-versus-trace problem happening inside the scorer.
 	state.set("folder", h.folder)
+	// The address a sharing task shares with. example.com is IANA's
+	// reserved documentation domain, and Drive refuses a grant to it, so
+	// the default lets the task run and score the call while saying that
+	// the grant itself went unchecked.
+	state.set("address", h.address)
+	state.realAddress = h.realAddress
 	if t.setup != nil {
 		if err := t.setup(state); err != nil {
 			return []string{"setup failed: " + err.Error()}

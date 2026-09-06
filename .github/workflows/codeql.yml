@@ -8,6 +8,26 @@ on:
     # Weekly, so a rule added after a merge still finds old code.
     - cron: "0 3 * * 1"
 
+# One line has to mean one thing on every runner. The Windows runner's
+# default shell is PowerShell, which does not read `-coverprofile=cov.out`
+# the way bash does: the profile went to a file no step refers to, and
+# nothing noticed while the only step that read it was skipped on that
+# platform.
+#
+# At WORKFLOW level rather than job level, so a job somebody adds next
+# month inherits it. A job-level block fixes the forgetting exactly one
+# level up.
+#
+# Two things it does not do. It does not reach a `uses:` step or the
+# shell inside a composite action — those are the action's own. And an
+# explicit `shell: bash` is not the implicit default: it runs
+# `bash --noprofile --norc -eo pipefail`, so pipefail is on for the
+# Linux and macOS runs too. That is strictness in the right direction
+# and it is a behaviour change, not only a normalisation.
+defaults:
+  run:
+    shell: bash
+
 permissions:
   contents: read
 
