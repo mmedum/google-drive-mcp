@@ -8,6 +8,25 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The leak gate could not see a file nobody had staged.** It listed
+  files with `git ls-files`, which reads the INDEX, so a new file was
+  invisible to it until somebody added it — and a phase's new files are
+  precisely the ones nobody has scanned before. `make check` would go
+  green over the last phase's files while this phase's fixtures, written
+  that afternoon, went unread, and the leak would arrive with the commit
+  that finally staged them, in front of whoever was trying to push.
+
+  It reads the working tree now: everything tracked, plus everything
+  untracked that `.gitignore` does not exclude. The ignore rules are
+  still kept, because a build output at the repository root is the one
+  thing they exist to keep out.
+
+  Found by a sibling repository hitting it in its own copy the same week,
+  where the first `git add -A` of a phase took the count from 167 files
+  to 195 and immediately found a fixture id that did not declare itself
+  synthetic. Reproduced here before fixing: an id the gate refuses sat in
+  an unstaged file with the gate reporting ok.
+
 - **The outcome gate could be silenced by one error check.** `refuses`
   looked for `return nil, x` anywhere in a branch, so ordinary error
   propagation excused everything after it. A review probe put the phase-5
