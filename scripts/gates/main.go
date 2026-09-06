@@ -62,6 +62,10 @@ func init() {
 			doc: "refetch the discovery documents and report what changed (needs the network)"},
 		"precommit":     {run: precommit, doc: "gofmt, vet and a secret scan"},
 		"install-hooks": {run: installHooks, doc: "write the git pre-commit hook"},
+		"mcpb-manifest": {run: mcpbManifest, args: "VERSION [MANIFEST]",
+			doc: "print the packaging manifest with a real version in it"},
+		"mcpb-pack": {run: mcpbPack, args: "VERSION [DIST]",
+			doc: "pack the Claude Desktop bundle from goreleaser's output"},
 	}
 }
 

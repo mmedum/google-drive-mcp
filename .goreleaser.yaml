@@ -7,7 +7,8 @@ before:
     - go mod tidy
 
 builds:
-  - main: ./cmd/google-drive-mcp
+  - id: server
+    main: ./cmd/google-drive-mcp
     binary: google-drive-mcp
     env:
       - CGO_ENABLED=0
@@ -20,8 +21,25 @@ builds:
     ldflags:
       - -s -w -X github.com/mmedum/google-drive-mcp/internal/version.Version={{.Version}}
 
+# The universal macOS binary exists for the Claude Desktop bundle alone.
+# A bundle manifest names a command per platform and has no key for the
+# architecture, so the macOS entry has to work on both, and this is how
+# macOS does that. `ids` below keeps it out of the ordinary archives: a
+# fourth macOS download on the release page would be a choice nobody
+# should have to make.
+universal_binaries:
+  - id: universal
+    ids: [server]
+    replace: false
+    hooks:
+      # The one point in the pipeline where every binary exists and
+      # checksums.txt has not been written. Packing here is what puts the
+      # bundle in that file, under the same signature as the archives.
+      post: go run ./scripts/gates mcpb-pack {{ .Version }} dist
+
 archives:
-  - formats: [tar.gz]
+  - ids: [server]
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
@@ -29,6 +47,11 @@ archives:
 
 checksum:
   name_template: checksums.txt
+  # The bundle is not an archive goreleaser built, so it has to be named
+  # for the checksum file to cover it — and being in checksums.txt is
+  # what gets it signed, since the signature is over that file.
+  extra_files:
+    - glob: ./dist/*.mcpb
 
 # One SBOM per archive, so a deployer can see what is inside a binary
 # they did not build.
@@ -67,6 +90,15 @@ release:
   # missing. Tags carrying a suffix like -rc1 are marked pre-release.
   draft: false
   prerelease: auto
+  extra_files:
+    - glob: ./dist/*.mcpb
   footer: |
     Built by GoReleaser from the tag. Verify a download against
     `checksums.txt`; every archive carries the binary, LICENSE and README.
+
+    `.mcpb` is the Claude Desktop bundle: open it and Claude Desktop
+    installs the server and asks for your OAuth client JSON, with no
+    config file to edit. It covers macOS, Windows and Linux on both
+    architectures. It does **not** log you in — install the binary as
+    well, run `google-drive-mcp login` once, and the bundle picks up the
+    same credentials. Its SHA-256 is in the same signed `checksums.txt`.
