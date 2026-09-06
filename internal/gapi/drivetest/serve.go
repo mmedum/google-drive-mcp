@@ -33,33 +33,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if upload, ok := strings.CutPrefix(r.URL.Path, "/upload/drive/v3"); ok {
-		s.serveUpload(w, r, upload)
-		return
-	}
-	if rev, ok := strings.CutPrefix(r.URL.Path, "/export/"); ok && r.Method == http.MethodGet {
-		s.handleRevisionExport(w, r, rev)
-		return
-	}
-
-	// The Drive Labels API lives on a host of its own. The fake stands in
-	// for it under a prefix instead, which is enough to hold the client
-	// to the right base URL: a call that went to Drive's would 404 here.
-	if labels, ok := strings.CutPrefix(r.URL.Path, "/labels/v2"); ok {
-		if labels == "/labels" && r.Method == http.MethodGet {
-			s.handleListLabelDefinitions(w, r)
-			return
-		}
-		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+labels)
-		return
-	}
-
-	if activity, ok := strings.CutPrefix(r.URL.Path, "/activity/v2"); ok {
-		if activity == "/activity:query" && r.Method == http.MethodPost {
-			s.handleActivityQuery(w, r)
-			return
-		}
-		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+activity)
+	if s.serveElsewhere(w, r) {
 		return
 	}
 
@@ -77,11 +51,57 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.handleCreateDrive(w, r)
 	case strings.HasPrefix(path, "/drives/"):
 		s.serveDrives(w, r, strings.TrimPrefix(path, "/drives/"))
+	case strings.HasPrefix(path, "/operations/") && r.Method == http.MethodGet:
+		s.handleGetOperation(w, r, strings.TrimPrefix(path, "/operations/"))
 	case path == "/files" || strings.HasPrefix(path, "/files/"):
 		s.serveFiles(w, r, path)
 	default:
 		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+path)
 	}
+}
+
+// serveElsewhere routes everything that is not the Drive v3 API under
+// its own path: the media-upload host, the two links a response hands
+// out, and the two APIs that are not Drive at all. It reports whether it
+// answered.
+//
+// They live here rather than in serve's switch because they are matched
+// on a PREFIX rather than on a path, and because keeping them together
+// says the thing worth saying: each one stands in for a host of its own,
+// so a client that built the wrong base URL 404s here instead of quietly
+// working against a fake that answers everything.
+func (s *Server) serveElsewhere(w http.ResponseWriter, r *http.Request) bool {
+	if upload, ok := strings.CutPrefix(r.URL.Path, "/upload/drive/v3"); ok {
+		s.serveUpload(w, r, upload)
+		return true
+	}
+	if rev, ok := strings.CutPrefix(r.URL.Path, "/export/"); ok && r.Method == http.MethodGet {
+		s.handleRevisionExport(w, r, rev)
+		return true
+	}
+	// Where a finished download operation says the bytes are. Drive puts
+	// them on googleusercontent.com; the fake puts them on a path.
+	if id, ok := strings.CutPrefix(r.URL.Path, "/download-uri/"); ok && r.Method == http.MethodGet {
+		s.handleRenderedDownload(w, id)
+		return true
+	}
+	if labels, ok := strings.CutPrefix(r.URL.Path, "/labels/v2"); ok {
+		if labels == "/labels" && r.Method == http.MethodGet {
+			s.handleListLabelDefinitions(w, r)
+			return true
+		}
+		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+labels)
+		return true
+	}
+	if activity, ok := strings.CutPrefix(r.URL.Path, "/activity/v2"); ok {
+		if activity == "/activity:query" && r.Method == http.MethodPost {
+			s.handleActivityQuery(w, r)
+			return true
+		}
+		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement "+r.Method+" "+activity)
+		return true
+	}
+	return false
 }
 
 // serveDrives routes the per-drive endpoints. Hiding has two of its own,
@@ -142,6 +162,8 @@ func (s *Server) serveFileChild(w http.ResponseWriter, r *http.Request, path, re
 		s.handleListRevisions(w, strings.TrimSuffix(rest, "/revisions"))
 	case strings.HasSuffix(path, "/export") && r.Method == http.MethodGet:
 		s.handleExport(w, r, strings.TrimSuffix(rest, "/export"))
+	case strings.HasSuffix(path, "/download") && r.Method == http.MethodPost:
+		s.handleStartDownload(w, r, strings.TrimSuffix(rest, "/download"))
 	case strings.HasSuffix(path, "/copy") && r.Method == http.MethodPost:
 		s.handleCopy(w, r, strings.TrimSuffix(rest, "/copy"))
 	case strings.HasSuffix(path, "/listLabels") && r.Method == http.MethodGet:

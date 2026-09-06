@@ -1022,3 +1022,49 @@ type ActivityDriveItem struct {
 	File     *struct{}      `json:"driveFile,omitempty"`
 	Folder   map[string]any `json:"driveFolder,omitempty"`
 }
+
+// Operation is a long-running operation. files.download is the only one
+// this server starts: it is the only way to get the bytes of a Google
+// Vid, and Drive refuses to export one at all.
+//
+// The discovery document types the response as a bare Any, so the shape
+// below comes from the long-running-operations guide rather than from
+// the document. Done is a pointer because the guide's own example of a
+// pending operation has `done: null` rather than `done: false`, and the
+// two would otherwise decode alike.
+type Operation struct {
+	Name     string             `json:"name,omitempty"`
+	Done     *bool              `json:"done,omitempty"`
+	Metadata *OperationMetadata `json:"metadata,omitempty"`
+	Response *DownloadResponse  `json:"response,omitempty"`
+	Error    *OperationError    `json:"error,omitempty"`
+}
+
+// OperationMetadata carries the resource key a link-shared file needs on
+// the follow-up request.
+type OperationMetadata struct {
+	ResourceKey string `json:"resourceKey,omitempty"`
+}
+
+// DownloadResponse is a finished download's answer: where to fetch the
+// bytes from.
+type DownloadResponse struct {
+	DownloadURI string `json:"downloadUri,omitempty"`
+	// PartialDownloadAllowed says whether the URI takes a Range header.
+	// It is true for blob content and false for an exported document.
+	PartialDownloadAllowed bool `json:"partialDownloadAllowed,omitempty"`
+}
+
+// OperationError is a failed operation's reason, in google.rpc.Status
+// shape rather than in Drive's usual error shape.
+type OperationError struct {
+	Code    int    `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// Finished reports whether the operation has completed. The guide's
+// pending example carries `done: null`, so an absent member means "still
+// running" rather than "finished and false".
+func (o *Operation) Finished() bool {
+	return o != nil && o.Done != nil && *o.Done
+}

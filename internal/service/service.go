@@ -85,6 +85,10 @@ type API interface {
 	ModifyLabels(ctx context.Context, fileID string, req gdrive.ModifyLabelsRequest) (*gdrive.ModifyLabelsResponse, error)
 	ListLabelDefinitions(ctx context.Context, o gapi.ListLabelDefinitionsOptions) (*gdrive.LabelDefinitionList, error)
 
+	// Long-running downloads: the only way to reach a Google Vid's bytes.
+	StartDownload(ctx context.Context, fileID, mimeType, revisionID string) (*gdrive.Operation, error)
+	AwaitDownload(ctx context.Context, op *gdrive.Operation) (*gdrive.DownloadResponse, error)
+
 	// Drive Activity, a separate API behind GDRIVE_ACTIVITY.
 	QueryActivity(ctx context.Context, q gdrive.ActivityQuery) (*gdrive.ActivityResponse, error)
 
@@ -263,6 +267,7 @@ const (
 	ClassServer      = gapi.ClassServer
 	ClassNetwork     = gapi.ClassNetwork
 	ClassAmbiguousIO = gapi.ClassAmbiguousIO
+	ClassPending     = gapi.ClassPending
 	ClassUnexpected  = gapi.ClassUnexpected
 )
 
