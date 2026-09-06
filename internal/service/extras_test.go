@@ -82,7 +82,7 @@ func TestViewedSendsTheWritableFieldNotTheReadOnlyOne(t *testing.T) {
 	}
 }
 
-func TestSearchByPropertyMatchesAKeyWithAndWithoutAValue(t *testing.T) {
+func TestSearchByPropertyMatchesAKeyAndValue(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.Files["id-budget-fixture"].Properties = map[string]string{"stage": "final"}
 	fake.Files["id-notes-fixture"].Properties = map[string]string{"stage": "draft"}
@@ -92,10 +92,10 @@ func TestSearchByPropertyMatchesAKeyWithAndWithoutAValue(t *testing.T) {
 		property string
 		wantHits int
 	}{
-		{"the key alone matches every file carrying it", "stage", 2},
 		{"a key and a value match only that pair", "stage=final", 1},
+		{"the other pair matches the other file", "stage=draft", 1},
 		{"a value nothing carries matches nothing", "stage=archived", 0},
-		{"a key nothing carries matches nothing", "absent", 0},
+		{"a key nothing carries matches nothing", "absent=anything", 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -110,10 +110,22 @@ func TestSearchByPropertyMatchesAKeyWithAndWithoutAValue(t *testing.T) {
 	}
 }
 
-func TestSearchByPropertyRefusesAnEmptyKey(t *testing.T) {
+// Drive requires both halves. Its own search guide gives the key-only
+// form as an example and the API answers it 400 "Invalid Value" —
+// confirmed live in phase 4, twice in each of three spellings and for
+// appProperties too. Refusing it here says why; sending it spends a
+// round trip to be told less.
+func TestSearchByPropertyRefusesAHalfWrittenPair(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
-	if _, err := svc.Search(t.Context(), service.SearchInput{Property: "=value"}); err == nil {
-		t.Error("a property clause with no key was sent to Drive")
+	for _, property := range []string{"=value", "stage", "stage="} {
+		_, err := svc.Search(t.Context(), service.SearchInput{Property: property})
+		if err == nil {
+			t.Errorf("%q was sent to Drive, which refuses it", property)
+			continue
+		}
+		if !strings.Contains(err.Error(), "key") {
+			t.Errorf("the refusal for %q does not say what is missing: %v", property, err)
+		}
 	}
 }
 

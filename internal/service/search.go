@@ -312,30 +312,38 @@ func (s *Service) cachedParent(id string) (*gdrive.File, bool) {
 }
 
 // propertyClause builds the collection-matching clause for a custom file
-// property. Drive's own form is
+// property. Drive's form is
 //
 //	properties has { key='mass' and value='1.3kg' }
-//
-// and the key alone is a form of its own, matching whatever the value —
-// which is the more useful of the two, because it answers "which files
-// did that app tag" without knowing what it wrote.
 //
 // The braces are Drive's syntax and not a quoted value, so the key and
 // the value are quoted individually and the clause is assembled here
 // rather than passed through: a caller writing the whole expression
 // would be writing a raw query, and raw_query already exists for that.
+//
+// BOTH halves are required, which is not what Google's search guide
+// says. It gives "properties has { key='department' }" as an example of
+// finding every file carrying a key whatever its value — and Drive
+// answers that 400 `invalid` "Invalid Value". Phase 4 shipped the guide's
+// form, and the live run refused it; a probe then tried it twice in each
+// of three spellings, and against appProperties, and every one was
+// refused. The guide is wrong, so this refuses the shape locally rather
+// than spending a round trip to be told the same thing with less
+// explanation.
 func propertyClause(property string) (clause, words string, err error) {
 	key, value, hasValue := strings.Cut(property, "=")
-	key = strings.TrimSpace(key)
-	if key == "" {
+	key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+	switch {
+	case key == "":
 		return "", "", Errorf(ClassInvalid,
-			"property needs a key: either \"key\" to find every file carrying it, or \"key=value\" to match the value too")
+			"property needs a key and a value, as \"key=value\"")
+	case !hasValue || value == "":
+		return "", "", Errorf(ClassInvalid,
+			"property needs a value as well as a key, as \"%s=something\". Drive has no way to search for "+
+				"a key whatever its value: its own guide gives that form as an example and the API "+
+				"refuses it. If you do not know the value, search another way and read the properties "+
+				"off the file cards", key)
 	}
-	if !hasValue {
-		return "properties has { key=" + quote(key) + " }",
-			fmt.Sprintf("carrying the property %q", key), nil
-	}
-	value = strings.TrimSpace(value)
 	return "properties has { key=" + quote(key) + " and value=" + quote(value) + " }",
 		fmt.Sprintf("with the property %s=%s", key, value), nil
 }

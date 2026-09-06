@@ -86,21 +86,19 @@ func (s *Service) ListActivity(ctx context.Context, in ListActivityInput) (strin
 	}
 
 	events := make([]*model.Activity, 0, len(page.Activities))
-	dropped := 0
+	silent, unknown := 0, 0
 	for _, a := range page.Activities {
-		if converted := model.NewActivity(a); converted != nil {
+		converted, why := model.NewActivity(a)
+		switch {
+		case converted != nil:
 			events = append(events, converted)
-			continue
+		case why == model.UnknownAction:
+			unknown++
+		default:
+			silent++
 		}
-		dropped++
 	}
-	note := ""
-	if dropped > 0 {
-		// A kind of action this server has no words for. Saying so beats
-		// a count that silently disagrees with the page.
-		note = fmt.Sprintf("%s on this page of a kind this server has no words for, left out of the list.",
-			model.Plural(dropped, "entry", "entries"))
-	}
+	note := activityNote(silent, unknown)
 	return render.Activity(events, render.ActivityOptions{
 		Subject:       activitySubject(f, len(events), in.Recursive),
 		Location:      s.Location(ctx, f).String(),
@@ -108,6 +106,31 @@ func (s *Service) ListActivity(ctx context.Context, in ListActivityInput) (strin
 		NextPageToken: page.NextPageToken,
 		Note:          note,
 	}), nil
+}
+
+// activityNote accounts for the entries that are not in the list, and
+// keeps the two reasons apart because they ask for different things.
+//
+// An entry with no action on it is ordinary — a live query of 400 found
+// three — and there is nothing to do about it. An entry whose action
+// this server has no words for means Google has added a kind, since the
+// discovery document lists twelve and all twelve are named. Reporting
+// the first as the second, which this did until the live run, sends
+// somebody looking for a missing case that is not missing.
+func activityNote(silent, unknown int) string {
+	var parts []string
+	if silent > 0 {
+		parts = append(parts, fmt.Sprintf("%s Drive recorded without saying what happened",
+			model.Plural(silent, "entry", "entries")))
+	}
+	if unknown > 0 {
+		parts = append(parts, fmt.Sprintf("%s of a kind this server has no words for, which means "+
+			"Drive has grown one", model.Plural(unknown, "entry", "entries")))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", and ") + ": left out of the list."
 }
 
 // activitySubject heads the listing with what was actually asked about,
