@@ -8,6 +8,7 @@ import (
 
 	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/internal/mediatype"
 	"github.com/mmedum/google-drive-mcp/internal/service"
 )
 
@@ -443,5 +444,40 @@ func TestAFolderWithNoVisibleParentIsNotGivenOne(t *testing.T) {
 	root, _, _ := strings.Cut(lines[1], "  [")
 	if header != strings.TrimSuffix(root, "/") {
 		t.Errorf("the tree is headed %q and starts at %q", header, root)
+	}
+}
+
+// TestTheRegistryAndTheReadDispatchAgree closes the gap a review found:
+// readPlan switches on the media type, and internal/mediatype records
+// which types have a text form, so the two state the same thing twice
+// and can disagree silently. Give an entry a ReadAs that readPlan does
+// not handle and the file falls through to "has no text form" while the
+// registry says otherwise.
+func TestTheRegistryAndTheReadDispatchAgree(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	checked := 0
+	for _, e := range mediatype.Entries() {
+		if e.ReadAs == "" {
+			continue
+		}
+		checked++
+		id := "id-dispatch-" + strings.NewReplacer("/", "-", ".", "-", "+", "-").Replace(e.Mime)
+		fake.AddFile(id, "dispatch fixture", e.Mime, "id-2026-fixture")
+		fake.SetContent(id, "some text")
+		if _, err := svc.ReadFile(t.Context(), service.ReadFileInput{File: id}); err != nil {
+			t.Errorf("the registry says %s reads as %s, and read_file refuses it: %v", e.Mime, e.ReadAs, err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no entry in the registry claims a text form, so this test is looking at nothing")
+	}
+	// And the other way: every kind readPlan exports has to be in the
+	// registry, or the export format is a literal somewhere.
+	for _, mime := range []string{
+		gdrive.MimeDocument, gdrive.MimeSheet, gdrive.MimeSlides, gdrive.MimeScript,
+	} {
+		if mediatype.ReadAs(mime) == "" {
+			t.Errorf("read_file exports %s and the registry does not say what to", mime)
+		}
 	}
 }

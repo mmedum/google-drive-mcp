@@ -70,6 +70,10 @@ type Server struct {
 	// Content is a file's bytes: what alt=media returns, what an export
 	// converts, and what fullText searches.
 	Content map[string]string
+	// Generated is a file whose bytes are made up as they are served,
+	// keyed by id and holding its size. It is how a transfer of a size
+	// nobody wants to hold in memory is exercised at all.
+	Generated map[string]int64
 	// Revisions are a file's versions, oldest first.
 	Revisions map[string][]*gdrive.Revision
 	// RevisionContent is each revision's bytes.
@@ -80,6 +84,13 @@ type Server struct {
 	Permissions map[string][]*gdrive.Permission
 	// Drives are the shared drives the account can see.
 	Drives map[string]*gdrive.Drive
+	// Comments are the threads on a file id, oldest first, with their
+	// replies inline the way Drive returns them.
+	Comments map[string][]*gdrive.Comment
+	// Proposals are the pending requests for access to a file id. The
+	// API cannot create one, so nor can the fake: they are placed by a
+	// fixture, as they are placed by somebody being refused.
+	Proposals map[string][]*gdrive.AccessProposal
 	// Changes is the changes feed, in the order things happened. A page
 	// token is an offset into it, which is enough to exercise what the
 	// client has to get right about an opaque token.
@@ -121,10 +132,13 @@ func New() *Server {
 		RootID:          RootFolderID,
 		Files:           map[string]*gdrive.File{},
 		Content:         map[string]string{},
+		Generated:       map[string]int64{},
 		Revisions:       map[string][]*gdrive.Revision{},
 		RevisionContent: map[string]string{},
 		Permissions:     map[string][]*gdrive.Permission{},
 		Drives:          map[string]*gdrive.Drive{},
+		Comments:        map[string][]*gdrive.Comment{},
+		Proposals:       map[string][]*gdrive.AccessProposal{},
 		sessions:        map[string]*uploadSession{},
 		driveRequests:   map[string]string{},
 		now:             time.Now,
@@ -269,6 +283,23 @@ func (s *Server) SetContent(id, text string) {
 	s.setContentLocked(f, []byte(text))
 }
 
+// AddGeneratedContent gives a file a size without giving it bytes: the
+// fake makes them up as it serves them. Drive's own md5 is left unset,
+// because a checksum of bytes nobody stored would have to be computed by
+// generating them all, which is the thing this exists to avoid.
+func (s *Server) AddGeneratedContent(id string, size int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.Files[id]
+	if f == nil {
+		return
+	}
+	f.Size = strconv.FormatInt(size, 10)
+	f.QuotaBytesUsed = f.Size
+	f.MD5Checksum = ""
+	s.Generated[id] = size
+}
+
 // AddShortcut adds a shortcut pointing at target.
 func (s *Server) AddShortcut(id, name, parent, targetID string) *gdrive.File {
 	f := s.AddFile(id, name, gdrive.MimeShortcut, parent)
@@ -313,6 +344,12 @@ func (s *Server) AddDrive(id, name string) *gdrive.Drive {
 func (s *Server) Grant(fileID string, p *gdrive.Permission) *gdrive.Permission {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.grantLocked(fileID, p)
+}
+
+// grantLocked is Grant with the lock already held, for the handlers that
+// grant while holding it.
+func (s *Server) grantLocked(fileID string, p *gdrive.Permission) *gdrive.Permission {
 	if p.ID == "" {
 		s.nextID++
 		p.ID = fmt.Sprintf("id-permission-%d", s.nextID)
@@ -431,4 +468,9 @@ var exportFormatsFor = map[string][]string{
 	gdrive.MimeSlides: {"application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		"application/vnd.oasis.opendocument.presentation", "text/plain"},
 	gdrive.MimeDrawing: {"application/pdf", "image/jpeg", "image/png", "image/svg+xml"},
+	// An Apps Script project exports as its own JSON and nothing else.
+	// The fake did not offer it, so a read of one was refused here and
+	// allowed by Drive — found by the test that holds internal/mediatype
+	// against what read_file actually does.
+	gdrive.MimeScript: {"application/vnd.google-apps.script+json"},
 }

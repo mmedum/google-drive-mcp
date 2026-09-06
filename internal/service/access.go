@@ -69,7 +69,7 @@ func (s *Service) ListPermissions(ctx context.Context, in ListPermissionsInput) 
 	}
 	o := render.PermissionsOptions{
 		Sharing: sharing, SharedDrive: isDrive,
-		CanShare: f.Capabilities == nil || f.Capabilities.CanShare,
+		CanShare: model.CanShare(f),
 	}
 	if isDrive {
 		o.Subject = f.Name + " — shared drive"
@@ -389,7 +389,7 @@ func (s *Service) UnshareFile(ctx context.Context, in UnshareFileInput) (*Result
 		return nil, err
 	}
 	f := res.File
-	if f.Capabilities != nil && !f.Capabilities.CanShare {
+	if !model.CanShare(f) {
 		return nil, Errorf(ClassForbidden, "you cannot change sharing on %s. list_permissions shows who "+
 			"can see it; only someone who may share it can change that.", f.Name)
 	}
@@ -542,6 +542,16 @@ func (s *Service) rereadAfterSharing(ctx context.Context, res *Resolved) (*Resol
 // unknown rather than as an empty list: a result that said "private to
 // you" because a read failed would understate exposure, which is the one
 // direction that must never happen.
+//
+// It lists rather than reading the grants a files.get already carried,
+// and that is deliberate. Outside a shared drive the file read does
+// carry them, so the list is one round trip that could be saved — but an
+// absent `permissions` field and a file with no grants are the same
+// empty slice, and the saving is only available on the sharing path,
+// which is the one place where mistaking the second for the first
+// understates exposure. TestUnshareSaysSoWhenItCannotReadWhoHasAccess
+// is that distinction with a test around it. A review proposed the
+// saving in phase 3 and this is why it was not taken.
 func (s *Service) sharingNow(ctx context.Context, f *gdrive.File) model.Sharing {
 	perms, err := s.api.ListPermissions(ctx, f.ID)
 	if err != nil {
@@ -564,7 +574,7 @@ func (s *Service) sharingFrom(ctx context.Context, f *gdrive.File, perms []*gdri
 // to consult capabilities.canShare rather than infer rights from a role,
 // and this is where that happens.
 func (s *Service) shareableTarget(f *gdrive.File, role string) error {
-	if f.Capabilities != nil && !f.Capabilities.CanShare {
+	if !model.CanShare(f) {
 		return Errorf(ClassForbidden, "you cannot change sharing on %s. Its owner may have turned off "+
 			"re-sharing by editors, or your role does not allow it; get_file shows what you can do with it.", f.Name)
 	}

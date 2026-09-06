@@ -502,3 +502,141 @@ type ChangeList struct {
 	NewStartPageToken string    `json:"newStartPageToken,omitempty"`
 	Kind              string    `json:"kind,omitempty"`
 }
+
+// QuotedFileContent is the passage a comment is pinned to. Drive fills
+// it for an anchored comment on a file it can quote from; this server
+// never sets one, because pinning a comment to a passage of a Google Doc
+// is a Docs API feature and this server stops at the file boundary.
+type QuotedFileContent struct {
+	MimeType string `json:"mimeType,omitempty"`
+	Value    string `json:"value,omitempty"`
+}
+
+// Reply is one reply in a comment thread. Action is Drive's own word for
+// what the reply did to the thread — "resolve" or "reopen" — and a reply
+// may carry one instead of any text at all.
+//
+// The author's email address is deliberately absent: the reference says
+// Drive does not populate it on a comment or a reply, so asking for it
+// would return a field that is always empty.
+type Reply struct {
+	ID           string `json:"id,omitempty"`
+	CreatedTime  string `json:"createdTime,omitempty"`
+	ModifiedTime string `json:"modifiedTime,omitempty"`
+	Author       *User  `json:"author,omitempty"`
+	Content      string `json:"content,omitempty"`
+	Deleted      bool   `json:"deleted,omitempty"`
+	Action       string `json:"action,omitempty"`
+}
+
+// Comment is one thread on a file, with its replies in chronological
+// order. Drive returns the replies inline with the comment, so a listing
+// of threads needs no second call per thread.
+type Comment struct {
+	ID           string `json:"id,omitempty"`
+	CreatedTime  string `json:"createdTime,omitempty"`
+	ModifiedTime string `json:"modifiedTime,omitempty"`
+	Author       *User  `json:"author,omitempty"`
+	Content      string `json:"content,omitempty"`
+	Deleted      bool   `json:"deleted,omitempty"`
+	// Resolved is set by a reply whose action was "resolve"; there is no
+	// field to write it directly.
+	Resolved bool `json:"resolved,omitempty"`
+	// Anchor is an opaque JSON string naming the region of the document
+	// the comment sits on. This server reads it to say a comment is
+	// pinned; it never writes one.
+	Anchor            string             `json:"anchor,omitempty"`
+	QuotedFileContent *QuotedFileContent `json:"quotedFileContent,omitempty"`
+	Replies           []*Reply           `json:"replies,omitempty"`
+
+	// The reference gives a Comment an assigneeEmailAddress as well, for
+	// the action items a Doc's editor makes. It is not here, and not in
+	// gapi.CommentFields, because Drive REFUSES it in a field selection:
+	// asking for it answers 400 "Invalid field selection
+	// assignee_email_address" and the whole call fails. A field that
+	// exists and cannot be requested is a field nothing can receive.
+}
+
+// CommentList is one page of comments.list.
+type CommentList struct {
+	Comments      []*Comment `json:"comments"`
+	NextPageToken string     `json:"nextPageToken,omitempty"`
+}
+
+// There is no ReplyList here. replies.list exists in the API and this
+// server never calls it: Drive returns a comment's replies inline with
+// the comment, so a listing of threads already has them. A wire type
+// nothing decodes is a type that drifts from the API with nothing to
+// notice.
+
+// CommentMeta is the body of comments.create and comments.update. Only
+// the content is ever sent: resolved is output only — a reply resolves a
+// thread — and an anchor belongs to the API that knows where a passage
+// is.
+type CommentMeta struct {
+	Content string `json:"content,omitempty"`
+}
+
+// ReplyMeta is the body of replies.create and replies.update. Content is
+// required on a create unless Action carries one of Drive's two verbs.
+type ReplyMeta struct {
+	Content string `json:"content,omitempty"`
+	Action  string `json:"action,omitempty"`
+}
+
+// Reply actions Drive understands. There are exactly two, and neither
+// can be undone by editing the reply's text afterwards.
+const (
+	ReplyActionResolve = "resolve"
+	ReplyActionReopen  = "reopen"
+)
+
+// AccessProposalRoleAndView is one role a requester asked for, and the
+// view it belongs to. Drive makes it a list, so a proposal can ask for
+// more than one.
+type AccessProposalRoleAndView struct {
+	Role string `json:"role,omitempty"`
+	// View is populated only for a proposal that belongs to a view, and
+	// "published" is the only value Drive supports.
+	View string `json:"view,omitempty"`
+}
+
+// AccessProposal is somebody's pending request to be let into a file.
+// The API can resolve one and list them; it cannot create one, because
+// only the person who was refused can ask.
+type AccessProposal struct {
+	ProposalID            string `json:"proposalId,omitempty"`
+	FileID                string `json:"fileId,omitempty"`
+	RequesterEmailAddress string `json:"requesterEmailAddress,omitempty"`
+	// RecipientEmailAddress is who would receive the access, which is not
+	// always the person who asked: somebody may request access for
+	// another address.
+	RecipientEmailAddress string                       `json:"recipientEmailAddress,omitempty"`
+	RequestMessage        string                       `json:"requestMessage,omitempty"`
+	CreateTime            string                       `json:"createTime,omitempty"`
+	RolesAndViews         []*AccessProposalRoleAndView `json:"rolesAndViews,omitempty"`
+}
+
+// AccessProposalList is one page of accessproposals.list.
+type AccessProposalList struct {
+	AccessProposals []*AccessProposal `json:"accessProposals"`
+	NextPageToken   string            `json:"nextPageToken,omitempty"`
+}
+
+// Actions accessproposals.resolve takes. Drive spells them in upper
+// case, unlike every other enum in this API.
+const (
+	ProposalAccept = "ACCEPT"
+	ProposalDeny   = "DENY"
+)
+
+// ResolveProposal is the body of accessproposals.resolve. Role is a list
+// and is required for ACCEPT; SendNotification carries no omitempty
+// because this server always states it, and Drive's own default for it
+// is not documented.
+type ResolveProposal struct {
+	Action           string   `json:"action"`
+	Role             []string `json:"role,omitempty"`
+	View             string   `json:"view,omitempty"`
+	SendNotification bool     `json:"sendNotification"`
+}

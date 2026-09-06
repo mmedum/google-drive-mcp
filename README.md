@@ -12,14 +12,14 @@ Single binary, stdio, one Google account per profile. You run it against
 a Google Cloud project you own, so nothing about this repository is tied
 to any particular organisation or account.
 
-**Status: v0.2.0, phase 2 of the plan in
+**Status: v0.3.0, phase 3 of the plan in
 [docs/architecture.md](docs/architecture.md).** The tools below work, and
 every one of them is verified against a real Google Workspace account as
 well as against the in-memory Drive the tests use. Two paths are not:
 handing over ownership of a file, and a share an organisation's policy
 refuses — both need a second account or an administrator to exercise, and
 [docs/architecture.md](docs/architecture.md) §17a says what stands in for
-them. Comments, access requests and resources arrive in v0.3.0.
+them. Workspace labels arrive in v0.4.0.
 
 ## What it does today
 
@@ -37,7 +37,7 @@ them. Comments, access requests and resources arrive in v0.3.0.
 | `create_folder` | A new folder, refusing a duplicate name unless you allow it |
 | `update_file` | Rename, describe, star, colour, set properties, or turn off copying and re-sharing |
 | `move_file` | Move an item to another folder or shared drive, with a dry run |
-| `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan |
+| `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder |
 | `create_shortcut` | A pointer to one item from another folder |
 | `trash_file` | Move an item to the trash, which is reversible |
 | `restore_file` | Take an item out of the trash, and say where it went |
@@ -49,10 +49,22 @@ them. Comments, access requests and resources arrive in v0.3.0.
 | `list_revisions` | A file's version history, with Google's own caveat about what it leaves out |
 | `manage_revision` | Pin a version so Drive keeps it, or unpin it again |
 | `list_changes` | What has changed since a point in time, with the token for next time |
+| `list_comments` | The threads on a file, with their replies and whether each is still open |
+| `add_comment` | Start a thread on any file, Google document or not |
+| `reply_comment` | Answer a thread, resolve it, reopen it, or edit wording already in it |
+| `list_access_requests` | Who has asked to be let into a file, and what they asked for |
+| `resolve_access_request` | Accept or deny one, with who could see the file before and after |
 
-Four more are registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and
+Five more are registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and
 each of those also needs `confirm: true` on the call itself:
-`delete_file`, `empty_trash`, `delete_drive` and `delete_revision`.
+`delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and
+`delete_comment`.
+
+Three of the reads are also **resources**, for a client that attaches
+them rather than calling a tool: `gdrive://<id>` is the file's text,
+`gdrive://<id>/meta` is the description, and `gdrive://<id>/children` is
+a folder's first page. A reference with a slash in it — a path, a URL —
+has to be percent-encoded there, so pass an id.
 
 Five things it does differently from the alternatives:
 
@@ -182,7 +194,9 @@ the server will do at all:
 ## What it will not do
 
 - Edit the content of a Google Doc, Sheet or Slides deck. It reads them
-  through Google's export and says so.
+  through Google's export and says so. A comment made here sits on the
+  file rather than on a passage of the document: pinning one to a place
+  in a Doc is a Docs API feature, and this server does not use that API.
 - Widen access without being asked. Sharing tools check
   `capabilities.canShare` first, show who can see a file before and
   after, need `allow_anyone: true` for a public link, and send no

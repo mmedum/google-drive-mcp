@@ -1,41 +1,29 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 2 complete (2026-09-05), released as v0.2.0. Twenty-four registered tools: phase 1's sixteen plus
-`list_permissions`, `share_file`, `unshare_file`, `list_drives`,
-`manage_drive`, `list_revisions`, `manage_revision` and `list_changes`,
-with four more — `delete_file`, `empty_trash`, `delete_drive`,
-`delete_revision` — registered only under
-`GDRIVE_ENABLE_DESTRUCTIVE=true` and each needing `confirm: true` on the
-call as well. The sharing policy of §7.4 is implemented: a
-`capabilities.canShare` check first, exposure before and after,
-`allow_anyone` and `transfer_ownership` as per-call acknowledgements, no
-notification mail by default, and Google's policy refusals mapped to
-`[blocked]`. The fake grew the sharing matrix, inherited shared-drive
-grants and a changes feed.
+**Status:** phase 3 complete (2026-09-06), released as v0.3.0. Twenty-nine
+registered tools: phase 2's twenty-four plus `list_comments`,
+`add_comment`, `reply_comment`, `list_access_requests` and
+`resolve_access_request`, with five now registered only under
+`GDRIVE_ENABLE_DESTRUCTIVE=true` — `delete_comment` joins the four — and
+each of those still needing `confirm: true` on the call. Three
+`gdrive://` resources, `copy_file recursive`, one media-type registry in
+place of five tables, the first benchmarks, and thirteen agent evals.
 
-Three live runs against a Workspace account closed it: every new tool,
-the write half of spike E (a file into a shared drive and back out, and
-the folder-move refusal), and every refusal. The first two runs reported
-"all calls behaved as expected" while three results were wrong — the
-driver checks whether a call succeeded, not whether it told the truth —
-which is the finding worth carrying into phase 3 (§18).
+Phase 3 kept phase 2's habit of reading the discovery document before
+writing the client, and it corrected four more things (§18). Two of them
+shape the code rather than one call: the comment endpoints REQUIRE the
+`fields` parameter, and `accessproposals.resolve` answers with no body at
+all, so what an acceptance did can only be read back.
 
-**What phase 2 does not have:** spike F (ownership transfer), which needs
-a second Google account nobody here has, and one share that an
-organisation's policy blocks, which needs an administrator to arrange.
-Both are recorded in §17a with what stands in for them. Neither holds
-the release: the paths are exercised against the fake, their parameters
-come from the reference rather than from memory, and nothing shipped
-asserts what either would do — a pending transfer is read off Drive's
-own field, never predicted.
+The benchmarks refuted two of §11's own targets, which is what they were
+for. `get_file` is not "at most two calls" below the top of My Drive, and
+a search page's parent reads are one per folder in the chain rather than
+one. Both are restated as the code behaves and asserted in tests.
 
-Checking the Drive v3 discovery document before writing the client
-corrected four things this document and the code had from memory; a
-review from outside found five more, three of them live defects; and the
-live runs found five more again (§18). §16 has the phase plan, §17 the
-decisions that are not to be reopened, §17a the deferred cleanups, §17b
-where this repository differs from the shared standard, and §18 the
-evidence log.
+**What phase 3 does not have:** spike F (ownership transfer) and a
+policy-blocked share, both still blocked on a second account and an
+administrator; and the destructive five against Drive, which stay gated
+off. All three are in §17a with what stands in for them.
 
 This document is the plan. It is written so that whoever picks the work
 up can start from the repository alone: read the status line above, §16
@@ -229,6 +217,8 @@ internal/userconfig/      non-secret profile file: client_secret path, account e
 internal/auth/            loopback OAuth (127.0.0.1:<random>, PKCE), scope sets (full / read-only / labels)
 internal/gdrive/          Drive API wire types (File, Permission, Revision, Comment, Reply, Drive, Change,
                           About, AccessProposal, Label, Operation), no dependencies
+internal/mediatype/       what a media type means, in one table: display name, kind filter, export
+                          name, the format a read takes, the format a download defaults to
 internal/gapi/            raw REST client: client.go (retry, limiters, slog, host allowlist, resource
                           keys), files.go, upload.go (multipart, resumable), download.go (streaming,
                           Range, md5), permissions.go, drives.go, revisions.go, comments.go,
@@ -245,16 +235,21 @@ internal/render/          text renderers: file card, listing, tree, permissions,
 internal/service/         orchestration: resolve refs and paths (short cache), search, listing and
                           walking, content in and out, organising, the sharing policy, trash, drives,
                           history, comments, access requests, labels
-internal/server/          SDK wiring; schema dump through an in-memory client session
+internal/server/          SDK wiring; the gdrive:// resource templates; schema dump through an
+                          in-memory client session
 internal/tools/           one file per area: files.go, content.go, organise.go, access.go, drives.go,
                           history.go, comments.go, resources.go, tools.go
 internal/version/
 testdata/                 synthetic fixtures (§14) and golden outputs
 docs/
 scripts/gates/            the repository's own checks, as Go: coverage floor, schema diff,
-                          stdio smoke, staleness, pre-commit; never shipped
+                          stdio smoke, staleness, leaks, pins, error classes, pre-commit;
+                          never shipped
 scripts/livedrive/        drives the built binary against a real account, redacting ids,
                           links and addresses before anything is printed
+scripts/evals/            drives an agent against the built binary and scores the end state
+                          and the trace
+scripts/internal/         the stdio client and the redactor those two share
 ```
 
 **One language.** Everything the repository runs on itself is Go. The
@@ -524,21 +519,64 @@ drive as the target. `delete_drive` is gated and needs an empty drive.
   session; `search_files` with `modified_after` is the stateless
   alternative.
 
-### 7.7 Comments (Phase 3)
+### 7.7 Comments (built in phase 3)
 
-`list_comments` (threads with replies, resolved state, deleted on
-request), `add_comment` (unanchored; the description says that a comment
-pinned to a passage of a Google Doc is a Docs API feature this server
-does not offer), `reply_comment` (`action: reply | resolve | reopen |
-edit`), and the gated `delete_comment`. One Drive backend; the reason
-to have it here is every file that is not a Doc.
+`list_comments` (threads with their replies inline, resolved state,
+tombstones on request), `add_comment` (unanchored; the description says
+that a comment pinned to a passage of a Google Doc is a Docs API feature
+this server does not offer), `reply_comment` (`action: reply | resolve |
+reopen | edit`), and the gated `delete_comment`. One Drive backend; the
+reason to have it here is every file that is not a Doc.
 
-### 7.8 Access requests (Phase 3)
+Four things the discovery document settled before any of it was written
+(§18):
 
-`list_access_requests` lists pending proposals on a file (who, the role
-asked for, their message, when); `resolve_access_request` accepts with a
-role or denies, with `notify`. Only approvers can, and the API cannot
-create one.
+- **`fields` is required** on `comments.list`, `get`, `create` and
+  `update`. Drive answers 400 without it, and this is the only corner of
+  the API that does. `drivetest` enforces the same rule, and a test
+  asserts the parameter is on the wire rather than trusting four passing
+  calls.
+- **No `supportsAllDrives`.** The comment and reply methods take no such
+  parameter, so a comment on a shared-drive file is reached without one.
+- **Replies come inline** with the comment, in chronological order, so a
+  listing of threads costs one call rather than one per thread.
+- **An author's email address is never populated** on a comment or a
+  reply, so neither is asked for: it would be an always-empty field and
+  an address to redact for nothing.
+
+Resolving is a reply carrying an action, because Drive has no field on
+the comment to set. That is why it lives in `reply_comment` rather than
+in a state-setting tool, and why resolving a thread is visible to
+everybody who can see the file. Resolving one that is already resolved
+reports "unchanged" instead of adding a second reply.
+
+Comment text is written by anybody who can reach the file. The renderer
+quotes every line of it, so a comment reaches a model as data and never
+as a line that could pass for this server's own.
+
+### 7.8 Access requests (built in phase 3)
+
+`list_access_requests` lists pending proposals on a file (who asked, who
+would receive the access, the roles asked for, their message, when);
+`resolve_access_request` accepts with a role or denies, with `notify`.
+Only approvers can list them, and the API cannot create one.
+
+Two corrections from the discovery document:
+
+- **A proposal asks for a LIST of roles**, not one. A request naming
+  several is `[ambiguous]` unless the caller says which to grant; a
+  request naming exactly one is accepted as that one.
+- **`resolve` answers with no body at all** — the method has no response
+  type. So what an acceptance did cannot be reported from the call: the
+  exposure after is read back, the same way `share_file` reads it.
+
+Accepting grants a permission, so `resolve_access_request` is a
+**sharing** tool: `GDRIVE_SHARING=off` removes it,
+`capabilities.canShare` is checked first, and the result carries the
+exposure before and after. §8's table marked it as an ordinary write
+when it was written; hard rule 4 decides otherwise. `list_access_requests`
+stays registered with sharing off, because reading who is waiting is not
+widening anything.
 
 ### 7.9 Labels and approvals (Phase 4, Workspace)
 
@@ -556,7 +594,9 @@ snake_case verb_noun, no dots. Claude Code prefixes `mcp__<server>__`.
 "Gated" means registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`;
 gated tools also set `_meta["anthropic/requiresUserInteraction"]`.
 `GDRIVE_READ_ONLY=true` registers only the readOnly rows and requests
-`drive.readonly`. `GDRIVE_SHARING=off` removes the rows marked *sharing*.
+`drive.readonly`. `GDRIVE_SHARING=off` removes the rows marked *sharing*
+— which includes `resolve_access_request`, because accepting a request
+grants a permission.
 
 | Tool | Purpose | Annotations | Phase |
 |---|---|---|---|
@@ -572,7 +612,7 @@ gated tools also set `_meta["anthropic/requiresUserInteraction"]`.
 | `create_folder` | New folder; refuses a duplicate name unless allowed | — | 1 |
 | `update_file` | Rename, describe, star, colour, properties, sharing switches | idempotent | 1 |
 | `move_file` | Move to a folder or shared drive; single parent; dry run | idempotent | 1 |
-| `copy_file` | Copy, optionally converting (OCR); Phase 3 adds recursive | — | 1, 3 |
+| `copy_file` | Copy, optionally converting (OCR); `recursive` walks a folder, refusing a tree over budget rather than copying half of it | — | 1, 3 |
 | `create_shortcut` | Shortcut to a file or folder | — | 1 |
 | `trash_file`, `restore_file` | Reversible removal and its undo | idempotent | 1 |
 | `list_permissions` | Who has access, how, inherited from where, link state | readOnly | 2 |
@@ -585,7 +625,8 @@ gated tools also set `_meta["anthropic/requiresUserInteraction"]`.
 | `list_changes` | The changes feed: start token, then changes since | readOnly | 2 |
 | `list_comments` | Threads on any file | readOnly | 3 |
 | `add_comment`, `reply_comment` | Unanchored comment; reply, resolve, reopen, edit | — | 3 |
-| `list_access_requests`, `resolve_access_request` | Pending access requests; accept or deny | readOnly / — | 3 |
+| `list_access_requests` | Who has asked to be let in, and for what | readOnly | 3 |
+| `resolve_access_request` | Accept or deny one; accepting grants a permission, so it is policy-checked with before and after | *sharing* | 3 |
 | `list_labels`, `manage_labels` | Workspace labels | readOnly / — | 4 |
 | `delete_file` | Gated: permanent, skips the trash | destructive | 2 |
 | `empty_trash` | Gated: everything in the trash, or one shared drive's | destructive | 2 |
@@ -597,14 +638,29 @@ There is deliberately no bulk delete and no bulk share: one item per
 call, so "remove these forty files" is forty approvals in the client. A
 folder is the unit for bulk operations, and trashing one is reversible.
 
-**Resources** (Phase 3). `gdrive://{file}` is the text `read_file` gives
-(markdown for a Doc, csv for a Sheet, plain text otherwise) under one
-400 000-character budget; `gdrive://{file}/meta` is the file card;
-`gdrive://{folder}/children` is the first page of a listing as markdown.
-Templates with a shared prefix do not shadow each other in go-sdk v1.7.0:
-a template matches through an anchored RFC 6570 pattern in which a
-variable excludes `/`. No static resource list (that would be a
-Drive listing) and no subscriptions (no push without a public endpoint).
+**Resources** (built in phase 3). `gdrive://{file}` is the text
+`read_file` gives (markdown for a Doc, csv for a Sheet, the file's own
+type otherwise) under one 400 000-character budget, and the media type
+of the answer says which; `gdrive://{file}/meta` is the file card and
+`gdrive://{folder}/children` is the first page of a listing, both as
+`text/plain` — the renderer lays out columns, not markdown, and saying
+markdown would be a claim about the bytes that is not true.
+
+Templates with a shared prefix do not shadow each other in go-sdk v1.7.0,
+and this is now asserted rather than asserted about: a template matches
+through an anchored RFC 6570 pattern in which a simple-expansion variable
+excludes `/`. A reserved expansion (`{+file}`) would shadow, and is
+deliberately not used. The price is that a reference containing a slash —
+a path, a URL — must arrive percent-encoded; ids need no encoding, and
+ids are the contract.
+
+A resource that is not there carries both halves: the protocol's
+not-found code with the uri in its data, and the sentence saying what to
+do next. The SDK's own `ResourceNotFoundError` gives only the first,
+replacing the message with fixed words.
+
+No static resource list (that would be a Drive listing) and no
+subscriptions (no push without a public endpoint).
 
 **Results.** Read tools return a text block only. Write tools return text
 and JSON, and the JSON carries the file card and, for sharing, the
@@ -816,20 +872,27 @@ before and after summaries.
   `GDRIVE_SHARING`
   value and with `GDRIVE_ENABLE_DESTRUCTIVE` on and off before a phase is
   called done. Every `isError=True` must be an expected refusal.
-- **Agent evals** `scripts/evals` (Phase 3), about twelve tasks
+- **Agent evals** `scripts/evals` (built in phase 3), thirteen tasks
   through `claude -p` with only this server's tools: find a file and say
-  who can see it; build a folder structure and move files into it; share
-  with someone as commenter without emailing them; download a PDF; upload
-  a markdown file as a Google Doc; say what changed in a shared drive
-  since a token; restore a trashed file; handle a duplicate name; read
-  the tail of a large text file; rename and describe; list a shared drive
-  as a tree; refuse an `anyone` link the person did not ask for. Scored
-  on the end state read back through the server and on the trace: no
-  invented ids, ambiguity handled by asking or listing, `allow_anyone`
-  never passed unasked.
-- **Benchmarks** (`make bench`): path resolution, tree rendering of a
-  10 000-item fake, a 1 GiB stream through the fake with a memory
-  assertion.
+  who can see it; build a folder structure and move a file into it; share
+  with someone as commenter without emailing them; share with one person
+  and do not make a public link; download a file; upload a markdown file
+  as a Google Doc; get a starting point for the changes feed and explain
+  the token; restore a trashed file; handle a duplicate name; read the
+  tail of a large text file; rename and describe; comment on a file and
+  resolve the thread; copy a folder and everything in it.
+  Scored on the end state read back through the server and on the trace:
+  no invented ids, ambiguity handled by asking or listing, `allow_anyone`
+  and `transfer_ownership` never passed unasked. The trace half is the
+  point — a task can be answered correctly by a model that guessed an id
+  and was lucky, and the end state cannot tell. Everything happens inside
+  one scratch folder, which is trashed at the end, and the output goes
+  through the live driver's redactor.
+- **Benchmarks** (`make bench`): reference parsing, path resolution cold
+  and warm, a file card, a search page, a tree walk, tree rendering of a
+  10 000-item fake, and a large stream through the fake with its
+  allocation reported. The call counts and the memory assertion are
+  tests, not benchmarks, so `make check` enforces them.
 - **CI on Linux, macOS and Windows** from the first commit: path
   handling, permission bits and line endings differ between them, and
   `.gitattributes` pins LF so goldens compare byte for byte.
@@ -975,12 +1038,59 @@ release (§17a):
   scoped to a scratch folder — it takes the whole account's trash — so
   it runs only against a scratch shared drive, or not at all.
 
-**Phase 3 — collaboration, resources, evals, performance (v0.3.0).**
-Comments and access requests; `gdrive://` resources; `copy_file
-recursive` and the tree budgets; the agent evals and the fixes they
-force; `make bench` and the numbers in §11; `/simplify` and
-`/code-review high` over the whole tree with findings resolved or
-recorded in §17a.
+**Phase 3 — collaboration, resources, evals, performance (v0.3.0). Done
+2026-09-06.** Comments and access requests; `gdrive://` resources;
+`copy_file recursive`; the agent evals; `make bench` and the numbers in
+§11; the media-type registry and the request-kind check §17a had
+deferred here.
+
+Three things are worth carrying forward from how it went.
+
+**The discovery document earned its round trip again.** Four more
+corrections before a line was written, two of them structural: the
+comment endpoints require `fields`, and `accessproposals.resolve` has no
+response type at all, so an acceptance's result can only be read back.
+Neither would have failed a test — the first fails every call, the
+second produces a result that quietly reports the state from before.
+
+**Benchmarks are for refuting the numbers you wrote down.** Two of §11's
+targets were wrong, and both had been in this document since phase 0
+without anybody doubting them. The fix was to state what the code does
+and assert it, not to change the code: `get_file` climbs because a card
+that says where a file is only sometimes is worse.
+
+**A gate that reads one platform cannot see the others.** The coverage
+floor ran only on Linux, so a test skipped on Windows cost coverage
+nobody could measure. It runs on all three now, and one of the two
+Windows skips turned out to be unnecessary.
+
+Five live runs closed it, and the first found the defect no test could
+have: Drive refuses `assigneeEmailAddress` in a comment field selection,
+so every `add_comment` failed. The run before the fix reported "all calls
+behaved as expected" — phase 2's lesson arriving again, and the reason
+the driver now says in `docs/development.md` that its verdict is not the
+thing to read. Reading the transcript also found a resolve-only reply
+rendering as an empty pair of quotes.
+
+The whole comment thread is verified on a blob and on a Google Doc:
+create, reply, resolve, resolve again reporting unchanged rather than
+posting a second reply everybody can see, reopen, edit, and the listing
+with its replies. So are the three resources, the recursive copy with its
+dry run and its three refusals, and the access-request listing.
+
+Three of the thirteen evals have run against a real account, and the
+first run of those found a bug in the eval harness rather than in the
+server: the scratch folder's id was never substituted, so every prompt
+carried a literal `{folder}`. Both tasks passed anyway — one by finding
+the file by name, one by refusing for the wrong reason — which is the
+end-state-versus-trace problem happening inside the thing built to catch
+it.
+
+What was NOT verified live, and is deferred rather than holding the
+release (§17a): spike F and a policy-blocked share, both still blocked
+on a second account and an administrator; the destructive five, which
+stay gated off and out of the live driver; and the ten evals nobody has
+run yet.
 
 **Phase 4 — Workspace extras and the rest of the API (v0.4.0).** Labels;
 approvals and Drive Activity verified live and added if they behave;
@@ -1039,9 +1149,9 @@ difference is a decision rather than a drift.
 
 | The standard says | Here | Why |
 |---|---|---|
-| A test fails if **an id** appears in a log | Full ids never appear; a **six-character prefix** does, at debug level | A retry, its backoff and its outcome are separate log lines, and without a correlation key a failure cannot be traced to the call that caused it. Six characters of a 33-character id cannot be looked up, cannot be pasted into a URL, and identify nothing on their own. Everything else the standard names — names, titles, addresses, queries, content, and whole ids — is absent and stays absent: `TestLogsCarryNoTraceOfWhatWasTouched` runs the whole surface at debug level against unmistakable fixtures and fails on any of them. *(Phase 2: "the whole surface" had quietly stopped being true — the test was written for phase 1's tools and eight more had been added around it, including the only ones that take an email address as an argument. It covers them now, a domain was added to the forbidden fixtures, and `method=DELETE` joined the assertion that the writes actually reached the network. A claim like this decays every time the surface grows, which is the argument for asserting the methods rather than trusting the list of calls.)* *(No longer a deviation: the standard's wording is being changed to the intent it always had — a log must not identify or reconstruct its subject.)* |
+| A test fails if **an id** appears in a log | Full ids never appear; a **six-character prefix** does, at debug level | A retry, its backoff and its outcome are separate log lines, and without a correlation key a failure cannot be traced to the call that caused it. Six characters of a 33-character id cannot be looked up, cannot be pasted into a URL, and identify nothing on their own. Everything else the standard names — names, titles, addresses, queries, content, and whole ids — is absent and stays absent: `TestLogsCarryNoTraceOfWhatWasTouched` runs the whole surface at debug level against unmistakable fixtures and fails on any of them. *(Phase 2: "the whole surface" had quietly stopped being true — the test was written for phase 1's tools and eight more had been added around it, including the only ones that take an email address as an argument. It covers them now, a domain was added to the forbidden fixtures, and `method=DELETE` joined the assertion that the writes actually reached the network. A claim like this decays every time the surface grows, which is the argument for asserting the methods rather than trusting the list of calls.)* *(Phase 3: a comment, a reply and an access request's message joined the forbidden fixtures. They are a new KIND of subject rather than a new call on an old one — somebody else's words about the file — and the test would have passed without them.)* *(No longer a deviation: the standard's wording is being changed to the intent it always had — a log must not identify or reconstruct its subject.)* |
 | The staleness gate **deliberately fails** between the release commit and the tag | It passes, by accepting notes under an untagged version heading | Our release flow (§12) puts the release commit on a topic branch and requires CI green *before* the merge and therefore before the tag exists. A gate that fails there fails the release pull request. The gate still refuses an undocumented change: with the notes removed it fails, which is tested |
-| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Thirteen classes, including `ambiguous`, `blocked`, `rate_limited` and `ambiguous_outcome` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organisation's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next |
+| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Thirteen classes, including `ambiguous`, `blocked`, `rate_limited` and `ambiguous_outcome` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organisation's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* |
 
 ## 17a. Deferred cleanups
 
@@ -1073,46 +1183,56 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   When an account is available: `livedrive -write -share ADDRESS` makes
   a file for the purpose, records its owner, transfers, reads it back and
   compares. It reports three outcomes, two of which are failures.
+- **Ten of the thirteen evals have never been run.** `make evals` needs
+  the `claude` command, a signed-in account and several minutes, and it
+  costs real tokens, so it is not in `make check` and phase 3 ran three
+  tasks rather than thirteen. What that proved is the harness end to end
+  — an agent reaching this server's tools and nothing else, a task set
+  up, scored on the end state and on the trace, and the scratch folder
+  trashed — and it found a defect in the harness on its first run. What
+  it did not prove is what the other ten tasks say about the tool
+  descriptions, which is the whole point of having them. They are the
+  first thing to run when somebody has ten minutes and a live account.
 - **A policy-blocked share is unseen live.** The `[blocked]` mapping is
   built from Google's documented reasons and exercised against an
   injected refusal, not a real one. It needs an administrator to put an
   external address out of bounds on an organisational unit.
-- **The destructive four are unseen live.** They are gated off by
+- **The destructive five are unseen live.** They are gated off by
   default and the live driver does not enable them. `empty_trash` is the
   reason it does not: it cannot be scoped to a scratch folder, so
-  exercising it means emptying a real trash.
-- **A `POST` that only reads would take the wrong limiter.** Not a
-  defect here — every `POST` in `internal/gapi` genuinely writes, and the
-  limiter is named per call site rather than derived from the method, so
-  the exposure is the mirror image: a call site labelling a write
-  `kindRead`. Today that is one deliberate case (`files.generateIds`,
-  a `GET` that allocates) with a comment explaining why the label is
-  still honest. A comment is a weaker guarantee than a test; a check that
-  walks this package's syntax tree and asserts every request literal's
-  `kind` against its method would close it, and phase 3 is where the
-  benchmarks make that file worth touching anyway.
+  exercising it means emptying a real trash. `delete_comment`, added in
+  phase 3, could be run inside the scratch folder — a comment on a file
+  that is about to be trashed destroys nothing anybody wanted — but it
+  shares the gate with the other four, and turning the gate on to reach
+  it turns the other four on too.
+- ~~A `POST` that only reads would take the wrong limiter.~~ **Done in
+  phase 3.** `TestNoWriteIsLabelledAsARead` reads `internal/gapi`'s own
+  syntax tree and fails a request literal whose `kind` contradicts its
+  method: a write labelled `kindRead` takes the read limiter and
+  inherits a read's willingness to repeat itself after a network
+  failure. Forty literals are checked and the count is asserted, so a
+  walk that found nothing fails loudly rather than passing.
 - `internal/gapi/drivetest` implements the semantics of `name contains`
   from the reference. Spike A is what confirms the fake and Drive agree.
-- **Two places know a file's text form.** `service.readPlan` maps a
-  Google kind onto an export MIME type; `service.defaultExport` maps the
-  same kinds onto a download format. They answer different questions and
-  agree by hand. They belong with the one MIME registry below.
-- **One MIME registry.** Five tables now carry MIME knowledge in three
-  layers: `model.googleKinds`/`blobKinds` (mime to display name),
-  `service.kindMimes` (kind name to query clause, which retypes the six
-  Office types), `gapi.exportMimeToName` (export mime to short name), and
-  phase 1 added `service.readPlan`'s export choice and
-  `service.defaultExport` (Google kind to download format). The short
-  names are a user-facing vocabulary living in `gapi`, which is supposed
-  to speak only wire types, and the list of them is retyped by hand into
-  `download_file`'s schema tag. Adding a kind is now four edits in three
-  packages, and a typo shows up as a search that silently matches
-  nothing. One registry keyed by MIME — display name, kind group, export
-  name, the format a read takes and the format a download defaults to —
-  would remove that, and the tool description would be generated from it
-  rather than written out. It stays a phase-3 job: phase 2 adds no MIME
-  knowledge, so the shape is already as clear as it will get, but the
-  change touches every layer and is not worth doing twice.
+- ~~Two places know a file's text form.~~ **Done in phase 3**, with the
+  registry below: the format a read takes and the format a download
+  defaults to are two fields of one entry.
+- ~~One MIME registry.~~ **Done in phase 3.** `internal/mediatype` is one
+  table keyed by media type — display name, kind filter, export name, the
+  format a read takes, the format a download defaults to — and the short
+  format names left `internal/gapi` with it, along with `ExportFormats`,
+  which went to `internal/model`: a short name is a word this server
+  invented for a person to type, and that package speaks only Drive's own
+  wire types. Adding a kind is one edit.
+
+  The tool description is still written out rather than generated, because
+  a Go struct tag cannot be composed from a constant, but a test now
+  compares the format list in `download_file`'s schema against the
+  registry. Writing that test found the schema two formats short: a Doc
+  exports to `zip` and an Apps Script project to `json`, and neither was
+  offered. That is the drift this entry predicted, found the first time
+  something looked.
+
 - **A stray editor file is in the public history.** A
   `.claude/settings.local.json.tmp.*` file reached a commit through
   `git add -A` while phase 1 was being merged. Its content is a
@@ -1124,18 +1244,17 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   attestation for v0.1.0 names the commit by hash. Twenty-five lines of
   permission patterns do not buy that. Recorded here so that the next
   person to find it does not have to work out whether it mattered.
-- **A pre-generated id costs a round trip per create.** Every
-  `create_file`, `upload_file`, `create_folder`, `copy_file` and
-  `create_shortcut` blocks on a `files.generateIds` call for exactly one
-  id, between resolving the parent and writing. `GenerateIDs` already
-  takes a count, so a small pool would take that round trip off nine
-  creates in ten, and the call is independent of both the parent
-  resolution and the duplicate check, so it could also simply run
-  alongside them. Unused ids are believed harmless — Drive documents no
-  cost to leaving one unused — but "believed" is the word: this belongs
-  with the phase-3 benchmarks (§11), where the saving can be measured
-  and the belief checked live, rather than being added on the strength of
-  a reading.
+- **A pre-generated id still costs a round trip per single create.**
+  Phase 3 took the idea where it is safest: a recursive copy asks for
+  the whole tree's ids in one call, because the walk has just counted
+  exactly how many it will use, so almost none go unused and the belief
+  about unused ids is barely leaned on. A general pool for the single
+  creates is not done. It would save a round trip on nine creates in ten,
+  and the call is independent of both the parent resolution and the
+  duplicate check, so it could also simply run alongside them — but the
+  saving is a network round trip, and the benchmarks measure against a
+  fake that has none, so it cannot be checked here. It wants a live
+  measurement, not another reading.
 - **Schema descriptions from one source.** A Go struct tag cannot be
   composed from a constant, so the paragraph describing what a `file`
   argument accepts is written out per tool, and so are the kind and order
@@ -1145,14 +1264,66 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   `service.OrderBys()`, which closes the hole; composing the descriptions
   after `mcp.AddTool` would close the duplication as well, and is worth
   doing once several more tools take a `file`.
-- **Bounded concurrency for listings.** A tree walk issues one
-  `files.list` per folder in series and a search page up to twenty
-  `files.get` in series, with no data dependency between siblings. Quota
-  is unchanged; the cost is wall-clock, roughly 2-3 s per call at 100 ms
-  round trip. A fan-out of 4-8 stays inside the read limiter and would
-  cut that. It belongs with the phase-3 benchmarks (§11), not before
-  them: the shared item budget becomes shared mutable state the moment
-  the walk is concurrent.
+- **A recursive copy writes its tree one item at a time.** The plan is
+  breadth first, so every sibling under a folder that already exists is
+  independent and only the parent-to-child edge is a real dependency; a
+  two-hundred-item copy is therefore two hundred round trips in series,
+  which at a Drive write's latency is around a minute. A fan-out per
+  level would cut it to roughly the depth. It is not done for the same
+  reason as the entry below — the failure list and the "finish and say
+  exactly what did not make it" contract become shared mutable state —
+  and it belongs with that one, because the fix is the same fix. Raised
+  by the phase-3 review.
+- **A sharing write builds the file's model twice.** `rereadAfterSharing`
+  ends by building one to read the exposure off it, and the result then
+  builds another from the same resolved file. On a shared-drive item each
+  costs a `permissions.list`, so an accepted access request or a share
+  there is one round trip more than it needs. The fix is for the reread
+  to hand its model on, which is a signature change through the share,
+  unshare and access-request paths — worth doing, and worth doing with a
+  live run after it rather than at the end of a phase. Raised by the
+  phase-3 review.
+- **A pre-generated id's rule is consulted in two places.** `assignIDFor`
+  decides for a single create and `idPool` decides for a tree, and both
+  ask `gapi.AcceptsGeneratedID`. The duplication is not free but it is
+  not removable for nothing either: a pool must count how many ids it
+  will use before it asks for them, which is the same predicate by
+  necessity. One id source on the service — take one, or prime a
+  batch — would make it one call site. Raised by the phase-3 review.
+- **`readPlan` states which kinds have a text form, and so does the
+  registry.** `internal/mediatype` records a `ReadAs` per kind and
+  `service.readPlan` switches on the media type to build the plan around
+  it, so the set of readable kinds is written twice. They cannot disagree
+  silently any more — a test reads every entry with a `ReadAs` through
+  `read_file`, and found the fake refusing an Apps Script export Drive
+  allows — but the switch is still where a new readable kind has to be
+  added second. Moving the rest of a plan into the registry (the accepted
+  format alternatives, the note, the display name of the format) would
+  make it one place; it puts user-facing prose into a leaf table, which
+  is the trade to weigh. Raised by the phase-3 review.
+- **Bounded concurrency for listings**, still open, and the phase-3
+  benchmarks did not settle it. A tree walk issues one `files.list` per
+  folder in series and a search page up to twenty `files.get` in series,
+  with no data dependency between siblings. Quota is unchanged; the cost
+  is wall-clock, roughly 2-3 s per call at 100 ms round trip. Against the
+  fake a twenty-folder walk is 8 ms, which measures this server's own
+  work and says nothing about the thing worth fixing: the fake has no
+  latency, so the benchmark cannot show the saving and cannot show a
+  regression either. It needs a fake that can be told to be slow, or a
+  measurement against Drive. The design constraint stands: the shared
+  item budget becomes shared mutable state the moment the walk is
+  concurrent.
+- **The three sharing writes repeat their prelude.** `share_file`,
+  `unshare_file` and `resolve_access_request` each resolve fresh, check
+  `capabilities.canShare`, and read the exposure before — by hand, in
+  that order, three times. The predicate itself is now one function
+  (`model.CanShare`), which was the half worth doing immediately; the
+  prelude is not, and "check canShare before any sharing write" is still
+  enforced by whoever remembers. A `sharingTarget` helper returning the
+  resolved file and the exposure before would make the rule structural
+  rather than remembered. Raised by the phase-3 review, and the reason it
+  waits is that it changes the flow of two tools that are already
+  verified live.
 - **`model.Account`.** `render.Account` is the only place outside
   `internal/gdrive`'s own users that touches a wire type, and it parses
   Drive's stringified int64 storage counts itself. The tool-surface half
@@ -1177,8 +1348,27 @@ worth stating once: **anything written from memory rather than from the
 reference was wrong about a quarter of the time, and the wrongness was
 invisible until a real call failed.**
 
+**Phase 3 additions (2026-09-06).** The discovery document
+(revision 20260901) was read before the client again, and the
+benchmarks §11 had been promising since phase 0 were finally run. The
+first corrected four things; the second refuted two of this document's
+own numbers.
+
 | Convention | Verdict | Effect |
 |---|---|---|
+| The `fields` parameter is optional everywhere, as it is on every other Drive method | **Refuted.** `comments.list`, `comments.get`, `comments.create` and `comments.update` all answer 400 without it: the reference says "Required: The `fields` parameter must be set" on each. `replies.*` does not. It is the only corner of this API with the rule | Every comment call sets it, `drivetest` refuses a call without one, and a test asserts the parameter is on the wire rather than trusting four passing calls. A fake that accepted what Drive refuses would have let this reach production |
+| A shared-drive file needs `supportsAllDrives` on every call | **Refuted for comments.** The discovery document gives the comment and reply methods no such parameter at all, so a comment on a shared-drive file is reached without one, and sending it would be an unknown parameter on every call | The comment client sends none, and a test asserts it, because "add it everywhere" is the habit the rest of this client was built with |
+| A comment's author can be identified | **Refuted.** "The author's email address and permission ID will not be populated" — for a comment and for a reply. Only the display name and whether it is you | Neither field is requested. Asking would add an always-empty field and an address to redact for nothing |
+| A reply is a reply; resolving is a state on the comment | **Refuted.** `Comment.resolved` is output only, and the only way to set it is a reply whose `action` is `resolve` or `reopen` | Resolving lives in `reply_comment` rather than in a state-setting tool, and closing a thread is visible to everybody who can see the file. Resolving one already resolved reports "unchanged" instead of posting a second reply |
+| An access proposal asks for a role | **Refuted.** `AccessProposal.rolesAndViews` is a LIST, and `ResolveAccessProposalRequest.role` is a list too, required for `ACCEPT` | A proposal naming exactly one role is accepted as that one; a proposal naming several is `[ambiguous]` with them listed, because picking between candidates is the thing this server never does |
+| `accessproposals.resolve` reports what it did | **Refuted, and it shapes the tool.** The method has no response type: Drive answers with an empty body | The exposure after an acceptance is read back with a second call, the way `share_file` reads it. Nothing about the result is predicted from the request |
+| Two resource templates sharing a prefix shadow each other | **Refuted for go-sdk v1.7.0 with uritemplate v3.0.2**, and checked rather than reasoned about: `Regexp()` anchors with `^` and `$`, and a simple expansion's character class excludes `/`. `gdrive://{file}` cannot match `gdrive://x/meta` | The three templates are registered as they are. A reserved expansion (`{+file}`) *would* shadow and is not used; the price is that a path or a URL must arrive percent-encoded, which a test records as behaviour rather than a footnote |
+| `get_file` costs at most two calls (§11, since phase 0) | **Refuted by measurement.** Two holds for a file at the top of My Drive. Three folders down it is four: the file, and one read per folder above it, because the card's location line is a climb | The target is restated as the code behaves and asserted in a test, including that the second call costs nothing at all. The code did not change: a card that says where a file is only sometimes is worse than one that costs a read per level once |
+| A search page's parent lookups are one, because they are cached (§11) | **Refuted by measurement.** A hundred hits in one folder three levels down cost three reads, not one and not a hundred: the cache is per folder, and the chain above the hits has three of them | The target names the chain. Still well inside the budget of twenty that the number was protecting |
+| A wall-clock target can be asserted in `make check` | **Refuted.** 10 000 items render in 4.7 ms uninstrumented and over 60 ms under the race detector with coverage counters, which is what `make check` runs | The test asserts linearity — ten times the items within twenty times the work — plus a backstop far above anything instrumentation explains. The millisecond figure lives in the benchmark, where nothing is instrumented |
+| A benchmark's fixture shape does not matter, only its size | **Refuted, by getting it wrong.** The first 10 000-item tree made one folder per folder, so it was a thousand levels deep — a shape Drive would never return — and measured the cost of the indent string, at 226 MB allocated per render. A realistic shape is 6.8 MB | The fixture branches three ways, which puts 10 000 items about eight levels down, inside the depth a walk will go to |
+| A gate that runs on one platform of a three-platform matrix is enough | **Refuted** (reported by a sibling Go MCP server, checked here). The coverage floor ran under `if: runner.os == 'Linux'`, so a test skipped on Windows cost coverage nobody could measure | It runs on all three. One of the two Windows skips here turned out to be unnecessary — `os.UserConfigDir` reads `%AppData%` there, so clearing that is the same experiment — and now runs everywhere |
+| The reference listing a field means the field can be requested | **Refuted, live.** `Comment.assigneeEmailAddress` is in the discovery document and is a real field; Drive answers 400 "Invalid field selection assignee_email_address" when a `fields` expression names it, so asking fails the whole call. Every `add_comment` failed on the first live run | The field is out of the request, the model and the renderer, and a note sits where it was in the wire types, because the next person to read the reference will want to add it back. Neither the fake nor the discovery document could have caught this: the first answered the field happily, and the second is the source that says it exists |
 | A live run that reports "all calls behaved as expected" has verified the tool surface | **Refuted, and it is the most useful thing phase 2 learned.** Two runs said exactly that while three results were wrong: a file card reporting `sharing: private to you` in the same result whose change line said the file was now public, a removal reporting "shared, but no grants are visible" instead of "private to you", and every My Drive file blaming an inherited grant on a shared drive it had never been near. The driver checks whether a call *succeeded*, not whether it *told the truth*, and those are different questions | The transcript is read, not just its verdict. Phase 3's evals are the mechanised version of this: a result that is wrong while succeeding is the class of defect no status code catches |
 | The changes feed answering "0 changes" straight after a write is a bug | Neither confirmed nor refuted for two runs, which was the problem: Drive's feed is eventually consistent, so a feed that works and reports nothing is indistinguishable from a broken one when you ask once. The third run reported the change and a fresh token | The live driver polls the feed and says which happened rather than printing an empty answer. **The general rule: where a system is eventually consistent, a single read cannot be evidence of absence** |
 | `permissions.create` and `permissions.update` take the same parameters (assumed; one options struct was written for both) | Refuted by the discovery document: create has `sendNotificationEmail`, `emailMessage` and `moveToNewOwnersRoot`; update has none of those and has `removeExpiration` instead | Two option types in `internal/gapi`, so a parameter cannot be offered on a call that ignores it |

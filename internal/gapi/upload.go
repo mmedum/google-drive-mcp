@@ -122,7 +122,7 @@ func (c *Client) UploadMultipart(ctx context.Context, r UploadRequest, content [
 	// A create carries a pre-generated id, which is what makes the retry
 	// inside do safe; an update is a patch and idempotent in itself.
 	resp, err := c.doResponse(ctx, request{
-		kind: kindWrite, method: method, url: c.uploadURL(path, r.uploadParams("multipart")),
+		method: method, url: c.uploadURL(path, r.uploadParams("multipart")),
 		body: body.Bytes(), contentType: "multipart/related; boundary=" + mw.Boundary(),
 		resourceIDs: idsOf(r), idempotent: carriesID(r.Meta),
 	})
@@ -287,7 +287,7 @@ func (c *Client) startResumable(ctx context.Context, r UploadRequest, size int64
 		return "", err
 	}
 	resp, err := c.doResponse(ctx, request{
-		kind: kindWrite, method: method, url: c.uploadURL(path, r.uploadParams("resumable")),
+		method: method, url: c.uploadURL(path, r.uploadParams("resumable")),
 		body: meta, contentType: "application/json; charset=UTF-8",
 		// Opening a session allocates a URI, not a file: nothing exists
 		// until the chunks are committed, so a second attempt abandons
@@ -327,7 +327,7 @@ func acceptResumable(status int) bool {
 func (c *Client) putChunk(ctx context.Context, session string, data []byte, offset, total int64) (*chunkResult, error) {
 	last := offset + int64(len(data)) - 1
 	resp, err := c.doResponse(ctx, request{
-		kind: kindWrite, method: http.MethodPut, url: session, body: data,
+		method: http.MethodPut, url: session, body: data,
 		contentType: "application/octet-stream",
 		header: http.Header{
 			"Content-Range": {fmt.Sprintf("bytes %d-%d/%d", offset, last, total)},
@@ -352,7 +352,7 @@ func (c *Client) putChunk(ctx context.Context, session string, data []byte, offs
 // answer means the upload had in fact finished.
 func (c *Client) queryResumable(ctx context.Context, session string, total int64) (int64, *gdrive.File, error) {
 	resp, err := c.doResponse(ctx, request{
-		kind: kindWrite, method: http.MethodPut, url: session,
+		method: http.MethodPut, url: session,
 		header:   http.Header{"Content-Range": {fmt.Sprintf("bytes */%d", total)}},
 		accepted: acceptResumable,
 	})

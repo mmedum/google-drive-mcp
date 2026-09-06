@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 )
@@ -40,7 +38,7 @@ const MaxPageSize = 1000
 func (c *Client) About(ctx context.Context) (*gdrive.About, error) {
 	u := c.base + "/about?fields=" + url.QueryEscape(
 		"user(displayName,emailAddress,permissionId),storageQuota,canCreateDrives,maxUploadSize,importFormats")
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +87,7 @@ func (c *Client) GetFile(ctx context.Context, id string, o GetFileOptions) (*gdr
 		return nil, err
 	}
 	u := c.base + "/files/" + segment + "?" + q.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{id}})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: []string{id}})
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +168,7 @@ func (c *Client) ListFiles(ctx context.Context, lq ListQuery) (*gdrive.FileList,
 		v.Set("spaces", lq.Spaces)
 	}
 	u := c.base + "/files?" + v.Encode()
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: lq.ResourceIDs})
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: lq.ResourceIDs})
 	if err != nil {
 		return nil, err
 	}
@@ -199,14 +197,13 @@ func (c *Client) GenerateIDs(ctx context.Context, count int) ([]string, error) {
 	v.Set("space", "drive")
 	v.Set("type", "files")
 	u := c.base + "/files/generateIds?" + v.Encode()
-	// kindRead, and kindRead now grants a retry, so this is the one call
-	// worth justifying: it is the only request here that is not a plain
-	// read, because it allocates. Repeating it is still safe — a second
-	// attempt hands back different ids and the unused ones cost nothing,
-	// since an id becomes a file only when a create carries it. A later
-	// call that allocates something with a cost must not borrow the
-	// label.
-	body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u})
+	// A GET, so it takes the read budget and may be repeated — and it is
+	// the one call here that is not a plain read, because it allocates.
+	// Repeating it is still safe: a second attempt hands back different
+	// ids and the unused ones cost nothing, since an id becomes a file
+	// only when a create carries it. A later call that allocates
+	// something with a cost must not simply inherit this.
+	body, err := c.do(ctx, request{method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +240,7 @@ func (c *Client) ListPermissions(ctx context.Context, fileID string) ([]*gdrive.
 			v.Set("pageToken", pageToken)
 		}
 		u := c.base + "/files/" + segment + "/permissions?" + v.Encode()
-		body, err := c.do(ctx, request{kind: kindRead, method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
+		body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
 		if err != nil {
 			return nil, err
 		}
@@ -269,53 +266,6 @@ func (c *Client) rememberKeys(f *gdrive.File) {
 	if f.ShortcutDetails != nil {
 		c.RememberResourceKey(f.ShortcutDetails.TargetID, f.ShortcutDetails.TargetResourceKey)
 	}
-}
-
-// ExportFormats turns the exportLinks map Drive returns into the short
-// format names the tools speak, without exposing the links themselves.
-func ExportFormats(f *gdrive.File) []string {
-	if f == nil || len(f.ExportLinks) == 0 {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	for mime := range f.ExportLinks {
-		if name := ExportFormatName(mime); name != "" && !seen[name] {
-			seen[name] = true
-			out = append(out, name)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
-// exportMimeToName maps the export MIME types Drive offers to the short
-// names used in tool arguments and output.
-var exportMimeToName = map[string]string{
-	"application/pdf": "pdf",
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   "docx",
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         "xlsx",
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-	"application/vnd.oasis.opendocument.text":                                   "odt",
-	"application/vnd.oasis.opendocument.spreadsheet":                            "ods",
-	"application/vnd.oasis.opendocument.presentation":                           "odp",
-	"application/rtf":           "rtf",
-	"text/plain":                "txt",
-	"text/html":                 "html",
-	"text/markdown":             "md",
-	"text/csv":                  "csv",
-	"text/tab-separated-values": "tsv",
-	"application/zip":           "zip",
-	"application/epub+zip":      "epub",
-	"image/jpeg":                "jpg",
-	"image/png":                 "png",
-	"image/svg+xml":             "svg",
-	"application/vnd.google-apps.script+json": "json",
-}
-
-// ExportFormatName returns the short name for an export MIME type, or "".
-func ExportFormatName(mime string) string {
-	return exportMimeToName[strings.TrimSpace(mime)]
 }
 
 // WriteOptions are the parameters a metadata write shares.
@@ -381,7 +331,7 @@ func (c *Client) writeFile(ctx context.Context, method, u string, meta *gdrive.F
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.do(ctx, request{kind: kindWrite, method: method, url: u,
+	body, err := c.do(ctx, request{method: method, url: u,
 		body: payload, resourceIDs: ids, idempotent: carriesID(meta)})
 	if err != nil {
 		return nil, err
@@ -433,32 +383,6 @@ func (c *Client) CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta,
 	}
 	u := c.base + "/files/" + segment + "/copy?" + o.values().Encode()
 	return c.writeFile(ctx, http.MethodPost, u, meta, o.withFile(id))
-}
-
-// exportNameToMime inverts exportMimeToName, so a tool can take the
-// short name a person writes and send the MIME type Drive expects.
-var exportNameToMime = sync.OnceValue(func() map[string]string {
-	out := make(map[string]string, len(exportMimeToName))
-	for mime, name := range exportMimeToName {
-		out[name] = mime
-	}
-	return out
-})
-
-// ExportMime returns the MIME type for a short format name, or "".
-func ExportMime(name string) string {
-	return exportNameToMime()[strings.ToLower(strings.TrimSpace(name))]
-}
-
-// ExportFormatNames lists every short format name, for tool descriptions
-// and error messages.
-func ExportFormatNames() []string {
-	names := make([]string, 0, len(exportMimeToName))
-	for _, name := range exportMimeToName {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
 }
 
 // AcceptsGeneratedID reports whether a file of this type may be created

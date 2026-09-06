@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/internal/mediatype"
 	"github.com/mmedum/google-drive-mcp/internal/model"
 	"github.com/mmedum/google-drive-mcp/internal/render"
 )
@@ -42,31 +44,44 @@ const (
 	ScopeSharedWithMe = "shared_with_me"
 )
 
-// kindMimes maps the kind names a tool accepts onto Drive query clauses.
-// `office` is several types, so it becomes a parenthesised alternation.
-var kindMimes = map[string]string{
-	"folder":   "mimeType = " + quote(gdrive.MimeFolder),
-	"shortcut": "mimeType = " + quote(gdrive.MimeShortcut),
-	"doc":      "mimeType = " + quote(gdrive.MimeDocument),
-	"sheet":    "mimeType = " + quote(gdrive.MimeSheet),
-	"slides":   "mimeType = " + quote(gdrive.MimeSlides),
-	"form":     "mimeType = " + quote(gdrive.MimeForm),
-	"drawing":  "mimeType = " + quote(gdrive.MimeDrawing),
-	"pdf":      "mimeType = 'application/pdf'",
-	"image":    "mimeType contains 'image/'",
-	"video":    "mimeType contains 'video/'",
-	"audio":    "mimeType contains 'audio/'",
-	"office": "(mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'" +
-		" or mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'" +
-		" or mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'" +
-		" or mimeType = 'application/msword'" +
-		" or mimeType = 'application/vnd.ms-excel'" +
-		" or mimeType = 'application/vnd.ms-powerpoint')",
+// kindClause turns a kind filter into the Drive query clause that
+// selects it; the empty filter and "any" select everything. The types come from internal/mediatype, so a kind is added
+// there and every layer — the filter, the display name, the export
+// format — learns about it at once.
+//
+// Two shapes of filter: one that names its media types, and one Drive
+// matches by prefix because the list is open-ended. A group that somehow
+// had neither would silently match everything, so it is refused.
+func kindClause(kind string) (string, error) {
+	group := strings.ToLower(strings.TrimSpace(kind))
+	if group == "" || group == "any" {
+		return "", nil
+	}
+	if prefix := mediatype.GroupPrefix(group); prefix != "" {
+		return "mimeType contains " + quote(prefix), nil
+	}
+	mimes := mediatype.GroupMimes(group)
+	switch len(mimes) {
+	case 0:
+		return "", Errorf(ClassInvalid, "kind %q is not one of %s", group, strings.Join(Kinds(), ", "))
+	case 1:
+		return "mimeType = " + quote(mimes[0]), nil
+	}
+	clauses := make([]string, 0, len(mimes))
+	for _, mime := range mimes {
+		clauses = append(clauses, "mimeType = "+quote(mime))
+	}
+	return "(" + strings.Join(clauses, " or ") + ")", nil
 }
 
 // Kinds lists the accepted kind names, for tool descriptions and errors.
+// "any" is not a group of media types, it is the absence of a filter, so
+// it is added here rather than sitting in the registry as a kind with no
+// types in it.
 func Kinds() []string {
-	return sortedKeys(kindMimes, "any")
+	out := append(mediatype.Groups(), "any")
+	slices.Sort(out)
+	return out
 }
 
 // orderByKeys maps the order names a tool accepts onto Drive's own keys.

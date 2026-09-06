@@ -43,6 +43,12 @@ const (
 	secretQuery    = "Kwyjibo"
 	secretContent  = "the numbers nobody outside this room has seen"
 	secretLocalOne = "Kwyjibo-restructuring-notes.txt"
+	// A comment is somebody's words about the file, which is as
+	// disclosing as the file, and a reply carries a second person's.
+	secretComment = "Quimby says the Grimsby line is being wound down"
+	secretReply   = "do not put that in writing anywhere"
+	// An access request names who asked and why.
+	secretRequest = "I need this before the Sprawlmart board meets"
 )
 
 func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
@@ -59,6 +65,11 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	fake.Grant(secretFileID, &gdrive.Permission{
 		Type: "user", Role: "writer", EmailAddress: secretEmail, DisplayName: secretPerson,
 	})
+	fake.AddComment(secretFileID, "id-comment-fixture", secretComment,
+		drivetest.ByOther(secretPerson),
+		drivetest.WithReply("id-reply-fixture", secretPerson, secretReply, ""))
+	proposal := fake.AddProposal(secretFileID, "id-request-fixture", secretEmail, "writer")
+	proposal.RequestMessage = secretRequest
 
 	// Debug is the loudest this server goes, so it is what has to be safe.
 	// Both loggers are captured: the client logs the request, the service
@@ -128,6 +139,21 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	_, _ = svc.ListChanges(ctx, service.ListChangesInput{})
 	_, _ = svc.ListChanges(ctx, service.ListChangesInput{PageToken: "0", Drive: secretDrive})
 
+	// Comments and access requests. A comment carries a second person's
+	// words, and an access request carries an address and a reason, so
+	// both are new kinds of subject rather than new calls on an old one.
+	_, _ = svc.ListComments(ctx, service.ListCommentsInput{File: secretFileID, IncludeDeleted: true})
+	_, _ = svc.AddComment(ctx, service.AddCommentInput{File: secretFileID, Content: secretComment})
+	_, _ = svc.ReplyComment(ctx, service.ReplyCommentInput{
+		File: secretFileID, Comment: "id-comment-fixture", Content: secretReply})
+	_, _ = svc.ReplyComment(ctx, service.ReplyCommentInput{
+		File: secretFileID, Comment: "id-comment-fixture", Action: "resolve"})
+	_, _ = svc.ReplyComment(ctx, service.ReplyCommentInput{
+		File: secretFileID, Comment: "id-comment-fixture", Action: "edit", Content: secretComment + " (edited)"})
+	_, _ = svc.ListAccessRequests(ctx, service.ListAccessRequestsInput{File: secretFileID})
+	_, _ = svc.ResolveAccessRequest(ctx, service.ResolveAccessRequestInput{
+		File: secretFileID, Request: "id-request-fixture", Action: "accept", Role: "reader"})
+
 	// The destructive surface logs too, and it is the one that issues
 	// DELETE. It runs on a copy, so the fixtures the assertions below
 	// need are still there.
@@ -142,6 +168,8 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 			File: doomed.JSON.File.ID, Confirm: true})
 	}
 	_, _ = destructive.EmptyTrash(ctx, service.EmptyTrashInput{Drive: secretDrive, Confirm: true})
+	_, _ = destructive.DeleteComment(ctx, service.DeleteCommentInput{
+		File: secretFileID, Comment: "id-comment-fixture", Confirm: true})
 
 	got := log.String()
 	if strings.TrimSpace(got) == "" {
@@ -168,6 +196,9 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 		secretContent:  "file content",
 		secretLocalOne: "a local file name",
 		secretDomain:   "a domain shared with",
+		secretComment:  "what somebody said in a comment",
+		secretReply:    "what somebody said in a reply",
+		secretRequest:  "why somebody asked for access",
 		dir:            "a local path",
 	}
 	for value, what := range forbidden {

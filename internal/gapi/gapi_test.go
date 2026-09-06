@@ -95,36 +95,23 @@ func TestGetFileNotFound(t *testing.T) {
 	}
 }
 
-func TestGetFileExportFormats(t *testing.T) {
+func TestGetFileCarriesTheExportLinks(t *testing.T) {
+	// The wire fact: a Google Doc's files.get answers with the formats
+	// Drive will export it to. Turning those into the short names a
+	// person types is internal/model's job, and internal/model's test.
 	s := fixture(t)
 	c := newClient(t, s)
 	f, err := c.GetFile(context.Background(), "id-notes-fixture", gapi.GetFileOptions{})
 	if err != nil {
 		t.Fatalf("GetFile: %v", err)
 	}
-	formats := gapi.ExportFormats(f)
-	if len(formats) == 0 {
+	if len(f.ExportLinks) == 0 {
 		t.Fatal("a Google Doc should advertise export formats")
 	}
-	want := map[string]bool{"pdf": false, "docx": false, "md": false, "txt": false}
-	for _, f := range formats {
-		if _, ok := want[f]; ok {
-			want[f] = true
+	for _, mime := range []string{"application/pdf", "text/markdown"} {
+		if _, ok := f.ExportLinks[mime]; !ok {
+			t.Errorf("export link for %q missing from %v", mime, f.ExportLinks)
 		}
-	}
-	for name, seen := range want {
-		if !seen {
-			t.Errorf("export format %q missing from %v", name, formats)
-		}
-	}
-	// The links themselves never leave the client.
-	for _, f := range formats {
-		if strings.Contains(f, "http") {
-			t.Errorf("export format %q looks like a URL", f)
-		}
-	}
-	if gapi.ExportFormats(nil) != nil {
-		t.Error("ExportFormats(nil) should be empty")
 	}
 }
 

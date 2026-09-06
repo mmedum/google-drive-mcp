@@ -1,4 +1,10 @@
-package main
+// Package mcpstdio is a small MCP client over a child process's stdio,
+// for the programs under scripts/ that drive the built server: the live
+// driver and the evals. It is a client, not a library — it speaks
+// exactly the frames those two need and nothing else — but it is one
+// client, because two hand-written JSON-RPC loops are two places for the
+// handshake to drift.
+package mcpstdio
 
 import (
 	"bufio"
@@ -12,11 +18,11 @@ import (
 	"time"
 )
 
-// callTimeout bounds one tool call against a real account.
-const callTimeout = 2 * time.Minute
+// CallTimeout bounds one tool call against a real account.
+const CallTimeout = 2 * time.Minute
 
-// session is one stdio conversation with the server.
-type session struct {
+// Session is one stdio conversation with the server.
+type Session struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	lines  *bufio.Scanner
@@ -26,10 +32,10 @@ type session struct {
 	stderr []string
 }
 
-// start launches the server. env adds to the process environment, which
+// Start launches the server. env adds to the process environment, which
 // is how the local directory reaches it: an MCP client passes command,
 // args and env, and nothing else.
-func start(binary string, env ...string) (*session, error) {
+func Start(binary string, env ...string) (*Session, error) {
 	cmd := exec.Command(binary)
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
@@ -49,13 +55,13 @@ func start(binary string, env ...string) (*session, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", binary, err)
 	}
-	s := &session{cmd: cmd, stdin: stdin, lines: bufio.NewScanner(stdout)}
+	s := &Session{cmd: cmd, stdin: stdin, lines: bufio.NewScanner(stdout)}
 	s.lines.Buffer(make([]byte, 0, 64*1024), 16<<20)
 	go s.drainStderr(stderr)
 	return s, nil
 }
 
-func (s *session) drainStderr(r io.Reader) {
+func (s *Session) drainStderr(r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		s.mu.Lock()
@@ -64,8 +70,8 @@ func (s *session) drainStderr(r io.Reader) {
 	}
 }
 
-// stderrTail returns the last n log lines the server wrote.
-func (s *session) stderrTail(n int) []string {
+// StderrTail returns the last n log lines the server wrote.
+func (s *Session) StderrTail(n int) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.stderr) <= n {
@@ -74,14 +80,15 @@ func (s *session) stderrTail(n int) []string {
 	return append([]string(nil), s.stderr[len(s.stderr)-n:]...)
 }
 
-func (s *session) close() {
+// Close shuts the conversation down and waits for the server to exit.
+func (s *Session) Close() {
 	_ = s.stdin.Close()
 	_ = s.cmd.Wait()
 }
 
 // request sends one frame and reads until its reply arrives. Frames the
 // server sends on its own account (logs, notifications) are skipped.
-func (s *session) request(method string, params any) (map[string]any, error) {
+func (s *Session) request(method string, params any) (map[string]any, error) {
 	s.nextID++
 	id := s.nextID
 	frame := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
@@ -96,7 +103,7 @@ func (s *session) request(method string, params any) (map[string]any, error) {
 		return nil, fmt.Errorf("write %s: %w", method, err)
 	}
 
-	deadline := time.Now().Add(callTimeout)
+	deadline := time.Now().Add(CallTimeout)
 	for s.lines.Scan() {
 		line := strings.TrimSpace(s.lines.Text())
 		if line == "" {
@@ -108,7 +115,7 @@ func (s *session) request(method string, params any) (map[string]any, error) {
 		}
 		if got, ok := reply["id"].(float64); ok && int(got) == id {
 			if e, ok := reply["error"]; ok {
-				return nil, fmt.Errorf("%s: %v", method, e)
+				return nil, &RPCError{Method: method, Detail: message(e)}
 			}
 			return reply, nil
 		}
@@ -120,10 +127,10 @@ func (s *session) request(method string, params any) (map[string]any, error) {
 		return nil, err
 	}
 	return nil, fmt.Errorf("%s: the server closed the connection; stderr:\n%s",
-		method, strings.Join(s.stderrTail(20), "\n"))
+		method, strings.Join(s.StderrTail(20), "\n"))
 }
 
-func (s *session) notify(method string) error {
+func (s *Session) notify(method string) error {
 	raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": method})
 	if err != nil {
 		return err
@@ -132,12 +139,36 @@ func (s *session) notify(method string) error {
 	return err
 }
 
-// initialize completes the handshake and lists the tool surface.
-func (s *session) initialize() (protocol string, tools []string, err error) {
+// RPCError is the server answering with an error object rather than a
+// result. It is worth telling apart from a transport failure: a tool
+// call reports a refusal inside its result, but a resource read reports
+// one as a JSON-RPC error, and a driver that could not tell the two
+// apart would count every expected refusal as a broken connection.
+type RPCError struct {
+	Method string
+	Detail string
+}
+
+func (e *RPCError) Error() string { return e.Method + ": " + e.Detail }
+
+// message pulls the human half out of a JSON-RPC error object, falling
+// back to the whole thing when it is not shaped as expected.
+func message(e any) string {
+	if m, ok := e.(map[string]any); ok {
+		if text, ok := m["message"].(string); ok && text != "" {
+			return text
+		}
+	}
+	return fmt.Sprint(e)
+}
+
+// Initialize completes the handshake and lists the tool surface.
+// name is what the server sees as the client.
+func (s *Session) Initialize(name string) (protocol string, tools []string, err error) {
 	reply, err := s.request("initialize", map[string]any{
 		"protocolVersion": "2025-11-25",
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "livedrive", "version": "0"},
+		"clientInfo":      map[string]any{"name": name, "version": "0"},
 	})
 	if err != nil {
 		return "", nil, err
@@ -164,8 +195,8 @@ func (s *session) initialize() (protocol string, tools []string, err error) {
 	return protocol, tools, nil
 }
 
-// callTool runs one tool and returns its text and whether it refused.
-func (s *session) callTool(name string, args map[string]any) (text string, isError bool, err error) {
+// CallTool runs one tool and returns its text and whether it refused.
+func (s *Session) CallTool(name string, args map[string]any) (text string, isError bool, err error) {
 	reply, err := s.request("tools/call", map[string]any{"name": name, "arguments": args})
 	if err != nil {
 		return "", false, err
@@ -184,8 +215,34 @@ func (s *session) callTool(name string, args map[string]any) (text string, isErr
 	return b.String(), isError, nil
 }
 
-// encode renders arguments for the transcript heading.
-func encode(args map[string]any) string {
+// ReadResource reads one resource and returns its text and media type.
+// A refusal comes back as an *RPCError, which the caller judges; any
+// other error is the connection.
+func (s *Session) ReadResource(uri string) (text, mime string, err error) {
+	reply, err := s.request("resources/read", map[string]any{"uri": uri})
+	if err != nil {
+		return "", "", err
+	}
+	result, _ := reply["result"].(map[string]any)
+	contents, _ := result["contents"].([]any)
+	var b strings.Builder
+	for _, c := range contents {
+		m, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, ok := m["text"].(string); ok {
+			b.WriteString(t)
+		}
+		if mt, ok := m["mimeType"].(string); ok && mime == "" {
+			mime = mt
+		}
+	}
+	return b.String(), mime, nil
+}
+
+// Encode renders arguments for the transcript heading.
+func Encode(args map[string]any) string {
 	raw, err := json.Marshal(args)
 	if err != nil {
 		return "{}"
