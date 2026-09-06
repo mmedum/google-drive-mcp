@@ -1332,6 +1332,29 @@ difference is a decision rather than a drift.
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
 
+- **No MCP registry entry.** The bundle ships and nothing lists it, so
+  the only way to find this server is to already know the repository
+  exists. A sibling has one and has offered its implementation: the entry
+  is written from the release's own `checksums.txt`, and the registry
+  enforces its MCPB rules in code rather than in the published schema — a
+  hash, a `github.com` release-asset URL carrying "mcp", no
+  `registryBaseUrl`, and a HEAD on that URL before the entry is accepted.
+
+  That last part decides where it goes: the step runs LAST in the release
+  workflow, after the release exists, because an entry pointing at a
+  download nobody can fetch is worse than no entry. It also means the
+  step cannot be tested locally at all, which is the reason it is not
+  done here yet rather than an argument against doing it.
+
+- **The live driver's option coverage has never been measured.** The
+  shared standard names a `live-cover` gate — the driver's source against
+  the binary's published schema, failing on any tool option no step
+  sends. Phase 5 grew this driver a great deal, including a whole
+  destructive mode, and nothing here knows what fraction of the surface
+  it actually exercises. The one repository that has measured it read 14
+  of 28 on the day the gate was written. A number nobody has is not
+  evidence of a good one.
+
 - **"Never assert an outcome the response did not carry" has no gate.**
   §11 states it as this repository's rule and phase 5 fixed three
   violations by hand, every one of them found by a live run because
