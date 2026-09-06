@@ -8,6 +8,16 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A correction the phase-1 branch stranded, and one claim it was
+  right about.** `.goreleaser.yaml` said the separate
+  `--output-signature` and `--output-certificate` flags were "deprecated
+  and, with the new bundle format, ignored". cosign's v3.0.1 release
+  notes say something different and more useful: `--bundle` moved from
+  optional to **required**, and they do not mention the old flags at
+  all. So the first `v0.0.1` release did not degrade quietly, it failed
+  with no output path — which is the whole reason that release attempt
+  died. Re-verified against those notes before landing.
+
 - **Every workflow pins its shell, at workflow level.** The Windows
   runner's default shell is PowerShell, and it does not read
   `-coverprofile=cov.out` the way bash does: the coverage profile went to
