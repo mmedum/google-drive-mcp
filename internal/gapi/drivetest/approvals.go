@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 )
 
@@ -62,22 +64,21 @@ func (s *Server) handleListApprovals(w http.ResponseWriter, r *http.Request, fil
 	all := append([]*gdrive.Approval(nil), s.Approvals[fileID]...)
 	s.mu.Unlock()
 
-	size := gdriveApprovalPage(r.URL.Query().Get("pageSize"))
-	if len(all) > size {
-		all = all[:size]
+	// The shared window rather than a private clamp: it honours the page
+	// token, refuses an oversized page the way Drive does instead of
+	// silently shrinking it, and hands back a next token. A private copy
+	// did none of those, which left the client's paging loop with no test
+	// that could fail.
+	start, end, ok := s.pageWindow(w, r.URL.Query(),
+		len(all), gapi.DefaultApprovalPageSize, gapi.MaxApprovalPageSize)
+	if !ok {
+		return
 	}
-	writeJSON(w, gdrive.ApprovalList{Items: all})
-}
-
-func gdriveApprovalPage(raw string) int {
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return 20
+	page := gdrive.ApprovalList{Items: append([]*gdrive.Approval{}, all[start:end]...)}
+	if end < len(all) {
+		page.NextPageToken = "offset-" + strconv.Itoa(end)
 	}
-	if n > 100 {
-		return 100
-	}
-	return n
+	writeJSON(w, page)
 }
 
 func (s *Server) handleGetApproval(w http.ResponseWriter, r *http.Request, fileID, approvalID string) {
@@ -126,7 +127,7 @@ func (s *Server) handleApprovalVerb(w http.ResponseWriter, r *http.Request, file
 			return
 		}
 		a.Status = "CANCELLED"
-		a.CompleteTime = s.now().UTC().Format(gdriveTimeLayout)
+		a.CompleteTime = s.now().UTC().Format(time.RFC3339)
 	case "comment":
 		if strings.TrimSpace(body.Message) == "" {
 			s.errorJSON(w, http.StatusBadRequest, "badRequest", "A message is required.")
@@ -145,14 +146,11 @@ func (s *Server) handleApprovalVerb(w http.ResponseWriter, r *http.Request, file
 		s.errorJSON(w, http.StatusNotFound, "notFound", "the fake does not implement the verb "+verb)
 		return
 	}
-	a.ModifyTime = s.now().UTC().Format(gdriveTimeLayout)
+	a.ModifyTime = s.now().UTC().Format(time.RFC3339)
 	writeJSON(w, a)
 }
 
-const (
-	gdriveInProgress = "IN_PROGRESS"
-	gdriveTimeLayout = "2006-01-02T15:04:05Z07:00"
-)
+const gdriveInProgress = "IN_PROGRESS"
 
 // answerLocked records the signed-in account's answer and completes the
 // approval when that settles it. One decline decides it; an approval
@@ -169,7 +167,7 @@ func (s *Server) answerLocked(a *gdrive.Approval, verb string) {
 	}
 	if verb == "decline" {
 		a.Status = "DECLINED"
-		a.CompleteTime = s.now().UTC().Format(gdriveTimeLayout)
+		a.CompleteTime = s.now().UTC().Format(time.RFC3339)
 		return
 	}
 	for _, r := range a.ReviewerResponses {
@@ -178,7 +176,7 @@ func (s *Server) answerLocked(a *gdrive.Approval, verb string) {
 		}
 	}
 	a.Status = "APPROVED"
-	a.CompleteTime = s.now().UTC().Format(gdriveTimeLayout)
+	a.CompleteTime = s.now().UTC().Format(time.RFC3339)
 }
 
 func (s *Server) handleStartApproval(w http.ResponseWriter, r *http.Request, fileID string) {
@@ -194,32 +192,8 @@ func (s *Server) handleStartApproval(w http.ResponseWriter, r *http.Request, fil
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextID++
-	ts := s.now().UTC().Format(gdriveTimeLayout)
-	a := &gdrive.Approval{
-		ApprovalID:   fmt.Sprintf("id-approval-fixture-%d", s.nextID),
-		TargetFileID: fileID,
-		Initiator:    s.me(),
-		Status:       gdriveInProgress,
-		CreateTime:   ts,
-		ModifyTime:   ts,
-		DueTime:      body.DueTime,
-		// The API's default behaviour, which is the one with the
-		// consequence: a content change resets the answers, and once
-		// approved the file is locked.
-		FileContentChangeBehavior: "RESET_APPROVAL",
-	}
-	for _, address := range body.ReviewerEmails {
-		reviewer := &gdrive.User{EmailAddress: address}
-		if address == AccountEmail {
-			reviewer = s.me()
-		}
-		a.ReviewerResponses = append(a.ReviewerResponses,
-			&gdrive.ReviewerResponse{Reviewer: reviewer, Response: "NO_RESPONSE"})
-	}
-	if s.Approvals == nil {
-		s.Approvals = map[string][]*gdrive.Approval{}
-	}
-	s.Approvals[fileID] = append(s.Approvals[fileID], a)
+	a := s.addApprovalLocked(fileID, fmt.Sprintf("id-approval-fixture-%d", s.nextID),
+		s.me(), body.DueTime, body.ReviewerEmails)
 	if body.LockFile {
 		if f := s.Files[fileID]; f != nil {
 			f.ContentRestrictions = append(f.ContentRestrictions, &gdrive.ContentRestriction{
@@ -248,11 +222,25 @@ func (s *Server) approval(fileID, approvalID string) *gdrive.Approval {
 func (s *Server) AddApproval(fileID, approvalID string, reviewers ...string) *gdrive.Approval {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ts := s.now().UTC().Format(gdriveTimeLayout)
+	return s.addApprovalLocked(fileID, approvalID,
+		&gdrive.User{DisplayName: "Other Person", EmailAddress: "other@example.com"}, "", reviewers)
+}
+
+// addApprovalLocked builds an approval and files it. Starting one and
+// placing one as a fixture differ in the id, the initiator and the due
+// time; everything else — the status, the content-change behaviour that
+// locks the file once approved, and the reviewer loop that marks the
+// signed-in account as this account — is the same both ways, and was
+// written twice before it was written once. The caller holds the lock.
+func (s *Server) addApprovalLocked(fileID, approvalID string, initiator *gdrive.User,
+	dueTime string, reviewers []string) *gdrive.Approval {
+	ts := s.now().UTC().Format(time.RFC3339)
 	a := &gdrive.Approval{
-		ApprovalID: approvalID, TargetFileID: fileID,
-		Initiator: &gdrive.User{DisplayName: "Other Person", EmailAddress: "other@example.com"},
-		Status:    gdriveInProgress, CreateTime: ts, ModifyTime: ts,
+		ApprovalID: approvalID, TargetFileID: fileID, Initiator: initiator,
+		Status: gdriveInProgress, CreateTime: ts, ModifyTime: ts, DueTime: dueTime,
+		// The API's default behaviour, which is the one with the
+		// consequence: a content change resets the answers, and once
+		// approved the file is locked.
 		FileContentChangeBehavior: "RESET_APPROVAL",
 	}
 	for _, address := range reviewers {
@@ -262,9 +250,6 @@ func (s *Server) AddApproval(fileID, approvalID string, reviewers ...string) *gd
 		}
 		a.ReviewerResponses = append(a.ReviewerResponses,
 			&gdrive.ReviewerResponse{Reviewer: reviewer, Response: "NO_RESPONSE"})
-	}
-	if s.Approvals == nil {
-		s.Approvals = map[string][]*gdrive.Approval{}
 	}
 	s.Approvals[fileID] = append(s.Approvals[fileID], a)
 	return a

@@ -48,10 +48,8 @@ type ListActivityInput struct {
 
 // ListActivity reports what happened to a file or a folder.
 func (s *Service) ListActivity(ctx context.Context, in ListActivityInput) (string, error) {
-	if !s.opts.Activity {
-		return "", Errorf(ClassUnsupported,
-			"activity is off: this server was started without GDRIVE_ACTIVITY=true, which is also what "+
-				"adds the Drive Activity scope at login")
+	if err := activityAPI.enabled(s.opts.Activity); err != nil {
+		return "", err
 	}
 	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: true})
 	if err != nil {
@@ -100,9 +98,8 @@ func (s *Service) ListActivity(ctx context.Context, in ListActivityInput) (strin
 	if dropped > 0 {
 		// A kind of action this server has no words for. Saying so beats
 		// a count that silently disagrees with the page.
-		note = fmt.Sprintf("%s of a kind this server has no words for and %s left out.",
-			model.Plural(dropped, "One entry on this page is", "Entries on this page are"),
-			map[bool]string{true: "is", false: "are"}[dropped == 1])
+		note = fmt.Sprintf("%s on this page of a kind this server has no words for, left out of the list.",
+			model.Plural(dropped, "entry", "entries"))
 	}
 	return render.Activity(events, render.ActivityOptions{
 		Subject:       activitySubject(f, len(events), in.Recursive),
@@ -116,7 +113,7 @@ func (s *Service) ListActivity(ctx context.Context, in ListActivityInput) (strin
 // activitySubject heads the listing with what was actually asked about,
 // because a folder asked about two ways gives two very different answers.
 func activitySubject(f *gdrive.File, count int, recursive bool) string {
-	head := fmt.Sprintf("%s — %s: %s", f.Name, model.Kind(f), model.Plural(count, "1 event", "events"))
+	head := fmt.Sprintf("%s — %s: %s", f.Name, model.Kind(f), model.Plural(count, "event", "events"))
 	if recursive {
 		return head + ", in this folder and everything under it"
 	}
@@ -163,15 +160,7 @@ func (s *Service) activityFilter(in ListActivityInput) (string, error) {
 }
 
 // activityError names the setup step behind the refusal every deployer
-// meets first, the same way the labels one does. The Drive Activity API
-// is a separate API with a separate scope and a separate enablement.
+// meets first.
 func (s *Service) activityError(err error, f *gdrive.File) error {
-	if class := gapi.Class(err); class == ClassAuth || class == ClassForbidden {
-		return &Error{Class: ClassForbidden, Message: fmt.Sprintf(
-			"reading the activity on %s failed because the Drive Activity API refused the token. It is a "+
-				"separate API from Drive: enable the Drive Activity API in the Cloud project, add the "+
-				"activity scope to the consent screen, and run `google-drive-mcp login` again with "+
-				"GDRIVE_ACTIVITY=true. Google said: %s", f.Name, gapi.Message(err)), Err: err}
-	}
-	return wrap(err, "reading the activity on "+f.Name)
+	return activityAPI.refused(err, "reading the activity on "+f.Name)
 }

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,28 @@ func setup(t testing.TB, o service.Options) (*service.Service, *drivetest.Server
 		o.Now = func() time.Time { return testNow }
 	}
 	return service.New(drivetest.Client(t, fake), o), fake
+}
+
+// hitCount reads the count out of a rendered listing head without
+// keeping any of the names in it. The integration tests need the same
+// thing, and had their own copy with its own hand-rolled digit loop:
+// one that returned 0 for anything unparseable, where this one says so.
+func hitCount(t *testing.T, out string) int {
+	t.Helper()
+	head := strings.SplitN(out, "\n", 2)[0]
+	fields := strings.Fields(head)
+	for i, f := range fields {
+		if (f != "hits" && f != "hit") || i == 0 {
+			continue
+		}
+		n, err := strconv.Atoi(fields[i-1])
+		if err != nil {
+			t.Fatalf("the listing head does not carry a count: %q", head)
+		}
+		return n
+	}
+	t.Fatalf("the listing head does not say how many hits there were: %q", head)
+	return 0
 }
 
 func TestResolveByID(t *testing.T) {

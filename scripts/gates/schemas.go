@@ -34,12 +34,53 @@ func (d schemaDump) names() []string {
 	return out
 }
 
+// fullSurfaceEnv turns on every feature that gates a tool, so a dump
+// carries the whole registrable surface rather than a default build's.
+//
+// It is derived from config.go's own Define calls rather than listed
+// here, for the reason checkConfigDocs is derived: a list written from
+// memory falls behind the moment a phase adds a flag, and the gate that
+// was supposed to notice goes quiet instead of failing. GDRIVE_READ_ONLY
+// is the one boolean left off — it REMOVES tools rather than adding
+// them, so turning it on would shrink the surface it is meant to widen.
+func fullSurfaceEnv() ([]string, error) {
+	settings, err := definedSettings()
+	if err != nil {
+		return nil, err
+	}
+	var env []string
+	for _, name := range settings {
+		if name == "READ_ONLY" {
+			continue
+		}
+		if !gatesATool[name] {
+			continue
+		}
+		env = append(env, "GDRIVE_"+name+"=true")
+	}
+	sort.Strings(env)
+	return env, nil
+}
+
+// gatesATool names the boolean settings that decide whether a tool is
+// registered. A setting that only changes behaviour is not here: setting
+// GDRIVE_SHARING or GDRIVE_LOCAL_DIR to "true" would be nonsense, and a
+// dump has to stay a dump.
+var gatesATool = map[string]bool{
+	"LABELS":             true,
+	"ACTIVITY":           true,
+	"ENABLE_DESTRUCTIVE": true,
+}
+
 // dumpSchemas runs a build of the server and decodes its tool surface.
+//
+// The environment is always pinned, even when there is nothing to add:
+// inheriting the developer's shell means a GDRIVE_LABELS exported in a
+// terminal quietly changes what the breaking-change gate baselines
+// against, which is the kind of difference nobody sees until a release.
 func dumpSchemas(binary string, env ...string) (schemaDump, []byte, error) {
 	cmd := exec.Command(binary, "--dump-schemas")
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = append(scrubbedEnv(), env...)
 	raw, err := cmd.Output()
 	if err != nil {
 		return schemaDump{}, nil, fmt.Errorf("%s --dump-schemas: %w", binary, err)
@@ -51,12 +92,34 @@ func dumpSchemas(binary string, env ...string) (schemaDump, []byte, error) {
 	return d, raw, nil
 }
 
+// scrubbedEnv is the parent environment with every GDRIVE_ setting
+// removed, so a dump depends on what the gate asked for and nothing
+// else.
+func scrubbedEnv() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "GDRIVE_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
 // schemaDiff compares the tool surface with the last tag's. A removed
 // tool, a removed field or a new required field is breaking, because a
 // client written against the old surface stops working.
 func schemaDiff(out io.Writer, args []string) error {
 	binary := arg(args, 0, "./google-drive-mcp")
-	current, raw, err := dumpSchemas(binary)
+	// The whole registrable surface, not a default build's. A tool behind
+	// a feature flag can lose a field or gain a required one just as
+	// easily as any other, and this is the gate that is supposed to say
+	// so.
+	env, err := fullSurfaceEnv()
+	if err != nil {
+		return err
+	}
+	current, raw, err := dumpSchemas(binary, env...)
 	if err != nil {
 		return err
 	}
