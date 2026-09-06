@@ -64,6 +64,17 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   archives. Linux gets a launcher instead, because a manifest names a
   command per platform and has no key for the architecture.
 
+  The bundle is packed in Go. The official packer is Node, and reaching
+  for it would make `make check` depend on an interpreter nobody
+  declared — a `.mcpb` is a deflate zip and the standard library writes
+  one. What that CLI buys is validating the manifest against its
+  published schema, and the replacement is better aimed rather than
+  merely equivalent: the manifest is checked against the FILES ACTUALLY
+  BEING PACKED. An `entry_point`, a platform override or a
+  `${user_config.x}` that names something absent is well formed by any
+  schema and produces a bundle that installs and then does nothing. All
+  three are tested.
+
 - **The README now looks like a released project's.** Status badges for
   CI, the latest release, the Go reference and the licence; a link to the
   latest release beside the `go install` line, with `--ignore-missing` on
