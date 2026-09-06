@@ -72,6 +72,28 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The live driver's transcript carried the maintainer's own name, in
+  every result that named them.** The redactor's idea of a name required
+  a capital letter, and a Workspace account with no display name set
+  shows the address's local part instead — lowercase, dotted. It survived
+  every position the redactor knows, because the SHAPE refused it before
+  the position was ever consulted. The fixtures were the other half:
+  every invented name in them was capitalised, so the tests agreed with
+  the bug. Found by reading a live transcript rather than by any test.
+
+- **`search_files` by property refused what Google's guide documents.**
+  The search guide gives `properties has { key='department' }` as its own
+  example of finding a file by a key whatever its value; Drive answers it
+  400 "Invalid Value", in every spelling and for `appProperties` too.
+  Both halves are required, and the server now says so rather than
+  spending a round trip to be told less.
+
+- **`list_activity` called an entry with no action "a kind this server
+  has no words for".** Of 400 activities queried live, three carried no
+  action detail at all — ordinary, and nothing to do about it. An action
+  kind this server cannot name would mean Google had added a thirteenth,
+  which is worth knowing. They are counted and reported separately now.
+
 - **`get_file` had never been able to show a label.** Drive's
   `includeLabels` is a comma-separated list of label IDS — not a flag and
   not a wildcard — and this server sent `includeLabels=*`, which Drive
