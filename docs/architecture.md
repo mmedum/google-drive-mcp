@@ -1721,22 +1721,18 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   one of the three addresses `TestEveryLinePrintedIsRedacted` sends
   through.
 
-- **Whether `copy_comments` works for a Google-native document is
-  unknown.** Phase 6's live run settled it for a CSV — one open thread
-  with two replies, copied with `copy_comments: true`, and the copy had
-  none, still none minutes later with `include_deleted: true`, so not a
-  lag (§18). One file type is one file type. Drive's own reference does
-  not say the parameter is limited to its own formats, and a Doc is the
-  case where comments are anchored to a passage rather than to a file, so
-  it is the one most likely to behave differently.
+- ~~Whether `copy_comments` works for a Google-native document is
+  unknown.~~ **Answered, and the answer is a split.** The Doc's threads
+  came across; the uploaded CSV's did not, on the same run with the same
+  argument (§18). The driver copies both kinds now and says which
+  carried, so the next run re-checks a fact that has already changed
+  once.
 
-  What would close it: copy the Doc the driver already creates, with a
-  comment on it, and list the copy's comments — the same shape as the
-  step that answered the CSV, on `m.doc` instead of `m.text`. Not added
-  blind: the CSV step was written and run in the same session, and adding
-  a second unrun step to the same section is how a driver acquires paths
-  nobody has watched.
-
+  What is still an inference rather than a finding: that the rule is
+  "Drive's own formats yes, uploaded bytes no". That is two data points
+  and the obvious reading of them, and Google documents no such limit on
+  the parameter. A third kind — a Sheet, or an uploaded PDF, which Drive
+  can comment on natively — would make it a rule or refute it.
 - **The outcome gate subtracts rather than selects.** It collects every
   long string in a request-tested branch and then takes away the ones
   that are not outcomes — a refusal, a log line — which is why it needs a
@@ -2024,7 +2020,7 @@ own numbers.
 | Rate limiting only has to gate the first attempt of a call | Refuted in the phase-0 review: retries are triggered by 429 and by Google's three rate-limit reasons, so exempting them pushes hardest exactly when Drive has asked for less. Four of five attempts bypassed the limiter | The limiter is taken inside the retry loop, once per attempt |
 | An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
 | Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
-| `copy_file` with `copy_comments: true` brings the threads with it (the note this server printed, phases 4-6) | **Refuted live in phase 6, and the refutation is the response.** A CSV carrying one OPEN thread with two replies was copied with `copy_comments: true`. `list_comments` on the copy, immediately: `0 comment threads` / `no comments: nobody has commented on this file`. The same call minutes later, with `include_deleted: true`: `0 comment threads` / `no comments: nobody has commented on this file, and none has been deleted either` — so it is not `comments.list` lagging the copy, which was the other explanation and the one the code had been written to allow for. `files.copy` answers with a File and mentions comments nowhere, so nothing in the response ever said otherwise; the claim came from the argument | The note and the SCHEMA both say Drive does not always carry them and name `list_comments` on the copy as what tells you. The schema matters more: it is read before the call, which is the `lock_file` lesson exactly. What is still unknown is whether a Google-native document behaves differently — this is one file type, and §17a has it |
+| `copy_file` with `copy_comments: true` brings the threads with it (the note this server printed, phases 4-6) | **Half true, and the halves were found on two runs.** A CSV carrying one OPEN thread with two replies was copied with the parameter set. `list_comments` on the copy, immediately: `0 comment threads` / `no comments: nobody has commented on this file`. The same call minutes later with `include_deleted: true`: `0 comment threads` / `no comments: nobody has commented on this file, and none has been deleted either` — so not `comments.list` lagging, which was the other explanation and the one the code had been written to allow for. The second run copied a **Google Doc** the same way in the same session and its threads DID come across. So the parameter works, and not for every kind: two data points, a Doc and an uploaded CSV, and the obvious reading — Drive's own formats carry them and uploaded bytes do not — is an inference from two points rather than something Google documents | The note and the SCHEMA both say Drive does not always do it, name the two kinds the run actually saw, and point at `list_comments` on the copy. The schema matters more: it is read before the call, which is the `lock_file` lesson exactly. The driver copies BOTH kinds now and says which carried and which did not, so the next run re-checks a fact that has already changed once |
 | `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference — and the refutation was itself **refuted in phase 4** against the discovery document, which lists `copyComments` on `files.copy` with a default of `false`. Whether Google added it since or the phase-1 check read the reference page rather than the document cannot be told from here, and the difference does not matter: the lesson is that a parameter list read once is a fact with a date on it | `copy_comments` is back on `copy_file`, off by default. The result said out loud "when a copy carried somebody else's words somewhere new" — which was this overpromise written down as a feature: files.copy answers with a File and mentions comments nowhere, so nothing could know it had. `gates outcomes` found it. The result now says what Drive was ASKED to do and names list_comments on the copy as the call that settles it This is the argument for re-reading the discovery document every phase rather than trusting §18 |
 | An old revision of a Docs editors file is fetched with `files.download` (§18, from the revisions guide) | Refined in phase 1: `files.download` is a long-running operation that hands back an `Operation` to poll, while the `Revision` resource itself carries `exportLinks` for exactly this — a direct URL per format, on a Google host the allowlist already permits. The simpler documented route was taken | `download_file revision:` reads the revision, then fetches its export link. `files.download` stays for Vids in phase 4. To be confirmed by the live run |
 | Drive's structural refusals arrive with their own status | Refuted by the fake once it answered with Google's real reason: `teamDrivesFolderMoveInNotSupported` comes back as **403**, and the error mapping tested the status before the reason, so "this cannot be done" was reported as "you may not". A model told `[forbidden]` goes looking for permissions to change; there are none | The reason is matched before the generic 403, and the folder-move refusal is `[unsupported]` with the way round it. Phase 0's own tests had never seen the real reason: the fake refused the move without one |

@@ -8,31 +8,19 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **`copy_comments` did not bring the comments, and now the schema says
-  so.** Phase 6's gate found that `copy_file` asserted the threads had
-  been copied from the argument alone, and the note was reworded to say
-  what Drive was asked rather than what it did. The live run then
-  answered the question the reword left open, and the answer is worse
-  than "unverifiable": a CSV carrying one OPEN thread with two replies
-  was copied with `copy_comments: true`, and `list_comments` on the copy
-  reported no comments at all — the same minutes later with
-  `include_deleted: true`, so not `comments.list` lagging the copy, which
-  was the other explanation and the one the code had been written to
-  allow for.
+- **A run that Drive could not present the state for reported a
+  failure.** `delete_revision` needs an older revision to delete, and
+  Drive's revision endpoints lag a write in both directions — one run
+  had `update_content` told "Revision not found" for a revision Drive had
+  named in its own response a moment earlier. The driver waited, found
+  only the current revision, and counted a failed call, so a healthy run
+  exited non-zero for a reason outside anybody's control.
 
-  Both the note and the SCHEMA say it now. The schema matters more: it is
-  read BEFORE the call, so an argument that overpromises there is worse
-  than a result that does — which is the `lock_file` lesson, arriving a
-  second time in the same phase on a different parameter.
-
-  The live driver says it out loud rather than leaving it in the
-  transcript. The answer was one line in thirteen hundred, and "all calls
-  behaved as expected" is true of it either way, which is the thing this
-  repository has been caught by twice.
-
-  What is still unknown is whether a Google-native document behaves
-  differently — this is one file type, and a Doc anchors comments to a
-  passage rather than to a file. §17a has it, with what would close it.
+  It says UNVERIFIED THIS RUN now, loudly, and does not count it — which
+  is what the property search two hundred lines away already did for the
+  identical thing. Loud matters: a step being counted as verified by a
+  run that never reached it is exactly how `delete_revision` got its
+  reputation. An exit code nobody reads is the worse loss.
 
 - **The leak gate could not see a file nobody had staged.** It listed
   files with `git ls-files`, which reads the INDEX, so a new file was
@@ -139,12 +127,28 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
   It now says what Drive was ASKED to do, says outright that Drive does
   not report whether it did, and names `list_comments` on the copy as the
-  call that settles it. Reading it back was the other option and was
-  rejected for a reason phase 5 paid for: `comments.list` lags a copy, so
-  an empty answer would report threads as dropped when they were merely
-  late — the `empty_trash` mistake in the opposite direction. The live
-  driver now lists the copy's comments, so the next run answers a
-  question nobody has asked.
+  It now says what Drive was ASKED to do, says outright that Drive does
+  not report whether it did, and names `list_comments` on the copy as the
+  call that settles it. Reading it back inside `copy_file` was the other
+  option and was rejected for a reason phase 5 paid for: `comments.list`
+  lags a copy, so an empty answer would report threads as dropped when
+  they were merely late — the `empty_trash` mistake in the opposite
+  direction.
+
+  **Then the driver looked, and the answer is a split.** An uploaded
+  CSV's threads did not come across — checked again minutes later with
+  `include_deleted: true`, still none and none deleted, so not the
+  listing lagging. A Google Doc's threads DID, on the next run, same
+  session, same argument. So the parameter works and not for every kind,
+  and both the note and the SCHEMA now say so and name the two kinds
+  actually seen. The schema matters more, because it is read BEFORE the
+  call: the `lock_file` lesson, on a second parameter, in the same phase.
+
+  What is an inference rather than a finding is the rule behind it —
+  Drive's own formats carry them, uploaded bytes do not. That is two data
+  points and the obvious reading of them, and Google documents no such
+  limit. The driver copies both kinds now and says which carried, so the
+  next run re-checks a fact that has already changed once.
 
 - **The parity gate could be defeated by typing one `#`.** It read the
   whole workflow file for `go run ./scripts/gates NAME`, so a step
@@ -385,16 +389,23 @@ is the one that cannot be tested locally at all: the registry does a HEAD
 on the bundle's download URL before accepting the entry, so the step runs
 last in the release workflow, after the release exists.
 
-The write half has now run against a real account: 143 calls, every one
-behaving as expected, and 93 of the 157 options a default build
-registers. It answered the question `gates outcomes` raised — the copied
-comments were NOT carried, twice checked — which is the entry above.
+Both halves of the live driver have now run against a real account. The
+write half: 143 calls, all as expected. The full run, with `-destructive
+-labels -activity`: 193 calls across all 39 tools, 111 of 188 options,
+one step UNVERIFIED because Drive's revision listing lagged, and the
+scratch shared drive created and destroyed with nothing left behind.
 
-What is still unverified: the fifty-six `undriven` rows in
-`testdata/live-cover.tsv`, each one argument on a call that already
-happens; the destructive five and the sharing half, which need
-`-destructive` and a second account; and whether `copy_comments` behaves
-differently for a Google-native document. None blocks a release.
+Between them they answered the question `gates outcomes` raised —
+`copy_comments` carries a Google Doc's threads and not an uploaded CSV's
+— and turned one counted "failure" into the UNVERIFIED it always was.
+
+What is still unverified, and none of it blocks a release: the fifty-six
+`undriven` rows in `testdata/live-cover.tsv`, each one argument on a call
+that already happens; ownership transfer and a policy-blocked share,
+which need a second account and an administrator; `manage_labels`, which
+needs an administrator to publish a label; and whether the copy_comments
+split is really "Drive's own formats yes, uploaded bytes no" rather than
+two data points that happen to line up.
 
 ## [1.0.0] - 2026-09-06
 
