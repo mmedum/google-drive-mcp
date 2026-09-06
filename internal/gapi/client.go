@@ -264,11 +264,12 @@ type request struct {
 	// A forgotten `sharing: true` now costs throughput; a forgotten kind
 	// used to cost idempotency.
 	sharing bool
-	// reads marks a POST that only asks a question. The Drive Activity
-	// API's one method is a POST because its query does not fit in a URL,
-	// and it changes nothing: without this it would spend from the write
-	// budget and, worse, fail closed on a retry after a dropped
-	// connection, because a POST is not repeatable by default.
+	// reads marks a POST that does not WRITE. Two of them exist: the
+	// Drive Activity API's only method, a POST because its query does not
+	// fit in a URL, and files.download, which starts server-side work but
+	// creates nothing and can be asked for again. Without this they spend
+	// from the write budget and, worse, fail closed on a retry after a
+	// dropped connection, because a POST is not repeatable by default.
 	//
 	// Its zero value is the safe one, which is the property that matters:
 	// a write added later and given no thought is still treated as a
@@ -304,6 +305,12 @@ func (r request) repeatable() bool {
 	return false
 }
 
+// reading reports whether this request only asks. It is one function
+// because three places need the answer — the limiter, the retry rule for
+// a network failure, and repeatable() — and three copies of
+// `readMethod(r.method) || r.reads` is how they come to disagree.
+func (r request) reading() bool { return readMethod(r.method) || r.reads }
+
 // ok reports whether a response status is a success for this request.
 func (r request) ok(status int) bool {
 	if r.accepted != nil {
@@ -328,7 +335,7 @@ func (c *Client) limiter(r request) *rate.Limiter {
 	switch {
 	case r.sharing:
 		return c.sharingLim
-	case readMethod(r.method) || r.reads:
+	case r.reading():
 		return c.readLim
 	default:
 		return c.writeLim
@@ -539,7 +546,7 @@ func retryable(r request, err error) (bool, time.Duration) {
 		return te.refused || r.repeatable(), te.after
 	}
 	if errors.Is(err, ErrNetwork) {
-		return readMethod(r.method) || r.reads, 0
+		return r.reading(), 0
 	}
 	return false, 0
 }

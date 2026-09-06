@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 )
 
@@ -17,7 +19,7 @@ import (
 
 // handleListFileLabels answers files.listLabels: the labels applied to
 // one file, which is the only way to ask without knowing their ids.
-func (s *Server) handleListFileLabels(w http.ResponseWriter, _ *http.Request, id string) {
+func (s *Server) handleListFileLabels(w http.ResponseWriter, r *http.Request, id string) {
 	s.mu.Lock()
 	_, ok := s.Files[id]
 	labels := append([]*gdrive.Label(nil), s.FileLabels[id]...)
@@ -27,7 +29,23 @@ func (s *Server) handleListFileLabels(w http.ResponseWriter, _ *http.Request, id
 		return
 	}
 	sort.Slice(labels, func(i, j int) bool { return labels[i].ID < labels[j].ID })
-	writeJSON(w, gdrive.LabelList{Labels: labels})
+	// files.listLabels spells its page size maxResults rather than
+	// pageSize, so the shared window is given a query that uses the name
+	// it knows. Paging it at all is what gives AllFileLabels' loop a test
+	// that can fail.
+	q := r.URL.Query()
+	if q.Get("pageSize") == "" && q.Get("maxResults") != "" {
+		q.Set("pageSize", q.Get("maxResults"))
+	}
+	start, end, ok := s.pageWindow(w, q, len(labels), gapi.MaxFileLabelPageSize, gapi.MaxFileLabelPageSize)
+	if !ok {
+		return
+	}
+	page := gdrive.LabelList{Labels: append([]*gdrive.Label{}, labels[start:end]...)}
+	if end < len(labels) {
+		page.NextPageToken = "offset-" + strconv.Itoa(end)
+	}
+	writeJSON(w, page)
 }
 
 // handleModifyLabels answers files.modifyLabels. The reference promises
@@ -103,9 +121,6 @@ func (s *Server) handleModifyLabels(w http.ResponseWriter, r *http.Request, id s
 		}
 		modified = append(modified, target)
 	}
-	if s.FileLabels == nil {
-		s.FileLabels = map[string][]*gdrive.Label{}
-	}
 	s.FileLabels[id] = applied
 	writeJSON(w, gdrive.ModifyLabelsResponse{ModifiedLabels: modified})
 }
@@ -138,10 +153,6 @@ func fieldFromModification(fm gdrive.LabelFieldModification) gdrive.LabelField {
 // It is served from the same process on a path of its own, standing in
 // for a second host.
 func (s *Server) handleListLabelDefinitions(w http.ResponseWriter, r *http.Request) {
-	if !s.LabelsEnabled {
-		s.scopeDenied(w)
-		return
-	}
 	if v := r.URL.Query().Get("view"); v != "LABEL_VIEW_FULL" {
 		// A listing without the full view carries no fields, so a caller
 		// that forgets it gets a label it cannot set anything on. The
@@ -153,7 +164,16 @@ func (s *Server) handleListLabelDefinitions(w http.ResponseWriter, r *http.Reque
 	s.mu.Lock()
 	defs := append([]*gdrive.LabelDefinition(nil), s.LabelDefinitions...)
 	s.mu.Unlock()
-	writeJSON(w, gdrive.LabelDefinitionList{Labels: defs})
+	start, end, ok := s.pageWindow(w, r.URL.Query(),
+		len(defs), gapi.DefaultLabelPageSize, gapi.MaxLabelPageSize)
+	if !ok {
+		return
+	}
+	page := gdrive.LabelDefinitionList{Labels: append([]*gdrive.LabelDefinition{}, defs[start:end]...)}
+	if end < len(defs) {
+		page.NextPageToken = "offset-" + strconv.Itoa(end)
+	}
+	writeJSON(w, page)
 }
 
 // scopeDenied answers the way the Labels and Activity APIs answer a
@@ -234,9 +254,6 @@ func SelectionFieldDefinition(id, displayName string, choices ...[2]string) *gdr
 func (s *Server) ApplyLabel(fileID string, label *gdrive.Label) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.FileLabels == nil {
-		s.FileLabels = map[string][]*gdrive.Label{}
-	}
 	s.FileLabels[fileID] = append(s.FileLabels[fileID], label)
 }
 

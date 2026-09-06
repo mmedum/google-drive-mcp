@@ -240,37 +240,40 @@ func appliedFields(fields map[string]gdrive.LabelField, def *LabelDefinition) []
 	}
 	sort.Strings(ids)
 	if def != nil {
-		ordered := make([]string, 0, len(ids))
-		seen := map[string]bool{}
-		for _, f := range def.Fields {
-			if _, ok := fields[f.ID]; ok {
-				ordered = append(ordered, f.ID)
-				seen[f.ID] = true
-			}
+		// The definition's own order is the order a person sees the
+		// fields in. A field the definition does not know keeps its
+		// alphabetical place at the end, which a stable sort gives for
+		// free: ranking it last leaves the sort with nothing to say about
+		// it, so the order it arrived in stands.
+		rank := make(map[string]int, len(def.Fields))
+		for i, f := range def.Fields {
+			rank[f.ID] = i
 		}
-		for _, id := range ids {
-			if !seen[id] {
-				ordered = append(ordered, id)
+		rankOf := func(id string) int {
+			if r, ok := rank[id]; ok {
+				return r
 			}
+			return len(def.Fields)
 		}
-		ids = ordered
+		sort.SliceStable(ids, func(i, j int) bool { return rankOf(ids[i]) < rankOf(ids[j]) })
 	}
 	out := make([]AppliedField, 0, len(ids))
 	for _, id := range ids {
 		f := fields[id]
 		af := AppliedField{ID: id, ValueType: f.ValueType}
+		// The zero LabelFieldDefinition is the "no definition" case
+		// already: its DisplayName and ValueType are empty and its Choice
+		// ranges over a nil slice, so every assignment below is a no-op
+		// without a definition rather than needing a flag to skip it.
 		var fd LabelFieldDefinition
-		known := false
 		if def != nil {
-			fd, known = def.Field(id)
+			fd, _ = def.Field(id)
 		}
-		if known {
-			af.DisplayName = fd.DisplayName
-			if af.ValueType == "" {
-				af.ValueType = fd.ValueType
-			}
+		af.DisplayName = fd.DisplayName
+		if af.ValueType == "" {
+			af.ValueType = fd.ValueType
 		}
-		af.Values = fieldValues(f, fd, known)
+		af.Values = fieldValues(f, fd)
 		if len(af.Values) == 0 {
 			continue
 		}
@@ -282,17 +285,15 @@ func appliedFields(fields map[string]gdrive.LabelField, def *LabelDefinition) []
 // fieldValues renders one field's values. A selection value is a choice
 // id, which is a generated string nobody can read, so the display name
 // replaces it wherever the definition supplies one.
-func fieldValues(f gdrive.LabelField, def LabelFieldDefinition, known bool) []string {
+func fieldValues(f gdrive.LabelField, def LabelFieldDefinition) []string {
 	var out []string
 	out = append(out, f.Text...)
 	out = append(out, f.Integer...)
 	out = append(out, f.Date...)
 	for _, id := range f.Selection {
-		if known {
-			if c, ok := def.Choice(id); ok && c.DisplayName != "" {
-				out = append(out, c.DisplayName)
-				continue
-			}
+		if c, ok := def.Choice(id); ok && c.DisplayName != "" {
+			out = append(out, c.DisplayName)
+			continue
 		}
 		out = append(out, id)
 	}

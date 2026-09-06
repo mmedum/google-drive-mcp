@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
@@ -80,22 +81,12 @@ func (c *Client) GetOperation(ctx context.Context, name string) (*gdrive.Operati
 	// The name Drive hands back is already `operations/{id}`, and the
 	// endpoint is /operations/{name}. Sending the prefix twice is a 404
 	// that reads like a lost operation.
-	u := c.base + "/operations/" + url.PathEscape(trimOperationPrefix(name))
+	u := c.base + "/operations/" + url.PathEscape(strings.TrimPrefix(name, "operations/"))
 	body, err := c.do(ctx, request{method: http.MethodGet, url: u})
 	if err != nil {
 		return nil, err
 	}
 	return decodeOperation(body)
-}
-
-// trimOperationPrefix removes the resource-name prefix if it is there,
-// so a caller may pass either form.
-func trimOperationPrefix(name string) string {
-	const prefix = "operations/"
-	if len(name) > len(prefix) && name[:len(prefix)] == prefix {
-		return name[len(prefix):]
-	}
-	return name
 }
 
 // AwaitDownload polls until the operation finishes and returns the
@@ -127,9 +118,7 @@ func (c *Client) AwaitDownload(ctx context.Context, op *gdrive.Operation) (*gdri
 		if err := c.sleep(ctx, wait); err != nil {
 			return nil, err
 		}
-		if wait *= 2; wait > downloadPollMax {
-			wait = downloadPollMax
-		}
+		wait = min(wait*2, downloadPollMax)
 		next, err := c.GetOperation(ctx, op.Name)
 		if err != nil {
 			return nil, err

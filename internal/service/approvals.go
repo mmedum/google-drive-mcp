@@ -134,13 +134,16 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 		return nil, err
 	}
 	converted := model.NewApproval(approval)
+	// Forget BEFORE the read-back, not after: forgetting afterwards
+	// deletes the entries the read just filled, and the next call pays
+	// for them again.
+	s.forget(f, false)
 	after, err := s.Resolve(ctx, f.ID, ResolveOptions{FollowShortcut: false, Fresh: true})
 	if err != nil {
 		// The action landed; failing here would report a failure that did
 		// not happen. Report what is known instead.
 		after = res
 	}
-	s.forget(f, false)
 	return s.report(ctx, after, outcome{
 		Action: approvalOutcome(action),
 		Note:   note + " " + approvalState(converted),
@@ -169,7 +172,7 @@ func (s *Service) approvalAction(ctx context.Context, f *gdrive.File, action str
 
 // startApproval opens a review.
 func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageApprovalInput) (*gdrive.Approval, string, error) {
-	reviewers := addresses(in.Reviewers)
+	reviewers := nonEmpty(in.Reviewers)
 	if len(reviewers) == 0 {
 		return nil, "", Errorf(ClassInvalid,
 			"reviewers is required to start an approval: an approval with nobody to answer it is not "+
@@ -197,7 +200,7 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 	// is the only place it is ever handed out: there is no listing a
 	// caller can find it in before the approval exists.
 	note := fmt.Sprintf("Approval %s started on %s and %s been mailed about it.",
-		started.ApprovalID, f.Name, model.Plural(len(reviewers), "one reviewer has", "reviewers have"))
+		started.ApprovalID, f.Name, model.Plural(len(reviewers), "reviewer has", "reviewers have"))
 	if in.LockFile {
 		note += " The file is LOCKED while the approval is open: nobody can change its content, " +
 			"including you."
@@ -257,7 +260,7 @@ func (s *Service) reassignApproval(ctx context.Context, f *gdrive.File, in Manag
 		return nil, "", Errorf(ClassInvalid,
 			"approval is required for reassign: the id list_approvals shows")
 	}
-	add, replace := addresses(in.Reviewers), addresses(in.ReplaceReviewers)
+	add, replace := nonEmpty(in.Reviewers), nonEmpty(in.ReplaceReviewers)
 	if len(add) == 0 && len(replace) == 0 {
 		return nil, "", Errorf(ClassInvalid,
 			"reassign needs reviewers to add or replace_reviewers to swap in. Drive does not remove a "+
@@ -288,7 +291,7 @@ func approvalState(a *model.Approval) string {
 		return "The approval is cancelled."
 	case model.ApprovalInProgress:
 		return fmt.Sprintf("It is still open, waiting on %s.",
-			model.Plural(a.Outstanding(), "1 reviewer", "reviewers"))
+			model.Plural(a.Outstanding(), "reviewer", "reviewers"))
 	}
 	return ""
 }
@@ -309,8 +312,10 @@ func approvalOutcome(action string) render.Action {
 	}
 }
 
-// addresses trims and drops the empties from a list of email addresses.
-func addresses(in []string) []string {
+// nonEmpty trims a list and drops the blanks. It started as an
+// address-cleaner for approvals and is not address-specific, so it is
+// named for what it does.
+func nonEmpty(in []string) []string {
 	out := make([]string, 0, len(in))
 	for _, a := range in {
 		if a = strings.TrimSpace(a); a != "" {

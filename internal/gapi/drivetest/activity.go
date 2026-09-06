@@ -17,10 +17,6 @@ import (
 // an expression language would be asserting its own parser rather than
 // the client's request.
 func (s *Server) handleActivityQuery(w http.ResponseWriter, r *http.Request) {
-	if !s.ActivityEnabled {
-		s.scopeDenied(w)
-		return
-	}
 	var q gdrive.ActivityQuery
 	if err := json.NewDecoder(r.Body).Decode(&q); err != nil {
 		s.errorJSON(w, http.StatusBadRequest, "badRequest", "Invalid request body.")

@@ -10,29 +10,6 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/service"
 )
 
-// hitCount reads the count out of a rendered listing head. countHits in
-// integration_test.go does the same thing, but that file is behind a
-// build tag and so is not compiled into an ordinary test run.
-func hitCount(t *testing.T, out string) int {
-	t.Helper()
-	head := strings.SplitN(out, "\n", 2)[0]
-	fields := strings.Fields(head)
-	for i, f := range fields {
-		if (f == "hits" || f == "hit") && i > 0 {
-			n := 0
-			for _, r := range fields[i-1] {
-				if r < '0' || r > '9' {
-					t.Fatalf("the listing head does not carry a count: %q", head)
-				}
-				n = n*10 + int(r-'0')
-			}
-			return n
-		}
-	}
-	t.Fatalf("the listing head does not carry a count: %q", head)
-	return 0
-}
-
 // Phase 1 read the reference, found no copyComments on files.copy, and
 // recorded it as refuted (§18). The discovery document lists it. This is
 // the assertion that keeps the second answer honest: if Drive drops the

@@ -47,6 +47,27 @@ type Entry struct {
 	// DownloadAs is the short export name a download uses when the caller
 	// names none. Only Google's own kinds have one.
 	DownloadAs string
+	// OperationAs is the file extension a kind gets when its bytes come
+	// only through the long-running files.download. Non-empty says both
+	// things at once: that this kind cannot be exported at all — Drive
+	// answers fileNotExportable and has no bytes on the file endpoint
+	// either — and what the render is written as. A Google Vid is the one
+	// such kind today.
+	//
+	// It is deliberately NOT DownloadAs. That field names an export
+	// format, one of the short names Drive offers through files.export,
+	// and a test holds it to that. An operation's output is not an
+	// export: mp4 is not on any export list, and putting it there would
+	// make "download format" mean two different things depending on the
+	// row.
+	//
+	// It lives here rather than as a media-type comparison in the
+	// download path because that is this package's whole argument: "how
+	// do this kind's bytes come out" belongs beside "what does a read
+	// turn it into". Without it the general Workspace-document branch is
+	// wrong for one member of the set it claims, and the correction has
+	// to sit above the branch rather than inside the table it consults.
+	OperationAs string
 }
 
 // Prefix groups are the kind filters Drive answers with a prefix match
@@ -78,7 +99,10 @@ var entries = []Entry{
 		ReadAs: "application/vnd.google-apps.script+json", DownloadAs: "json"},
 	{Mime: gdrive.MimeSite, Name: "Google Site"},
 	{Mime: gdrive.MimeMap, Name: "Google My Map"},
-	{Mime: gdrive.MimeVid, Name: "Google Vid"},
+	// Drive renders a Vid as MP4 and offers nothing else; files.export
+	// answers fileNotExportable, so the long-running download is the
+	// whole of it.
+	{Mime: gdrive.MimeVid, Name: "Google Vid", OperationAs: "mp4"},
 	{Mime: gdrive.MimeJam, Name: "Jamboard"},
 
 	// The formats a file arrives as, and the formats Drive exports to.
@@ -246,6 +270,15 @@ func ReadAs(mime string) string {
 // names none, or "" for a kind Drive does not export.
 func DownloadAs(mime string) string {
 	return byMime[gdrive.MimeOnly(mime)].DownloadAs
+}
+
+// OperationAs is the extension a kind's bytes get when they come only
+// through the long-running download, or "" for every kind that does not.
+// Drive refuses to export such a kind, so a caller that treats it as an
+// ordinary Workspace document fails with a message about formats rather
+// than about what is really going on.
+func OperationAs(mime string) string {
+	return byMime[gdrive.MimeOnly(mime)].OperationAs
 }
 
 // Entries returns the registry, for the tests that hold the surface in
