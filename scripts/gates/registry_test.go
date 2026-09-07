@@ -74,6 +74,22 @@ func TestEveryRuleTheRegistryEnforcesInCodeIsRefusedHere(t *testing.T) {
 			want:   "not 64 hex characters",
 		},
 		{
+			// The one that got through. This gate was written for the
+			// rules the schema does NOT carry and skipped the ones it
+			// does, so a 205-character description passed here and was
+			// refused by the registry after the login had succeeded.
+			name: "a description longer than the schema allows",
+			break_: func(m map[string]any) {
+				m["description"] = strings.Repeat("a description that is far too long. ", 6)
+			},
+			want: "the schema allows at most 100",
+		},
+		{
+			name:   "a name that is not namespace/server",
+			break_: func(m map[string]any) { m["name"] = "google-drive-mcp" },
+			want:   "does not match the schema's pattern",
+		},
+		{
 			name:   "somebody else's namespace",
 			break_: func(m map[string]any) { m["name"] = "io.github.someone/google-drive-mcp" },
 			want:   "the io.github. namespace is what GitHub OIDC proves",
