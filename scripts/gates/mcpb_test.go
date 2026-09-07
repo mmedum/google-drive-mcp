@@ -405,3 +405,25 @@ func TestTheLauncherIsHeldToTheStagedNames(t *testing.T) {
 		t.Errorf("the report does not name the file:\n%s", strings.Join(problems, "\n"))
 	}
 }
+
+// TestThePlatformsGoreleaserBuildsAreStaged. The two lists live in
+// different files and only one direction rots loudly: a platform REMOVED
+// from the matrix fails at pack time when the glob finds nothing, and a
+// platform ADDED to it is simply absent from the bundle, silently, for as
+// long as nobody looks.
+func TestThePlatformsGoreleaserBuildsAreStaged(t *testing.T) {
+	t.Chdir("../..")
+	if problems := checkBuildMatrix(); len(problems) > 0 {
+		t.Fatalf("the bundle does not cover what goreleaser builds:\n%s", strings.Join(problems, "\n"))
+	}
+
+	// And the matrix is really being read, rather than an empty list
+	// agreeing with an empty list.
+	source, err := os.ReadFile(".goreleaser.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := matrixValues(string(source), "goos"); len(got) < 3 {
+		t.Errorf("read %v as the goos matrix; that is too few to be the real one", got)
+	}
+}
