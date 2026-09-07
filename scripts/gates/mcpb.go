@@ -175,6 +175,7 @@ func mcpbCheck(out io.Writer, _ []string) error {
 	contents := stagedNames()
 	problems := checkManifest(manifest, contents)
 	problems = append(problems, checkLauncher()...)
+	problems = append(problems, checkBuildMatrix()...)
 	if len(problems) > 0 {
 		for _, p := range problems {
 			_, _ = fmt.Fprintln(out, "  "+p)
@@ -532,4 +533,66 @@ func checkLauncher() []string {
 			"is meant to"}
 	}
 	return problems
+}
+
+// checkBuildMatrix holds the staged binaries to what goreleaser builds.
+//
+// The two lists are written in different files by different people
+// thinking about different things — `.goreleaser.yaml` decides what
+// exists, `binaries` decides what reaches the bundle — and only one
+// direction rots loudly. A platform REMOVED from the matrix fails at
+// pack time, when onlyMatch finds no file. A platform ADDED to it is
+// simply absent from the bundle, silently, for as long as nobody looks.
+//
+// That is the shape `gates parity` exists for one file over, and this is
+// the same argument applied to the release's other pair of lists.
+func checkBuildMatrix() []string {
+	source, err := os.ReadFile(".goreleaser.yaml")
+	if err != nil {
+		return []string{"cannot read .goreleaser.yaml: " + err.Error()}
+	}
+	built := matrixValues(string(source), "goos")
+	arches := matrixValues(string(source), "goarch")
+	if len(built) == 0 || len(arches) == 0 {
+		return []string{"found no goos/goarch matrix in .goreleaser.yaml; has its shape changed?"}
+	}
+
+	// What the bundle carries, by the goos each staged file comes from.
+	staged := map[string]bool{}
+	for _, b := range binaries {
+		for _, goos := range built {
+			if strings.Contains(b.glob, goos+"_") || strings.Contains(b.glob, goos+"_all") {
+				staged[goos] = true
+			}
+		}
+		if strings.Contains(b.glob, "darwin_all") {
+			staged["darwin"] = true
+		}
+	}
+	var problems []string
+	for _, goos := range built {
+		if !staged[goos] {
+			problems = append(problems, fmt.Sprintf(
+				"goreleaser builds %s and the bundle stages nothing from it, so a %s user installing "+
+					"the bundle gets a server that cannot start. Add it to binaries, or say in "+
+					"compatibility.platforms that the bundle does not claim %s", goos, goos, goos))
+		}
+	}
+	return problems
+}
+
+// matrixValues reads one inline list out of the build matrix, which is
+// written as `goos: [linux, darwin, windows]`.
+func matrixValues(source, key string) []string {
+	m := regexp.MustCompile(`(?m)^\s*` + key + `:\s*\[([^\]]*)\]`).FindStringSubmatch(source)
+	if m == nil {
+		return nil
+	}
+	var out []string
+	for _, v := range strings.Split(m[1], ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
