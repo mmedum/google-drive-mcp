@@ -17,7 +17,7 @@ Single binary, stdio, one Google account per profile. You run it against
 a Google Cloud project you own, so nothing about this repository is tied
 to any particular organisation or account.
 
-**Status: v1.0.1, phase 6 of the plan in
+**Status: v1.0.2, phase 6 of the plan in
 [docs/architecture.md](docs/architecture.md).** The tools below work, and
 every one of them is verified against a real Google Workspace account as
 well as against the in-memory Drive the tests use — the five that remove
