@@ -78,25 +78,23 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "dist/*.tar.gz,dist/*.zip,dist/checksums.txt"
-      # LAST, and last for a reason the registry enforces in code: it
-      # sends a HEAD to the bundle's download URL before it accepts the
-      # entry, so an entry published before the release exists names a
-      # download nobody can fetch. GitHub answers that HEAD with a 302 to
-      # a signed asset URL, which the registry's validator accepts
-      # explicitly — a check that only took 200 would reject every GitHub
-      # release there is.
-      #
-      # The hash comes out of checksums.txt, the file cosign has just
-      # signed, rather than from hashing a build again. The registry does
-      # not verify it; MCP clients do, before installing.
-      - name: Publish the entry to the MCP registry
-        run: |
-          set -euo pipefail
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
-            | tar xz mcp-publisher
-          go run ./scripts/gates registry-publish "${GITHUB_REF_NAME}" dist > server.json
-          ./mcp-publisher login github-oidc
-          ./mcp-publisher publish
-        env:
-          # Pinned, like everything else that decides what a release is.
-          PUBLISHER_VERSION: v1.8.1
+
+  # After the release, never inside it. The registry sends a HEAD to the
+  # bundle's download URL before it accepts the entry, so an entry
+  # published while goreleaser is still uploading names a download nobody
+  # can fetch. GitHub answers that HEAD with a 302 to a signed asset URL,
+  # which the registry's validator accepts explicitly — a check that only
+  # took 200 would reject every GitHub release there is.
+  #
+  # A separate workflow rather than a last step, so it can be run again
+  # on its own: `gh workflow run publish-mcp.yml -f tag=vX.Y.Z`. A step
+  # that can only run at the end of a release is a step whose only
+  # recovery is another release.
+  registry:
+    needs: goreleaser
+    uses: ./.github/workflows/publish-mcp.yml
+    with:
+      tag: ${{ github.ref_name }}
+    permissions:
+      id-token: write
+      contents: read
