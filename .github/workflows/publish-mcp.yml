@@ -1,0 +1,71 @@
+# Publishes this server's entry to the MCP registry.
+#
+# It is its own workflow, callable two ways, because the registry sends a
+# HEAD to the bundle's download URL before it accepts an entry — so this
+# can only run AFTER the release exists, and a step that can only run
+# last is a step that needs a way to be run again on its own. The first
+# entry this repository ever published was for a release that had already
+# shipped, and with the publish welded into the release job the only way
+# to get it out would have been to cut another release.
+#
+# Both paths read the PUBLISHED release's checksums.txt rather than a
+# local build, so the hash a client verifies is the number cosign signed,
+# and the two paths cannot diverge because there is only one of them.
+name: Publish to the MCP registry
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag whose bundle the entry points at.
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag whose bundle the entry points at, such as v1.0.1.
+        required: true
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The registry proves the io.github. namespace from this token.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Take the checksums from the published release
+        run: gh release download "${TAG}" --pattern checksums.txt --dir dist
+        env:
+          TAG: ${{ inputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write the entry, and check it before anybody sees it
+        run: go run ./scripts/gates registry-publish "${TAG}" dist > server.json
+        env:
+          TAG: ${{ inputs.tag }}
+
+      - name: Publish it
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+        env:
+          # Pinned, like everything else that decides what a release is.
+          PUBLISHER_VERSION: v1.8.1

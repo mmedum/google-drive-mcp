@@ -123,6 +123,10 @@ live-cover: build ## Every tool option is driven live or recorded as not, with t
 outcomes: ## No result sentence may be written from the request rather than the response
 	$(GO) run ./scripts/gates outcomes
 
+.PHONY: registry
+registry: ## The committed MCP registry entry must obey the registry's own rules
+	$(GO) run ./scripts/gates registry
+
 .PHONY: parity
 parity: ## `make check` and CI must run the same gates
 	$(GO) run ./scripts/gates parity
@@ -132,7 +136,7 @@ api-diff: ## Refetch the three discovery documents and report what has changed (
 	$(GO) run ./scripts/gates api-diff
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage mcpb transcript schema-diff smoke staleness live-cover outcomes parity ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage mcpb transcript schema-diff smoke staleness live-cover outcomes registry parity ## Everything CI runs
 
 .PHONY: clean
 clean:

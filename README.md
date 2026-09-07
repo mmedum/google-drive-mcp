@@ -323,7 +323,8 @@ race tests with a per-package coverage floor, `govulncheck`, a licence
 check, a leak check over the working tree, pinned-version and error-class
 gates, an API-coverage gate holding every method of all three APIs to a
 recorded decision, a bundle-manifest gate holding the committed manifest
-to the files the packer stages, a transcript gate refusing any way for a
+to the files the packer stages, a registry gate holding the published
+entry to the rules the MCP registry enforces in code, a transcript gate refusing any way for a
 program that drives a real account to reach a terminal except through the
 redactor, a live-coverage gate holding every tool option to a decision
 about whether the live driver drives it, an outcome gate refusing a
