@@ -1,0 +1,369 @@
+{
+  "fetched": "2026-09-07",
+  "methods": {
+    "about.get": {
+      "verb": "GET",
+      "path": "about"
+    },
+    "accessproposals.get": {
+      "verb": "GET",
+      "path": "files/{fileId}/accessproposals/{proposalId}"
+    },
+    "accessproposals.list": {
+      "verb": "GET",
+      "path": "files/{fileId}/accessproposals"
+    },
+    "accessproposals.resolve": {
+      "verb": "POST",
+      "path": "files/{fileId}/accessproposals/{proposalId}:resolve"
+    },
+    "approvals.approve": {
+      "verb": "POST",
+      "path": "files/{fileId}/approvals/{approvalId}:approve"
+    },
+    "approvals.cancel": {
+      "verb": "POST",
+      "path": "files/{fileId}/approvals/{approvalId}:cancel"
+    },
+    "approvals.comment": {
+      "verb": "POST",
+      "path": "files/{fileId}/approvals/{approvalId}:comment"
+    },
+    "approvals.decline": {
+      "verb": "POST",
+      "path": "files/{fileId}/approvals/{approvalId}:decline"
+    },
+    "approvals.get": {
+      "verb": "GET",
+      "path": "files/{fileId}/approvals/{approvalId}"
+    },
+    "approvals.list": {
+      "verb": "GET",
+      "path": "files/{fileId}/approvals"
+    },
+    "approvals.reassign": {
+      "verb": "POST",
+      "path": "files/{fileId}/approvals/{approvalId}:reassign"
+    },
+    "approvals.start": {
+      "verb": "POST",
+      "path": "files/{fileId}/approvals:start"
+    },
+    "apps.get": {
+      "verb": "GET",
+      "path": "apps/{appId}"
+    },
+    "apps.list": {
+      "verb": "GET",
+      "path": "apps"
+    },
+    "changes.getStartPageToken": {
+      "verb": "GET",
+      "path": "changes/startPageToken"
+    },
+    "changes.list": {
+      "verb": "GET",
+      "path": "changes"
+    },
+    "changes.watch": {
+      "verb": "POST",
+      "path": "changes/watch"
+    },
+    "channels.stop": {
+      "verb": "POST",
+      "path": "channels/stop"
+    },
+    "comments.create": {
+      "verb": "POST",
+      "path": "files/{fileId}/comments"
+    },
+    "comments.delete": {
+      "verb": "DELETE",
+      "path": "files/{fileId}/comments/{commentId}"
+    },
+    "comments.get": {
+      "verb": "GET",
+      "path": "files/{fileId}/comments/{commentId}"
+    },
+    "comments.list": {
+      "verb": "GET",
+      "path": "files/{fileId}/comments"
+    },
+    "comments.update": {
+      "verb": "PATCH",
+      "path": "files/{fileId}/comments/{commentId}"
+    },
+    "driveactivity.activity.query": {
+      "verb": "POST",
+      "path": "v2/activity:query"
+    },
+    "drivelabels.labels.create": {
+      "verb": "POST",
+      "path": "v2/labels"
+    },
+    "drivelabels.labels.delete": {
+      "verb": "DELETE",
+      "path": "v2/labels/{labelsId}"
+    },
+    "drivelabels.labels.delta": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}:delta"
+    },
+    "drivelabels.labels.disable": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}:disable"
+    },
+    "drivelabels.labels.enable": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}:enable"
+    },
+    "drivelabels.labels.get": {
+      "verb": "GET",
+      "path": "v2/labels/{labelsId}"
+    },
+    "drivelabels.labels.list": {
+      "verb": "GET",
+      "path": "v2/labels"
+    },
+    "drivelabels.labels.locks.list": {
+      "verb": "GET",
+      "path": "v2/labels/{labelsId}/locks"
+    },
+    "drivelabels.labels.permissions.batchDelete": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}/permissions:batchDelete"
+    },
+    "drivelabels.labels.permissions.batchUpdate": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}/permissions:batchUpdate"
+    },
+    "drivelabels.labels.permissions.create": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}/permissions"
+    },
+    "drivelabels.labels.permissions.delete": {
+      "verb": "DELETE",
+      "path": "v2/labels/{labelsId}/permissions/{permissionsId}"
+    },
+    "drivelabels.labels.permissions.list": {
+      "verb": "GET",
+      "path": "v2/labels/{labelsId}/permissions"
+    },
+    "drivelabels.labels.publish": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}:publish"
+    },
+    "drivelabels.labels.revisions.locks.list": {
+      "verb": "GET",
+      "path": "v2/labels/{labelsId}/revisions/{revisionsId}/locks"
+    },
+    "drivelabels.labels.revisions.permissions.batchDelete": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}/revisions/{revisionsId}/permissions:batchDelete"
+    },
+    "drivelabels.labels.revisions.permissions.batchUpdate": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}/revisions/{revisionsId}/permissions:batchUpdate"
+    },
+    "drivelabels.labels.revisions.permissions.create": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}/revisions/{revisionsId}/permissions"
+    },
+    "drivelabels.labels.revisions.permissions.delete": {
+      "verb": "DELETE",
+      "path": "v2/labels/{labelsId}/revisions/{revisionsId}/permissions/{permissionsId}"
+    },
+    "drivelabels.labels.revisions.permissions.list": {
+      "verb": "GET",
+      "path": "v2/labels/{labelsId}/revisions/{revisionsId}/permissions"
+    },
+    "drivelabels.labels.revisions.updatePermissions": {
+      "verb": "PATCH",
+      "path": "v2/labels/{labelsId}/revisions/{revisionsId}/permissions"
+    },
+    "drivelabels.labels.updateLabelCopyMode": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}:updateLabelCopyMode"
+    },
+    "drivelabels.labels.updateLabelEnabledAppSettings": {
+      "verb": "POST",
+      "path": "v2/labels/{labelsId}:updateLabelEnabledAppSettings"
+    },
+    "drivelabels.labels.updatePermissions": {
+      "verb": "PATCH",
+      "path": "v2/labels/{labelsId}/permissions"
+    },
+    "drivelabels.limits.getLabel": {
+      "verb": "GET",
+      "path": "v2/limits/label"
+    },
+    "drivelabels.users.getCapabilities": {
+      "verb": "GET",
+      "path": "v2/users/{usersId}/capabilities"
+    },
+    "drives.create": {
+      "verb": "POST",
+      "path": "drives"
+    },
+    "drives.delete": {
+      "verb": "DELETE",
+      "path": "drives/{driveId}"
+    },
+    "drives.get": {
+      "verb": "GET",
+      "path": "drives/{driveId}"
+    },
+    "drives.hide": {
+      "verb": "POST",
+      "path": "drives/{driveId}/hide"
+    },
+    "drives.list": {
+      "verb": "GET",
+      "path": "drives"
+    },
+    "drives.unhide": {
+      "verb": "POST",
+      "path": "drives/{driveId}/unhide"
+    },
+    "drives.update": {
+      "verb": "PATCH",
+      "path": "drives/{driveId}"
+    },
+    "files.copy": {
+      "verb": "POST",
+      "path": "files/{fileId}/copy"
+    },
+    "files.create": {
+      "verb": "POST",
+      "path": "files"
+    },
+    "files.delete": {
+      "verb": "DELETE",
+      "path": "files/{fileId}"
+    },
+    "files.download": {
+      "verb": "POST",
+      "path": "files/{fileId}/download"
+    },
+    "files.emptyTrash": {
+      "verb": "DELETE",
+      "path": "files/trash"
+    },
+    "files.export": {
+      "verb": "GET",
+      "path": "files/{fileId}/export"
+    },
+    "files.generateCseToken": {
+      "verb": "GET",
+      "path": "files/generateCseToken"
+    },
+    "files.generateIds": {
+      "verb": "GET",
+      "path": "files/generateIds"
+    },
+    "files.get": {
+      "verb": "GET",
+      "path": "files/{fileId}"
+    },
+    "files.list": {
+      "verb": "GET",
+      "path": "files"
+    },
+    "files.listLabels": {
+      "verb": "GET",
+      "path": "files/{fileId}/listLabels"
+    },
+    "files.modifyLabels": {
+      "verb": "POST",
+      "path": "files/{fileId}/modifyLabels"
+    },
+    "files.update": {
+      "verb": "PATCH",
+      "path": "files/{fileId}"
+    },
+    "files.watch": {
+      "verb": "POST",
+      "path": "files/{fileId}/watch"
+    },
+    "operations.get": {
+      "verb": "GET",
+      "path": "operations/{name}"
+    },
+    "permissions.create": {
+      "verb": "POST",
+      "path": "files/{fileId}/permissions"
+    },
+    "permissions.delete": {
+      "verb": "DELETE",
+      "path": "files/{fileId}/permissions/{permissionId}"
+    },
+    "permissions.get": {
+      "verb": "GET",
+      "path": "files/{fileId}/permissions/{permissionId}"
+    },
+    "permissions.list": {
+      "verb": "GET",
+      "path": "files/{fileId}/permissions"
+    },
+    "permissions.update": {
+      "verb": "PATCH",
+      "path": "files/{fileId}/permissions/{permissionId}"
+    },
+    "replies.create": {
+      "verb": "POST",
+      "path": "files/{fileId}/comments/{commentId}/replies"
+    },
+    "replies.delete": {
+      "verb": "DELETE",
+      "path": "files/{fileId}/comments/{commentId}/replies/{replyId}"
+    },
+    "replies.get": {
+      "verb": "GET",
+      "path": "files/{fileId}/comments/{commentId}/replies/{replyId}"
+    },
+    "replies.list": {
+      "verb": "GET",
+      "path": "files/{fileId}/comments/{commentId}/replies"
+    },
+    "replies.update": {
+      "verb": "PATCH",
+      "path": "files/{fileId}/comments/{commentId}/replies/{replyId}"
+    },
+    "revisions.delete": {
+      "verb": "DELETE",
+      "path": "files/{fileId}/revisions/{revisionId}"
+    },
+    "revisions.get": {
+      "verb": "GET",
+      "path": "files/{fileId}/revisions/{revisionId}"
+    },
+    "revisions.list": {
+      "verb": "GET",
+      "path": "files/{fileId}/revisions"
+    },
+    "revisions.update": {
+      "verb": "PATCH",
+      "path": "files/{fileId}/revisions/{revisionId}"
+    },
+    "teamdrives.create": {
+      "verb": "POST",
+      "path": "teamdrives"
+    },
+    "teamdrives.delete": {
+      "verb": "DELETE",
+      "path": "teamdrives/{teamDriveId}"
+    },
+    "teamdrives.get": {
+      "verb": "GET",
+      "path": "teamdrives/{teamDriveId}"
+    },
+    "teamdrives.list": {
+      "verb": "GET",
+      "path": "teamdrives"
+    },
+    "teamdrives.update": {
+      "verb": "PATCH",
+      "path": "teamdrives/{teamDriveId}"
+    }
+  }
+}

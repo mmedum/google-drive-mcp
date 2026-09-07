@@ -152,7 +152,7 @@ func verdictCounts(recorded map[string]liveCoverEntry) (undrivable, undriven int
 // coverage floor in `make check` applied to a different measurement, and
 // it has the same rule — lower it when a run closes some, never raise
 // it to make a build pass.
-const maxUndriven = 56
+const maxUndriven = 4
 
 // readLiveCover reads the record. A verdict this gate does not know is a
 // refusal rather than a shrug: the two words carry the difference

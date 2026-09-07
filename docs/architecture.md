@@ -8,8 +8,9 @@ three each need a Google API enabled in the Cloud project AND a scope the
 consent screen would otherwise not carry, which is why they are off by
 default — 39 tools in all, and 13 in read-only mode. Neither phase 5 nor
 phase 6 added a tool. Every method of all three APIs is recorded as used
-on purpose or left out on purpose, and a gate holds the record to the
-code.
+on purpose or left out on purpose, and a gate holds that record to the
+code AND to a snapshot of the APIs themselves — offline, on every
+commit.
 
 **What phase 6 is, and it is unreleased.** No new tools. The bundle, the
 README a released project should have, and the three gates §17a had
@@ -1732,40 +1733,40 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   through.
 
 - ~~Whether `copy_comments` works for a Google-native document is
-  unknown.~~ **Answered, and the answer is a split.** The Doc's threads
-  came across; the uploaded CSV's did not, on the same run with the same
-  argument (§18). The driver copies both kinds now and says which
-  carried, so the next run re-checks a fact that has already changed
-  once.
+  unknown.~~ **Answered, and then made a rule.** The Doc's threads came
+  across; the uploaded CSV's did not. That was two points and an obvious
+  reading, and this entry said what would settle it: a third kind that is
+  Drive's own format and not a Doc. A Google Sheet carried its threads
+  too, so the reading holds — Drive's own formats yes, uploaded bytes no
+  (§18).
 
-  What is still an inference rather than a finding: that the rule is
-  "Drive's own formats yes, uploaded bytes no". That is two data points
-  and the obvious reading of them, and Google documents no such limit on
-  the parameter. A third kind — a Sheet, or an uploaded PDF, which Drive
-  can comment on natively — would make it a rule or refute it.
-- **The outcome gate subtracts rather than selects.** It collects every
-  long string in a request-tested branch and then takes away the ones
-  that are not outcomes — a refusal, a log line — which is why it needs a
-  list of function names, a 25-character heuristic AND a record file to
-  be right. The positive form is one question: does this literal reach
-  the caller's `Result`? In this package that is two shapes — appended to
-  a `notes` slice that ends in an `outcome{Note: ...}`, or assigned to a
-  note field — and both current exemptions are one of them. With it,
-  `Errorf` prose and `slog` prose are excluded by construction rather
-  than by name, and the length heuristic goes.
+  The driver copies all three kinds every run and says which carried,
+  because a fact that has already changed once is one to re-check rather
+  than remember.
+- ~~The outcome gate subtracts rather than selects.~~ **Done.** It asks
+  the positive question now — does this literal reach what the caller
+  reads — and the answer is three shapes, because `internal/render`
+  writes every result there is: appended to a `notes` slice, assigned to
+  a note field, or set as `Note:` in an outcome literal. `Errorf` prose
+  and `slog` prose are excluded by construction rather than by name, the
+  25-character heuristic is gone, and `isRefusalOrLog` went from two
+  callers to one narrow use.
 
-  Not done because it wants a walk from the literal to the returned
-  outcome, which is real work against a gate that is currently correct on
-  every branch in the package. Raised by the phase-6 altitude review.
+  A test caught the first draft missing the third shape, which is the
+  commonest one in the package. The entry predicted this would be "real
+  work against a gate that is currently correct on every branch"; it was
+  an hour, and the gate is correct on every branch for a reason now
+  rather than by three independent adjustments agreeing.
 
-- **`gates mcpb` stages four binaries and nothing holds that list to
-  `.goreleaser.yaml`.** A platform added to the build matrix would
-  silently not reach the bundle; a platform removed fails loudly at pack
-  time, when `onlyMatch` finds no file. So one direction rots quietly,
-  which is the shape `gates parity` exists for one file over. Deriving
-  the globs from the matrix, or failing when the matrix names a platform
-  the bundle does not stage, is the same idea. Raised by the phase-6
-  altitude review.
+- ~~`gates mcpb` stages four binaries and nothing holds that list to
+  `.goreleaser.yaml`.~~ **Done.** `checkBuildMatrix` reads the `goos`
+  matrix and fails when the bundle stages nothing from a platform
+  goreleaser builds. Watched failing by adding one.
+
+  The asymmetry the entry named is why it was worth doing: a platform
+  REMOVED from the matrix fails loudly at pack time when the glob finds
+  nothing, and a platform ADDED is simply absent from the bundle, in
+  silence, for as long as nobody looks.
 
 - **`manage_labels` is unverified live, and `list_labels` is not.** The
   Drive Labels API answers (`doctor` calls `labels.list` and it
@@ -2032,7 +2033,7 @@ own numbers.
 | Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
 | The MCP registry's MCPB rules are in its published schema, so a document that validates will be accepted | **Refuted against the registry's own validator** (`internal/validators/registries/mcpb.go`, read 2026-09-06). None of them is in the schema. The identifier must be HTTPS, must be `github.com` or `gitlab.com`, must be shaped like a release asset, must contain "mcp" somewhere case-insensitively, must not sit beside a `registryBaseUrl`, and must answer a **HEAD** — 200, or a 3xx carrying a `Location`. `fileSha256` is required and never verified by the registry; its own documentation says so, and clients check it before installing. A sibling's account of these was accurate in every particular; reading the code confirmed it and added the redirect case, which nobody had mentioned and which decides the outcome: GitHub answers a release-asset HEAD with 302, so a check written to expect 200 would reject every GitHub release there is | `gates registry` enforces all of them on the committed entry, each watched failing. The HEAD was made by hand against the published v1.0.1 URL rather than reasoned about, which is what turned "cannot be tested locally at all" into two things that are tested |
 | A gate over the registry entry should check the rules the schema does not carry (this repository, an hour earlier) | **Half a rule, and the missing half cost the first publish.** Reading the validator was right and finding the rules absent from the schema was right; aiming ONLY at those was not. The first entry refused was `body.description: expected length <= 100` against a 205-character description the gate had just passed, and the refusal arrived AFTER the OIDC login succeeded — so everything that could have failed for a boring reason had already worked. The schema carries `description` and `title` at 1..100, `name` at 3..200 with pattern `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`, `version` up to 255, and `fileSha256` as `^[a-f0-9]{64}$` (schema `2025-12-11`, read 2026-09-07) | Both sets are enforced, each watched failing. The limits are transcribed with their source and date rather than fetched, because a gate that reaches the network fails when somebody else's CDN is slow. The lesson generalises past this file: two documents describe one contract, and checking the one somebody told you about is not checking the contract |
-| `copy_file` with `copy_comments: true` brings the threads with it (the note this server printed, phases 4-6) | **Half true, and the halves were found on two runs.** A CSV carrying one OPEN thread with two replies was copied with the parameter set. `list_comments` on the copy, immediately: `0 comment threads` / `no comments: nobody has commented on this file`. The same call minutes later with `include_deleted: true`: `0 comment threads` / `no comments: nobody has commented on this file, and none has been deleted either` — so not `comments.list` lagging, which was the other explanation and the one the code had been written to allow for. The second run copied a **Google Doc** the same way in the same session and its threads DID come across. So the parameter works, and not for every kind: two data points, a Doc and an uploaded CSV, and the obvious reading — Drive's own formats carry them and uploaded bytes do not — is an inference from two points rather than something Google documents | The note and the SCHEMA both say Drive does not always do it, name the two kinds the run actually saw, and point at `list_comments` on the copy. The schema matters more: it is read before the call, which is the `lock_file` lesson exactly. The driver copies BOTH kinds now and says which carried and which did not, so the next run re-checks a fact that has already changed once |
+| `copy_file` with `copy_comments: true` brings the threads with it (the note this server printed, phases 4-6) | **A rule, on three data points.** A Google Doc's threads came across and a Google Sheet's did too; an uploaded CSV's did not, on the same runs with the same argument. The CSV was checked twice minutes apart with `include_deleted: true` — `0 comment threads` / `no comments: nobody has commented on this file, and none has been deleted either` — so it is not `comments.list` lagging, which was the other explanation and the one the code had been written to allow for. Two points made this an inference; the Sheet is Drive's own format that is not a Doc, so it either agreed with the reading or refuted it, and it agreed | Drive's own formats carry comments and uploaded bytes do not. The note and the SCHEMA say Drive does not always do it and name the kinds actually seen; the schema matters more, because it is read before the call. The driver copies all three kinds every run and says which carried, so a fact that has already changed once is re-checked rather than remembered |
 | `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference — and the refutation was itself **refuted in phase 4** against the discovery document, which lists `copyComments` on `files.copy` with a default of `false`. Whether Google added it since or the phase-1 check read the reference page rather than the document cannot be told from here, and the difference does not matter: the lesson is that a parameter list read once is a fact with a date on it | `copy_comments` is back on `copy_file`, off by default. The result said out loud "when a copy carried somebody else's words somewhere new" — which was this overpromise written down as a feature: files.copy answers with a File and mentions comments nowhere, so nothing could know it had. `gates outcomes` found it. The result now says what Drive was ASKED to do and names list_comments on the copy as the call that settles it This is the argument for re-reading the discovery document every phase rather than trusting §18 |
 | An old revision of a Docs editors file is fetched with `files.download` (§18, from the revisions guide) | Refined in phase 1: `files.download` is a long-running operation that hands back an `Operation` to poll, while the `Revision` resource itself carries `exportLinks` for exactly this — a direct URL per format, on a Google host the allowlist already permits. The simpler documented route was taken | `download_file revision:` reads the revision, then fetches its export link. `files.download` stays for Vids in phase 4. To be confirmed by the live run |
 | Drive's structural refusals arrive with their own status | Refuted by the fake once it answered with Google's real reason: `teamDrivesFolderMoveInNotSupported` comes back as **403**, and the error mapping tested the status before the reason, so "this cannot be done" was reported as "you may not". A model told `[forbidden]` goes looking for permissions to change; there are none | The reason is matched before the generic 403, and the folder-move refusal is `[unsupported]` with the way round it. Phase 0's own tests had never seen the real reason: the fake refused the move without one |
