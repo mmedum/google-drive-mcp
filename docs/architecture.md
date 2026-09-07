@@ -8,8 +8,9 @@ three each need a Google API enabled in the Cloud project AND a scope the
 consent screen would otherwise not carry, which is why they are off by
 default — 39 tools in all, and 13 in read-only mode. Neither phase 5 nor
 phase 6 added a tool. Every method of all three APIs is recorded as used
-on purpose or left out on purpose, and a gate holds the record to the
-code.
+on purpose or left out on purpose, and a gate holds that record to the
+code AND to a snapshot of the APIs themselves — offline, on every
+commit.
 
 **What phase 6 is, and it is unreleased.** No new tools. The bundle, the
 README a released project should have, and the three gates §17a had

@@ -62,6 +62,31 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+
+- **The API record carried two columns nothing read, and its
+  completeness rested on a command CI never runs.** The HTTP verb and the
+  path sat between each method's name and its verdict, typed by hand,
+  parsed and dropped — so a method that kept its name and moved path was
+  invisible to every gate here. A sibling repository found the same two
+  dead columns in its own copy and reported it.
+
+  The file is split by who writes it. `testdata/api-methods.json` is
+  every method with its verb, path and a fetch date, written by `gates
+  api-diff` from the discovery documents and edited by nobody.
+  `testdata/api-coverage.tsv` is verdicts only: method, verdict, reason.
+
+  That split is what moved completeness into `make check`. It used to
+  rest on `api-diff` alone — manual, and needing the network — so the
+  claim that every method is used or deliberately out was made by a
+  document and held by nothing on a pull request. `gates api-coverage`
+  now fails on a method in the snapshot with no verdict, and on a verdict
+  for a method the snapshot no longer has, offline and on every commit.
+  Both watched failing.
+
+  `api-diff` reports CHANGED as well as NEW and GONE, which is the thing
+  the old shape could not see at all, and it is in the release checklist
+  now: a manual target nobody runs is a gate that never fires, and a
+  release is the moment somebody reliably runs one.
 - **The outcome gate subtracted where it should have selected.** It
   collected every long string in a request-tested branch and then took
   away the ones that were not outcomes, which is why it needed a list of
