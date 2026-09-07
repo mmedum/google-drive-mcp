@@ -46,6 +46,21 @@ func pins(out io.Writer, _ []string) error {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
 		for i, line := range strings.Split(string(source), "\n") {
+			// A tool downloaded in a run step floats just as a version
+			// input does, and this gate could not see one: it read the
+			// YAML inputs an action takes and nothing else. The MCP
+			// registry's own published example installs its publisher
+			// from `releases/latest/download`, so the first thing this
+			// repository copied from a primary source would have been
+			// the first thing to float past the gate that exists to stop
+			// exactly that.
+			if floating := floatingDownload.FindString(line); floating != "" {
+				checked++
+				problems = append(problems, fmt.Sprintf(
+					"%s:%d: %s installs whatever is newest. Name the version: what builds a "+
+						"release must not float.", path, i+1, strings.TrimSpace(floating)))
+				continue
+			}
 			m := versionInput.FindStringSubmatch(line)
 			if m == nil {
 				continue
@@ -124,3 +139,12 @@ var versionInput = regexp.MustCompile(`^\s*((?:[a-z-]+-)?(?:version|release)):\s
 // exactVersion is one version and nothing else: no `~>`, no `^`, no
 // `latest`, no bare major.
 var exactVersion = regexp.MustCompile(`^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`)
+
+// floatingDownload matches a tool fetched at whatever version is newest.
+//
+// Two spellings, because both appear in the wild and neither is a
+// version: a GitHub "latest release" download URL, and a Go module
+// installed at @latest. `runs-on: ubuntu-latest` is not one of them — an
+// image label is not a tool this repository ships an artifact from — so
+// the patterns are anchored to the shapes that fetch something.
+var floatingDownload = regexp.MustCompile(`releases/latest/download|@latest\b`)

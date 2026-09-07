@@ -29,3 +29,31 @@ func TestPinsShellDistinguishesWorkflowLevelFromJobLevel(t *testing.T) {
 		})
 	}
 }
+
+// TestATooldownloadedAtLatestIsNotPinned. The gate read the YAML inputs
+// an action takes and nothing else, so a tool fetched by curl in a run
+// step floated past it — and the first thing this repository copied from
+// a primary source, the MCP registry's own publishing example, installs
+// its publisher from `releases/latest/download`.
+//
+// `runs-on: ubuntu-latest` must not trip it: an image label is not a tool
+// a release artifact comes out of, and a gate that cried wolf on every
+// workflow in the world would be turned off within a day.
+func TestAToolDownloadedAtLatestIsNotPinned(t *testing.T) {
+	for _, c := range []struct {
+		name, line string
+		want       bool
+	}{
+		{"the registry's own documented example", `curl -L "https://github.com/x/y/releases/latest/download/z.tar.gz"`, true},
+		{"a Go module at latest", `go run example.com/tool@latest`, true},
+		{"a pinned download", `curl -L "https://github.com/x/y/releases/download/v1.8.1/z.tar.gz"`, false},
+		{"a pinned module", `go run example.com/tool@v1.8.1`, false},
+		{"a runner image", `    runs-on: ubuntu-latest`, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := floatingDownload.MatchString(c.line); got != c.want {
+				t.Errorf("floating = %v, want %v for %q", got, c.want, c.line)
+			}
+		})
+	}
+}

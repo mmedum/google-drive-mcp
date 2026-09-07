@@ -114,6 +114,7 @@ jobs:
       - run: go run ./scripts/gates mcpb
       - run: go run ./scripts/gates transcript
       - run: go run ./scripts/gates outcomes
+      - run: go run ./scripts/gates registry
       - run: go run ./scripts/gates parity
 
   smoke:
