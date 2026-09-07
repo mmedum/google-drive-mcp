@@ -239,6 +239,12 @@ once CI is green on all three platforms. See `CONTRIBUTING.md`.
 
 A release, once the phase's work is merged:
 
+0. Run `make api-diff`. It reaches the network, so it is a target rather
+   than a gate, and a manual target nobody runs is a gate that never
+   fires — the release is the moment somebody reliably runs it. It
+   rewrites `testdata/api-methods.json` and reports NEW, GONE and
+   CHANGED; every method it adds fails `make check` until
+   `testdata/api-coverage.tsv` gives it a verdict.
 1. On a topic branch, update `CHANGELOG.md`: move `[Unreleased]` into a
    version heading with today's date.
 2. Update the status line and the phase table in `docs/architecture.md`,
