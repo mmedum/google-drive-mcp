@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -42,9 +43,11 @@ const (
 // registryEntry is the part of server.json this repository decides. The
 // rest is passed through, so a field the registry adds later survives.
 type registryEntry struct {
-	Name     string `json:"name"`
-	Version  string `json:"version"`
-	Packages []struct {
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Version     string `json:"version"`
+	Packages    []struct {
 		RegistryType    string `json:"registryType"`
 		Identifier      string `json:"identifier"`
 		FileSha256      string `json:"fileSha256"`
@@ -88,6 +91,7 @@ func checkRegistryEntry(raw []byte, wantVersion string) (registryEntry, []string
 	if entry.Version != wantVersion {
 		problems = append(problems, fmt.Sprintf("version is %q, want %q", entry.Version, wantVersion))
 	}
+	problems = append(problems, checkRegistryLengths(entry)...)
 	if len(entry.Packages) != 1 {
 		problems = append(problems, fmt.Sprintf("%d packages; this server publishes exactly one, the bundle",
 			len(entry.Packages)))
@@ -219,3 +223,45 @@ func sumFromChecksums(path, name string) (string, error) {
 	return "", fmt.Errorf("%s names no %s; the bundle was not packed, or not covered by the checksums "+
 		"file and therefore not under the signature either", path, name)
 }
+
+// checkRegistryLengths holds the entry to the limits in the PUBLISHED
+// SCHEMA, which are a different set from the rules in the validator.
+//
+// This gate was written to catch the rules the schema does not carry, and
+// in aiming at those it skipped the ones it does. The first entry this
+// repository tried to publish was refused with `body.description:
+// expected length <= 100` after the OIDC login had succeeded — a
+// 205-character description that this gate had just passed. The schema
+// and the validator each carry rules the other does not, and checking one
+// is not checking the other.
+//
+// The numbers are transcribed from
+// static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json
+// rather than fetched, because a gate that reaches the network fails when
+// somebody else's CDN is slow and CI learns to ignore it. §18 records
+// where they came from and when.
+func checkRegistryLengths(entry registryEntry) []string {
+	var problems []string
+	limit := func(field, value string, minLen, maxLen int) {
+		switch {
+		case len(value) < minLen:
+			problems = append(problems, fmt.Sprintf("%s is %d characters, and the schema wants at least %d",
+				field, len(value), minLen))
+		case len(value) > maxLen:
+			problems = append(problems, fmt.Sprintf(
+				"%s is %d characters, and the schema allows at most %d. The registry refuses this at "+
+					"publish time, after the login has succeeded", field, len(value), maxLen))
+		}
+	}
+	limit("description", entry.Description, 1, 100)
+	limit("title", entry.Title, 1, 100)
+	limit("name", entry.Name, 3, 200)
+	limit("version", entry.Version, 1, 255)
+	if !serverNamePattern.MatchString(entry.Name) {
+		problems = append(problems, "name does not match the schema's pattern: "+entry.Name)
+	}
+	return problems
+}
+
+// serverNamePattern is the schema's own, transcribed with its source.
+var serverNamePattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`)

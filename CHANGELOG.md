@@ -44,6 +44,23 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+
+- **The registry gate checked the rules the schema does not carry, and
+  not the ones it does.** Reading the validator was right; aiming only at
+  it was not. The first entry this repository tried to publish was
+  refused with `body.description: expected length <= 100` against a
+  205-character description the gate had just passed — and the refusal
+  came AFTER the OIDC login succeeded, so everything that could have
+  failed for a boring reason had already worked.
+
+  Both sets are enforced now, each watched failing. The schema's limits
+  are transcribed with their source and date rather than fetched, because
+  a gate that reaches the network fails when somebody else's CDN is slow
+  and CI learns to ignore it.
+
+  The lesson is not about this file: two documents describe one contract,
+  and checking the one somebody told you about is not checking the
+  contract.
 - **The pins gate could not see a tool downloaded in a run step.** It
   read the version inputs an action takes and nothing else, so a `curl`
   of `releases/latest/download` floated straight past the gate whose
