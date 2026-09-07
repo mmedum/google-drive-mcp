@@ -46,6 +46,13 @@ type writeRun struct {
 	// registered at all.
 	labels   bool
 	activity bool
+	// started is when this run began, in the form Drive's date filters
+	// take. Everything the run makes is created after it, which is what
+	// makes a date filter checkable rather than merely accepted.
+	started string
+	// dueDate is a date in the future, which is the only kind an
+	// approval accepts.
+	dueDate string
 	// failures counts calls that did not behave as expected.
 	failures int
 }
@@ -59,7 +66,10 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o options) (int, error) {
 	w := &writeRun{sess: s, out: t, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
 		labels: o.labels, activity: o.activity}
-	stamp := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().UTC()
+	w.started = now.Format(time.RFC3339)
+	w.dueDate = now.AddDate(0, 0, 7).Format(time.RFC3339)
+	stamp := now.Format("2006-01-02 15:04:05")
 	name := fmt.Sprintf("%s %s", scratchPrefix, stamp)
 	args := map[string]any{"name": name}
 	if o.parent != "" {
@@ -101,6 +111,7 @@ func (w *writeRun) exercise() {
 	w.policyRefusal(ids)
 	w.resources(ids)
 	w.refusals(ids)
+	w.spareArguments(ids)
 	w.sharedDrive(ids)
 }
 
@@ -124,6 +135,12 @@ func (w *writeRun) phase4Extras(m made) {
 	// and the one §17a was left holding.
 	w.copyAndCheckComments(m.text, "rows with its comments.csv", "a csv")
 	w.copyAndCheckComments(m.doc, "Notes with its comments", "a Google Doc")
+	// The third kind, and the one that decides whether the split is a
+	// RULE. A Doc carried its threads and an uploaded CSV did not; the
+	// obvious reading is "Drive's own formats yes, uploaded bytes no",
+	// and a Sheet is Drive's own format that is not a Doc — so it agrees
+	// with the reading or refutes it, which two points cannot do.
+	w.copyAndCheckComments(m.sheet, "Figures with its comments", "a Google Sheet")
 	if m.text != "" {
 		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
 	}
@@ -215,6 +232,12 @@ func (w *writeRun) approvals(m made) {
 	started := w.call(call{tool: "manage_approval", args: map[string]any{
 		"file": m.doc, "action": "start", "reviewers": []any{account},
 		"message": "a scratch approval from the live driver",
+		// A due date has to be in the FUTURE: passing this run's own
+		// start time got "Invalid value at field dueTime" from Drive,
+		// because by the time the call is made it is already past. The
+		// recipe said "one argument at start" and was right about where
+		// and wrong about what.
+		"due": w.dueDate,
 	}})
 	id := approvalFromResult(started)
 	if id == "" {
@@ -249,6 +272,8 @@ func (w *writeRun) labelling(m made) {
 		return
 	}
 	w.out.Say("\n--- labels ---")
+	w.needing("list_labels", w.scratchID, map[string]any{"appliable": true, "page_size": 10})
+	w.needing("get_file", m.text, map[string]any{"file": m.text, "include_labels": true})
 	listing := w.call(call{tool: "list_labels", args: map[string]any{}})
 	id, field, choice := labelFromResult(listing)
 	if id == "" {
@@ -292,6 +317,17 @@ func (w *writeRun) activityFeed(m made) {
 	}
 	w.out.Say("\n--- activity ---")
 	w.needing("list_activity", w.scratchID, map[string]any{"file": w.scratchID, "recursive": true})
+	feed := w.call(call{tool: "list_activity", args: map[string]any{
+		"file": w.scratchID, "recursive": true, "page_size": 1, "since": w.started,
+	}})
+	if token := tokenIn(feed); token != "" {
+		w.needing("list_activity", w.scratchID, map[string]any{
+			"file": w.scratchID, "recursive": true, "page_size": 1, "page_token": token,
+		})
+	} else {
+		w.unverified("list_activity.page_token was not exercised: the feed returned no token",
+			errors.New("the activity feed is eventually consistent and may still be empty"))
+	}
 	if m.doc != "" {
 		w.needing("list_activity", m.doc, map[string]any{"file": m.doc})
 		w.needing("list_activity", m.doc, map[string]any{"file": m.doc, "actions": []any{"create", "edit"}})
@@ -314,7 +350,9 @@ func (w *writeRun) collaboration(m made) {
 	// A thread on a blob and a thread on a Google document: Drive stores
 	// them the same way, and that is the claim worth checking live,
 	// because every other server puts comments in the Docs API.
-	for _, target := range []struct{ id, what string }{{m.text, "a csv"}, {m.doc, "a Google Doc"}} {
+	for _, target := range []struct{ id, what string }{
+		{m.text, "a csv"}, {m.doc, "a Google Doc"}, {m.sheet, "a Google Sheet"},
+	} {
 		if target.id == "" {
 			continue
 		}
@@ -486,7 +524,7 @@ func (w *writeRun) access(m made) {
 	}, "a shared-drive role on a file in My Drive")
 	w.expecting("share_file", m.text, map[string]any{
 		"file": m.text, "principal": "anyone", "role": "reader",
-		"allow_anyone": true, "expires": "30d",
+		"allow_anyone": true, "expires": "30d", "discoverable": false,
 	}, "an expiry on a link grant, which Drive allows only for people and groups")
 
 	// The link grant, which is the exposure worth seeing before and
@@ -499,6 +537,7 @@ func (w *writeRun) access(m made) {
 		"file": m.text, "principal": "anyone", "role": "reader", "allow_anyone": true,
 	})
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
+	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true, "dry_run": true})
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true})
 
 	if w.share == "" {
@@ -1255,3 +1294,194 @@ func (w *writeRun) copyAndCheckComments(id, name, kind string) {
 	}
 	w.out.Sayf("(the copy of %s carried its comment threads: Drive honoured copy_comments here)", kind)
 }
+
+// spareArguments drives the options `gates live-cover` recorded as
+// undriven: ones a live step COULD send and none did.
+//
+// They are here rather than added to the calls above on purpose. Those
+// calls are verified — each has run against Drive and had its result
+// read — and adding an argument to a verified call changes what was
+// verified. A new call with the argument on it proves the same thing and
+// risks nothing that already works.
+//
+// Every one of these was written down in testdata/live-cover.tsv with
+// the sentence that closes it, which is what made this a batch of small
+// edits rather than a re-reading of the whole surface. That is the
+// argument for recording a gap with its recipe instead of only its name.
+func (w *writeRun) spareArguments(m made) {
+	w.out.Say("\n--- the options nothing had sent ---")
+
+	// Creates, with the arguments a create takes and the run never gave
+	// it. The duplicate-name guard is the interesting one: it is refused
+	// by default and these say so.
+	w.needing("create_folder", w.scratchID, map[string]any{
+		"name": "a coloured folder", "parent": w.scratchID, "color": "#4986e7",
+	})
+	w.needing("create_file", w.scratchID, map[string]any{
+		"name": "described and starred.txt", "parent": w.scratchID, "content": "one\n",
+		"description": "made by the live driver", "starred": true, "allow_duplicate": true,
+	})
+	w.needing("create_shortcut", m.text, map[string]any{
+		"target": m.text, "parent": w.scratchID, "name": "a second shortcut", "allow_duplicate": true,
+	})
+	w.needing("copy_file", m.text, map[string]any{
+		"file": m.text, "name": "a pinned copy.csv", "to": w.scratchID,
+		"keep_revision_forever": true, "allow_duplicate": true,
+	})
+
+	// The upload path, which takes five of these and had been driven with
+	// none of them.
+	if w.dir != "" {
+		path := filepath.Join(w.dir, "described upload.txt")
+		if err := os.WriteFile(path, []byte("bytes Drive does not read on its own\n"), 0o600); err != nil {
+			w.problem("writing the upload fixture", err)
+		} else {
+			w.needing("upload_file", w.scratchID, map[string]any{
+				"local_path": "described upload.txt", "parent": w.scratchID,
+				"description": "uploaded by the live driver", "mime_type": "text/plain",
+				"use_content_as_indexable_text": true, "allow_duplicate": true,
+			})
+			w.needing("upload_file", w.scratchID, map[string]any{
+				"local_path": "described upload.txt", "parent": w.scratchID,
+				"name": "imported as a doc", "convert_to": "doc", "allow_duplicate": true,
+			})
+		}
+	}
+
+	// The two sharing switches on a file, which the card prints back.
+	w.needing("update_file", m.text, map[string]any{
+		"file": m.text, "copy_requires_writer_permission": true, "writers_can_share": false,
+	})
+	w.needing("update_content", m.text, map[string]any{
+		"file": m.text, "content": "col\nrow\n", "mime_type": "text/csv",
+	})
+
+	// A dry run in front of something reversible, and an older revision
+	// fetched by id — the one the run has just made a second one over.
+	w.needing("restore_file", m.text, map[string]any{"file": m.text, "dry_run": true})
+	if rev := w.firstRevision(m.text); rev != "" {
+		w.needing("download_file", m.text, map[string]any{"file": m.text, "revision": rev})
+	} else {
+		w.unverified("download_file.revision was not exercised: no older revision is listed",
+			errors.New("the revision listing lags the write that made one"))
+	}
+
+	w.spareListings(m)
+	w.spareSearches()
+}
+
+// spareListings drives the paging and filter options on the listings.
+//
+// page_size: 1 is how a token is produced without making more items than
+// a scratch folder should hold: the first page comes back with one row
+// and a token, and the token is what proves paging works rather than
+// merely parses.
+func (w *writeRun) spareListings(m made) {
+	first := w.call(call{tool: "list_folder", args: map[string]any{
+		"folder": w.scratchID, "page_size": 1,
+	}})
+	if token := tokenIn(first); token != "" {
+		w.needing("list_folder", w.scratchID, map[string]any{
+			"folder": w.scratchID, "page_size": 1, "page_token": token,
+		})
+	} else {
+		w.unverified("list_folder.page_token was not exercised: the first page came back without a token",
+			errors.New("the scratch folder holds fewer items than the run expected"))
+	}
+	w.needing("list_folder", w.scratchID, map[string]any{
+		// "file" is not a kind. The kinds are the ones the refusal lists:
+		// any, audio, doc, drawing, folder, form, image, office, pdf,
+		// sheet, shortcut, slides, video — and the run makes a sheet.
+		"folder": w.scratchID, "include_trashed": true, "kind": "sheet", "max_items": 50, "recursive": true,
+	})
+
+	if m.text != "" {
+		// A second thread, so that page_size: 1 has a second page to
+		// point at. The run made one thread per file, so the paged call
+		// came back without a token and the step reported UNVERIFIED —
+		// correctly, and for a reason one more comment removes.
+		w.needing("add_comment", m.text, map[string]any{
+			"file": m.text, "content": "and a second thread, so paging has somewhere to go",
+		})
+		comments := w.call(call{tool: "list_comments", args: map[string]any{
+			"file": m.text, "page_size": 1, "since": w.started,
+		}})
+		if token := tokenIn(comments); token != "" {
+			w.needing("list_comments", m.text, map[string]any{
+				"file": m.text, "page_size": 1, "page_token": token,
+			})
+		} else {
+			w.unverified("list_comments.page_token was not exercised: one page held every thread",
+				errors.New("the run made fewer threads than a second page needs"))
+		}
+	}
+	w.needing("list_changes", w.scratchID, map[string]any{"my_drive_only": true, "limit": 5})
+	if m.doc != "" {
+		w.needing("list_approvals", m.doc, map[string]any{"file": m.doc, "page_size": 5})
+	}
+}
+
+// spareSearches drives the search fields nothing sent. Every one is
+// scoped to the scratch folder or to this run's own moment, so a search
+// that matches something matches something this run made.
+func (w *writeRun) spareSearches() {
+	w.needing("search_files", w.scratchID, map[string]any{
+		"in_folder": w.scratchID, "created_after": w.started, "modified_after": w.started,
+	})
+	w.needing("search_files", w.scratchID, map[string]any{
+		"in_folder": w.scratchID, "mime_type": "text/csv", "trashed": false,
+	})
+	w.needing("search_files", w.scratchID, map[string]any{
+		"in_folder": w.scratchID, "owner": "me", "scope": "my_drive", "starred": true,
+	})
+	// A before that excludes everything this run made, which is the half
+	// that proves the bound is applied rather than accepted.
+	w.needing("search_files", w.scratchID, map[string]any{
+		"in_folder": w.scratchID, "modified_before": w.started,
+	})
+	w.needing("search_files", w.scratchID, map[string]any{
+		"in_folder": w.scratchID, "raw_query": "trashed = false",
+	})
+	// Full text waits on Drive's index the way the property search does,
+	// so this proves the argument reaches Drive rather than that the
+	// index has caught up.
+	w.needing("search_files", w.scratchID, map[string]any{
+		"in_folder": w.scratchID, "text": "livedrive",
+	})
+	page := w.call(call{tool: "search_files", args: map[string]any{
+		"in_folder": w.scratchID, "limit": 1,
+	}})
+	if token := tokenIn(page); token != "" {
+		w.needing("search_files", w.scratchID, map[string]any{
+			"in_folder": w.scratchID, "limit": 1, "page_token": token,
+		})
+	} else {
+		w.unverified("search_files.page_token was not exercised: the first page came back without a token",
+			errors.New("the index has not caught up with the folder this run just filled"))
+	}
+}
+
+// tokenIn reads the continuation token a listing prints, or "" when the
+// page was the last one.
+//
+// The pattern is read off internal/render, which prints it as part of a
+// sentence — `more results: call again with page_token "…"` — and not on
+// an `id:` line the way it prints an id. The first version of this
+// assumed the id shape without looking, so all four paged steps reported
+// UNVERIFIED against listings that HAD returned a token, and the record
+// was corrected on the strength of a reader that could not see it. The
+// recorder is what caught that: the source said the option was sent and
+// the run said it was not.
+//
+// The value read here is the raw one. The transcript redacts on the way
+// to the terminal, so what a person sees is a placeholder and what the
+// next call sends is the token Drive gave.
+func tokenIn(result string) string {
+	m := pageTokenLine.FindStringSubmatch(result)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+var pageTokenLine = regexp.MustCompile(`page_token "([^"]+)"`)
