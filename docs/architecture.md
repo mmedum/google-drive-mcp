@@ -1,6 +1,6 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 6 complete (2026-09-06), released as v1.0.1. A default
+**Status:** phase 6 complete (2026-09-06), released as v1.0.2. A default
 build registers **31** tools; eight more exist behind a flag — the
 destructive five, plus `list_labels` and `manage_labels` under
 `GDRIVE_LABELS` and `list_activity` under `GDRIVE_ACTIVITY`. Those last
