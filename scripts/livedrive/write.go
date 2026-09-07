@@ -50,6 +50,9 @@ type writeRun struct {
 	// take. Everything the run makes is created after it, which is what
 	// makes a date filter checkable rather than merely accepted.
 	started string
+	// dueDate is a date in the future, which is the only kind an
+	// approval accepts.
+	dueDate string
 	// failures counts calls that did not behave as expected.
 	failures int
 }
@@ -65,6 +68,7 @@ func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o opti
 		labels: o.labels, activity: o.activity}
 	now := time.Now().UTC()
 	w.started = now.Format(time.RFC3339)
+	w.dueDate = now.AddDate(0, 0, 7).Format(time.RFC3339)
 	stamp := now.Format("2006-01-02 15:04:05")
 	name := fmt.Sprintf("%s %s", scratchPrefix, stamp)
 	args := map[string]any{"name": name}
@@ -131,6 +135,12 @@ func (w *writeRun) phase4Extras(m made) {
 	// and the one §17a was left holding.
 	w.copyAndCheckComments(m.text, "rows with its comments.csv", "a csv")
 	w.copyAndCheckComments(m.doc, "Notes with its comments", "a Google Doc")
+	// The third kind, and the one that decides whether the split is a
+	// RULE. A Doc carried its threads and an uploaded CSV did not; the
+	// obvious reading is "Drive's own formats yes, uploaded bytes no",
+	// and a Sheet is Drive's own format that is not a Doc — so it agrees
+	// with the reading or refutes it, which two points cannot do.
+	w.copyAndCheckComments(m.sheet, "Figures with its comments", "a Google Sheet")
 	if m.text != "" {
 		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
 	}
@@ -222,10 +232,12 @@ func (w *writeRun) approvals(m made) {
 	started := w.call(call{tool: "manage_approval", args: map[string]any{
 		"file": m.doc, "action": "start", "reviewers": []any{account},
 		"message": "a scratch approval from the live driver",
-		// Recorded as undriven with "one argument at start, and the
-		// approval card prints the due date back" — which is the whole
-		// recipe, so it goes on the call the recipe names.
-		"due": w.started,
+		// A due date has to be in the FUTURE: passing this run's own
+		// start time got "Invalid value at field dueTime" from Drive,
+		// because by the time the call is made it is already past. The
+		// recipe said "one argument at start" and was right about where
+		// and wrong about what.
+		"due": w.dueDate,
 	}})
 	id := approvalFromResult(started)
 	if id == "" {
@@ -338,7 +350,9 @@ func (w *writeRun) collaboration(m made) {
 	// A thread on a blob and a thread on a Google document: Drive stores
 	// them the same way, and that is the claim worth checking live,
 	// because every other server puts comments in the Docs API.
-	for _, target := range []struct{ id, what string }{{m.text, "a csv"}, {m.doc, "a Google Doc"}} {
+	for _, target := range []struct{ id, what string }{
+		{m.text, "a csv"}, {m.doc, "a Google Doc"}, {m.sheet, "a Google Sheet"},
+	} {
 		if target.id == "" {
 			continue
 		}
@@ -1375,10 +1389,20 @@ func (w *writeRun) spareListings(m made) {
 			errors.New("the scratch folder holds fewer items than the run expected"))
 	}
 	w.needing("list_folder", w.scratchID, map[string]any{
-		"folder": w.scratchID, "include_trashed": true, "kind": "file", "max_items": 50, "recursive": true,
+		// "file" is not a kind. The kinds are the ones the refusal lists:
+		// any, audio, doc, drawing, folder, form, image, office, pdf,
+		// sheet, shortcut, slides, video — and the run makes a sheet.
+		"folder": w.scratchID, "include_trashed": true, "kind": "sheet", "max_items": 50, "recursive": true,
 	})
 
 	if m.text != "" {
+		// A second thread, so that page_size: 1 has a second page to
+		// point at. The run made one thread per file, so the paged call
+		// came back without a token and the step reported UNVERIFIED —
+		// correctly, and for a reason one more comment removes.
+		w.needing("add_comment", m.text, map[string]any{
+			"file": m.text, "content": "and a second thread, so paging has somewhere to go",
+		})
 		comments := w.call(call{tool: "list_comments", args: map[string]any{
 			"file": m.text, "page_size": 1, "since": w.started,
 		}})
@@ -1438,8 +1462,20 @@ func (w *writeRun) spareSearches() {
 }
 
 // tokenIn reads the continuation token a listing prints, or "" when the
-// page was the last one. The renderers print it as `page_token: VALUE`
-// on a line of its own, the way they print an id.
+// page was the last one.
+//
+// The pattern is read off internal/render, which prints it as part of a
+// sentence — `more results: call again with page_token "…"` — and not on
+// an `id:` line the way it prints an id. The first version of this
+// assumed the id shape without looking, so all four paged steps reported
+// UNVERIFIED against listings that HAD returned a token, and the record
+// was corrected on the strength of a reader that could not see it. The
+// recorder is what caught that: the source said the option was sent and
+// the run said it was not.
+//
+// The value read here is the raw one. The transcript redacts on the way
+// to the terminal, so what a person sees is a placeholder and what the
+// next call sends is the token Drive gave.
 func tokenIn(result string) string {
 	m := pageTokenLine.FindStringSubmatch(result)
 	if len(m) < 2 {
@@ -1448,4 +1484,4 @@ func tokenIn(result string) string {
 	return m[1]
 }
 
-var pageTokenLine = regexp.MustCompile(`(?m)^page_token:[ \t]*(\S+)[ \t]*$`)
+var pageTokenLine = regexp.MustCompile(`page_token "([^"]+)"`)
