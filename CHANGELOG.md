@@ -8,6 +8,39 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+
+- **`copy_comments` is a rule now, not an inference.** A Google Sheet's
+  comment threads came across on a copy, as a Doc's had; an uploaded
+  CSV's did not, same run, same argument. Two points were a reading —
+  "Drive's own formats yes, uploaded bytes no" — and the Sheet is Drive's
+  own format that is not a Doc, so it agreed with the reading or refuted
+  it. The driver copies all three kinds every run and says which carried,
+  because a fact that has already changed once is one to re-check.
+
+- **The live run found three defects in the driver additions above**, all
+  written in the same sitting, which is the argument for running a driver
+  change rather than reading it.
+
+  `manage_approval.due` was given this run's own start time. A due date
+  must be in the FUTURE, and by the time the call is made that moment is
+  past: Drive answered `Invalid value at field dueTime`. The recipe said
+  "one argument at start" and was right about where and wrong about what.
+
+  `list_folder.kind: "file"` is not a kind. The server's own refusal
+  lists the thirteen that are, and the run printed it.
+
+  And the paging reader looked for the wrong shape. It expected
+  `page_token: VALUE` on a line of its own, the way an id is printed;
+  `internal/render` puts it in a sentence — `more results: call again
+  with page_token "…"`. So four paged steps reported UNVERIFIED against
+  listings that HAD returned a token, and fifty-two rows had been struck
+  from the record on the strength of a reader that could not see one.
+
+  The recorder is what caught that last one: the source said the option
+  was sent and the run said it was not. That gap is the whole reason a
+  sibling repository argued for building the recorder as well as the
+  static gate, and it found an over-claim inside an hour, in work whose
+  subject was the record itself.
 - **The live driver's option coverage goes from 122 of 188 to 174.**
   Fifty-two gaps closed in one sitting, which is the argument for
   recording a gap with its RECIPE rather than only its name: every row in
