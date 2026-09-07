@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mmedum/google-drive-mcp",
+  "title": "Google Drive",
+  "description": "Google Drive as MCP tools: find files and know where they live and who can see them, organise, transfer, share and follow what changed. A single Go binary on your own machine, against your own Google account.",
+  "repository": {
+    "url": "https://github.com/mmedum/google-drive-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/mmedum/google-drive-mcp#readme",
+  "version": "0.0.0-dev",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/mmedum/google-drive-mcp/releases/download/v0.0.0-dev/google-drive-mcp_0.0.0-dev.mcpb",
+      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
