@@ -22,9 +22,14 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   requires and never checks — MCP clients check it, before installing.
   Each is refused by `gates registry`, and each is watched failing.
 
-  The entry is generated at release time from `checksums.txt`, the file
-  cosign has just signed, so the hash a client verifies is the number
-  under the signature. The committed file carries a placeholder version
+  The entry is generated from the PUBLISHED release's `checksums.txt`,
+  the file cosign signed, so the hash a client verifies is the number
+  under the signature. Publishing is its own workflow, called by the
+  release and runnable on its own with `gh workflow run publish-mcp.yml
+  -f tag=vX.Y.Z` — because a step that can only run at the end of a
+  release is a step whose only recovery is another release, and the first
+  entry this repository published was for a release that had already
+  shipped. The committed file carries a placeholder version
   for the reason the bundle manifest does, and the release writes its
   entry to stdout rather than over the tree, so a half-finished release
   cannot leave a real version behind.
