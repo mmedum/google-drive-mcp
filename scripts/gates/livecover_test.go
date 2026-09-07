@@ -16,8 +16,14 @@ func TestTheLiveCoverRecordIsWellFormed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%s: %v", liveCoverFile, err)
 	}
-	if len(recorded) < 20 {
-		t.Errorf("%s lists %d options; the measurement found 66", liveCoverFile, len(recorded))
+	// A floor, not the count: the record shrinks as gaps are closed —
+	// it went from 66 rows to 14 in one sitting — and a test pinned to
+	// the number would fail every time somebody did the work it exists
+	// to encourage. What it guards is a record that has gone empty or
+	// unread, which is a different thing from a record that got shorter.
+	if len(recorded) < 5 {
+		t.Errorf("%s lists %d options; that is few enough to suspect the file is not being read",
+			liveCoverFile, len(recorded))
 	}
 	for name, entry := range recorded {
 		if !strings.Contains(name, ".") {

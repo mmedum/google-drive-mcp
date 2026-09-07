@@ -101,6 +101,7 @@ func runDestructive(w *writeRun, name string) {
 	// somebody's Workspace.
 	defer d.deleteTheDrive()
 
+	d.driveScopedArguments()
 	d.refusalsWithoutConfirm()
 	d.deleteAFile()
 	d.deleteARevision()
@@ -418,4 +419,31 @@ func (d *destroyRun) deleteTheDrive() {
 // both are recognisable as this driver's.
 func driveScratchName(stamp string) string {
 	return fmt.Sprintf("%s drive %s", scratchPrefix, stamp)
+}
+
+// driveScopedArguments drives the options that need a shared drive, which
+// this run is the only part of the driver to have one of.
+//
+// They were recorded as undriven with "the destructive run holds a drive
+// id" as the recipe, and the recipe was right: every one of these is one
+// argument on a call, given somewhere to point it. Restricting a drive
+// is safe here for the reason the whole section is safe — the drive
+// belongs to this run and is destroyed at the end of it.
+func (d *destroyRun) driveScopedArguments() {
+	d.out.Say("\n--- the drive-scoped options nothing had sent ---")
+	d.needing("list_drives", d.driveID, map[string]any{
+		"name": d.driveName, "include_hidden": true,
+	})
+	d.needing("search_files", d.driveID, map[string]any{
+		"drive": d.driveID, "in_folder": d.driveID,
+	})
+	d.needing("list_changes", d.driveID, map[string]any{"drive": d.driveID, "limit": 5})
+	d.needing("manage_drive", d.driveID, map[string]any{
+		"action": "restrict", "drive": d.driveID, "dry_run": true,
+		"restrictions": map[string]any{"copy_requires_writer_permission": true},
+	})
+	d.needing("manage_drive", d.driveID, map[string]any{
+		"action": "restrict", "drive": d.driveID,
+		"restrictions": map[string]any{"copy_requires_writer_permission": true},
+	})
 }
