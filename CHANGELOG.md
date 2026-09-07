@@ -45,6 +45,24 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 
+- **The setup step named one scope and `login` can request five.** A
+  reader following it adds `auth/drive`, turns on `GDRIVE_LABELS` or
+  `GDRIVE_ACTIVITY` later, and is refused by a consent screen that does
+  not carry `drive.labels`, `drive.labels.readonly` or
+  `drive.activity.readonly` — the feature-gated scopes being the ones
+  nobody notices, because they are absent from every run that does not
+  use them.
+
+  The step names all five now, with the condition each is requested
+  under, and `doctor` is named as what reports a missing one after the
+  fact. A check holds the list to `internal/auth`'s own constants, so it
+  cannot drift again: an instruction that is disprovable in one command
+  is, for a setup step, the same as being wrong.
+
+  Raised by the first outside person to install this family of servers,
+  who checked a sibling's equivalent instruction against its code. That
+  one turned out to be right and unexplained; this one was neither.
+
 - **The registry gate checked the rules the schema does not carry, and
   not the ones it does.** Reading the validator was right; aiming only at
   it was not. The first entry this repository tried to publish was
