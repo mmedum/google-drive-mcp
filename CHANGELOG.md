@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The live driver's option coverage goes from 122 of 188 to 174.**
+  Fifty-two gaps closed in one sitting, which is the argument for
+  recording a gap with its RECIPE rather than only its name: every row in
+  `testdata/live-cover.tsv` already said what would close it, so the work
+  was a batch of small edits instead of a re-reading of the whole
+  surface.
+
+  They are driven in a section of their own rather than added to the
+  calls above. Those calls are verified — each has run against Drive and
+  had its result read — and adding an argument to a verified call changes
+  what was verified. A new call with the argument on it proves the same
+  thing and risks nothing that already works.
+
+  The ceiling on undriven rows drops from 56 to 4, and it only ever goes
+  down. What is left is four rows with one cause between them: three want
+  an id the renderer prints INDENTED inside a listing rather than on an
+  `id:` line, which is the shape the driver's reader knows. The fourth
+  needs more approvals on one file than an edition allows open at once.
+
+### Fixed
+
+- **The outcome gate subtracted where it should have selected.** It
+  collected every long string in a request-tested branch and then took
+  away the ones that were not outcomes, which is why it needed a list of
+  function names AND a length heuristic AND a record file to be right,
+  each got right independently. It now asks the question the gate is
+  actually about: does this literal reach what the caller reads? In this
+  package that is three shapes and only three, because `internal/render`
+  writes every result there is.
+
+  `Errorf` prose and `slog` prose are excluded by construction rather
+  than by name, and the length heuristic is gone — a short note is still
+  a note. A test caught the first draft missing `outcome{Note: "…"}`,
+  which is the commonest of the three.
+
+- **Nothing held the bundle's staged binaries to goreleaser's build
+  matrix.** Two lists in two files, and only one direction rotted loudly:
+  a platform REMOVED from the matrix fails at pack time when the glob
+  finds nothing, and a platform ADDED to it is simply absent from the
+  bundle, silently, for as long as nobody looks. That is the shape `gates
+  parity` exists for one file over. Watched failing by adding a platform.
+
 ## [1.0.2] - 2026-09-07
 
 ### Added

@@ -297,21 +297,110 @@ func consultsDrive(body *ast.BlockStmt) bool {
 	return found
 }
 
-// proseIn finds a sentence in a branch: a string literal with a space in
-// it, long enough to be words rather than a key or a separator.
+// proseIn finds a sentence in a branch that REACHES THE CALLER.
 //
-// A refusal is not an outcome and is skipped. Errorf says what this
-// server did — it declined — which is a fact about the call and true
-// whatever Drive would have said. What this gate is about is the other
-// kind of sentence: the one that tells the caller what is now true of a
-// file, and can be wrong.
+// It selects rather than subtracts, which §17a recorded as the shape
+// this gate should have had from the start. The first version collected
+// every long string in the branch and then took away the ones that were
+// not outcomes — a refusal, a log line — which is why it needed a list of
+// function names AND a length heuristic AND a record file to be right,
+// and why every one of those three had to be got right independently.
+//
+// The question a positive rule asks is the one the gate is actually
+// about: does this literal end up in what the caller reads? In this
+// package that is two shapes and only two — appended to a `notes` slice
+// that ends in an outcome, or assigned into a note field — because
+// `internal/render` writes every result there is. Errorf prose and slog
+// prose are excluded by construction now rather than by name, and a
+// sentence built in a strings.Builder for an error is not a candidate at
+// all.
+//
+// The length heuristic is gone with them. A short note is still a note.
 func proseIn(body *ast.BlockStmt, fset *token.FileSet) (string, int) {
 	quote, line := "", 0
 	ast.Inspect(body, func(n ast.Node) bool {
 		if quote != "" {
 			return false
 		}
-		if call, ok := n.(*ast.CallExpr); ok && isRefusalOrLog(call) {
+		value, pos, ok := noteText(n)
+		if !ok {
+			return true
+		}
+		quote, line = short(value), fset.Position(pos).Line
+		return false
+	})
+	return quote, line
+}
+
+// noteText reports the words a statement puts in front of the caller.
+//
+// Two shapes, both of which end in the Note the renderer prints:
+//
+//	notes = append(notes, "…")   // a slice joined into one note
+//	o.Note = "…"                 // or +=, on a field named Note
+//
+// A literal anywhere else in the branch — an error's words, a log line, a
+// map key, a format for a debug print — is not what a caller reads, and
+// the first version of this gate had to name each of those to ignore it.
+func noteText(n ast.Node) (string, token.Pos, bool) {
+	switch v := n.(type) {
+	case *ast.AssignStmt:
+		for i, lhs := range v.Lhs {
+			if i >= len(v.Rhs) || !isNoteTarget(lhs) {
+				continue
+			}
+			if s, pos, ok := literalIn(v.Rhs[i]); ok {
+				return s, pos, true
+			}
+		}
+	case *ast.KeyValueExpr:
+		// outcome{Note: "…"}, which is the commonest of the three and
+		// the one the first draft of this rule missed. A test caught it:
+		// the dry-run branch that states an outcome without marking its
+		// result went unflagged, which is the exact case the field-name
+		// exclusion used to hide.
+		if key, ok := v.Key.(*ast.Ident); ok && key.Name == "Note" {
+			if s, pos, ok := literalIn(v.Value); ok {
+				return s, pos, true
+			}
+		}
+	case *ast.CallExpr:
+		id, ok := v.Fun.(*ast.Ident)
+		if !ok || id.Name != "append" || len(v.Args) < 2 {
+			return "", 0, false
+		}
+		if !isNoteTarget(v.Args[0]) {
+			return "", 0, false
+		}
+		for _, arg := range v.Args[1:] {
+			if s, pos, ok := literalIn(arg); ok {
+				return s, pos, true
+			}
+		}
+	}
+	return "", 0, false
+}
+
+// isNoteTarget reports whether an expression is where a result's words
+// are collected: a `notes` slice, or a field called Note.
+func isNoteTarget(e ast.Expr) bool {
+	switch v := e.(type) {
+	case *ast.Ident:
+		return v.Name == "note" || v.Name == "notes"
+	case *ast.SelectorExpr:
+		return v.Sel.Name == "Note" || v.Sel.Name == "note"
+	}
+	return false
+}
+
+// literalIn finds the first string literal an expression carries, so
+// that a note built by concatenation is read as the sentence it is.
+func literalIn(e ast.Expr) (string, token.Pos, bool) {
+	var value string
+	var pos token.Pos
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if found {
 			return false
 		}
 		lit, ok := n.(*ast.BasicLit)
@@ -319,13 +408,13 @@ func proseIn(body *ast.BlockStmt, fset *token.FileSet) (string, int) {
 			return true
 		}
 		v, err := strconv.Unquote(lit.Value)
-		if err != nil || len(v) < 25 || !strings.Contains(strings.TrimSpace(v), " ") {
+		if err != nil || strings.TrimSpace(v) == "" {
 			return true
 		}
-		quote, line = short(v), fset.Position(lit.Pos()).Line
+		value, pos, found = v, lit.Pos(), true
 		return false
 	})
-	return quote, line
+	return value, pos, found
 }
 
 // isRefusalOrLog reports whether a call produces an error or a log line

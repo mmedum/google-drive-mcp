@@ -1743,29 +1743,30 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   and the obvious reading of them, and Google documents no such limit on
   the parameter. A third kind — a Sheet, or an uploaded PDF, which Drive
   can comment on natively — would make it a rule or refute it.
-- **The outcome gate subtracts rather than selects.** It collects every
-  long string in a request-tested branch and then takes away the ones
-  that are not outcomes — a refusal, a log line — which is why it needs a
-  list of function names, a 25-character heuristic AND a record file to
-  be right. The positive form is one question: does this literal reach
-  the caller's `Result`? In this package that is two shapes — appended to
-  a `notes` slice that ends in an `outcome{Note: ...}`, or assigned to a
-  note field — and both current exemptions are one of them. With it,
-  `Errorf` prose and `slog` prose are excluded by construction rather
-  than by name, and the length heuristic goes.
+- ~~The outcome gate subtracts rather than selects.~~ **Done.** It asks
+  the positive question now — does this literal reach what the caller
+  reads — and the answer is three shapes, because `internal/render`
+  writes every result there is: appended to a `notes` slice, assigned to
+  a note field, or set as `Note:` in an outcome literal. `Errorf` prose
+  and `slog` prose are excluded by construction rather than by name, the
+  25-character heuristic is gone, and `isRefusalOrLog` went from two
+  callers to one narrow use.
 
-  Not done because it wants a walk from the literal to the returned
-  outcome, which is real work against a gate that is currently correct on
-  every branch in the package. Raised by the phase-6 altitude review.
+  A test caught the first draft missing the third shape, which is the
+  commonest one in the package. The entry predicted this would be "real
+  work against a gate that is currently correct on every branch"; it was
+  an hour, and the gate is correct on every branch for a reason now
+  rather than by three independent adjustments agreeing.
 
-- **`gates mcpb` stages four binaries and nothing holds that list to
-  `.goreleaser.yaml`.** A platform added to the build matrix would
-  silently not reach the bundle; a platform removed fails loudly at pack
-  time, when `onlyMatch` finds no file. So one direction rots quietly,
-  which is the shape `gates parity` exists for one file over. Deriving
-  the globs from the matrix, or failing when the matrix names a platform
-  the bundle does not stage, is the same idea. Raised by the phase-6
-  altitude review.
+- ~~`gates mcpb` stages four binaries and nothing holds that list to
+  `.goreleaser.yaml`.~~ **Done.** `checkBuildMatrix` reads the `goos`
+  matrix and fails when the bundle stages nothing from a platform
+  goreleaser builds. Watched failing by adding one.
+
+  The asymmetry the entry named is why it was worth doing: a platform
+  REMOVED from the matrix fails loudly at pack time when the glob finds
+  nothing, and a platform ADDED is simply absent from the bundle, in
+  silence, for as long as nobody looks.
 
 - **`manage_labels` is unverified live, and `list_labels` is not.** The
   Drive Labels API answers (`doctor` calls `labels.list` and it
