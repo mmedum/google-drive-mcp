@@ -179,10 +179,23 @@ step you missed.
      and add your own address as a test user. Google expires refresh
      tokens for a Testing app after **7 days**, so you will re-run
      `login` about once a week.
-4. **Add the scope** `https://www.googleapis.com/auth/drive`
-   (or `.../auth/drive.readonly` if you will run with
-   `GDRIVE_READ_ONLY=true`). It is a restricted scope, which is fine for
+4. **Add the scopes this server asks for.** Which ones depends on how you
+   run it, and `login` requests exactly the set your configuration needs
+   — so add the ones you will use, and re-run `login` if you turn a
+   feature on later. All of them are restricted scopes, which is fine for
    an app only you use and never publish.
+
+   | Scope | Requested when |
+   |---|---|
+   | `https://www.googleapis.com/auth/drive` | always, unless read-only |
+   | `https://www.googleapis.com/auth/drive.readonly` | instead of it, with `GDRIVE_READ_ONLY=true` |
+   | `https://www.googleapis.com/auth/drive.labels` | with `GDRIVE_LABELS=true` |
+   | `https://www.googleapis.com/auth/drive.labels.readonly` | with `GDRIVE_LABELS=true` and read-only |
+   | `https://www.googleapis.com/auth/drive.activity.readonly` | with `GDRIVE_ACTIVITY=true` |
+
+   `google-drive-mcp doctor` names any scope your token is missing, which
+   is what to run if a call comes back refused after you change a flag.
+
 5. **Create credentials → OAuth client ID → Desktop app**, and download
    the JSON. A *Web application* client will not work: this server uses
    the loopback flow Google documents for desktop apps.

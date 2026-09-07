@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -46,6 +47,7 @@ func staleness(out io.Writer, args []string) error {
 	problems = append(problems, checkConfigDocs(settings)...)
 	problems = append(problems, checkArchitectureStatus()...)
 	problems = append(problems, checkStatusVersions()...)
+	problems = append(problems, checkScopesDocumented()...)
 
 	changelog, err := checkChangelog()
 	if err != nil {
@@ -281,3 +283,46 @@ func goFilesChanged() bool {
 func tagExists(tag string) bool {
 	return exec.Command("git", "rev-parse", "-q", "--verify", "refs/tags/"+tag).Run() == nil
 }
+
+// checkScopesDocumented holds the README's setup step to the scopes
+// login can actually request.
+//
+// A setup instruction that names fewer scopes than the code asks for is
+// disprovable in one command, which for a setup step is the same as
+// being wrong: the reader adds what they were told to, runs login, and
+// is refused by a consent screen that does not carry the rest. This
+// README named one scope where the code can ask for five — the label and
+// activity pairs are requested only with their features on, which is
+// exactly why nobody noticed.
+//
+// Found by the first outside person to install this family of servers,
+// who checked the equivalent instruction in a sibling repository against
+// its code and reported the gap. The sibling's instruction turned out to
+// be right and unexplained; this one was neither.
+func checkScopesDocumented() []string {
+	source, err := os.ReadFile(filepath.Join("internal", "auth", "auth.go"))
+	if err != nil {
+		return []string{"cannot read internal/auth/auth.go: " + err.Error()}
+	}
+	readme, err := os.ReadFile("README.md")
+	if err != nil {
+		return []string{"cannot read README.md: " + err.Error()}
+	}
+	found := scopeConstant.FindAllStringSubmatch(string(source), -1)
+	if len(found) == 0 {
+		return []string{"found no scope constants in internal/auth/auth.go; has the naming changed?"}
+	}
+	var problems []string
+	for _, m := range found {
+		if !strings.Contains(string(readme), m[1]) {
+			problems = append(problems, fmt.Sprintf(
+				"login can request %s and README.md does not name it. A setup step that lists fewer "+
+					"scopes than the code asks for sends somebody to a consent screen that will "+
+					"refuse them", m[1]))
+		}
+	}
+	return problems
+}
+
+// scopeConstant matches the Scope* constants internal/auth declares.
+var scopeConstant = regexp.MustCompile(`Scope[A-Za-z]*\s*=\s*"(https://www\.googleapis\.com/auth/[a-z.]+)"`)

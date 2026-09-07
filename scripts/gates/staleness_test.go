@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,5 +79,40 @@ func TestStatusVersionsBeforeTheFirstRelease(t *testing.T) {
 
 	if problems := checkStatusVersions(); len(problems) > 0 {
 		t.Errorf("an unreleased repository was reported as stale:\n%s", strings.Join(problems, "\n"))
+	}
+}
+
+// TestEveryScopeLoginCanRequestIsInTheReadme. The setup step named one
+// scope where the code can ask for five: the label and activity pairs
+// are requested only with their features on, which is exactly why nobody
+// noticed. A reader adds what they were told to, turns a feature on, and
+// is refused by a consent screen that does not carry the rest.
+func TestEveryScopeLoginCanRequestIsInTheReadme(t *testing.T) {
+	t.Chdir("../..")
+	if problems := checkScopesDocumented(); len(problems) > 0 {
+		t.Errorf("%s", strings.Join(problems, "\n"))
+	}
+}
+
+// TestAScopeMissingFromTheReadmeIsRefused proves it bites, and that it
+// reads the code rather than a list somebody typed here.
+func TestAScopeMissingFromTheReadmeIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.MkdirAll(filepath.Join("internal", "auth"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source := "package auth\n\nconst (\n" +
+		"\tScopeDrive    = \"https://www.googleapis.com/auth/drive\"\n" +
+		"\tScopeInvented = \"https://www.googleapis.com/auth/drive.invented\"\n)\n"
+	write(t, filepath.Join("internal", "auth", "auth.go"), source)
+	write(t, "README.md", "Add the scope https://www.googleapis.com/auth/drive and nothing else.\n")
+
+	problems := checkScopesDocumented()
+	if len(problems) == 0 {
+		t.Fatal("a scope the code requests and the README omits was accepted")
+	}
+	if !strings.Contains(strings.Join(problems, "\n"), "drive.invented") {
+		t.Errorf("the report does not name the scope:\n%s", strings.Join(problems, "\n"))
 	}
 }
