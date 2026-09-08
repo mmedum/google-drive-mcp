@@ -34,16 +34,13 @@
 # anything this file believes is driven that the run did not send.
 
 copy_file.ocr_language	undrivable	it hints the language of text in a scan, for convert_to. Every fixture here is text somebody typed, and a copy of typed text has no OCR to hint
-delete_comment.reply	undriven	deleting one reply needs the reply's id, which list_comments prints INDENTED under its thread rather than on an `id:` line — the shape mcpstdio.IDIn reads. Three of the four rows left here want the same missing piece: a reader for an id inside a listing
 download_file.acknowledge_abuse	undrivable	it needs a file Google has flagged as malware or spam, and nothing here may create one
 list_approvals.page_token	undriven	a second page needs more approvals on one file than this run starts, and an edition allows one open approval at a time. This is the only one of the four that a reader for listed ids would not close
 list_labels.page_token	undrivable	no label is published to this account, so there is no first page to follow. The same blocker as the rest of the label surface
 manage_approval.replace_reviewers	undrivable	a swap names who takes the reviewer's place, so it needs a second address Drive will accept — the blocker spike F is waiting on
-reply_comment.reply	undriven	editing a reply by its id needs that id, and the comments renderer prints it indented under the thread rather than on an `id:` line. Same missing piece as delete_comment.reply
 resolve_access_request.dry_run	undrivable	it needs a pending access request, which only somebody else asking for access can create
 resolve_access_request.notify	undrivable	the same pending request, and it would put mail in that person's inbox
 resolve_access_request.role	undrivable	the same pending request
 share_file.message	undrivable	it is only used when notify is true, which see
 share_file.notify	undrivable	it puts Google's mail in a real person's inbox on every run, which a driver may not do. The ownership transfer of spike F mails anyway, because Drive forces it
-unshare_file.permission_id	undriven	list_permissions prints the id beside the grant rather than on an `id:` line, so the driver cannot lift it. Same missing piece again
 upload_file.ocr_language	undrivable	it needs a scan or a photograph to convert, and every fixture here is text somebody typed
