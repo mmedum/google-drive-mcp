@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
 	"strings"
 	"time"
 )
@@ -254,8 +256,28 @@ func (d *destroyRun) deleteAComment() {
 		d.out.Say("\n=== delete_comment: skipped, the comment it needs was never made ===")
 		return
 	}
+	// A reply, so there is one to delete on its own. Deleting a reply and
+	// deleting the thread it sits in are different calls with different
+	// consequences, and only the second was ever exercised.
+	d.call(call{tool: "reply_comment", args: map[string]any{
+		"file": id, "comment": comment, "content": "and this reply with it",
+	}})
 	d.call(call{tool: "delete_comment", args: map[string]any{"file": id, "comment": comment},
 		expectError: true, why: "removing a comment without confirm: true"})
+	// One reply first, then the whole thread. Deleting a single reply
+	// needs its id, which lives only in a listing — the renderer prints
+	// it indented under its thread rather than on an `id:` line — so
+	// this was the last of the driver's uncovered options to need a
+	// reader rather than an argument.
+	listing := d.call(call{tool: "list_comments", args: map[string]any{"file": id}})
+	if replies := mcpstdio.ReplyIDs(listing); len(replies) > 0 {
+		d.call(call{tool: "delete_comment", args: map[string]any{
+			"file": id, "comment": comment, "reply": replies[0], "confirm": true,
+		}})
+	} else {
+		d.unverified("delete_comment.reply was not exercised: the listing showed no reply id",
+			errors.New("the thread this run made has no reply, or the renderer has changed shape"))
+	}
 	d.call(call{tool: "delete_comment", args: map[string]any{
 		"file": id, "comment": comment, "confirm": true,
 	}})
