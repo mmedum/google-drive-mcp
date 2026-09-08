@@ -384,7 +384,20 @@ func (w *writeRun) collaboration(m made) {
 			"file": target.id, "comment": id, "action": "edit",
 			"content": "is this row still right? (edited)",
 		})
-		w.needing("list_comments", target.id, map[string]any{"file": target.id, "include_deleted": true})
+		listing := w.call(call{tool: "list_comments",
+			args: map[string]any{"file": target.id, "include_deleted": true}})
+		// A reply's id is only ever in a listing — it opens no card and
+		// the renderer prints it indented under its thread — so editing
+		// ONE reply was unreachable until the driver could read one.
+		if replies := mcpstdio.ReplyIDs(listing); len(replies) > 0 {
+			w.needing("reply_comment", target.id, map[string]any{
+				"file": target.id, "comment": id, "reply": replies[0], "action": "edit",
+				"content": "checked, it is (edited)",
+			})
+		} else {
+			w.unverified("reply_comment.reply was not exercised: the listing showed no reply id",
+				errors.New("the thread this run made has no reply, or the renderer has changed shape"))
+		}
 		w.expecting("reply_comment", target.id, map[string]any{
 			"file": target.id, "comment": id, "action": "close", "content": "x",
 		}, "an action nobody implemented")
@@ -538,6 +551,14 @@ func (w *writeRun) access(m made) {
 	})
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true, "dry_run": true})
+	// By id rather than by principal, which is the path for a grant with
+	// no address to name it by. Drive gives an anyone-with-the-link
+	// permission the well-known id "anyoneWithLink", so this needs no
+	// reader — and if Drive disagrees, the run says so, which is the
+	// only way anybody here would find out.
+	w.needing("unshare_file", m.text, map[string]any{
+		"file": m.text, "permission_id": "anyoneWithLink", "dry_run": true,
+	})
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true})
 
 	if w.share == "" {
