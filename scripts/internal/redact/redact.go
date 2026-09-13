@@ -37,7 +37,7 @@ type pattern struct {
 
 var patterns = []pattern{
 	{"LINK", regexp.MustCompile(`https://(?:drive|docs)\.google\.com/[^\s"'<>)\]]+`)},
-	{"EMAIL", regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)},
+	{"EMAIL", regexp.MustCompile(`[A-Za-z0-9._%+\-…]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)},
 	// A Drive id is base64url, at least 19 characters, and may carry
 	// base64 padding. Requiring a capital and a digit keeps ordinary
 	// words — google-drive-mcp, modified_before — readable, which
