@@ -250,3 +250,18 @@ func TestDottedProseIsNotMistakenForAName(t *testing.T) {
 		t.Errorf("prose was redacted:\n%s", got)
 	}
 }
+
+// TestAnAlreadyMaskedAddressIsStillRedacted is the trap two redactors in
+// series set for each other. gapi masks an address in Google's error
+// text to "…@domain" before it ever reaches here, and this pattern needs
+// a local part — so the domain sailed through, and with it the display
+// name beside it, because the person position is defined by the EMAIL
+// placeholder.
+func TestAnAlreadyMaskedAddressIsStillRedacted(t *testing.T) {
+	got := NewRedactor(false).Do("refused: owner is Ann Smith <…@acme-corp.example> here")
+	for _, leaked := range []string{"acme-corp.example", "Ann Smith"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("%q survived an already-masked address: %s", leaked, got)
+		}
+	}
+}

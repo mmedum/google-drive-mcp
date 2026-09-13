@@ -507,7 +507,7 @@ func (w *writeRun) accountAddress() string {
 	return addressInAccount.FindString(out)
 }
 
-var addressInAccount = regexp.MustCompile(`[A-Za-z0-9._%%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
+var addressInAccount = regexp.MustCompile(`[A-Za-z0-9._%%+-…]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 
 // access exercises the sharing surface. Everything happens on files
 // inside the scratch folder, and every grant made here is removed again
