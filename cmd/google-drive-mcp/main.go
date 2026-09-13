@@ -17,6 +17,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/mmedum/google-drive-mcp/internal/redact"
+	"github.com/mmedum/google-drive-mcp/internal/tools"
 	"io"
 	"log/slog"
 	"os"
@@ -204,7 +206,10 @@ func runServer(args []string) int {
 	slog.SetDefault(logger)
 
 	if dumpSchemas {
-		srv := server.New(server.Deps{Config: cfg, Logger: logger, Version: version.String()})
+		// The whole registrable surface, not this deployment's: the schema
+		// diff compares two dumps, and a tool behind a flag can lose a field
+		// or gain a required one like any other.
+		srv := server.New(server.Deps{Config: tools.FullSurface(cfg), Logger: logger, Version: version.String()})
 		if err := server.DumpSchemas(context.Background(), srv, os.Stdout, version.String()); err != nil {
 			return fail("dump schemas: %v", err)
 		}
@@ -367,7 +372,7 @@ func cmdLogin(args []string) int {
 	// Masked to the same shape as `status`: login is one command away
 	// from it, and a person pasting either into an issue should not get
 	// a different answer about what is safe to share.
-	fmt.Printf("Logged in as %s (profile %q, token stored in %s).\n", orUnset(gapi.MaskAccount(email)), cfg.Profile, src)
+	fmt.Printf("Logged in as %s (profile %q, token stored in %s).\n", orUnset(redact.Account(email)), cfg.Profile, src)
 	return 0
 }
 
@@ -417,7 +422,7 @@ func printStatus(w io.Writer, p *profile) {
 	_, _ = fmt.Fprintln(w, version.Info())
 	_, _ = fmt.Fprintf(w, "profile:        %s\n", cfg.Profile)
 	_, _ = fmt.Fprintf(w, "config dir:     %s\n", p.dir)
-	_, _ = fmt.Fprintf(w, "account:        %s\n", orUnset(gapi.MaskAccount(p.user.AccountEmail)))
+	_, _ = fmt.Fprintf(w, "account:        %s\n", orUnset(redact.Account(p.user.AccountEmail)))
 	exists := "missing"
 	if _, err := os.Stat(p.clientSecretPath); err == nil {
 		exists = "present"
