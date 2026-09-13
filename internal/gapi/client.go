@@ -484,6 +484,43 @@ func (c *Client) once(ctx context.Context, r request) (*attemptResult, error) {
 	return nil, classify(resp.StatusCode, resp.Header, r.method, redactPath(r.url), data)
 }
 
+// askCompactJSON turns off the indentation Google adds by default.
+//
+// prettyPrint is a system parameter of every Google API, documented at
+// cloud.google.com/apis/docs/system-parameters, and it defaults to true:
+// without this, 40 to 60% of every JSON response is whitespace nothing
+// reads. Set here rather than at the twenty-eight call sites that build
+// a query, because a call site added later and given no thought should
+// get it too — the same reason this client derives a request's rate class
+// from its method instead of asking each caller.
+//
+// Called after the allowlist check, which is what makes it safe to
+// rewrite the URL at all: every request that reaches this point is one
+// this client has already decided it may send a credential to.
+//
+// Skipped for a request that is not asking for JSON. A download and an
+// export ask for bytes, and how Google would have formatted a JSON
+// response it is not sending is none of those calls' business; a media
+// URL carrying a JSON formatting parameter reads as a mistake. A query
+// that names prettyPrint itself is left alone.
+func askCompactJSON(req *http.Request, accept string) {
+	if accept != "application/json" {
+		return
+	}
+	// Appended rather than re-encoded. url.Values.Encode() sorts the
+	// keys and re-escapes every value, which would rewrite a query
+	// this client did not build — an opaque or signed URL a response
+	// handed out. Parsing to look is safe; only writing back is not.
+	if req.URL.Query().Has("prettyPrint") {
+		return
+	}
+	if req.URL.RawQuery == "" {
+		req.URL.RawQuery = "prettyPrint=false"
+		return
+	}
+	req.URL.RawQuery += "&prettyPrint=false"
+}
+
 // newRequest builds one HTTP request, checks the host allowlist before
 // any credential can be attached, and adds the resource keys the call
 // needs.
@@ -509,6 +546,7 @@ func (c *Client) newRequest(ctx context.Context, r request) (*http.Request, erro
 		accept = "application/json"
 	}
 	req.Header.Set("Accept", accept)
+	askCompactJSON(req, accept)
 	req.Header.Set("User-Agent", c.ua)
 	if r.body != nil {
 		ct := r.contentType

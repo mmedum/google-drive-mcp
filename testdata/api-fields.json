@@ -1,0 +1,2110 @@
+{
+  "fetched": "2026-09-13",
+  "apis": [
+    {
+      "api": "drive",
+      "discovery": "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+      "schemas": [
+        {
+          "name": "About",
+          "properties": [
+            "appInstalled",
+            "canCreateDrives",
+            "canCreateTeamDrives",
+            "driveThemes",
+            "exportFormats",
+            "folderColorPalette",
+            "importFormats",
+            "kind",
+            "maxImportSizes",
+            "maxUploadSize",
+            "storageQuota",
+            "teamDriveThemes",
+            "user"
+          ]
+        },
+        {
+          "name": "About.driveThemes",
+          "properties": [
+            "backgroundImageLink",
+            "colorRgb",
+            "id"
+          ]
+        },
+        {
+          "name": "About.storageQuota",
+          "properties": [
+            "limit",
+            "usage",
+            "usageInDrive",
+            "usageInDriveTrash"
+          ]
+        },
+        {
+          "name": "About.teamDriveThemes",
+          "properties": [
+            "backgroundImageLink",
+            "colorRgb",
+            "id"
+          ]
+        },
+        {
+          "name": "AccessProposal",
+          "properties": [
+            "createTime",
+            "fileId",
+            "proposalId",
+            "recipientEmailAddress",
+            "requestMessage",
+            "requesterEmailAddress",
+            "rolesAndViews"
+          ]
+        },
+        {
+          "name": "AccessProposalRoleAndView",
+          "properties": [
+            "role",
+            "view"
+          ]
+        },
+        {
+          "name": "AddReviewer",
+          "properties": [
+            "addedReviewerEmail"
+          ]
+        },
+        {
+          "name": "App",
+          "properties": [
+            "authorized",
+            "createInFolderTemplate",
+            "createUrl",
+            "hasDriveWideScope",
+            "icons",
+            "id",
+            "installed",
+            "kind",
+            "longDescription",
+            "name",
+            "objectType",
+            "openUrlTemplate",
+            "primaryFileExtensions",
+            "primaryMimeTypes",
+            "productId",
+            "productUrl",
+            "secondaryFileExtensions",
+            "secondaryMimeTypes",
+            "shortDescription",
+            "supportsCreate",
+            "supportsImport",
+            "supportsMultiOpen",
+            "supportsOfflineCreate",
+            "useByDefault"
+          ]
+        },
+        {
+          "name": "AppIcons",
+          "properties": [
+            "category",
+            "iconUrl",
+            "size"
+          ]
+        },
+        {
+          "name": "AppList",
+          "properties": [
+            "defaultAppIds",
+            "items",
+            "kind",
+            "selfLink"
+          ]
+        },
+        {
+          "name": "Approval",
+          "properties": [
+            "approvalId",
+            "completeTime",
+            "createTime",
+            "dueTime",
+            "fileContentChangeBehavior",
+            "initiator",
+            "kind",
+            "modifyTime",
+            "reviewerResponses",
+            "status",
+            "targetFileId"
+          ]
+        },
+        {
+          "name": "ApprovalList",
+          "properties": [
+            "items",
+            "kind",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "ApproveApprovalRequest",
+          "properties": [
+            "message"
+          ]
+        },
+        {
+          "name": "CancelApprovalRequest",
+          "properties": [
+            "message"
+          ]
+        },
+        {
+          "name": "Change",
+          "properties": [
+            "changeType",
+            "drive",
+            "driveId",
+            "file",
+            "fileId",
+            "kind",
+            "removed",
+            "teamDrive",
+            "teamDriveId",
+            "time",
+            "type"
+          ]
+        },
+        {
+          "name": "ChangeList",
+          "properties": [
+            "changes",
+            "kind",
+            "newStartPageToken",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "Channel",
+          "properties": [
+            "address",
+            "expiration",
+            "id",
+            "kind",
+            "params",
+            "payload",
+            "resourceId",
+            "resourceUri",
+            "token",
+            "type"
+          ]
+        },
+        {
+          "name": "ClientEncryptionDetails",
+          "properties": [
+            "decryptionMetadata",
+            "encryptionState"
+          ]
+        },
+        {
+          "name": "Comment",
+          "properties": [
+            "anchor",
+            "assigneeEmailAddress",
+            "author",
+            "content",
+            "createdTime",
+            "deleted",
+            "htmlContent",
+            "id",
+            "kind",
+            "mentionedEmailAddresses",
+            "modifiedTime",
+            "quotedFileContent",
+            "replies",
+            "resolved"
+          ]
+        },
+        {
+          "name": "Comment.quotedFileContent",
+          "properties": [
+            "mimeType",
+            "value"
+          ]
+        },
+        {
+          "name": "CommentApprovalRequest",
+          "properties": [
+            "message"
+          ]
+        },
+        {
+          "name": "CommentList",
+          "properties": [
+            "comments",
+            "kind",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "ContentRestriction",
+          "properties": [
+            "ownerRestricted",
+            "readOnly",
+            "reason",
+            "restrictingUser",
+            "restrictionTime",
+            "systemRestricted",
+            "type"
+          ]
+        },
+        {
+          "name": "DeclineApprovalRequest",
+          "properties": [
+            "message"
+          ]
+        },
+        {
+          "name": "DecryptionMetadata",
+          "properties": [
+            "aes256GcmChunkSize",
+            "encryptionResourceKeyHash",
+            "jwt",
+            "kaclsId",
+            "kaclsName",
+            "keyFormat",
+            "wrappedKey"
+          ]
+        },
+        {
+          "name": "DownloadRestriction",
+          "properties": [
+            "restrictedForReaders",
+            "restrictedForWriters"
+          ]
+        },
+        {
+          "name": "DownloadRestrictionsMetadata",
+          "properties": [
+            "effectiveDownloadRestrictionWithContext",
+            "itemDownloadRestriction"
+          ]
+        },
+        {
+          "name": "Drive",
+          "properties": [
+            "backgroundImageFile",
+            "backgroundImageLink",
+            "capabilities",
+            "colorRgb",
+            "createdTime",
+            "hidden",
+            "id",
+            "kind",
+            "name",
+            "orgUnitId",
+            "restrictions",
+            "themeId"
+          ]
+        },
+        {
+          "name": "Drive.backgroundImageFile",
+          "properties": [
+            "id",
+            "width",
+            "xCoordinate",
+            "yCoordinate"
+          ]
+        },
+        {
+          "name": "Drive.capabilities",
+          "properties": [
+            "canAddChildren",
+            "canChangeCopyRequiresWriterPermissionRestriction",
+            "canChangeDomainUsersOnlyRestriction",
+            "canChangeDownloadRestriction",
+            "canChangeDriveBackground",
+            "canChangeDriveMembersOnlyRestriction",
+            "canChangeSharingFoldersRequiresOrganizerPermissionRestriction",
+            "canComment",
+            "canCopy",
+            "canDeleteChildren",
+            "canDeleteDrive",
+            "canDownload",
+            "canEdit",
+            "canListChildren",
+            "canManageMembers",
+            "canReadRevisions",
+            "canRename",
+            "canRenameDrive",
+            "canResetDriveRestrictions",
+            "canShare",
+            "canTrashChildren"
+          ]
+        },
+        {
+          "name": "Drive.restrictions",
+          "properties": [
+            "adminManagedRestrictions",
+            "copyRequiresWriterPermission",
+            "domainUsersOnly",
+            "downloadRestriction",
+            "driveMembersOnly",
+            "sharingFoldersRequiresOrganizerPermission"
+          ]
+        },
+        {
+          "name": "DriveList",
+          "properties": [
+            "drives",
+            "kind",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "File",
+          "properties": [
+            "appProperties",
+            "capabilities",
+            "clientEncryptionDetails",
+            "contentHints",
+            "contentRestrictions",
+            "copyRequiresWriterPermission",
+            "createdTime",
+            "description",
+            "downloadRestrictions",
+            "driveId",
+            "explicitlyTrashed",
+            "exportLinks",
+            "fileExtension",
+            "folderColorRgb",
+            "fullFileExtension",
+            "hasAugmentedPermissions",
+            "hasThumbnail",
+            "headRevisionId",
+            "iconLink",
+            "id",
+            "imageMediaMetadata",
+            "inheritedPermissionsDisabled",
+            "isAppAuthorized",
+            "kind",
+            "labelInfo",
+            "lastModifyingUser",
+            "linkShareMetadata",
+            "md5Checksum",
+            "mimeType",
+            "modifiedByMe",
+            "modifiedByMeTime",
+            "modifiedTime",
+            "name",
+            "originalFilename",
+            "ownedByMe",
+            "owners",
+            "parents",
+            "permissionIds",
+            "permissions",
+            "properties",
+            "quotaBytesUsed",
+            "resourceKey",
+            "sha1Checksum",
+            "sha256Checksum",
+            "shared",
+            "sharedWithMeTime",
+            "sharingUser",
+            "shortcutDetails",
+            "size",
+            "spaces",
+            "starred",
+            "teamDriveId",
+            "thumbnailLink",
+            "thumbnailVersion",
+            "trashed",
+            "trashedTime",
+            "trashingUser",
+            "version",
+            "videoMediaMetadata",
+            "viewedByMe",
+            "viewedByMeTime",
+            "viewersCanCopyContent",
+            "webContentLink",
+            "webViewLink",
+            "writersCanShare"
+          ]
+        },
+        {
+          "name": "File.capabilities",
+          "properties": [
+            "canAcceptOwnership",
+            "canAccessViaGenAi",
+            "canAddChildren",
+            "canAddFolderFromAnotherDrive",
+            "canAddMyDriveParent",
+            "canChangeCopyRequiresWriterPermission",
+            "canChangeItemDownloadRestriction",
+            "canChangeSecurityUpdateEnabled",
+            "canChangeViewersCanCopyContent",
+            "canComment",
+            "canCopy",
+            "canDelete",
+            "canDeleteChildren",
+            "canDisableInheritedPermissions",
+            "canDownload",
+            "canEdit",
+            "canEnableInheritedPermissions",
+            "canListChildren",
+            "canModifyContent",
+            "canModifyContentRestriction",
+            "canModifyEditorContentRestriction",
+            "canModifyLabels",
+            "canModifyOwnerContentRestriction",
+            "canMoveChildrenOutOfDrive",
+            "canMoveChildrenOutOfTeamDrive",
+            "canMoveChildrenWithinDrive",
+            "canMoveChildrenWithinTeamDrive",
+            "canMoveItemIntoTeamDrive",
+            "canMoveItemOutOfDrive",
+            "canMoveItemOutOfTeamDrive",
+            "canMoveItemWithinDrive",
+            "canMoveItemWithinTeamDrive",
+            "canMoveTeamDriveItem",
+            "canReadDrive",
+            "canReadLabels",
+            "canReadRevisions",
+            "canReadTeamDrive",
+            "canRemoveChildren",
+            "canRemoveContentRestriction",
+            "canRemoveMyDriveParent",
+            "canRename",
+            "canShare",
+            "canStartApproval",
+            "canTrash",
+            "canTrashChildren",
+            "canUntrash"
+          ]
+        },
+        {
+          "name": "File.contentHints",
+          "properties": [
+            "indexableText",
+            "thumbnail"
+          ]
+        },
+        {
+          "name": "File.contentHints.thumbnail",
+          "properties": [
+            "image",
+            "mimeType"
+          ]
+        },
+        {
+          "name": "File.imageMediaMetadata",
+          "properties": [
+            "aperture",
+            "cameraMake",
+            "cameraModel",
+            "colorSpace",
+            "exposureBias",
+            "exposureMode",
+            "exposureTime",
+            "flashUsed",
+            "focalLength",
+            "height",
+            "isoSpeed",
+            "lens",
+            "location",
+            "maxApertureValue",
+            "meteringMode",
+            "rotation",
+            "sensor",
+            "subjectDistance",
+            "time",
+            "whiteBalance",
+            "width"
+          ]
+        },
+        {
+          "name": "File.imageMediaMetadata.location",
+          "properties": [
+            "altitude",
+            "latitude",
+            "longitude"
+          ]
+        },
+        {
+          "name": "File.labelInfo",
+          "properties": [
+            "labels"
+          ]
+        },
+        {
+          "name": "File.linkShareMetadata",
+          "properties": [
+            "securityUpdateEligible",
+            "securityUpdateEnabled"
+          ]
+        },
+        {
+          "name": "File.shortcutDetails",
+          "properties": [
+            "targetId",
+            "targetMimeType",
+            "targetResourceKey"
+          ]
+        },
+        {
+          "name": "File.videoMediaMetadata",
+          "properties": [
+            "durationMillis",
+            "height",
+            "width"
+          ]
+        },
+        {
+          "name": "FileList",
+          "properties": [
+            "files",
+            "incompleteSearch",
+            "kind",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "GenerateCseTokenResponse",
+          "properties": [
+            "currentKaclsId",
+            "currentKaclsName",
+            "fileId",
+            "jwt",
+            "kind"
+          ]
+        },
+        {
+          "name": "GeneratedIds",
+          "properties": [
+            "ids",
+            "kind",
+            "space"
+          ]
+        },
+        {
+          "name": "Label",
+          "properties": [
+            "fields",
+            "id",
+            "kind",
+            "revisionId"
+          ]
+        },
+        {
+          "name": "LabelField",
+          "properties": [
+            "dateString",
+            "id",
+            "integer",
+            "kind",
+            "selection",
+            "text",
+            "user",
+            "valueType"
+          ]
+        },
+        {
+          "name": "LabelFieldModification",
+          "properties": [
+            "fieldId",
+            "kind",
+            "setDateValues",
+            "setIntegerValues",
+            "setSelectionValues",
+            "setTextValues",
+            "setUserValues",
+            "unsetValues"
+          ]
+        },
+        {
+          "name": "LabelList",
+          "properties": [
+            "kind",
+            "labels",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "LabelModification",
+          "properties": [
+            "fieldModifications",
+            "kind",
+            "labelId",
+            "removeLabel"
+          ]
+        },
+        {
+          "name": "ListAccessProposalsResponse",
+          "properties": [
+            "accessProposals",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "ModifyLabelsRequest",
+          "properties": [
+            "kind",
+            "labelModifications"
+          ]
+        },
+        {
+          "name": "ModifyLabelsResponse",
+          "properties": [
+            "kind",
+            "modifiedLabels"
+          ]
+        },
+        {
+          "name": "Operation",
+          "properties": [
+            "done",
+            "error",
+            "metadata",
+            "name",
+            "response"
+          ]
+        },
+        {
+          "name": "Permission",
+          "properties": [
+            "allowFileDiscovery",
+            "deleted",
+            "displayName",
+            "domain",
+            "emailAddress",
+            "expirationTime",
+            "id",
+            "inheritedPermissionsDisabled",
+            "kind",
+            "pendingOwner",
+            "permissionDetails",
+            "photoLink",
+            "role",
+            "teamDrivePermissionDetails",
+            "type",
+            "view"
+          ]
+        },
+        {
+          "name": "Permission.permissionDetails",
+          "properties": [
+            "inherited",
+            "inheritedFrom",
+            "permissionType",
+            "role"
+          ]
+        },
+        {
+          "name": "Permission.teamDrivePermissionDetails",
+          "properties": [
+            "inherited",
+            "inheritedFrom",
+            "role",
+            "teamDrivePermissionType"
+          ]
+        },
+        {
+          "name": "PermissionList",
+          "properties": [
+            "kind",
+            "nextPageToken",
+            "permissions"
+          ]
+        },
+        {
+          "name": "ReassignApprovalRequest",
+          "properties": [
+            "addReviewers",
+            "message",
+            "replaceReviewers"
+          ]
+        },
+        {
+          "name": "ReplaceReviewer",
+          "properties": [
+            "addedReviewerEmail",
+            "removedReviewerEmail"
+          ]
+        },
+        {
+          "name": "Reply",
+          "properties": [
+            "action",
+            "assigneeEmailAddress",
+            "author",
+            "content",
+            "createdTime",
+            "deleted",
+            "htmlContent",
+            "id",
+            "kind",
+            "mentionedEmailAddresses",
+            "modifiedTime"
+          ]
+        },
+        {
+          "name": "ReplyList",
+          "properties": [
+            "kind",
+            "nextPageToken",
+            "replies"
+          ]
+        },
+        {
+          "name": "ResolveAccessProposalRequest",
+          "properties": [
+            "action",
+            "role",
+            "sendNotification",
+            "view"
+          ]
+        },
+        {
+          "name": "ReviewerResponse",
+          "properties": [
+            "kind",
+            "response",
+            "reviewer"
+          ]
+        },
+        {
+          "name": "Revision",
+          "properties": [
+            "exportLinks",
+            "id",
+            "keepForever",
+            "kind",
+            "lastModifyingUser",
+            "md5Checksum",
+            "mimeType",
+            "modifiedTime",
+            "originalFilename",
+            "publishAuto",
+            "published",
+            "publishedLink",
+            "publishedOutsideDomain",
+            "size"
+          ]
+        },
+        {
+          "name": "RevisionList",
+          "properties": [
+            "kind",
+            "nextPageToken",
+            "revisions"
+          ]
+        },
+        {
+          "name": "StartApprovalRequest",
+          "properties": [
+            "dueTime",
+            "fileContentChangeBehavior",
+            "lockFile",
+            "message",
+            "reviewerEmails"
+          ]
+        },
+        {
+          "name": "StartPageToken",
+          "properties": [
+            "kind",
+            "startPageToken"
+          ]
+        },
+        {
+          "name": "Status",
+          "properties": [
+            "code",
+            "details",
+            "message"
+          ]
+        },
+        {
+          "name": "TeamDrive",
+          "properties": [
+            "backgroundImageFile",
+            "backgroundImageLink",
+            "capabilities",
+            "colorRgb",
+            "createdTime",
+            "id",
+            "kind",
+            "name",
+            "orgUnitId",
+            "restrictions",
+            "themeId"
+          ]
+        },
+        {
+          "name": "TeamDrive.backgroundImageFile",
+          "properties": [
+            "id",
+            "width",
+            "xCoordinate",
+            "yCoordinate"
+          ]
+        },
+        {
+          "name": "TeamDrive.capabilities",
+          "properties": [
+            "canAddChildren",
+            "canChangeCopyRequiresWriterPermissionRestriction",
+            "canChangeDomainUsersOnlyRestriction",
+            "canChangeDownloadRestriction",
+            "canChangeSharingFoldersRequiresOrganizerPermissionRestriction",
+            "canChangeTeamDriveBackground",
+            "canChangeTeamMembersOnlyRestriction",
+            "canComment",
+            "canCopy",
+            "canDeleteChildren",
+            "canDeleteTeamDrive",
+            "canDownload",
+            "canEdit",
+            "canListChildren",
+            "canManageMembers",
+            "canReadRevisions",
+            "canRemoveChildren",
+            "canRename",
+            "canRenameTeamDrive",
+            "canResetTeamDriveRestrictions",
+            "canShare",
+            "canTrashChildren"
+          ]
+        },
+        {
+          "name": "TeamDrive.restrictions",
+          "properties": [
+            "adminManagedRestrictions",
+            "copyRequiresWriterPermission",
+            "domainUsersOnly",
+            "downloadRestriction",
+            "sharingFoldersRequiresOrganizerPermission",
+            "teamMembersOnly"
+          ]
+        },
+        {
+          "name": "TeamDriveList",
+          "properties": [
+            "kind",
+            "nextPageToken",
+            "teamDrives"
+          ]
+        },
+        {
+          "name": "User",
+          "properties": [
+            "displayName",
+            "emailAddress",
+            "kind",
+            "me",
+            "permissionId",
+            "photoLink"
+          ]
+        }
+      ]
+    },
+    {
+      "api": "drivelabels",
+      "discovery": "https://drivelabels.googleapis.com/$discovery/rest?version=v2",
+      "schemas": [
+        {
+          "name": "GoogleAppsDriveLabelsV2BadgeColors",
+          "properties": [
+            "backgroundColor",
+            "foregroundColor",
+            "soloColor"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2BadgeConfig",
+          "properties": [
+            "color",
+            "priorityOverride"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2BatchDeleteLabelPermissionsRequest",
+          "properties": [
+            "requests",
+            "useAdminAccess"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2BatchUpdateLabelPermissionsRequest",
+          "properties": [
+            "requests",
+            "useAdminAccess"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2BatchUpdateLabelPermissionsResponse",
+          "properties": [
+            "permissions"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DateLimits",
+          "properties": [
+            "maxValue",
+            "minValue"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeleteLabelPermissionRequest",
+          "properties": [
+            "name",
+            "useAdminAccess"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequest",
+          "properties": [
+            "languageCode",
+            "requests",
+            "useAdminAccess",
+            "view",
+            "writeControl"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestCreateFieldRequest",
+          "properties": [
+            "field"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestCreateSelectionChoiceRequest",
+          "properties": [
+            "choice",
+            "fieldId"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestDeleteFieldRequest",
+          "properties": [
+            "id"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestDeleteSelectionChoiceRequest",
+          "properties": [
+            "fieldId",
+            "id"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestDisableFieldRequest",
+          "properties": [
+            "disabledPolicy",
+            "id",
+            "updateMask"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestDisableSelectionChoiceRequest",
+          "properties": [
+            "disabledPolicy",
+            "fieldId",
+            "id",
+            "updateMask"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestEnableFieldRequest",
+          "properties": [
+            "id"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestEnableSelectionChoiceRequest",
+          "properties": [
+            "fieldId",
+            "id"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestRequest",
+          "properties": [
+            "createField",
+            "createSelectionChoice",
+            "deleteField",
+            "deleteSelectionChoice",
+            "disableField",
+            "disableSelectionChoice",
+            "enableField",
+            "enableSelectionChoice",
+            "updateField",
+            "updateFieldType",
+            "updateLabel",
+            "updateSelectionChoiceProperties"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestUpdateFieldPropertiesRequest",
+          "properties": [
+            "id",
+            "properties",
+            "updateMask"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestUpdateFieldTypeRequest",
+          "properties": [
+            "dateOptions",
+            "id",
+            "integerOptions",
+            "selectionOptions",
+            "textOptions",
+            "updateMask",
+            "userOptions"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestUpdateLabelPropertiesRequest",
+          "properties": [
+            "properties",
+            "updateMask"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelRequestUpdateSelectionChoicePropertiesRequest",
+          "properties": [
+            "fieldId",
+            "id",
+            "properties",
+            "updateMask"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponse",
+          "properties": [
+            "responses",
+            "updatedLabel"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseCreateFieldResponse",
+          "properties": [
+            "id",
+            "priority"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseCreateSelectionChoiceResponse",
+          "properties": [
+            "fieldId",
+            "id"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseDeleteFieldResponse",
+          "properties": null
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseDeleteSelectionChoiceResponse",
+          "properties": null
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseDisableFieldResponse",
+          "properties": null
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseDisableSelectionChoiceResponse",
+          "properties": null
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseEnableFieldResponse",
+          "properties": null
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseEnableSelectionChoiceResponse",
+          "properties": null
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseResponse",
+          "properties": [
+            "createField",
+            "createSelectionChoice",
+            "deleteField",
+            "deleteSelectionChoice",
+            "disableField",
+            "disableSelectionChoice",
+            "enableField",
+            "enableSelectionChoice",
+            "updateField",
+            "updateFieldType",
+            "updateLabel",
+            "updateSelectionChoiceProperties"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseUpdateFieldPropertiesResponse",
+          "properties": [
+            "priority"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseUpdateFieldTypeResponse",
+          "properties": null
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseUpdateLabelPropertiesResponse",
+          "properties": null
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DeltaUpdateLabelResponseUpdateSelectionChoicePropertiesResponse",
+          "properties": [
+            "priority"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2DisableLabelRequest",
+          "properties": [
+            "disabledPolicy",
+            "languageCode",
+            "updateMask",
+            "useAdminAccess",
+            "writeControl"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2EnableLabelRequest",
+          "properties": [
+            "languageCode",
+            "useAdminAccess",
+            "writeControl"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2Field",
+          "properties": [
+            "appliedCapabilities",
+            "createTime",
+            "creator",
+            "dateOptions",
+            "disableTime",
+            "disabler",
+            "displayHints",
+            "id",
+            "integerOptions",
+            "lifecycle",
+            "lockStatus",
+            "properties",
+            "publisher",
+            "queryKey",
+            "schemaCapabilities",
+            "selectionOptions",
+            "textOptions",
+            "updateTime",
+            "updater",
+            "userOptions"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldAppliedCapabilities",
+          "properties": [
+            "canRead",
+            "canSearch",
+            "canWrite"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldDateOptions",
+          "properties": [
+            "dateFormat",
+            "dateFormatType",
+            "maxValue",
+            "minValue"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldDisplayHints",
+          "properties": [
+            "disabled",
+            "hiddenInSearch",
+            "required",
+            "shownInApply"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldIntegerOptions",
+          "properties": [
+            "maxValue",
+            "minValue"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldLimits",
+          "properties": [
+            "dateLimits",
+            "integerLimits",
+            "longTextLimits",
+            "maxDescriptionLength",
+            "maxDisplayNameLength",
+            "maxIdLength",
+            "selectionLimits",
+            "textLimits",
+            "userLimits"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldListOptions",
+          "properties": [
+            "maxEntries"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldProperties",
+          "properties": [
+            "displayName",
+            "insertBeforeField",
+            "required"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldSchemaCapabilities",
+          "properties": [
+            "canDelete",
+            "canDisable",
+            "canEnable",
+            "canUpdate"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldSelectionOptions",
+          "properties": [
+            "choices",
+            "listOptions"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice",
+          "properties": [
+            "appliedCapabilities",
+            "createTime",
+            "creator",
+            "disableTime",
+            "disabler",
+            "displayHints",
+            "id",
+            "lifecycle",
+            "lockStatus",
+            "properties",
+            "publishTime",
+            "publisher",
+            "schemaCapabilities",
+            "updateTime",
+            "updater"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldSelectionOptionsChoiceAppliedCapabilities",
+          "properties": [
+            "canRead",
+            "canSearch",
+            "canSelect"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldSelectionOptionsChoiceDisplayHints",
+          "properties": [
+            "badgeColors",
+            "badgePriority",
+            "darkBadgeColors",
+            "disabled",
+            "hiddenInSearch",
+            "shownInApply"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldSelectionOptionsChoiceProperties",
+          "properties": [
+            "badgeConfig",
+            "description",
+            "displayName",
+            "insertBeforeChoice"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldSelectionOptionsChoiceSchemaCapabilities",
+          "properties": [
+            "canDelete",
+            "canDisable",
+            "canEnable",
+            "canUpdate"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldTextOptions",
+          "properties": [
+            "maxLength",
+            "minLength"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2FieldUserOptions",
+          "properties": [
+            "listOptions"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2IntegerLimits",
+          "properties": [
+            "maxValue",
+            "minValue"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2Label",
+          "properties": [
+            "appliedCapabilities",
+            "appliedLabelPolicy",
+            "createTime",
+            "creator",
+            "customer",
+            "disableTime",
+            "disabler",
+            "displayHints",
+            "enabledAppSettings",
+            "fields",
+            "id",
+            "labelType",
+            "learnMoreUri",
+            "lifecycle",
+            "lockStatus",
+            "name",
+            "properties",
+            "publishTime",
+            "publisher",
+            "revisionCreateTime",
+            "revisionCreator",
+            "revisionId",
+            "schemaCapabilities"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelAppliedCapabilities",
+          "properties": [
+            "canApply",
+            "canRead",
+            "canRemove"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelAppliedLabelPolicy",
+          "properties": [
+            "copyMode"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelDisplayHints",
+          "properties": [
+            "disabled",
+            "hiddenInSearch",
+            "priority",
+            "shownInApply"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelEnabledAppSettings",
+          "properties": [
+            "enabledApps"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelEnabledAppSettingsEnabledApp",
+          "properties": [
+            "app"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelLimits",
+          "properties": [
+            "fieldLimits",
+            "maxDeletedFields",
+            "maxDescriptionLength",
+            "maxDraftRevisions",
+            "maxFields",
+            "maxTitleLength",
+            "name"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelLock",
+          "properties": [
+            "capabilities",
+            "choiceId",
+            "createTime",
+            "creator",
+            "deleteTime",
+            "fieldId",
+            "name",
+            "state"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelLockCapabilities",
+          "properties": [
+            "canViewPolicy"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelPermission",
+          "properties": [
+            "audience",
+            "email",
+            "group",
+            "name",
+            "person",
+            "role"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelProperties",
+          "properties": [
+            "description",
+            "title"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LabelSchemaCapabilities",
+          "properties": [
+            "canDelete",
+            "canDisable",
+            "canEnable",
+            "canUpdate"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2Lifecycle",
+          "properties": [
+            "disabledPolicy",
+            "hasUnpublishedChanges",
+            "state"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LifecycleDisabledPolicy",
+          "properties": [
+            "hideInSearch",
+            "showInApply"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2ListLabelLocksResponse",
+          "properties": [
+            "labelLocks",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2ListLabelPermissionsResponse",
+          "properties": [
+            "labelPermissions",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2ListLabelsResponse",
+          "properties": [
+            "labels",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2ListLimits",
+          "properties": [
+            "maxEntries"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LockStatus",
+          "properties": [
+            "locked"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2LongTextLimits",
+          "properties": [
+            "maxLength",
+            "minLength"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2PublishLabelRequest",
+          "properties": [
+            "languageCode",
+            "useAdminAccess",
+            "writeControl"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2SelectionLimits",
+          "properties": [
+            "listLimits",
+            "maxChoices",
+            "maxDeletedChoices",
+            "maxDisplayNameLength",
+            "maxIdLength"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2TextLimits",
+          "properties": [
+            "maxLength",
+            "minLength"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2UpdateLabelCopyModeRequest",
+          "properties": [
+            "copyMode",
+            "languageCode",
+            "useAdminAccess",
+            "view"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2UpdateLabelEnabledAppSettingsRequest",
+          "properties": [
+            "enabledAppSettings",
+            "languageCode",
+            "useAdminAccess",
+            "view"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2UpdateLabelPermissionRequest",
+          "properties": [
+            "labelPermission",
+            "parent",
+            "useAdminAccess"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2UserCapabilities",
+          "properties": [
+            "canAccessLabelManager",
+            "canAdministrateLabels",
+            "canCreateAdminLabels",
+            "canCreateSharedLabels",
+            "name"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2UserInfo",
+          "properties": [
+            "person"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2UserLimits",
+          "properties": [
+            "listLimits"
+          ]
+        },
+        {
+          "name": "GoogleAppsDriveLabelsV2WriteControl",
+          "properties": [
+            "requiredRevisionId"
+          ]
+        },
+        {
+          "name": "GoogleProtobufEmpty",
+          "properties": null
+        },
+        {
+          "name": "GoogleTypeColor",
+          "properties": [
+            "alpha",
+            "blue",
+            "green",
+            "red"
+          ]
+        },
+        {
+          "name": "GoogleTypeDate",
+          "properties": [
+            "day",
+            "month",
+            "year"
+          ]
+        }
+      ]
+    },
+    {
+      "api": "driveactivity",
+      "discovery": "https://driveactivity.googleapis.com/$discovery/rest?version=v2",
+      "schemas": [
+        {
+          "name": "Action",
+          "properties": [
+            "actor",
+            "detail",
+            "target",
+            "timeRange",
+            "timestamp"
+          ]
+        },
+        {
+          "name": "ActionDetail",
+          "properties": [
+            "appliedLabelChange",
+            "comment",
+            "create",
+            "delete",
+            "dlpChange",
+            "edit",
+            "move",
+            "permissionChange",
+            "reference",
+            "rename",
+            "restore",
+            "settingsChange"
+          ]
+        },
+        {
+          "name": "Actor",
+          "properties": [
+            "administrator",
+            "anonymous",
+            "impersonation",
+            "system",
+            "user"
+          ]
+        },
+        {
+          "name": "Administrator",
+          "properties": null
+        },
+        {
+          "name": "AnonymousUser",
+          "properties": null
+        },
+        {
+          "name": "Anyone",
+          "properties": null
+        },
+        {
+          "name": "ApplicationReference",
+          "properties": [
+            "type"
+          ]
+        },
+        {
+          "name": "AppliedLabelChange",
+          "properties": [
+            "changes"
+          ]
+        },
+        {
+          "name": "AppliedLabelChangeDetail",
+          "properties": [
+            "fieldChanges",
+            "label",
+            "title",
+            "types"
+          ]
+        },
+        {
+          "name": "Assignment",
+          "properties": [
+            "assignedUser",
+            "subtype"
+          ]
+        },
+        {
+          "name": "Comment",
+          "properties": [
+            "assignment",
+            "mentionedUsers",
+            "post",
+            "suggestion"
+          ]
+        },
+        {
+          "name": "ConsolidationStrategy",
+          "properties": [
+            "legacy",
+            "none"
+          ]
+        },
+        {
+          "name": "Copy",
+          "properties": [
+            "originalObject"
+          ]
+        },
+        {
+          "name": "Create",
+          "properties": [
+            "copy",
+            "new",
+            "upload"
+          ]
+        },
+        {
+          "name": "DataLeakPreventionChange",
+          "properties": [
+            "type"
+          ]
+        },
+        {
+          "name": "Date",
+          "properties": [
+            "value"
+          ]
+        },
+        {
+          "name": "Delete",
+          "properties": [
+            "type"
+          ]
+        },
+        {
+          "name": "DeletedUser",
+          "properties": null
+        },
+        {
+          "name": "Domain",
+          "properties": [
+            "legacyId",
+            "name"
+          ]
+        },
+        {
+          "name": "Drive",
+          "properties": [
+            "name",
+            "root",
+            "title"
+          ]
+        },
+        {
+          "name": "DriveActivity",
+          "properties": [
+            "actions",
+            "actors",
+            "primaryActionDetail",
+            "targets",
+            "timeRange",
+            "timestamp"
+          ]
+        },
+        {
+          "name": "DriveFile",
+          "properties": null
+        },
+        {
+          "name": "DriveFolder",
+          "properties": [
+            "type"
+          ]
+        },
+        {
+          "name": "DriveItem",
+          "properties": [
+            "driveFile",
+            "driveFolder",
+            "file",
+            "folder",
+            "mimeType",
+            "name",
+            "owner",
+            "title"
+          ]
+        },
+        {
+          "name": "DriveItemReference",
+          "properties": [
+            "driveFile",
+            "driveFolder",
+            "file",
+            "folder",
+            "name",
+            "title"
+          ]
+        },
+        {
+          "name": "DriveReference",
+          "properties": [
+            "name",
+            "title"
+          ]
+        },
+        {
+          "name": "Edit",
+          "properties": null
+        },
+        {
+          "name": "FieldValue",
+          "properties": [
+            "date",
+            "integer",
+            "selection",
+            "selectionList",
+            "text",
+            "textList",
+            "user",
+            "userList"
+          ]
+        },
+        {
+          "name": "FieldValueChange",
+          "properties": [
+            "displayName",
+            "fieldId",
+            "newValue",
+            "oldValue"
+          ]
+        },
+        {
+          "name": "File",
+          "properties": null
+        },
+        {
+          "name": "FileComment",
+          "properties": [
+            "legacyCommentId",
+            "legacyDiscussionId",
+            "linkToDiscussion",
+            "parent"
+          ]
+        },
+        {
+          "name": "Folder",
+          "properties": [
+            "type"
+          ]
+        },
+        {
+          "name": "Group",
+          "properties": [
+            "email",
+            "title"
+          ]
+        },
+        {
+          "name": "Impersonation",
+          "properties": [
+            "impersonatedUser"
+          ]
+        },
+        {
+          "name": "Integer",
+          "properties": [
+            "value"
+          ]
+        },
+        {
+          "name": "KnownUser",
+          "properties": [
+            "isCurrentUser",
+            "personName"
+          ]
+        },
+        {
+          "name": "Legacy",
+          "properties": null
+        },
+        {
+          "name": "Move",
+          "properties": [
+            "addedParents",
+            "removedParents"
+          ]
+        },
+        {
+          "name": "New",
+          "properties": null
+        },
+        {
+          "name": "NoConsolidation",
+          "properties": null
+        },
+        {
+          "name": "Owner",
+          "properties": [
+            "domain",
+            "drive",
+            "teamDrive",
+            "user"
+          ]
+        },
+        {
+          "name": "Permission",
+          "properties": [
+            "allowDiscovery",
+            "anyone",
+            "domain",
+            "group",
+            "role",
+            "user"
+          ]
+        },
+        {
+          "name": "PermissionChange",
+          "properties": [
+            "addedPermissions",
+            "removedPermissions"
+          ]
+        },
+        {
+          "name": "Post",
+          "properties": [
+            "subtype"
+          ]
+        },
+        {
+          "name": "QueryDriveActivityRequest",
+          "properties": [
+            "ancestorName",
+            "consolidationStrategy",
+            "filter",
+            "itemName",
+            "pageSize",
+            "pageToken"
+          ]
+        },
+        {
+          "name": "QueryDriveActivityResponse",
+          "properties": [
+            "activities",
+            "nextPageToken"
+          ]
+        },
+        {
+          "name": "Rename",
+          "properties": [
+            "newTitle",
+            "oldTitle"
+          ]
+        },
+        {
+          "name": "Restore",
+          "properties": [
+            "type"
+          ]
+        },
+        {
+          "name": "RestrictionChange",
+          "properties": [
+            "feature",
+            "newRestriction"
+          ]
+        },
+        {
+          "name": "Selection",
+          "properties": [
+            "displayName",
+            "value"
+          ]
+        },
+        {
+          "name": "SelectionList",
+          "properties": [
+            "values"
+          ]
+        },
+        {
+          "name": "SettingsChange",
+          "properties": [
+            "restrictionChanges"
+          ]
+        },
+        {
+          "name": "SingleUser",
+          "properties": [
+            "value"
+          ]
+        },
+        {
+          "name": "Suggestion",
+          "properties": [
+            "subtype"
+          ]
+        },
+        {
+          "name": "SystemEvent",
+          "properties": [
+            "type"
+          ]
+        },
+        {
+          "name": "Target",
+          "properties": [
+            "drive",
+            "driveItem",
+            "fileComment",
+            "teamDrive"
+          ]
+        },
+        {
+          "name": "TargetReference",
+          "properties": [
+            "drive",
+            "driveItem",
+            "teamDrive"
+          ]
+        },
+        {
+          "name": "TeamDrive",
+          "properties": [
+            "name",
+            "root",
+            "title"
+          ]
+        },
+        {
+          "name": "TeamDriveReference",
+          "properties": [
+            "name",
+            "title"
+          ]
+        },
+        {
+          "name": "Text",
+          "properties": [
+            "value"
+          ]
+        },
+        {
+          "name": "TextList",
+          "properties": [
+            "values"
+          ]
+        },
+        {
+          "name": "TimeRange",
+          "properties": [
+            "endTime",
+            "startTime"
+          ]
+        },
+        {
+          "name": "UnknownUser",
+          "properties": null
+        },
+        {
+          "name": "Upload",
+          "properties": null
+        },
+        {
+          "name": "User",
+          "properties": [
+            "deletedUser",
+            "knownUser",
+            "unknownUser"
+          ]
+        },
+        {
+          "name": "UserList",
+          "properties": [
+            "values"
+          ]
+        }
+      ]
+    }
+  ]
+}
