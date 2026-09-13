@@ -138,49 +138,24 @@ func schemaDiff(out io.Writer, args []string) error {
 		return err
 	}
 	defer cleanup()
-	previous, _, err := dumpSchemas(old)
+	// The same environment on both sides. Dumping the current build with
+	// fullSurfaceEnv and the baseline without it made every flag-gated
+	// tool read as newly added on every run — v1.1.0 shipped saying
+	// "added tools: delete_comment, …" and the next run said it again —
+	// and, worse, meant a flag-gated tool that was REMOVED could not be
+	// reported, because it had never been in the baseline to compare
+	// against. That is the case the comment above says this gate is for.
+	//
+	// The env is derived from today's settings, so a setting that existed
+	// at the tag and has since been deleted is not set on the old binary.
+	// That is the right answer: a gate for a tool nobody can turn on any
+	// more is not a surface this server still offers.
+	previous, _, err := dumpSchemas(old, env...)
 	if err != nil {
 		return err
 	}
 
-	var breaking, added []string
-	oldTools := map[string]int{}
-	for i, t := range previous.Tools {
-		oldTools[t.Name] = i
-	}
-	newTools := map[string]int{}
-	for i, t := range current.Tools {
-		newTools[t.Name] = i
-	}
-	for name, i := range oldTools {
-		j, ok := newTools[name]
-		if !ok {
-			breaking = append(breaking, "tool removed: "+name)
-			continue
-		}
-		was, now := previous.Tools[i], current.Tools[j]
-		required := map[string]bool{}
-		for _, f := range was.InputSchema.Required {
-			required[f] = true
-		}
-		for _, f := range now.InputSchema.Required {
-			if !required[f] {
-				breaking = append(breaking, name+": new required field "+f)
-			}
-		}
-		for field := range was.InputSchema.Properties {
-			if _, ok := now.InputSchema.Properties[field]; !ok {
-				breaking = append(breaking, name+": field removed "+field)
-			}
-		}
-	}
-	for name := range newTools {
-		if _, ok := oldTools[name]; !ok {
-			added = append(added, name)
-		}
-	}
-	sort.Strings(added)
-	sort.Strings(breaking)
+	added, breaking := compareSurfaces(previous, current)
 
 	_, _ = fmt.Fprintf(out, "added tools: %s\n", listOr(added, "none"))
 	_, _ = fmt.Fprintf(out, "breaking changes: %s\n", listOr(breaking, "none"))
@@ -241,4 +216,50 @@ func buildTag(tag string) (binary string, cleanup func(), err error) {
 	// The worktree has served its purpose; the binary outlives it.
 	_ = exec.Command("git", "worktree", "remove", "-f", src).Run()
 	return binary, done, nil
+}
+
+// compareSurfaces is the rule, over two dumps rather than two builds, so
+// that it can be tested without building anything.
+//
+// A removed tool, a removed field and a new required field are breaking,
+// because a client written against the old surface stops working.
+func compareSurfaces(previous, current schemaDump) (added, breaking []string) {
+	oldTools := map[string]int{}
+	for i, t := range previous.Tools {
+		oldTools[t.Name] = i
+	}
+	newTools := map[string]int{}
+	for i, t := range current.Tools {
+		newTools[t.Name] = i
+	}
+	for name, i := range oldTools {
+		j, ok := newTools[name]
+		if !ok {
+			breaking = append(breaking, "tool removed: "+name)
+			continue
+		}
+		was, now := previous.Tools[i], current.Tools[j]
+		required := map[string]bool{}
+		for _, f := range was.InputSchema.Required {
+			required[f] = true
+		}
+		for _, f := range now.InputSchema.Required {
+			if !required[f] {
+				breaking = append(breaking, name+": new required field "+f)
+			}
+		}
+		for field := range was.InputSchema.Properties {
+			if _, ok := now.InputSchema.Properties[field]; !ok {
+				breaking = append(breaking, name+": field removed "+field)
+			}
+		}
+	}
+	for name := range newTools {
+		if _, ok := oldTools[name]; !ok {
+			added = append(added, name)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(breaking)
+	return added, breaking
 }

@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- The schema diff can report a flag-gated tool being removed. It dumped
+  the current build with the whole registrable surface and the baseline
+  without it, so `delete_comment`, `delete_drive`, `delete_file`,
+  `delete_revision` and `empty_trash` read as newly added on every run —
+  v1.1.0 shipped saying so and the next run said it again — and, worse, a
+  removed one could not be reported at all, because it had never been in
+  the baseline to compare against. That is the case the gate exists for.
+  Both sides now dump the same surface. The comparison moved into a
+  function so it can be tested without building anything, and a test
+  fails if either dump stops asking for the whole surface. Closes #25.
+
 ## [1.1.1] - 2026-09-13
 
 ### Changed
