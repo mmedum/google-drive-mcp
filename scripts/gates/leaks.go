@@ -66,8 +66,28 @@ var (
 	hasNumber  = regexp.MustCompile(`[0-9]`)
 )
 
-// skipFiles hold long opaque content that is not ours to police.
-var skipFiles = map[string]bool{"go.sum": true, "go.mod": true}
+// skipFiles hold long opaque content that is not ours to police, and
+// copies of public documents.
+//
+// The api-fields pair is the second kind: `gates api-diff` writes the
+// JSON from the three discovery URLs and nothing else, and the TSV is a
+// hand-written verdict per exception naming the same schemas, so no
+// account can reach either. They have to be skipped rather than allowed
+// name by name, because the Labels API prefixes every schema with its
+// own product and version, and the result is long CamelCase with a digit
+// in it — indistinguishable from an id by shape. Writing one of those
+// names into this comment is what flagged this file the first time.
+//
+// Keyed by repo-relative path, not by base name. A base-name key exempts
+// any file anywhere that happens to be called api-fields.json, which is
+// a hole in a gate whose whole job is to find what should not be in the
+// repository.
+var skipFiles = map[string]bool{
+	"go.sum":                   true,
+	"go.mod":                   true,
+	"testdata/api-fields.json": true,
+	"testdata/api-fields.tsv":  true,
+}
 
 // syntheticMarker is the convention that keeps the allowlist below from
 // growing with every test: an id invented for a fixture says so in its
@@ -106,7 +126,7 @@ func leaks(out io.Writer, args []string) error {
 	}
 	var found []string
 	for _, path := range files {
-		if skipFiles[filepath.Base(path)] {
+		if skipFiles[filepath.ToSlash(path)] {
 			continue
 		}
 		body, err := os.ReadFile(path)
@@ -270,7 +290,7 @@ func leaksInHistory(out io.Writer) error {
 		}
 		switch kind {
 		case "blob":
-			if path == "" || !isText(path) || skipFiles[filepath.Base(path)] {
+			if path == "" || !isText(path) || skipFiles[filepath.ToSlash(path)] {
 				continue
 			}
 			blobs++
