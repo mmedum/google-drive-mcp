@@ -1,0 +1,292 @@
+# One verdict per exception. Hand-written; the field list beside it,
+# testdata/api-fields.json, is not — `gates api-diff` writes that.
+#
+# out		the property is published and this server deliberately does not model it
+# extra		the field is modelled and public discovery does not publish it
+# alias		the schema is modelled by the struct the reason names (property *)
+# owner		which API a struct of a shared name models (property *)
+# unrelated	a struct sharing this schema's name is about something else (property *)
+# local		a struct in internal/gdrive that models no published schema at all (property *)
+#
+# local is the one verdict whose SECOND column names a Go struct rather
+# than a schema, and whose API column is therefore `-`. It is what makes
+# the set of compared types part of the rule: the gate walks the wire
+# package as well as the snapshot, so a type renamed out of the way fails
+# here instead of quietly dropping out of the comparison.
+#
+# The rule an out row is judged against: if a tool here WRITES a field,
+# the types must carry it, because a person should not be able to set
+# something no read will show them. Nothing below is written by a tool.
+#
+# api	schema	property	verdict	reason
+#
+# Five schema names are published by both Drive and the Activity API,
+# which describes the same things from the outside: an activity's target
+# is a file, but the Activity API's File is a name and a MIME type, not
+# Drive's file resource. Every one of these structs is Drive's; the
+# Activity API's own shapes are modelled under their own names.
+drive	Comment	*	owner	Drive's resource, not the Activity API's description of one
+drive	Drive	*	owner	Drive's resource, not the Activity API's description of one
+drive	File	*	owner	Drive's resource, not the Activity API's description of one
+drive	Permission	*	owner	Drive's resource, not the Activity API's description of one
+drive	User	*	owner	Drive's resource, not the Activity API's description of one
+#
+# `kind` is Google saying what it just sent — "drive#file" on a file,
+# "drive#fileList" on a listing. It is the same string every time for a
+# given type, it says nothing a caller did not already know, and nothing
+# here reads it.
+drive	Approval	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	Change	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	Label	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	LabelField	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	LabelFieldModification	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	LabelModification	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	ModifyLabelsRequest	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	ModifyLabelsResponse	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	Reply	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	ReviewerResponse	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	Revision	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	About	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	ApprovalList	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	CommentList	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	DriveList	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	LabelList	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	PermissionList	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	RevisionList	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+#
+# Team Drives were renamed shared drives in 2020 and Drive still
+# publishes the old spelling beside the new one. This server reads the
+# new one.
+drive	Change	teamDrive	out	deprecated alias of drive; the new spelling is modelled
+drive	Change	teamDriveId	out	deprecated alias of driveId; the new spelling is modelled
+drive	Change	type	out	deprecated alias of changeType; the new spelling is modelled
+drive	About	canCreateTeamDrives	out	deprecated alias of canCreateDrives; the new spelling is modelled
+drive	About	teamDriveThemes	out	deprecated alias of driveThemes, which is itself out below
+#
+# About: what the signed-in account can do. This server reads the quota
+# and the user; the rest is for a client that draws Drive's own UI.
+drive	About	appInstalled	out	whether the caller's own Drive app is installed; this server is not a Drive app
+drive	About	driveThemes	out	background images and colours for a shared drive, which no tool sets or shows
+drive	About	folderColorPalette	out	the colours Drive's UI offers for a folder; no tool sets a folder colour
+#
+# Content restrictions: this server reports whether a file is locked and
+# by whom. Who is *allowed* to lift the lock is a separate question no
+# tool asks or answers.
+drive	ContentRestriction	ownerRestricted	out	whether only the owner may lift the restriction; no tool sets or reports it
+drive	ContentRestriction	systemRestricted	out	a lock Google applied that nobody can lift; read-only and never surfaced
+#
+# Comment replies: this server reads and writes plain text, the same
+# choice add_comment and reply_comment make on the way in.
+drive	Reply	htmlContent	out	Google's HTML rendering of the same text; this server reads and writes plain text
+drive	Reply	assigneeEmailAddress	out	comment assignment is a Docs UI feature no tool sets or reports
+drive	Reply	mentionedEmailAddresses	out	who a reply mentions; no tool resolves mentions
+#
+# Publishing a revision to the web is a Docs feature reached through the
+# Docs UI, not through manage_revision, which keeps and pins revisions.
+drive	Revision	publishAuto	out	whether later revisions publish automatically; no tool publishes
+drive	Revision	publishedLink	out	the public URL of a published revision; no tool publishes
+drive	Revision	publishedOutsideDomain	out	whether a published revision is visible outside the domain; no tool publishes
+#
+# An activity's actions.
+driveactivity	DriveActivity	actions	out	list_activity reports primaryActionDetail, the one action Google names as the summary of a consolidated activity; the full list repeats it per target
+#
+# The five colliding schemas, now that the owner rows above bring them
+# into comparison. Their own gaps had been hidden by the collision.
+drive	Comment	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	Drive	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	File	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	Permission	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	User	kind	out	Google restating the type it just sent; a caller already knows what it asked for
+drive	File	teamDriveId	out	deprecated alias of driveId; the new spelling is modelled
+drive	Permission	teamDrivePermissionDetails	out	deprecated alias of permissionDetails; the new spelling is modelled
+#
+# A comment's assignment, mentions and HTML are the same three this
+# record writes off on a Reply, for the same reasons.
+drive	Comment	htmlContent	out	Google's HTML rendering of the same text; this server reads and writes plain text
+drive	Comment	assigneeEmailAddress	out	comment assignment is a Docs UI feature no tool sets or reports
+drive	Comment	mentionedEmailAddresses	out	who a comment mentions; no tool resolves mentions
+#
+# Shared drive theming, as About.driveThemes above: pictures for Drive's
+# own UI, which nothing here draws.
+drive	Drive	backgroundImageFile	out	the image and crop a shared drive shows behind its name; no tool sets or shows a drive's appearance
+drive	Drive	backgroundImageLink	out	the URL of that image, read-only; no tool sets or shows a drive's appearance
+drive	Drive	themeId	out	the named theme a shared drive uses; no tool sets or shows a drive's appearance
+#
+# A file's media: this server reports what a file IS — name, type, size,
+# checksums, where it lives, who can reach it — not what is inside it.
+# Pixels, durations and thumbnails belong to a client that displays
+# files, and download_file is how the bytes are had.
+drive	File	imageMediaMetadata	out	width, height, aperture and the rest of an image's EXIF; no tool sets or shows it
+drive	File	videoMediaMetadata	out	a video's width, height and duration; no tool sets or shows it
+drive	File	thumbnailLink	out	a short-lived URL to a preview image; no tool sets or shows it
+drive	File	thumbnailVersion	out	the version of that preview, for cache invalidation; no tool sets or shows it
+drive	File	contentHints	out	a caller-supplied thumbnail and indexable text, set at upload; no tool sets or shows it
+drive	File	sha1Checksum	out	md5Checksum and sha256Checksum are modelled and reported; a third digest of the same bytes adds nothing
+#
+# Per-user state. The two timestamps beside these — modifiedByMeTime and
+# viewedByMeTime — are modelled and say the same thing with a date on it.
+drive	File	modifiedByMe	out	modifiedByMeTime is modelled and carries when, not just whether
+drive	File	viewedByMe	out	viewedByMeTime is modelled and carries when, not just whether
+#
+# Security and app plumbing no tool sets or reports. list_permissions and
+# share_file work in roles and types; capabilities is what this server
+# reads to say what the signed-in account may do.
+drive	File	clientEncryptionDetails	out	whether the file is client-side encrypted, and with which key
+drive	File	downloadRestrictions	out	a download and copy restriction newer than this server's guard
+drive	File	hasAugmentedPermissions	out	whether a shared-drive file carries permissions beyond the drive's
+drive	File	inheritedPermissionsDisabled	out	whether a folder stops inheriting permissions
+drive	File	isAppAuthorized	out	whether the file was created by the calling app; this server is not a Drive app
+drive	File	viewersCanCopyContent	out	deprecated alias of copyRequiresWriterPermission, which is modelled
+drive	File	spaces	out	which of drive, appDataFolder or photos the file sits in; every file this server reaches is in drive
+drive	Permission	inheritedPermissionsDisabled	out	whether this permission stops being inherited; no tool sets it
+drive	Permission	photoLink	out	the grantee's profile picture; get_account reports the address, not the portrait
+drive	Permission	view	out	marks a permission as belonging to a published view rather than the file; no tool publishes
+#
+# Structs the wire package names differently from the schema they model:
+# the Activity API's types carry an Activity prefix here because Drive
+# publishes schemas of the same bare names, and the Labels API's carry a
+# Label prefix in place of Google's GoogleAppsDriveLabelsV2.
+drive	ListAccessProposalsResponse	*	alias	AccessProposalList
+driveactivity	Actor	*	alias	ActivityActor
+driveactivity	Comment	*	alias	ActivityComment
+driveactivity	Create	*	alias	ActivityCreate
+driveactivity	DriveItem	*	alias	ActivityDriveItem
+driveactivity	KnownUser	*	alias	ActivityKnownUser
+driveactivity	Move	*	alias	ActivityMove
+driveactivity	PermissionChange	*	alias	ActivityPermission
+driveactivity	QueryDriveActivityRequest	*	alias	ActivityQuery
+driveactivity	Rename	*	alias	ActivityRename
+driveactivity	QueryDriveActivityResponse	*	alias	ActivityResponse
+driveactivity	Target	*	alias	ActivityTarget
+driveactivity	TimeRange	*	alias	ActivityTimeRange
+driveactivity	Delete	*	alias	ActivityTyped
+driveactivity	Restore	*	alias	ActivityTyped
+driveactivity	User	*	alias	ActivityUser
+drive	ApproveApprovalRequest	*	alias	ApprovalMessage
+drive	DeclineApprovalRequest	*	alias	ApprovalMessage
+drive	CancelApprovalRequest	*	alias	ApprovalMessage
+drive	CommentApprovalRequest	*	alias	ApprovalMessage
+drive	GeneratedIds	*	alias	GeneratedIDs
+drivelabels	GoogleAppsDriveLabelsV2LabelAppliedCapabilities	*	alias	LabelAppliedCapabilities
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	*	alias	LabelChoice
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoiceProperties	*	alias	LabelChoiceProperties
+drivelabels	GoogleAppsDriveLabelsV2FieldDateOptions	*	alias	LabelDateOptions
+drivelabels	GoogleAppsDriveLabelsV2Label	*	alias	LabelDefinition
+drivelabels	GoogleAppsDriveLabelsV2ListLabelsResponse	*	alias	LabelDefinitionList
+drivelabels	GoogleAppsDriveLabelsV2LabelProperties	*	alias	LabelDefinitionProperties
+drivelabels	GoogleAppsDriveLabelsV2FieldAppliedCapabilities	*	alias	LabelFieldAppliedCapabilities
+drivelabels	GoogleAppsDriveLabelsV2Field	*	alias	LabelFieldDefinition
+drivelabels	GoogleAppsDriveLabelsV2FieldProperties	*	alias	LabelFieldProperties
+drivelabels	GoogleAppsDriveLabelsV2Lifecycle	*	alias	LabelLifecycle
+drivelabels	GoogleAppsDriveLabelsV2FieldListOptions	*	alias	LabelListOptions
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptions	*	alias	LabelSelectionOptions
+drive	Status	*	alias	OperationError
+drive	ReassignApprovalRequest	*	alias	ReassignApproval
+drive	ResolveAccessProposalRequest	*	alias	ResolveProposal
+drive	StartApprovalRequest	*	alias	StartApproval
+#
+# What those aliased schemas publish and this server does not read.
+driveactivity	Comment	mentionedUsers	out	the server reports that a comment happened and its mentions; the subtype detail is not read
+driveactivity	DriveItem	file	out	the server reports the item's name, title and type; file and folder detail is not read
+driveactivity	DriveItem	folder	out	the server reports the item's name, title and type; file and folder detail is not read
+driveactivity	DriveItem	owner	out	the server reports the item's name, title and type; file and folder detail is not read
+driveactivity	QueryDriveActivityRequest	consolidationStrategy	out	the server queries by item and time range; the other filters are not offered
+driveactivity	Target	teamDrive	out	the server reports the drive item a change targeted; teamDrive and other target kinds are not read
+drive	GeneratedIds	kind	out	create and copy read the ids; the space and kind they were minted for are known from the request
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	appliedCapabilities	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	createTime	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	creator	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	disableTime	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	disabler	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	displayHints	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	lockStatus	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	publishTime	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	publisher	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	schemaCapabilities	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	updateTime	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoice	updater	out	a choice's id, title and properties are read; the rest is not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoiceProperties	badgeConfig	out	a choice's display name is read; its badge and ordering are not
+drivelabels	GoogleAppsDriveLabelsV2FieldSelectionOptionsChoiceProperties	insertBeforeChoice	out	a choice's display name is read; its badge and ordering are not
+drivelabels	GoogleAppsDriveLabelsV2FieldDateOptions	dateFormat	out	not read by any tool
+drivelabels	GoogleAppsDriveLabelsV2FieldDateOptions	maxValue	out	not read by any tool
+drivelabels	GoogleAppsDriveLabelsV2FieldDateOptions	minValue	out	not read by any tool
+drivelabels	GoogleAppsDriveLabelsV2Label	appliedLabelPolicy	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	createTime	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	creator	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	customer	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	disableTime	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	disabler	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	displayHints	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	enabledAppSettings	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	learnMoreUri	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	lockStatus	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	publishTime	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	publisher	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	revisionCreateTime	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	revisionCreator	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Label	schemaCapabilities	out	list_labels and manage_labels report a label's id, title, state and fields; the rest of a label definition is not read
+drivelabels	GoogleAppsDriveLabelsV2Field	createTime	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2Field	creator	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2Field	disableTime	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2Field	disabler	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2Field	displayHints	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2Field	lockStatus	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2Field	publisher	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2Field	schemaCapabilities	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2Field	updateTime	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2Field	updater	out	a field's id, type, title and options are read; the rest of a field definition is not
+drivelabels	GoogleAppsDriveLabelsV2FieldProperties	insertBeforeField	out	a field's display name and required flag are read; its ordering is not
+drivelabels	GoogleAppsDriveLabelsV2Lifecycle	disabledPolicy	out	not read by any tool
+drive	Status	details	out	not read by any tool
+#
+# Structs that model no published schema. Two kinds: the inline
+# sub-objects Drive defines inside File, Drive, Permission, About and
+# Comment, which the snapshot records as a single property name so
+# there is nothing of that name to alias to; and the request bodies,
+# deliberately a few fields of the resource they write.
+-	CommentMeta	*	local	the comments.create and comments.update body
+-	DownloadResponse	*	local	the shape download_file reduces a finished operation to: where to fetch the bytes from
+-	DriveMeta	*	local	the drives.create and drives.update body
+-	FileMeta	*	local	the files.create, files.update and files.copy body: the fields of File a caller may set, with pointers so an unset field is not sent
+-	OperationMetadata	*	local	the metadata inside a download operation, not the Operation itself: it carries the resource key a link-shared file needs on the follow-up request, which Drive publishes under no schema of its own
+-	PermissionMeta	*	local	the permissions.create and permissions.update body
+-	ReplyMeta	*	local	the replies.create and replies.update body
+#
+# The objects Drive defines inline rather than as a $ref: the snapshot
+# names each one Parent.property so it can be aliased and compared like
+# any other schema. Before the snapshot descended into them these types
+# matched nothing and were never checked — File.capabilities publishes
+# 46 fields and this server modelled 30 of them in silence.
+drive	File.capabilities	*	alias	Capabilities
+drive	Drive.capabilities	*	alias	DriveCapabilities
+drive	Drive.restrictions	*	alias	DriveRestrictions
+drive	File.labelInfo	*	alias	LabelInfo
+drive	File.linkShareMetadata	*	alias	LinkShareMetadata
+drive	Permission.permissionDetails	*	alias	PermissionDetails
+drive	Comment.quotedFileContent	*	alias	QuotedFileContent
+drive	File.shortcutDetails	*	alias	ShortcutDetails
+drive	About.storageQuota	*	alias	StorageQuota
+#
+# What those inline objects publish and this server does not read.
+drive	File.capabilities	canAccessViaGenAi	out	no tool reports whether Gemini may read the file
+drive	File.capabilities	canAddFolderFromAnotherDrive	out	move_file reports what Drive allowed; this is not asked in advance
+drive	File.capabilities	canAddMyDriveParent	out	as canAddFolderFromAnotherDrive
+drive	File.capabilities	canChangeViewersCanCopyContent	out	no tool changes the viewers-can-copy setting
+drive	File.capabilities	canModifyContentRestriction	out	get_file reports a content restriction; no tool sets or clears one
+drive	File.capabilities	canModifyEditorContentRestriction	out	as canModifyContentRestriction
+drive	File.capabilities	canModifyOwnerContentRestriction	out	as canModifyContentRestriction
+drive	File.capabilities	canMoveChildrenOutOfDrive	out	as canMoveChildrenWithinDrive
+drive	File.capabilities	canMoveChildrenOutOfTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
+drive	File.capabilities	canMoveChildrenWithinDrive	out	move_file guards on the item being moved, not on a folder's children
+drive	File.capabilities	canMoveChildrenWithinTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
+drive	File.capabilities	canMoveItemIntoTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
+drive	File.capabilities	canMoveItemOutOfTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
+drive	File.capabilities	canMoveItemWithinTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
+drive	File.capabilities	canMoveTeamDriveItem	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
+drive	File.capabilities	canReadTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
+drive	File.capabilities	canRemoveContentRestriction	out	as canModifyContentRestriction
+drive	File.capabilities	canRemoveMyDriveParent	out	as canAddFolderFromAnotherDrive
+drive	Drive.capabilities	canChangeDownloadRestriction	out	manage_drive reports what Drive accepted; no tool sets a download restriction
+drive	Drive.capabilities	canChangeSharingFoldersRequiresOrganizerPermissionRestriction	out	manage_drive sets the switch and reports what Drive accepted
+drive	Drive.capabilities	canDeleteChildren	out	trash_file and delete guard on the item itself
+drive	Drive.capabilities	canResetDriveRestrictions	out	no tool resets a shared drive's restrictions in one call

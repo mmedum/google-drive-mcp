@@ -7,6 +7,76 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- The API-fields snapshot descends into the objects Drive defines inline.
+  Drive is the only one of the seven discovery documents these servers
+  read that declares `File.capabilities` and twenty others as anonymous
+  objects rather than as a `$ref`, and the snapshot recorded each as a
+  single property name — 166 sub-properties collapsed to 21. The types
+  modelling them matched no schema at all and were never compared. Each
+  inline object is now a schema of its own, named `Parent.property`, so
+  the alias rows and per-property verdicts work on them unchanged: 82
+  schemas are compared where 34 were before this and the third direction
+  landed, and `File.capabilities` alone contributes 46 fields that had
+  never been checked.
+- The API-fields gate judges every struct, not only the ones whose name a
+  schema happens to share. It compared the name matches and skipped the
+  rest in silence, with a floor of 20 under the number matched standing in
+  for a check — which against a real 34 left 14 renames of headroom. A repo-wide
+  rename of a modelled struct took its properties out of the comparison
+  and the gate still printed ok. It now runs a third direction over the
+  wire package: every struct carrying a JSON tag must match a published
+  schema, be named by an `alias` row, or carry a new `local` row saying it
+  models none. The floor is gone rather than raised, because the rename
+  now fails on the renamed type itself. Fifty structs were invisible; they are accounted for now, and 38 more schemas are compared (34 to 72).
+  A rejected row no longer counts as a decision either: an invalid `out`
+  row used to excuse the very field it named.
+
+- **An API-fields gate.** `make api-fields` is the coverage gate one
+  level down: `testdata/api-fields.json` is every schema and property
+  the three discovery documents publish, `testdata/api-fields.tsv` is one
+  hand-written row per exception, and the modelled side is read out of
+  `internal/gdrive` with `go/ast`. Both directions fail — a field Google
+  adds to a type this server models, and a field this server carries that
+  nothing publishes — and the number of schemas matched is part of the
+  rule, because a gate that matches a struct to a schema by name goes
+  blind the moment somebody renames a struct.
+
+  It is keyed by API rather than by schema name, which for this server is
+  the difference between a gate and noise: Drive and the Activity API
+  both publish a `File`, a `Comment`, a `Drive`, a `Permission` and a
+  `User`, and the Activity API's are its outside description of the
+  thing, not the resource. Measured with the names merged, the gap looked
+  like 45 missing fields and 80 fields modelled that nothing publishes;
+  keyed by API it is 31 missing and none, and the 80 were entirely the
+  collision. An `owner` row now says which API a struct of a shared name
+  models — and adding those five rows is what brought those schemas into
+  comparison for the first time, which found 31 more fields the collision
+  had been hiding.
+
+  66 properties are written off with a reason each, judged against the
+  rule that if a tool here writes a field the types must carry it. None
+  of these are written: they are `kind` echoes, Team Drive spellings
+  deprecated in 2020, image and video metadata for a client that displays
+  files, and revision publishing that happens in the Docs UI.
+
+### Changed
+
+- **Compact JSON on every request.** Google indents its JSON unless told
+  otherwise, and `prettyPrint` is a system parameter of every Google API
+  rather than a Drive feature, so this client now asks for it once in
+  `newRequest` instead of at each of the twenty-eight places that build a
+  query — a call added later and given no thought gets it too. On a
+  sibling server the same change took a large response from 7.44 MB to
+  2.96 MB; here the responses are metadata and listings, so the saving is
+  proportionally the same and absolutely smaller. Set after the host
+  allowlist check, which is what makes rewriting the URL safe: every
+  request reaching that point is one this client has already decided it
+  may send a credential to. Skipped for a request that is not asking for
+  JSON — a download and an export ask for bytes, and a media URL carrying
+  a JSON formatting parameter reads as a mistake. A query that names
+  `prettyPrint` itself is left alone.
+
+### Added
 
 
 - **`copy_comments` is a rule now, not an inference.** A Google Sheet's
@@ -61,6 +131,28 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   needs more approvals on one file than an edition allows open at once.
 
 ### Fixed
+- A shared drive's download restriction survives a restriction change.
+  `manage_drive` sends the whole restrictions object back — it copies what
+  it decoded and re-sends it, because Drive replaces rather than merges —
+  and `downloadRestriction` was not modelled, so it decoded as absent and
+  was cleared on the next change to any other switch. Drive publishes it
+  as a `$ref`, not as one of the booleans, which is why it was missed.
+- Starting an approval asks Drive the question Drive answers.
+  `manage_approval` guarded on `canEdit`; Drive publishes
+  `canStartApproval` for exactly this operation, and a file can be
+  editable and still refuse an approval. The capability was not modelled,
+  so the weaker question was the only one available.
+- Three capability fields that Drive publishes nowhere are gone:
+  `canShareChildFiles`, `canShareChildFolders` and
+  `canChangeSharingFolderRestrictedForWriters`. Nothing read them and
+  nothing could have — Drive never sends them, so they were always false.
+- The identifier scan keys its exemptions on the repo-relative path, not
+  on the file's base name, so a file called `api-fields.json` anywhere in
+  the tree is no longer exempt from a gate whose whole job is to find what
+  should not be in the repository. The api-fields record is exempt for the
+  same reason the snapshot is: the Labels API prefixes every schema with
+  its product and version, which is long CamelCase with a digit in it and
+  indistinguishable from a Drive id by shape.
 
 
 - **The API record carried two columns nothing read, and its
