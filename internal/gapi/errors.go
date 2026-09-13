@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
+	"github.com/mmedum/google-drive-mcp/internal/redact"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -293,7 +293,7 @@ func parseAPIError(status int, method, path string, body []byte) *APIError {
 	e := &APIError{Status: status, Method: method, Path: path}
 	var g googleErrorBody
 	if err := json.Unmarshal(body, &g); err == nil && g.Error.Message != "" {
-		e.Message = maskAddresses(g.Error.Message)
+		e.Message = redact.Accounts(g.Error.Message)
 		e.RPC = g.Error.Status
 		for _, d := range g.Error.Details {
 			if d.Reason != "" {
@@ -305,7 +305,7 @@ func parseAPIError(status int, method, path string, body []byte) *APIError {
 			e.Reason = g.Error.Errors[0].Reason
 		}
 	} else {
-		e.Message = maskAddresses(strings.TrimSpace(string(body)))
+		e.Message = redact.Accounts(strings.TrimSpace(string(body)))
 		if r := []rune(e.Message); len(r) > 300 {
 			e.Message = string(r[:300]) + "…"
 		}
@@ -403,43 +403,4 @@ func Class(err error) string {
 		return ClassNetwork
 	}
 	return ClassUnexpected
-}
-
-var addressPattern = regexp.MustCompile(`[A-Za-z0-9._%+\-…]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
-
-// maskAddresses hides the local part of every address in text this
-// server did not write, keeping the domain.
-//
-// The MCP stdio transport says a server may write logging to stderr
-// and that clients "MAY capture, forward, or ignore" it, and the
-// protocol's logging section says log messages MUST NOT carry personal
-// identifying information. A 403 names the account it refused.
-//
-// Masked where Google's text becomes part of an error this server
-// raises, rather than at each print: a print added later is safe without
-// its author knowing the rule, and a writer wrapper could split an
-// address across two Write calls and miss it. The domain survives
-// because it is what says which account was refused.
-//
-// The account `status` reports is masked too, separately and to the same
-// shape.
-func maskAddresses(s string) string {
-	return addressPattern.ReplaceAllStringFunc(s, MaskAccount)
-}
-
-// MaskAccount is an address with the local part removed and the domain
-// kept.
-//
-// The domain is the half a diagnosis uses: shared drives are a Workspace
-// feature and a personal account cannot create one, so @gmail.com and a
-// Workspace domain are two different sets of behaviour to explain. The
-// local part answers nothing — it is never an input to any command here.
-func MaskAccount(addr string) string {
-	local, domain, ok := strings.Cut(addr, "@")
-	// Not an address: left alone rather than mangled, so a strange value
-	// stays legible to whoever is debugging it.
-	if !ok || local == "" || domain == "" {
-		return addr
-	}
-	return "…@" + domain
 }

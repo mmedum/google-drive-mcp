@@ -65,29 +65,42 @@ func TestANewToolIsAddedAndNotBreaking(t *testing.T) {
 	}
 }
 
-// TestBothSidesAreDumpedWithTheSameEnvironment holds the rule the whole
-// fix is: the surface compared has to be the same surface on both sides.
-// It is checked against the source because the alternative is building
-// two binaries, and a comment cannot hold a rule this easy to undo.
-func TestBothSidesAreDumpedWithTheSameEnvironment(t *testing.T) {
-	src, err := os.ReadFile("schemas.go")
+// TestTheDumpIsTheWholeSurface holds where the decision lives.
+//
+// It used to live here: the gate set an environment for the current dump
+// and not for the baseline, so every flag-gated tool read as newly added
+// forever and a removed one could not be reported at all. Setting the
+// environment on both sides fixed the symptom and left the decision in
+// the wrong place — a gate keeping its own list of gates, which was
+// already short by one.
+//
+// It lives in the binary now: --dump-schemas emits tools.FullSurface, so
+// both sides carry every tool that can register and every other reader
+// of the dump gets the same answer. TestFullSurfaceRegistersEverything,
+// beside Register, is what holds the surface itself.
+func TestTheDumpIsTheWholeSurface(t *testing.T) {
+	src, err := os.ReadFile("../../cmd/google-drive-mcp/main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var calls []string
-	for _, line := range strings.Split(string(src), "\n") {
-		if strings.Contains(line, "dumpSchemas(") && !strings.Contains(line, "func dumpSchemas") {
-			calls = append(calls, strings.TrimSpace(line))
+	if !strings.Contains(string(src), "tools.FullSurface(cfg)") {
+		t.Error("--dump-schemas does not emit tools.FullSurface, so the schema diff compares " +
+			"a partial surface and cannot report a flag-gated tool being removed")
+	}
+
+	gate, err := os.ReadFile("schemas.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(gate)
+	if i := strings.Index(body, "func schemaDiff("); i >= 0 {
+		if j := strings.Index(body[i:], "\n}\n"); j >= 0 {
+			body = body[i : i+j]
 		}
 	}
-	if len(calls) != 2 {
-		t.Fatalf("expected the current and baseline dumps, found %d: %v", len(calls), calls)
-	}
-	for _, c := range calls {
-		if !strings.Contains(c, "env...") {
-			t.Errorf("a dump without the full surface: %s\n"+
-				"both sides must be dumped with the same environment, or a flag-gated tool "+
-				"is reported as added forever and its removal cannot be reported at all", c)
-		}
+	if strings.Contains(body, "fullSurfaceEnv") {
+		t.Error("schemaDiff is setting an environment again; the binary decides what a dump contains, " +
+			"or the gate has to keep a list of gates in step with a package it cannot see — and that " +
+			"list can only hold booleans, so it cannot express Sharing at all")
 	}
 }

@@ -14,9 +14,20 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   v1.1.0 shipped saying so and the next run said it again — and, worse, a
   removed one could not be reported at all, because it had never been in
   the baseline to compare against. That is the case the gate exists for.
-  Both sides now dump the same surface. The comparison moved into a
-  function so it can be tested without building anything, and a test
-  fails if either dump stops asking for the whole surface. Closes #25.
+  The decision now sits in `tools.FullSurface`, beside Register, and
+  `--dump-schemas` emits it — so both sides carry the same surface and
+  every other reader of the dump gets the same answer. It was fixed twice
+  before that, once by setting an environment in the gate: that fixed
+  only the gate, and left it keeping a list of gates it cannot see, which
+  could hold booleans and so could never express `sharing=all/off`.
+  A test enumerates the gate flags and fails if any combination
+  registers a tool the full surface does not; the comparison moved into a
+  function so it can be tested without building anything. Closes #25.
+- The address masking moved into `internal/redact`, the same package with
+  the same two functions the three sibling servers have. It was defined
+  in the wire package here and somewhere different in each of the others
+  — four answers to one question, which is how a session working on one
+  server invents a fifth rather than finding the fourth.
 
 ## [1.1.1] - 2026-09-13
 
