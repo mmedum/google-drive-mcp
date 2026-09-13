@@ -21,6 +21,39 @@ type Deps struct {
 	Logger  *slog.Logger
 }
 
+// FullSurface is the configuration under which every tool registers.
+//
+// It lives beside Register rather than in the command that dumps the
+// schemas or in the gate that reads the dump, because it has to name
+// every gate Register consults and neither of those can know when a new
+// one appears. The gate kept its own list, and that list could only ever
+// hold booleans — it builds GDRIVE_<NAME>=true — so Sharing, which is
+// all or off, could not be in it. A config value can say what an
+// environment variable cannot.
+//
+// --dump-schemas uses it so the schema diff compares the whole
+// registrable surface on both sides. Without that the current build was
+// dumped with the gated tools and the baseline without them, so every
+// one read as newly added on every run and a removed one could not be
+// reported at all.
+//
+// TestFullSurfaceRegistersEverything holds the claim rather than this
+// comment doing it: it enumerates the gate flags and requires no
+// combination to register a tool this one does not. Dropping any of the
+// first three lines fails it. The Sharing line is the exception and is
+// inert: the checks read `!= SharingOff`, so the zero value already
+// registers those tools and removing the line changes nothing. It is
+// written anyway, because a reader should not have to know which gates
+// happen to default open.
+func FullSurface(cfg config.Config) config.Config {
+	cfg.ReadOnly = false
+	cfg.EnableDestructive = true
+	cfg.Labels = true
+	cfg.Activity = true
+	cfg.Sharing = config.SharingAll
+	return cfg
+}
+
 // Register adds every tool the configuration allows and returns their
 // names. A tool the configuration excludes is never registered, because
 // the specification treats annotations as untrusted hints: a gate has to
