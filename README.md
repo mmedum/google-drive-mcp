@@ -5,107 +5,35 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/mmedum/google-drive-mcp.svg)](https://pkg.go.dev/github.com/mmedum/google-drive-mcp)
 [![License: Apache 2.0](https://img.shields.io/github/license/mmedum/google-drive-mcp)](./LICENSE)
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server for
-Google Drive, written in Go: find files and know where they live and who
-can see them, organise folders, move and copy, get content in and out,
-share without widening access by accident, follow what changed, and
-manage shared drives. It stops at the file boundary; what happens inside
-a Google Doc, Sheet or Slides deck is out of scope and belongs to servers
-built on the Docs, Sheets and Slides APIs.
+Google Drive as MCP tools. Find, organise, share and move files, and follow what changed.
 
-Single binary, stdio, one Google account per profile. You run it against
-a Google Cloud project you own, so nothing about this repository is tied
-to any particular organisation or account.
+A single Go binary that speaks [Model Context Protocol](https://modelcontextprotocol.io)
+over stdio. It runs as a subprocess of your client, on your own machine,
+one Google account per profile: find files and know where they live and
+who can see them, organise folders, move and copy, get content in and
+out, share without widening access by accident, follow what changed, and
+manage shared drives.
 
-**Status: v1.1.1, phase 6 of the plan in
-[docs/architecture.md](docs/architecture.md).** The tools below work, and
-every one of them is verified against a real Google Workspace account as
-well as against the in-memory Drive the tests use — the five that remove
-something for good included, which run inside a shared drive the live
-driver creates and destroys again. Four paths are not: handing over
-ownership of a file, opening a link-shared file that needs its resource
-key, a share an organisation's policy refuses, and applying a label. Each
-needs a second Google account or an administrator to exercise, and
-[docs/architecture.md](docs/architecture.md) §17a says what stands in for
-each of them.
+## Why google-drive-mcp
 
-## What it does today
+Drive is where the file lives, and most of what goes wrong with a file is
+about the boundary rather than the contents: where it sits, who can
+already see it, what widening a share would actually widen, and what
+changed since you last looked. This server works at that boundary and
+stops there — what is inside a Doc, Sheet or Slides deck belongs to
+servers built on those APIs, and this one says so rather than guessing
+through an export.
 
-| Tool | What it does |
-|---|---|
-| `get_account` | Who is signed in, storage used, whether this account has shared drives, and which of this server's tools are registered |
-| `get_file` | Everything about one file: kind, location, link, size, owner, who can see it, and what you may do with it |
-| `list_folder` | One page of a folder's contents, or a budgeted tree of everything below it |
-| `search_files` | Find files across My Drive, files shared with you, and every shared drive |
-| `read_file` | The text of a file: a Doc as markdown, a Sheet as csv, a log or source file as itself, windowed with a continuation |
-| `download_file` | Write a file to the local directory, converting a Google document on the way out, checksum-verified |
-| `create_file` | A new empty Google file, or one written from text you have here, with optional conversion |
-| `upload_file` | Send a local file, in one request or in chunks that survive a dropped connection |
-| `update_content` | Replace what is inside a file, keeping its id, its place and everything that points at it |
-| `create_folder` | A new folder, refusing a duplicate name unless you allow it |
-| `update_file` | Rename, describe, star, colour, set properties, or turn off copying and re-sharing |
-| `move_file` | Move an item to another folder or shared drive, with a dry run |
-| `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder |
-| `create_shortcut` | A pointer to one item from another folder |
-| `trash_file` | Move an item to the trash, which is reversible |
-| `restore_file` | Take an item out of the trash, and say where it went |
-| `list_permissions` | Who can see an item, with the role, the expiry, and where each grant came from |
-| `share_file` | Grant or change access, with who can see it before and after |
-| `unshare_file` | Take access away, or kill the link that let anybody open it |
-| `list_drives` | The shared drives this account can see, with what it may do in each |
-| `manage_drive` | Create, rename, hide, unhide or restrict a shared drive |
-| `list_revisions` | A file's version history, with Google's own caveat about what it leaves out |
-| `manage_revision` | Pin a version so Drive keeps it, or unpin it again |
-| `list_changes` | What has changed since a point in time, with the token for next time |
-| `list_comments` | The threads on a file, with their replies and whether each is still open |
-| `add_comment` | Start a thread on any file, Google document or not |
-| `reply_comment` | Answer a thread, resolve it, reopen it, or edit wording already in it |
-| `list_access_requests` | Who has asked to be let into a file, and what they asked for |
-| `resolve_access_request` | Accept or deny one, with who could see the file before and after |
-| `list_approvals` | The reviews on a file: who asked, who has to answer, and whether it is waiting on you |
-| `manage_approval` | Ask people to review a file, answer one, withdraw it, comment on it, or change who is asked |
-
-Three more are registered only when the deployer turns their feature on,
-because each needs a scope the consent screen would otherwise not carry:
-`list_labels` and `manage_labels` with `GDRIVE_LABELS=true`, and
-`list_activity` with `GDRIVE_ACTIVITY=true`.
-
-| Tool | What it does |
-|---|---|
-| `list_labels` | The Workspace labels this account can use, with each field and the values it takes |
-| `manage_labels` | Put a label on a file, set or clear one of its fields, or take it off |
-| `list_activity` | What happened to a file, or to everything in a folder, and when |
-
-Five more are registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and
-each of those also needs `confirm: true` on the call itself:
-`delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and
-`delete_comment`.
-
-Three of the reads are also **resources**, for a client that attaches
-them rather than calling a tool: `gdrive://<id>` is the file's text,
-`gdrive://<id>/meta` is the description, and `gdrive://<id>/children` is
-a folder's first page. A reference with a slash in it — a path, a URL —
-has to be percent-encoded there, so pass an id.
-
-Five things it does differently from the alternatives:
-
-- **Shared drives work from the first call.** Every request carries
-  `supportsAllDrives`, listings include items from all drives, and an
-  incomplete search says so instead of quietly returning less.
-- **Ids are the contract.** A name or path matching more than one item
-  comes back as `[ambiguous]` with every candidate listed. Nothing takes
-  the first match.
-- **Location is always shown.** Names are not unique in Drive, so every
-  result says which folder, and which drive, a file sits in.
-- **Files go one place only.** Downloads land in `GDRIVE_LOCAL_DIR` and
-  uploads are read from it; unset, there is no file transfer at all. A
-  path outside it is refused, symlinks included.
-- **Sharing shows its work.** Every grant or revocation reports who could
-  see the file before and who can see it after. A public link needs
-  `allow_anyone: true` and an ownership transfer needs
-  `transfer_ownership: true`, on the call itself. No notification mail
-  goes out unless you ask for it, which is the opposite of the API's own
-  default.
+It runs as you, against a Google Cloud project you own, so nothing here
+is tied to any particular organisation or account. Every tool below is
+verified against a real Google Workspace account as well as against the
+in-memory Drive the tests use — the five that remove something for good
+included, which run inside a shared drive the live driver creates and
+destroys again. Four paths are not, because each needs a second account
+or an administrator to exercise: handing over ownership, opening a
+link-shared file that needs its resource key, a share an organisation's
+policy refuses, and applying a label. §17a of
+[docs/architecture.md](docs/architecture.md) says what stands in for each.
 
 ## Install
 
@@ -163,7 +91,7 @@ The bundle does not log you in. Install the binary as well, run
 credentials. Claude Code does not install `.mcpb` files, so it uses the
 command below.
 
-## Set up Google, once per person
+## Set up Google
 
 You need your own Google Cloud project and your own OAuth client. This
 takes about five minutes, and `google-drive-mcp doctor` tells you which
@@ -276,7 +204,85 @@ the server will do at all:
 | `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered. |
 | `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back. Each still needs `confirm: true` per call. |
 
-## What it will not do
+## Tools
+
+| Tool | What it does |
+|---|---|
+| `get_account` | Who is signed in, storage used, whether this account has shared drives, and which of this server's tools are registered |
+| `get_file` | Everything about one file: kind, location, link, size, owner, who can see it, and what you may do with it |
+| `list_folder` | One page of a folder's contents, or a budgeted tree of everything below it |
+| `search_files` | Find files across My Drive, files shared with you, and every shared drive |
+| `read_file` | The text of a file: a Doc as markdown, a Sheet as csv, a log or source file as itself, windowed with a continuation |
+| `download_file` | Write a file to the local directory, converting a Google document on the way out, checksum-verified |
+| `create_file` | A new empty Google file, or one written from text you have here, with optional conversion |
+| `upload_file` | Send a local file, in one request or in chunks that survive a dropped connection |
+| `update_content` | Replace what is inside a file, keeping its id, its place and everything that points at it |
+| `create_folder` | A new folder, refusing a duplicate name unless you allow it |
+| `update_file` | Rename, describe, star, colour, set properties, or turn off copying and re-sharing |
+| `move_file` | Move an item to another folder or shared drive, with a dry run |
+| `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder |
+| `create_shortcut` | A pointer to one item from another folder |
+| `trash_file` | Move an item to the trash, which is reversible |
+| `restore_file` | Take an item out of the trash, and say where it went |
+| `list_permissions` | Who can see an item, with the role, the expiry, and where each grant came from |
+| `share_file` | Grant or change access, with who can see it before and after |
+| `unshare_file` | Take access away, or kill the link that let anybody open it |
+| `list_drives` | The shared drives this account can see, with what it may do in each |
+| `manage_drive` | Create, rename, hide, unhide or restrict a shared drive |
+| `list_revisions` | A file's version history, with Google's own caveat about what it leaves out |
+| `manage_revision` | Pin a version so Drive keeps it, or unpin it again |
+| `list_changes` | What has changed since a point in time, with the token for next time |
+| `list_comments` | The threads on a file, with their replies and whether each is still open |
+| `add_comment` | Start a thread on any file, Google document or not |
+| `reply_comment` | Answer a thread, resolve it, reopen it, or edit wording already in it |
+| `list_access_requests` | Who has asked to be let into a file, and what they asked for |
+| `resolve_access_request` | Accept or deny one, with who could see the file before and after |
+| `list_approvals` | The reviews on a file: who asked, who has to answer, and whether it is waiting on you |
+| `manage_approval` | Ask people to review a file, answer one, withdraw it, comment on it, or change who is asked |
+
+Three more are registered only when the deployer turns their feature on,
+because each needs a scope the consent screen would otherwise not carry:
+`list_labels` and `manage_labels` with `GDRIVE_LABELS=true`, and
+`list_activity` with `GDRIVE_ACTIVITY=true`.
+
+| Tool | What it does |
+|---|---|
+| `list_labels` | The Workspace labels this account can use, with each field and the values it takes |
+| `manage_labels` | Put a label on a file, set or clear one of its fields, or take it off |
+| `list_activity` | What happened to a file, or to everything in a folder, and when |
+
+Five more are registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and
+each of those also needs `confirm: true` on the call itself:
+`delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and
+`delete_comment`.
+
+Three of the reads are also **resources**, for a client that attaches
+them rather than calling a tool: `gdrive://<id>` is the file's text,
+`gdrive://<id>/meta` is the description, and `gdrive://<id>/children` is
+a folder's first page. A reference with a slash in it — a path, a URL —
+has to be percent-encoded there, so pass an id.
+
+Five things it does differently from the alternatives:
+
+- **Shared drives work from the first call.** Every request carries
+  `supportsAllDrives`, listings include items from all drives, and an
+  incomplete search says so instead of quietly returning less.
+- **Ids are the contract.** A name or path matching more than one item
+  comes back as `[ambiguous]` with every candidate listed. Nothing takes
+  the first match.
+- **Location is always shown.** Names are not unique in Drive, so every
+  result says which folder, and which drive, a file sits in.
+- **Files go one place only.** Downloads land in `GDRIVE_LOCAL_DIR` and
+  uploads are read from it; unset, there is no file transfer at all. A
+  path outside it is refused, symlinks included.
+- **Sharing shows its work.** Every grant or revocation reports who could
+  see the file before and who can see it after. A public link needs
+  `allow_anyone: true` and an ownership transfer needs
+  `transfer_ownership: true`, on the call itself. No notification mail
+  goes out unless you ask for it, which is the opposite of the API's own
+  default.
+
+## Safety
 
 - Edit the content of a Google Doc, Sheet or Slides deck. It reads them
   through Google's export and says so. A comment made here sits on the
@@ -322,6 +328,28 @@ were checked against Google's own reference and which turned out to be
 wrong. [docs/security.md](docs/security.md) is what it touches and what
 limits it.
 
+## Getting help
+
+If something does not work, run `google-drive-mcp doctor`. It checks the
+credentials, the granted scopes and what Google actually answers, and
+names what is missing — most first-run trouble is an API that was never
+enabled or a consent screen without you on it.
+
+If that does not explain it,
+[open an issue](https://github.com/mmedum/google-drive-mcp/issues). Never
+paste a file id or URL, file contents, a `client_secret.json` or a token
+into one; describe the shape instead. Security problems go through
+[SECURITY.md](SECURITY.md), privately.
+
+## Versioning
+
+Tool names, their arguments and the shape of their output are stable
+within a major version. A change that needs you to do something — a new
+scope, another `login`, a different command in your client config — is
+marked **Breaking:** in [CHANGELOG.md](CHANGELOG.md), which is what the
+release notes are made from. A tool moving from the default surface to
+behind a feature flag, or the other way, counts as breaking.
+
 ## Development
 
 ```bash
@@ -350,14 +378,21 @@ run the same set of gates.
 Conventions are in [CONTRIBUTING.md](CONTRIBUTING.md); building, testing
 and releasing are in [docs/development.md](docs/development.md).
 
-## Versioning
+## Documentation
 
-Tool names, their arguments and the shape of their output are stable
-within a major version. A change that needs you to do something — a new
-scope, another `login`, a different command in your client config — is
-marked **Breaking:** in [CHANGELOG.md](CHANGELOG.md), which is what the
-release notes are made from. A tool moving from the default surface to
-behind a feature flag, or the other way, counts as breaking.
+- [docs/architecture.md](docs/architecture.md) — the design, the evidence
+  behind it, and the phase plan.
+- [docs/configuration.md](docs/configuration.md) — every setting.
+- [docs/security.md](docs/security.md) — what it touches and what limits it.
+- [docs/development.md](docs/development.md) — building, testing, releasing.
+
+## Contributing
+
+Questions and bugs go in
+[issues](https://github.com/mmedum/google-drive-mcp/issues); pull
+requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the
+ground rules and the pull request flow, and `make check` is what has to
+pass.
 
 ## Security
 
@@ -368,17 +403,6 @@ not open a public issue for one.
 
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 3.0.
 
-## Documentation
+## License
 
-- [docs/architecture.md](docs/architecture.md) — the design, the evidence
-  behind it, and the phase plan.
-- [docs/configuration.md](docs/configuration.md) — every setting.
-- [docs/security.md](docs/security.md) — what it touches and what limits it.
-- [docs/development.md](docs/development.md) — building, testing, releasing.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — ground rules and the pull request flow.
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 3.0.
-- [SECURITY.md](SECURITY.md) — reporting a vulnerability.
-
-## Licence
-
-Apache-2.0.
+Apache-2.0 — see [LICENSE](LICENSE).

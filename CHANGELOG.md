@@ -6,6 +6,47 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- The release page carries the release notes. `gates release-notes`
+  prints the `CHANGELOG.md` section for the tag and `release.yml` passes
+  it to goreleaser with `--release-notes`, replacing a generated list of
+  full commit SHAs that included the release commit itself. A tag whose
+  section is missing or empty fails the release rather than publishing
+  one that says nothing. The command comes from a sibling server rather
+  than being written again, and it stops at a markdown link definition as
+  well as at the next heading — this changelog has six of them in its
+  compare-link footer, and the oldest release's notes would otherwise end
+  in a block of links.
+
+  **Never write `changelog: disable: true` to suppress the generated
+  list.** It is evaluated in the changelog pipe's `Skip`, which runs
+  before `Run`, so `ctx.ReleaseNotes` is never assigned and the notes
+  file is never opened: the body collapses to the footer alone. A sibling
+  shipped exactly that. `release.footer` is untouched and still applies —
+  `internal/pipe/release/body.go` renders `Header`, `ReleaseNotes`,
+  `Footer` on every path. Read out of goreleaser v2.18.1.
+
+### Changed
+- The README follows the skeleton now shared by the four servers, checked
+  against GitHub's own README guidance, the community profile checklist
+  and the standard-readme spec: an opening line under 120 characters, a
+  `Why google-drive-mcp` section, `Getting help`, and a `Contributing`
+  section, which the spec requires and which had been one bullet in the
+  documentation list. `What it does today` is `Tools`, `What it will not
+  do` is `Safety`, `Set up Google, once per person` is `Set up Google`,
+  and the tool table moves below the setup sections so the four servers
+  read in the same order. `Licence` is `License` and links the file it
+  names.
+- The README no longer carries `**Status: vX.Y.Z**`, and the staleness
+  gate no longer checks it. The gate was right and worked — it was built
+  because the README claimed v0.3.0 for two whole releases — but the
+  honest fix for a copy of a fact going stale is to delete the copy, not
+  to maintain machinery around it. The release badge shows the version,
+  updates itself and cannot be wrong. What the README keeps is the part
+  no badge can carry: which phase the work is in, and which four paths
+  are still unverified. `docs/architecture.md`'s status line is still
+  held, because nothing else states that.
+
 ### Fixed
 - The schema diff can report a flag-gated tool being removed. It dumped
   the current build with the whole registrable surface and the baseline

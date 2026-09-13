@@ -29,12 +29,6 @@ func TestAStaleStatusLineIsCaught(t *testing.T) {
 		wantAny bool
 	}{
 		{
-			name:   "the README is behind",
-			readme: "**Status: v0.3.0, phase 3 of the plan.**\n",
-			arch:   "**Status:** phase 5 complete (2026-09-06), released as v1.0.0.\n",
-			want:   "README.md says the status is v0.3.0",
-		},
-		{
 			name:   "the architecture status is behind",
 			readme: "**Status: v1.0.0, phase 5 of the plan.**\n",
 			arch:   "**Status:** phase 4 complete (2026-09-06), released as v0.4.0.\n",
@@ -42,9 +36,9 @@ func TestAStaleStatusLineIsCaught(t *testing.T) {
 		},
 		{
 			name:   "a status line that no longer has the shape this reads",
-			readme: "Status: somewhere around v1.0.0 probably\n",
-			arch:   "**Status:** phase 5 complete (2026-09-06), released as v1.0.0.\n",
-			want:   "README.md has no status line naming a version",
+			readme: "no status line here at all\n",
+			arch:   "**Status:** phase 5 complete, released as v1.0.0.\n",
+			want:   "docs/architecture.md has no status line naming a version",
 		},
 	}
 	for _, c := range cases {
