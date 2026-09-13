@@ -364,7 +364,10 @@ func cmdLogin(args []string) int {
 	if err := userconfig.Save(cfg.Profile, p.user); err != nil {
 		return fail("save profile: %v", err)
 	}
-	fmt.Printf("Logged in as %s (profile %q, token stored in %s).\n", orUnset(email), cfg.Profile, src)
+	// Masked to the same shape as `status`: login is one command away
+	// from it, and a person pasting either into an issue should not get
+	// a different answer about what is safe to share.
+	fmt.Printf("Logged in as %s (profile %q, token stored in %s).\n", orUnset(gapi.MaskAccount(email)), cfg.Profile, src)
 	return 0
 }
 
@@ -412,29 +415,30 @@ func cmdStatus(args []string) int {
 func printStatus(w io.Writer, p *profile) {
 	cfg := p.cfg
 	_, _ = fmt.Fprintln(w, version.Info())
-	_, _ = fmt.Fprintf(w, "profile:          %s (%s)\n", cfg.Profile, p.dir)
+	_, _ = fmt.Fprintf(w, "profile:        %s\n", cfg.Profile)
+	_, _ = fmt.Fprintf(w, "config dir:     %s\n", p.dir)
+	_, _ = fmt.Fprintf(w, "account:        %s\n", orUnset(gapi.MaskAccount(p.user.AccountEmail)))
 	exists := "missing"
 	if _, err := os.Stat(p.clientSecretPath); err == nil {
 		exists = "present"
 	}
-	_, _ = fmt.Fprintf(w, "client secret:    %s (%s)\n", p.clientSecretPath, exists)
+	_, _ = fmt.Fprintf(w, "client secret:  %s (%s)\n", p.clientSecretPath, exists)
 	if _, src, err := p.store.Resolve(); err == nil {
-		_, _ = fmt.Fprintf(w, "refresh token:    stored in %s\n", src)
+		_, _ = fmt.Fprintf(w, "token store:    %s\n", src)
 	} else {
-		_, _ = fmt.Fprintf(w, "refresh token:    none (%v)\n", err)
+		_, _ = fmt.Fprintf(w, "token store:    none (%v)\n", err)
 	}
-	_, _ = fmt.Fprintf(w, "account:          %s\n", orUnset(p.user.AccountEmail))
 	if len(p.user.Scopes) > 0 {
-		_, _ = fmt.Fprintf(w, "scopes at login:  %s\n", strings.Join(p.user.Scopes, " "))
+		_, _ = fmt.Fprintf(w, "scopes:         %s\n", strings.Join(p.user.Scopes, " "))
 	}
-	_, _ = fmt.Fprintf(w, "scopes wanted:    %s\n", strings.Join(p.scopes(), " "))
-	_, _ = fmt.Fprintf(w, "read-only:        %t\n", cfg.ReadOnly)
-	_, _ = fmt.Fprintf(w, "sharing tools:    %s\n", cfg.Sharing)
-	_, _ = fmt.Fprintf(w, "destructive:      %t\n", cfg.EnableDestructive)
-	_, _ = fmt.Fprintf(w, "labels:           %t\n", cfg.Labels)
-	_, _ = fmt.Fprintf(w, "local dir:        %s\n", orUnset(cfg.LocalDir))
-	_, _ = fmt.Fprintf(w, "max download:     %s\n", model.HumanSize(cfg.MaxDownload))
-	_, _ = fmt.Fprintf(w, "http timeout:     %s\n", cfg.HTTPTimeout)
+	_, _ = fmt.Fprintf(w, "scopes wanted:  %s\n", strings.Join(p.scopes(), " "))
+	_, _ = fmt.Fprintf(w, "read-only:      %t\n", cfg.ReadOnly)
+	_, _ = fmt.Fprintf(w, "sharing tools:  %s\n", cfg.Sharing)
+	_, _ = fmt.Fprintf(w, "destructive:    %t\n", cfg.EnableDestructive)
+	_, _ = fmt.Fprintf(w, "labels:         %t\n", cfg.Labels)
+	_, _ = fmt.Fprintf(w, "local dir:      %s\n", orUnset(cfg.LocalDir))
+	_, _ = fmt.Fprintf(w, "max download:   %s\n", model.HumanSize(cfg.MaxDownload))
+	_, _ = fmt.Fprintf(w, "http timeout:   %s\n", cfg.HTTPTimeout)
 }
 
 func cmdDoctor(args []string) int {
