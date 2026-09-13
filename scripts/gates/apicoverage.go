@@ -233,6 +233,13 @@ func checkCoverage(entries []coverageEntry, methods map[string]bool) []string {
 // does not know about. It reaches the network, so it is a target
 // somebody runs rather than a gate CI depends on.
 func apiDiff(out io.Writer, _ []string) error {
+	// The field snapshot the api-fields gate reads is refreshed here too:
+	// it is the same fetch of the same three documents.
+	defer func() {
+		if err := writeFieldsSnapshot(out); err != nil {
+			_, _ = fmt.Fprintf(out, "api fields snapshot: %v\n", err)
+		}
+	}()
 	live, err := discoveryMethods()
 	if err != nil {
 		return err

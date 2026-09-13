@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -780,5 +781,65 @@ func TestIncludeLabelsTakesIDsAndNotAWildcard(t *testing.T) {
 	}
 	if class := gapi.Class(err); class != gapi.ClassInvalid {
 		t.Errorf("a wildcard was refused as %q, want %q", class, gapi.ClassInvalid)
+	}
+}
+
+// Google indents its JSON unless told not to, and prettyPrint is a
+// system parameter of every Google API rather than a Drive feature, so
+// this client asks once for every request instead of at each of the
+// twenty-eight places that build a query. A call added later and given
+// no thought gets it too, which is the point of setting it centrally.
+func TestCompactJSONIsAskedForOnEveryRequest(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		_, _ = w.Write([]byte(`{"id":"abc","name":"n","mimeType":"text/plain"}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := gapi.New(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "tok"}), gapi.Options{
+		BaseURL:      srv.URL,
+		ReadLimiter:  rate.NewLimiter(rate.Inf, 1),
+		WriteLimiter: rate.NewLimiter(rate.Inf, 1),
+		Timeout:      5 * time.Second,
+		AllowURL:     func(*url.URL) bool { return true },
+	})
+	if _, err := c.GetFile(context.Background(), "abc", gapi.GetFileOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(queries) != 1 {
+		t.Fatalf("want one request, got %d", len(queries))
+	}
+	if !strings.Contains(queries[0], "prettyPrint=false") {
+		t.Errorf("query %q does not ask for compact JSON", queries[0])
+	}
+	// The fields mask the call already sends must survive being joined.
+	if !strings.Contains(queries[0], "fields=") {
+		t.Errorf("query %q lost the parameters the call site set", queries[0])
+	}
+}
+
+// A download and an export ask for bytes; a media URL carrying a JSON
+// formatting parameter reads as a mistake.
+func TestCompactJSONIsNotAskedForOnAMediaRequest(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		_, _ = w.Write([]byte("file bytes"))
+	}))
+	t.Cleanup(srv.Close)
+	c := gapi.New(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "tok"}), gapi.Options{
+		BaseURL:      srv.URL,
+		ReadLimiter:  rate.NewLimiter(rate.Inf, 1),
+		WriteLimiter: rate.NewLimiter(rate.Inf, 1),
+		Timeout:      5 * time.Second,
+		AllowURL:     func(*url.URL) bool { return true },
+	})
+	if _, err := c.Export(context.Background(), "abc", "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range queries {
+		if strings.Contains(q, "prettyPrint") {
+			t.Errorf("a media request carried a JSON formatting parameter: %q", q)
+		}
 	}
 }

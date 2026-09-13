@@ -501,6 +501,7 @@ func defaultCapabilities(mime string) *gdrive.Capabilities {
 		CanModifyContent: true, CanReadRevisions: true,
 		CanMoveItemWithinDrive: true, CanMoveItemOutOfDrive: true,
 		CanModifyLabels: true, CanReadLabels: true,
+		CanStartApproval: true,
 	}
 	if mime == gdrive.MimeFolder {
 		c.CanListChildren = true

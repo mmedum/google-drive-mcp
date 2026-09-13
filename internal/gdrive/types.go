@@ -52,36 +52,38 @@ type User struct {
 // computes them. The sharing guide asks apps to consult these rather
 // than guess from a role, and every gate in this server does.
 type Capabilities struct {
-	CanEdit                             bool `json:"canEdit,omitempty"`
-	CanComment                          bool `json:"canComment,omitempty"`
-	CanShare                            bool `json:"canShare,omitempty"`
-	CanCopy                             bool `json:"canCopy,omitempty"`
-	CanDownload                         bool `json:"canDownload,omitempty"`
-	CanRename                           bool `json:"canRename,omitempty"`
-	CanTrash                            bool `json:"canTrash,omitempty"`
-	CanUntrash                          bool `json:"canUntrash,omitempty"`
-	CanDelete                           bool `json:"canDelete,omitempty"`
-	CanListChildren                     bool `json:"canListChildren,omitempty"`
-	CanAddChildren                      bool `json:"canAddChildren,omitempty"`
-	CanRemoveChildren                   bool `json:"canRemoveChildren,omitempty"`
-	CanTrashChildren                    bool `json:"canTrashChildren,omitempty"`
-	CanDeleteChildren                   bool `json:"canDeleteChildren,omitempty"`
-	CanModifyContent                    bool `json:"canModifyContent,omitempty"`
-	CanReadRevisions                    bool `json:"canReadRevisions,omitempty"`
-	CanMoveItemWithinDrive              bool `json:"canMoveItemWithinDrive,omitempty"`
-	CanMoveItemOutOfDrive               bool `json:"canMoveItemOutOfDrive,omitempty"`
-	CanChangeCopyRequiresWriterPerm     bool `json:"canChangeCopyRequiresWriterPermission,omitempty"`
-	CanModifyLabels                     bool `json:"canModifyLabels,omitempty"`
-	CanReadLabels                       bool `json:"canReadLabels,omitempty"`
-	CanChangeSecurityUpdateEnabled      bool `json:"canChangeSecurityUpdateEnabled,omitempty"`
-	CanAcceptOwnership                  bool `json:"canAcceptOwnership,omitempty"`
-	CanReadDrive                        bool `json:"canReadDrive,omitempty"`
-	CanChangeItemDownloadRestriction    bool `json:"canChangeItemDownloadRestriction,omitempty"`
-	CanDisableInheritedPermissions      bool `json:"canDisableInheritedPermissions,omitempty"`
-	CanEnableInheritedPermissions       bool `json:"canEnableInheritedPermissions,omitempty"`
-	CanShareChildFiles                  bool `json:"canShareChildFiles,omitempty"`
-	CanShareChildFolders                bool `json:"canShareChildFolders,omitempty"`
-	CanChangeSharingFolderRestrictedFor bool `json:"canChangeSharingFolderRestrictedForWriters,omitempty"`
+	// CanStartApproval is what Drive publishes for the operation
+	// manage_approval performs. It was missing, so the guard fell back to
+	// CanEdit — a weaker question than the one Drive answers.
+	CanStartApproval bool `json:"canStartApproval,omitempty"`
+
+	CanEdit                          bool `json:"canEdit,omitempty"`
+	CanComment                       bool `json:"canComment,omitempty"`
+	CanShare                         bool `json:"canShare,omitempty"`
+	CanCopy                          bool `json:"canCopy,omitempty"`
+	CanDownload                      bool `json:"canDownload,omitempty"`
+	CanRename                        bool `json:"canRename,omitempty"`
+	CanTrash                         bool `json:"canTrash,omitempty"`
+	CanUntrash                       bool `json:"canUntrash,omitempty"`
+	CanDelete                        bool `json:"canDelete,omitempty"`
+	CanListChildren                  bool `json:"canListChildren,omitempty"`
+	CanAddChildren                   bool `json:"canAddChildren,omitempty"`
+	CanRemoveChildren                bool `json:"canRemoveChildren,omitempty"`
+	CanTrashChildren                 bool `json:"canTrashChildren,omitempty"`
+	CanDeleteChildren                bool `json:"canDeleteChildren,omitempty"`
+	CanModifyContent                 bool `json:"canModifyContent,omitempty"`
+	CanReadRevisions                 bool `json:"canReadRevisions,omitempty"`
+	CanMoveItemWithinDrive           bool `json:"canMoveItemWithinDrive,omitempty"`
+	CanMoveItemOutOfDrive            bool `json:"canMoveItemOutOfDrive,omitempty"`
+	CanChangeCopyRequiresWriterPerm  bool `json:"canChangeCopyRequiresWriterPermission,omitempty"`
+	CanModifyLabels                  bool `json:"canModifyLabels,omitempty"`
+	CanReadLabels                    bool `json:"canReadLabels,omitempty"`
+	CanChangeSecurityUpdateEnabled   bool `json:"canChangeSecurityUpdateEnabled,omitempty"`
+	CanAcceptOwnership               bool `json:"canAcceptOwnership,omitempty"`
+	CanReadDrive                     bool `json:"canReadDrive,omitempty"`
+	CanChangeItemDownloadRestriction bool `json:"canChangeItemDownloadRestriction,omitempty"`
+	CanDisableInheritedPermissions   bool `json:"canDisableInheritedPermissions,omitempty"`
+	CanEnableInheritedPermissions    bool `json:"canEnableInheritedPermissions,omitempty"`
 }
 
 // ShortcutDetails points a shortcut at its target. The target resource
@@ -469,8 +471,23 @@ type DriveCapabilities struct {
 	CanTrashChildren            bool `json:"canTrashChildren,omitempty"`
 }
 
-// DriveRestrictions are the four switches a shared drive carries.
+// DownloadRestriction is who may download and copy, as a shared drive's
+// managers have set it.
+type DownloadRestriction struct {
+	RestrictedForReaders bool `json:"restrictedForReaders,omitempty"`
+	RestrictedForWriters bool `json:"restrictedForWriters,omitempty"`
+}
+
+// DriveRestrictions are the switches a shared drive carries, plus the
+// download restriction Drive keeps beside them.
 type DriveRestrictions struct {
+	// DownloadRestriction has to be modelled even though no tool sets it,
+	// because manage_drive sends the whole restrictions object back:
+	// driveRestrictionPatch copies what it decoded and re-sends it, so a
+	// field missing here is a field cleared on the next restriction
+	// change. Drive publishes it as a $ref rather than as a switch.
+	DownloadRestriction *DownloadRestriction `json:"downloadRestriction,omitempty"`
+
 	AdminManagedRestrictions                  bool `json:"adminManagedRestrictions,omitempty"`
 	CopyRequiresWriterPermission              bool `json:"copyRequiresWriterPermission,omitempty"`
 	DomainUsersOnly                           bool `json:"domainUsersOnly,omitempty"`

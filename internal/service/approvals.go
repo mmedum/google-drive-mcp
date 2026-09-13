@@ -195,9 +195,12 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 			"reviewers is required to start an approval: an approval with nobody to answer it is not "+
 				"a state Drive offers")
 	}
-	if f.Capabilities == nil || !f.Capabilities.CanEdit {
+	// canStartApproval, not canEdit: Drive publishes a capability for
+	// this exact operation, and it is not the same question — a file can
+	// be editable and still refuse an approval.
+	if f.Capabilities == nil || !f.Capabilities.CanStartApproval {
 		return nil, "", Errorf(ClassForbidden,
-			"you cannot start an approval on %s: that needs write access to the file", f.Name)
+			"you cannot start an approval on %s: Drive does not offer one on this file", f.Name)
 	}
 	body := &gdrive.StartApproval{
 		ReviewerEmails: reviewers, Message: in.Message, LockFile: in.LockFile,

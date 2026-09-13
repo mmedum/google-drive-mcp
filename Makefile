@@ -107,6 +107,10 @@ gate-classes: ## The error classes the code emits must be the ones it declares
 api-coverage: ## Every API method is used on purpose or left out on purpose
 	$(GO) run ./scripts/gates api-coverage
 
+.PHONY: api-fields
+api-fields: ## Every published field is modelled on purpose or left out on purpose
+	$(GO) run ./scripts/gates api-fields
+
 .PHONY: mcpb
 mcpb: ## The committed bundle manifest must name files the packer will stage
 	$(GO) run ./scripts/gates mcpb
@@ -136,7 +140,7 @@ api-diff: ## Refetch the three discovery documents and report what has changed (
 	$(GO) run ./scripts/gates api-diff
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage mcpb transcript schema-diff smoke staleness live-cover outcomes registry parity ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage api-fields mcpb transcript schema-diff smoke staleness live-cover outcomes registry parity ## Everything CI runs
 
 .PHONY: clean
 clean:
