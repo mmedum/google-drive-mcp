@@ -169,8 +169,16 @@ func checkArchitectureStatus() []string {
 
 // statusVersion matches the version a status line claims, in either of
 // the two spellings the two documents use.
+//
+// The README is no longer among them. It used to carry "Status: vX.Y.Z"
+// and this gate held it honest, which worked — but the honest fix for a
+// copy of a fact going stale is to delete the copy, not to build
+// machinery that maintains it. The release badge shows the version,
+// updates itself and cannot be wrong, so the line is gone and so is the
+// rule. What the README kept is the part no badge can carry: which phase
+// the work is in and which paths are unverified. The sibling servers
+// settled it the same way.
 var statusVersion = map[string]*regexp.Regexp{
-	"README.md":            regexp.MustCompile(`(?m)^\*\*Status: v([0-9]+\.[0-9]+\.[0-9]+)`),
 	"docs/architecture.md": regexp.MustCompile(`(?m)^\*\*Status:\*\* phase [0-9]+ complete \([^)]*\), released as v([0-9]+\.[0-9]+\.[0-9]+)`),
 }
 

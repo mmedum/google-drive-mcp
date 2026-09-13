@@ -60,6 +60,8 @@ func init() {
 		"api-fields": {run: apiFields,
 			doc: "every published field is modelled on purpose or left out on purpose", gate: true},
 		"parity": {run: parity, doc: "`make check` and CI run the same gates", gate: true},
+		"release-notes": {run: releaseNotes, args: "VERSION [CHANGELOG]",
+			doc: "one version's CHANGELOG section, which is the release note"},
 		"transcript": {run: transcript,
 			doc: "a program that drives a real account cannot reach a terminal except through the redactor", gate: true},
 		"live-cover": {run: liveCover, args: "[BINARY]",
