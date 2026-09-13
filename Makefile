@@ -99,8 +99,8 @@ staleness: build ## Docs must match the code
 pins: ## Every tool a workflow installs must be one exact version
 	$(GO) run ./scripts/gates pins
 
-.PHONY: gate-classes
-gate-classes: ## The error classes the code emits must be the ones it declares
+.PHONY: classes
+classes: ## The error classes the code emits must be the ones it declares
 	$(GO) run ./scripts/gates classes
 
 .PHONY: api-coverage
@@ -140,7 +140,7 @@ api-diff: ## Refetch the three discovery documents and report what has changed (
 	$(GO) run ./scripts/gates api-diff
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins gate-classes api-coverage api-fields mcpb transcript schema-diff smoke staleness live-cover outcomes registry parity ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins classes api-coverage api-fields mcpb transcript schema-diff smoke staleness live-cover outcomes registry parity ## Everything CI runs
 
 .PHONY: clean
 clean:

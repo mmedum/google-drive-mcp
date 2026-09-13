@@ -32,6 +32,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ## [1.1.1] - 2026-09-13
 
 ### Changed
+- The `classes` gate's Make target is called `classes`, like the gate
+  itself and like the other three servers, instead of `gate-classes`.
 - `status` reports the account the same way in all four: the local part
   removed, the domain kept. The domain is the half a diagnosis uses —
   shared drives are a Workspace feature and a personal account cannot
