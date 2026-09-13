@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-09-13
+
 ### Added
 - The release page carries the release notes. `gates release-notes`
   prints the `CHANGELOG.md` section for the tag and `release.yml` passes
@@ -1689,6 +1691,9 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[1.1.2]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.1...v1.1.2
+[1.1.1]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/mmedum/google-drive-mcp/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/mmedum/google-drive-mcp/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v0.4.0...v1.0.0
