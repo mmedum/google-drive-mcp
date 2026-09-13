@@ -34,44 +34,6 @@ func (d schemaDump) names() []string {
 	return out
 }
 
-// fullSurfaceEnv turns on every feature that gates a tool, so a dump
-// carries the whole registrable surface rather than a default build's.
-//
-// It is derived from config.go's own Define calls rather than listed
-// here, for the reason checkConfigDocs is derived: a list written from
-// memory falls behind the moment a phase adds a flag, and the gate that
-// was supposed to notice goes quiet instead of failing. GDRIVE_READ_ONLY
-// is the one boolean left off — it REMOVES tools rather than adding
-// them, so turning it on would shrink the surface it is meant to widen.
-func fullSurfaceEnv() ([]string, error) {
-	settings, err := definedSettings()
-	if err != nil {
-		return nil, err
-	}
-	var env []string
-	for _, name := range settings {
-		if name == "READ_ONLY" {
-			continue
-		}
-		if !gatesATool[name] {
-			continue
-		}
-		env = append(env, "GDRIVE_"+name+"=true")
-	}
-	sort.Strings(env)
-	return env, nil
-}
-
-// gatesATool names the boolean settings that decide whether a tool is
-// registered. A setting that only changes behaviour is not here: setting
-// GDRIVE_SHARING or GDRIVE_LOCAL_DIR to "true" would be nonsense, and a
-// dump has to stay a dump.
-var gatesATool = map[string]bool{
-	"LABELS":             true,
-	"ACTIVITY":           true,
-	"ENABLE_DESTRUCTIVE": true,
-}
-
 // dumpSchemas runs a build of the server and decodes its tool surface.
 //
 // The environment is always pinned, even when there is nothing to add:
@@ -115,11 +77,7 @@ func schemaDiff(out io.Writer, args []string) error {
 	// a feature flag can lose a field or gain a required one just as
 	// easily as any other, and this is the gate that is supposed to say
 	// so.
-	env, err := fullSurfaceEnv()
-	if err != nil {
-		return err
-	}
-	current, raw, err := dumpSchemas(binary, env...)
+	current, raw, err := dumpSchemas(binary)
 	if err != nil {
 		return err
 	}
@@ -138,19 +96,12 @@ func schemaDiff(out io.Writer, args []string) error {
 		return err
 	}
 	defer cleanup()
-	// The same environment on both sides. Dumping the current build with
-	// fullSurfaceEnv and the baseline without it made every flag-gated
-	// tool read as newly added on every run — v1.1.0 shipped saying
-	// "added tools: delete_comment, …" and the next run said it again —
-	// and, worse, meant a flag-gated tool that was REMOVED could not be
-	// reported, because it had never been in the baseline to compare
-	// against. That is the case the comment above says this gate is for.
-	//
-	// The env is derived from today's settings, so a setting that existed
-	// at the tag and has since been deleted is not set on the old binary.
-	// That is the right answer: a gate for a tool nobody can turn on any
-	// more is not a surface this server still offers.
-	previous, _, err := dumpSchemas(old, env...)
+	// The binary decides what a dump contains: --dump-schemas emits
+	// tools.FullSurface, so both sides carry every tool that can register.
+	// Setting an environment here instead only fixed this gate, left every
+	// other reader of --dump-schemas with the partial answer, and kept a
+	// list of gates that was already short by one.
+	previous, _, err := dumpSchemas(old)
 	if err != nil {
 		return err
 	}
