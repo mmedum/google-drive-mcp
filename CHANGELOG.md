@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-09-13
 
 ### Added
 - The API-fields snapshot descends into the objects Drive defines inline.
@@ -58,27 +58,6 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   of these are written: they are `kind` echoes, Team Drive spellings
   deprecated in 2020, image and video metadata for a client that displays
   files, and revision publishing that happens in the Docs UI.
-
-### Changed
-
-- **Compact JSON on every request.** Google indents its JSON unless told
-  otherwise, and `prettyPrint` is a system parameter of every Google API
-  rather than a Drive feature, so this client now asks for it once in
-  `newRequest` instead of at each of the twenty-eight places that build a
-  query — a call added later and given no thought gets it too. On a
-  sibling server the same change took a large response from 7.44 MB to
-  2.96 MB; here the responses are metadata and listings, so the saving is
-  proportionally the same and absolutely smaller. Set after the host
-  allowlist check, which is what makes rewriting the URL safe: every
-  request reaching that point is one this client has already decided it
-  may send a credential to. Skipped for a request that is not asking for
-  JSON — a download and an export ask for bytes, and a media URL carrying
-  a JSON formatting parameter reads as a mistake. A query that names
-  `prettyPrint` itself is left alone.
-
-### Added
-
-
 - **`copy_comments` is a rule now, not an inference.** A Google Sheet's
   comment threads came across on a copy, as a Doc's had; an uploaded
   CSV's did not, same run, same argument. Two points were a reading —
@@ -129,6 +108,22 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   an id the renderer prints INDENTED inside a listing rather than on an
   `id:` line, which is the shape the driver's reader knows. The fourth
   needs more approvals on one file than an edition allows open at once.
+
+### Changed
+- **Compact JSON on every request.** Google indents its JSON unless told
+  otherwise, and `prettyPrint` is a system parameter of every Google API
+  rather than a Drive feature, so this client now asks for it once in
+  `newRequest` instead of at each of the twenty-eight places that build a
+  query — a call added later and given no thought gets it too. On a
+  sibling server the same change took a large response from 7.44 MB to
+  2.96 MB; here the responses are metadata and listings, so the saving is
+  proportionally the same and absolutely smaller. Set after the host
+  allowlist check, which is what makes rewriting the URL safe: every
+  request reaching that point is one this client has already decided it
+  may send a credential to. Skipped for a request that is not asking for
+  JSON — a download and an export ask for bytes, and a media URL carrying
+  a JSON formatting parameter reads as a mistake. A query that names
+  `prettyPrint` itself is left alone.
 
 ### Fixed
 - A shared drive's download restriction survives a restriction change.
