@@ -23,6 +23,26 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   a heading, and only `h3` and deeper are lifted, so a second `h1` can
   never be emitted.
 
+### Fixed
+- A mistyped subcommand exits non-zero instead of starting the server.
+  `flag` stops at the first non-flag argument and returns `nil`, so a
+  stray word stayed in the argument list where nothing read it and the
+  default path ran the server: `google-drive-mcp statsu` printed
+  `serving MCP over stdio` and exited **0**. On a terminal that reads as
+  a hang, since the server then blocks on stdin and says nothing.
+
+  The exit code is the part that travels. Anything driving the binary — a
+  setup script, a health check, an agent writing its own client config —
+  takes 0 for "that worked", so a typo was indistinguishable from a
+  correct invocation until the server turned out not to be there.
+
+  A leading dash is the only thing separating a flag from a mistyped
+  subcommand, so the guard is exactly that, and every documented
+  invocation still reaches the server untouched. Contributed from
+  outside, after running the servers side by side and noticing that two
+  of the four already guarded this and two did not
+  ([#35](https://github.com/mmedum/google-drive-mcp/pull/35)).
+
 ## [1.1.2] - 2026-09-13
 
 ### Added
