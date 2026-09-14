@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-09-14
+
 ### Fixed
 - The tree renderer's linearity test measures something. It compared
   1 000 items against 10 000, and at that size the smaller render took
@@ -1826,6 +1828,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[1.1.5]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.1...v1.1.2
