@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"flag"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -215,5 +217,44 @@ func TestHTTPTimeoutFloorIsEnforcedNotJustDescribed(t *testing.T) {
 	}
 	if _, err := build(t, map[string]string{"GDRIVE_HTTP_TIMEOUT": "1s"}); err != nil {
 		t.Errorf("1s is the documented floor and should be accepted: %v", err)
+	}
+}
+
+// A directory that does not exist used to be accepted, because only a
+// relative path was refused. The typo then surfaced at the moment
+// somebody tried to move a file, a long way from the setting that caused
+// it and invisible to `status`.
+func TestTheDirectoryMustExistAndBeADirectory(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "a-file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name, dir string
+		ok        bool
+	}{
+		{"a real directory", dir, true},
+		{"unset is allowed and turns the feature off", "", true},
+		{"a path that does not exist", filepath.Join(dir, "nope"), false},
+		{"a file rather than a directory", file, false},
+		{"a relative path", filepath.Join("relative", "path"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := build(t, map[string]string{"GDRIVE_LOCAL_DIR": tc.dir})
+			if tc.ok {
+				if err != nil {
+					t.Errorf("%q was refused: %v", tc.dir, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("%q was accepted; the failure would surface at the first file operation", tc.dir)
+			}
+			if !strings.Contains(err.Error(), "local dir") {
+				t.Errorf("the error does not name the setting: %v", err)
+			}
+		})
 	}
 }
