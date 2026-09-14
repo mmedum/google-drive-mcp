@@ -43,20 +43,29 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/version"
 )
 
-func main() {
-	if len(os.Args) >= 2 {
-		switch os.Args[1] {
+func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+
+// run is main with its arguments and its two streams passed in, so the
+// dispatch can be exercised by a test instead of only by a person at a
+// terminal. main itself calls os.Exit, which no test survives — which is
+// why the unknown-command guard below first arrived with a test of an
+// extracted predicate rather than of its behaviour, and why deleting the
+// guard left every check green. The sibling servers were already shaped
+// this way, and their tests caught exactly that mutation.
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
 		case "login":
-			os.Exit(cmdLogin(os.Args[2:]))
+			return cmdLogin(args[1:], stdout, stderr)
 		case "logout":
-			os.Exit(cmdLogout(os.Args[2:]))
+			return cmdLogout(args[1:], stdout, stderr)
 		case "status":
-			os.Exit(cmdStatus(os.Args[2:]))
+			return cmdStatus(args[1:], stdout, stderr)
 		case "doctor":
-			os.Exit(cmdDoctor(os.Args[2:]))
+			return cmdDoctor(args[1:], stdout, stderr)
 		case "help", "-h", "--help":
-			usage(os.Stdout)
-			return
+			usage(stdout)
+			return 0
 		}
 
 		// Anything the switch did not recognise, and that is not a flag,
@@ -64,21 +73,14 @@ func main() {
 		// instead, which looks like a hang: it blocks on stdin and says
 		// nothing. The caller is then handed exit 0 whether it meant to
 		// serve or mistyped `status`, so nothing downstream can tell the
-		// two apart.
-		if looksLikeSubcommand(os.Args[1]) {
-			usage(os.Stderr)
-			os.Exit(fail("unknown command %q", os.Args[1]))
+		// two apart. A leading dash is all that separates them, so that
+		// is the whole rule.
+		if !strings.HasPrefix(args[0], "-") {
+			usage(stderr)
+			return fail(stderr, "unknown command %q", args[0])
 		}
 	}
-	os.Exit(runServer(os.Args[1:]))
-}
-
-// looksLikeSubcommand reports whether arg was meant as a subcommand rather
-// than a flag for the server. Both arrive the same way — as os.Args[1] the
-// switch above did not match — and the leading dash is the only thing that
-// separates them.
-func looksLikeSubcommand(arg string) bool {
-	return arg != "" && !strings.HasPrefix(arg, "-")
+	return runServer(args, stdout, stderr)
 }
 
 func usage(w io.Writer) {
@@ -98,8 +100,8 @@ accepts the matching flags (run one with -h).
 `)
 }
 
-func fail(format string, args ...any) int {
-	fmt.Fprintf(os.Stderr, "google-drive-mcp: "+format+"\n", args...)
+func fail(w io.Writer, format string, args ...any) int {
+	_, _ = fmt.Fprintln(w, "google-drive-mcp: "+fmt.Sprintf(format, args...))
 	return 1
 }
 
@@ -200,9 +202,9 @@ func newService(api service.API, cfg config.Config, logger *slog.Logger) *servic
 	})
 }
 
-func runServer(args []string) int {
+func runServer(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("google-drive-mcp", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(stderr)
 	var showVersion, dumpSchemas bool
 	fs.BoolVar(&showVersion, "version", false, "print version and exit")
 	fs.BoolVar(&dumpSchemas, "dump-schemas", false, "print tool schemas as JSON and exit")
@@ -211,17 +213,17 @@ func runServer(args []string) int {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
-		return fail("%v", err)
+		return fail(stderr, "%v", err)
 	}
 	if showVersion {
-		fmt.Println(version.Info())
+		_, _ = fmt.Fprintln(stdout, version.Info())
 		return 0
 	}
 	cfg, err := settings.Build()
 	if err != nil {
-		return fail("%v", err)
+		return fail(stderr, "%v", err)
 	}
-	logger := config.NewLogger(cfg, os.Stderr)
+	logger := config.NewLogger(cfg, stderr)
 	slog.SetDefault(logger)
 
 	if dumpSchemas {
@@ -229,8 +231,8 @@ func runServer(args []string) int {
 		// diff compares two dumps, and a tool behind a flag can lose a field
 		// or gain a required one like any other.
 		srv := server.New(server.Deps{Config: tools.FullSurface(cfg), Logger: logger, Version: version.String()})
-		if err := server.DumpSchemas(context.Background(), srv, os.Stdout, version.String()); err != nil {
-			return fail("dump schemas: %v", err)
+		if err := server.DumpSchemas(context.Background(), srv, stdout, version.String()); err != nil {
+			return fail(stderr, "dump schemas: %v", err)
 		}
 		return 0
 	}
@@ -240,7 +242,7 @@ func runServer(args []string) int {
 
 	p, err := openProfile(cfg, func(msg string) { logger.Warn(msg) })
 	if err != nil {
-		return fail("%v", err)
+		return fail(stderr, "%v", err)
 	}
 	ts, src, err := p.tokenSource(ctx)
 	if err != nil {
@@ -268,7 +270,7 @@ func runServer(args []string) int {
 		"read_only", cfg.ReadOnly, "sharing", string(cfg.Sharing),
 		"destructive", cfg.EnableDestructive, "transfers", cfg.LocalDir != "")
 	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && !isDisconnect(err) {
-		return fail("server: %v", err)
+		return fail(stderr, "server: %v", err)
 	}
 	logger.Info("client disconnected; exiting")
 	return 0
@@ -304,7 +306,7 @@ func isDisconnect(err error) bool {
 
 // openCommand parses a subcommand's flags, loads the configuration and
 // opens the profile. A non-nil exit code means the caller should return it.
-func openCommand(name string, args []string, define func(*flag.FlagSet)) (*profile, *flag.FlagSet, *int) {
+func openCommand(name string, args []string, stderr io.Writer, define func(*flag.FlagSet)) (*profile, *flag.FlagSet, *int) {
 	fs := flag.NewFlagSet("google-drive-mcp "+name, flag.ContinueOnError)
 	if define != nil {
 		define(fs)
@@ -315,24 +317,26 @@ func openCommand(name string, args []string, define func(*flag.FlagSet)) (*profi
 		if errors.Is(err, flag.ErrHelp) {
 			code = 0
 		} else {
-			fail("%v", err)
+			fail(stderr, "%v", err)
 		}
 		return nil, fs, &code
 	}
-	p, err := openProfile(cfg, warnStderr)
+	p, err := openProfile(cfg, func(msg string) { warnStderr(stderr, msg) })
 	if err != nil {
-		code := fail("%v", err)
+		code := fail(stderr, "%v", err)
 		return nil, fs, &code
 	}
 	return p, fs, nil
 }
 
-func warnStderr(msg string) { fmt.Fprintln(os.Stderr, "warning: "+msg) }
+func warnStderr(w io.Writer, msg string) {
+	_, _ = fmt.Fprintln(w, "warning: "+msg)
+}
 
-func cmdLogin(args []string) int {
+func cmdLogin(args []string, stdout, stderr io.Writer) int {
 	var noBrowser bool
 	var timeout time.Duration
-	p, _, code := openCommand("login", args, func(fs *flag.FlagSet) {
+	p, _, code := openCommand("login", args, stderr, func(fs *flag.FlagSet) {
 		fs.BoolVar(&noBrowser, "no-browser", false, "print the URL instead of opening a browser")
 		fs.DurationVar(&timeout, "timeout", 5*time.Minute, "how long to wait for the browser")
 	})
@@ -341,7 +345,7 @@ func cmdLogin(args []string) int {
 	}
 	cfg := p.cfg
 	if _, err := os.Stat(p.clientSecretPath); err != nil {
-		return fail("OAuth client JSON not found at %s\n"+
+		return fail(stderr, "OAuth client JSON not found at %s\n"+
 			"Create a Desktop-app OAuth client in your own Google Cloud project, download its JSON, and either place "+
 			"it there or pass --client-secret PATH (GDRIVE_CLIENT_SECRET). The README walks through the whole setup.",
 			p.clientSecretPath)
@@ -349,27 +353,27 @@ func cmdLogin(args []string) int {
 	scopes := p.scopes()
 	oc, err := auth.LoadClientSecret(p.clientSecretPath, scopes)
 	if err != nil {
-		return fail("%v", err)
+		return fail(stderr, "%v", err)
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-	opts := auth.LoginOptions{Out: os.Stdout, Timeout: timeout}
+	opts := auth.LoginOptions{Out: stdout, Timeout: timeout}
 	if noBrowser {
 		opts.OpenBrowser = func(string) error { return errors.New("--no-browser") }
 	}
 	tok, err := auth.Login(ctx, oc, opts)
 	if err != nil {
-		return fail("login failed: %v", err)
+		return fail(stderr, "login failed: %v", err)
 	}
 	src, err := p.store.Save(tok.RefreshToken)
 	if err != nil {
-		return fail("store token: %v", err)
+		return fail(stderr, "store token: %v", err)
 	}
 	email := ""
 	if info, err := auth.Inspect(ctx, nil, tok.AccessToken); err == nil {
 		email = info.Email
 		if missing := auth.HasScopes(info.Scopes, scopes); len(missing) > 0 {
-			warnStderr("Google granted fewer scopes than requested; missing: " + strings.Join(missing, ", ") +
+			warnStderr(stderr, "Google granted fewer scopes than requested; missing: "+strings.Join(missing, ", ")+
 				". Re-run login and approve every checkbox.")
 		}
 	}
@@ -386,17 +390,17 @@ func cmdLogin(args []string) int {
 	p.user.TokenStore = string(src)
 	p.user.Scopes = scopes
 	if err := userconfig.Save(cfg.Profile, p.user); err != nil {
-		return fail("save profile: %v", err)
+		return fail(stderr, "save profile: %v", err)
 	}
 	// Masked to the same shape as `status`: login is one command away
 	// from it, and a person pasting either into an issue should not get
 	// a different answer about what is safe to share.
-	fmt.Printf("Logged in as %s (profile %q, token stored in %s).\n", orUnset(redact.Account(email)), cfg.Profile, src)
+	_, _ = fmt.Fprintf(stdout, "Logged in as %s (profile %q, token stored in %s).\n", orUnset(redact.Account(email)), cfg.Profile, src)
 	return 0
 }
 
-func cmdLogout(args []string) int {
-	p, _, code := openCommand("logout", args, nil)
+func cmdLogout(args []string, stdout, stderr io.Writer) int {
+	p, _, code := openCommand("logout", args, stderr, nil)
 	if code != nil {
 		return *code
 	}
@@ -406,31 +410,31 @@ func cmdLogout(args []string) int {
 	// override is outside this command's reach.
 	if tok, _, err := p.store.ResolveStored(); err == nil {
 		if err := auth.Revoke(ctx, nil, tok); err != nil {
-			warnStderr(fmt.Sprintf("could not revoke the token at Google (%v); it is still deleted locally", err))
+			warnStderr(stderr, fmt.Sprintf("could not revoke the token at Google (%v); it is still deleted locally", err))
 		}
 	}
 	if os.Getenv(credentials.EnvVar) != "" {
-		warnStderr(credentials.EnvVar + " is set; logout cannot remove or revoke it")
+		warnStderr(stderr, credentials.EnvVar+" is set; logout cannot remove or revoke it")
 	}
 	if err := p.store.Delete(); err != nil {
-		return fail("%v", err)
+		return fail(stderr, "%v", err)
 	}
 	if p.hasConfig {
 		p.user.AccountEmail, p.user.TokenStore, p.user.Scopes = "", "", nil
 		if err := userconfig.Save(p.cfg.Profile, p.user); err != nil {
-			return fail("save profile: %v", err)
+			return fail(stderr, "save profile: %v", err)
 		}
 	}
-	fmt.Printf("Logged out of profile %q.\n", p.cfg.Profile)
+	_, _ = fmt.Fprintf(stdout, "Logged out of profile %q.\n", p.cfg.Profile)
 	return 0
 }
 
-func cmdStatus(args []string) int {
-	p, _, code := openCommand("status", args, nil)
+func cmdStatus(args []string, stdout, stderr io.Writer) int {
+	p, _, code := openCommand("status", args, stderr, nil)
 	if code != nil {
 		return *code
 	}
-	printStatus(os.Stdout, p)
+	printStatus(stdout, p)
 	return 0
 }
 
@@ -465,14 +469,14 @@ func printStatus(w io.Writer, p *profile) {
 	_, _ = fmt.Fprintf(w, "http timeout:   %s\n", cfg.HTTPTimeout)
 }
 
-func cmdDoctor(args []string) int {
-	p, fs, code := openCommand("doctor", args, nil)
+func cmdDoctor(args []string, stdout, stderr io.Writer) int {
+	p, fs, code := openCommand("doctor", args, stderr, nil)
 	if code != nil {
 		return *code
 	}
 	cfg := p.cfg
-	printStatus(os.Stdout, p)
-	fmt.Println()
+	printStatus(stdout, p)
+	_, _ = fmt.Fprintln(stdout)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -480,16 +484,16 @@ func cmdDoctor(args []string) int {
 	check := func(name string, err error, detail string) {
 		if err != nil {
 			failed++
-			fmt.Printf("✘ %s: %v\n", name, err)
+			_, _ = fmt.Fprintf(stdout, "✘ %s: %v\n", name, err)
 			return
 		}
-		fmt.Printf("✔ %s%s\n", name, detail)
+		_, _ = fmt.Fprintf(stdout, "✔ %s%s\n", name, detail)
 	}
 
 	// The local transfer directory is checked first because it needs no
 	// network and is the setting people most often get wrong.
 	if cfg.LocalDir == "" {
-		fmt.Println("• no local directory set (GDRIVE_LOCAL_DIR): downloads and uploads are off; inline text still works")
+		_, _ = fmt.Fprintln(stdout, "• no local directory set (GDRIVE_LOCAL_DIR): downloads and uploads are off; inline text still works")
 	} else {
 		check("local directory writable", checkLocalDir(cfg.LocalDir), " "+cfg.LocalDir)
 	}
@@ -497,7 +501,7 @@ func cmdDoctor(args []string) int {
 	ts, _, err := p.tokenSource(ctx)
 	check("credentials found", err, "")
 	if err != nil {
-		fmt.Println("\nRun `google-drive-mcp login` first.")
+		_, _ = fmt.Fprintln(stdout, "\nRun `google-drive-mcp login` first.")
 		return 1
 	}
 	tok, err := ts.Token()
@@ -518,7 +522,7 @@ func cmdDoctor(args []string) int {
 	about, err := api.About(ctx)
 	if err != nil {
 		check("Drive API (about.get)", err, "")
-		fmt.Printf("\n%d check(s) failed\n", failed)
+		_, _ = fmt.Fprintf(stdout, "\n%d check(s) failed\n", failed)
 		return 1
 	}
 	check("Drive API (about.get)", nil, " as "+about.User.EmailAddress)
@@ -530,7 +534,7 @@ func cmdDoctor(args []string) int {
 			check("shared drives (drives.list)", nil, fmt.Sprintf(" %d visible", len(drives.Drives)))
 		}
 	} else {
-		fmt.Println("• this account cannot create shared drives; they are a Google Workspace feature")
+		_, _ = fmt.Fprintln(stdout, "• this account cannot create shared drives; they are a Google Workspace feature")
 	}
 
 	// The two APIs that are not Drive. They are the likeliest thing to be
@@ -571,14 +575,14 @@ func cmdDoctor(args []string) int {
 				fmt.Sprintf(" %q (%s) in %s", res.File.Name, model.Kind(res.File), loc))
 		}
 	} else {
-		fmt.Println("• pass a file id, URL or path to also test files.get and path resolution")
+		_, _ = fmt.Fprintln(stdout, "• pass a file id, URL or path to also test files.get and path resolution")
 	}
 
 	if failed > 0 {
-		fmt.Printf("\n%d check(s) failed\n", failed)
+		_, _ = fmt.Fprintf(stdout, "\n%d check(s) failed\n", failed)
 		return 1
 	}
-	fmt.Println("\nall checks passed")
+	_, _ = fmt.Fprintln(stdout, "\nall checks passed")
 	return 0
 }
 
