@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-09-14
+
 ### Added
 - `forbidigo` holds the rule that stdout carries only MCP JSON-RPC
   frames. That rule is in this repository's CLAUDE.md and in the MCP
@@ -1787,6 +1789,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[1.1.3]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.0.2...v1.1.0
