@@ -75,26 +75,42 @@ func BenchmarkTree10000(b *testing.B) {
 // cost about ten times the work, and the allowance below is double that.
 //
 // The absolute number is in the benchmark, where nothing is instrumented.
+// Sizes are chosen so the smaller measurement is milliseconds rather
+// than microseconds. At 1 000 items it took ~600µs on a shared runner —
+// the same order as scheduling noise — and the ratio blew past the
+// threshold twice in a row on a plain `go test`, blocking a release,
+// while passing every time under `go test -race`. That is the part worth
+// remembering: the race detector's constant overhead was inflating the
+// small side and flattering the ratio, so CI was holding the test up
+// rather than the test holding the renderer.
+const (
+	linearSmallN = 5_000
+	linearLargeN = 50_000
+)
+
 func TestATenThousandItemTreeStaysLinear(t *testing.T) {
 	small := time.Duration(0)
 	large := time.Duration(0)
 	// Three runs each, taking the fastest: a shared runner will stall one
 	// of them, and a flaky performance test is a test people delete.
 	for range 3 {
-		small = fastest(small, timeTree(t, 1000))
-		large = fastest(large, timeTree(t, 10000))
+		small = fastest(small, timeTree(t, linearSmallN))
+		large = fastest(large, timeTree(t, linearLargeN))
 	}
-	t.Logf("1 000 items in %s, 10 000 in %s", small, large)
-	if small <= 0 {
-		t.Fatal("the smaller tree took no measurable time, so the ratio below means nothing")
+	t.Logf("%d items in %s, %d in %s", linearSmallN, small, linearLargeN, large)
+
+	// Below a millisecond the ratio is measuring the machine, not the
+	// renderer. Asserting on it anyway is what made this test unreliable.
+	if small < time.Millisecond {
+		t.Skipf("the smaller tree rendered in %s, too fast to compare against on this machine", small)
 	}
 	if ratio := float64(large) / float64(small); ratio > 20 {
 		t.Errorf("ten times the items cost %.1f times the work; the renderer is not linear any more", ratio)
 	}
 	// A backstop far above anything instrumentation explains, so a
 	// change that made every size equally slow is still caught.
-	if large > 500*time.Millisecond {
-		t.Errorf("rendering 10 000 items took %s", large)
+	if large > 2*time.Second {
+		t.Errorf("rendering %d items took %s", linearLargeN, large)
 	}
 }
 

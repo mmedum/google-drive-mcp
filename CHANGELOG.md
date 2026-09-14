@@ -6,6 +6,32 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- The tree renderer's linearity test measures something. It compared
+  1 000 items against 10 000, and at that size the smaller render took
+  about 600µs on a shared runner — the same order as scheduling noise —
+  so the ratio was mostly measuring the machine. It failed twice in a row
+  on a plain `go test` and blocked the v1.1.4 release, while passing
+  every time under `go test -race`.
+
+  That last part is the bit worth keeping. CI runs the race detector and
+  the release workflow does not, and the detector's constant overhead was
+  inflating the smaller measurement and flattering the ratio. The test
+  was being held up by the build it ran under rather than holding the
+  renderer.
+
+  It compares 5 000 against 50 000 now, so the smaller side is
+  milliseconds, and it skips rather than asserts when that side is under
+  a millisecond — below which the number says nothing about the renderer.
+  Measured 3.3ms against 49.1ms, a ratio of 14.7 where the limit is 20.
+
+  **v1.1.4 is a tag with no release.** The workflow died before
+  goreleaser ran, so nothing was published and no archive carries that
+  version — but the Go module proxy had already cached the tag, and the
+  proxy is immutable, so moving it would leave the proxy and the
+  repository naming different commits. It is left alone and this is
+  v1.1.5.
+
 ## [1.1.4] - 2026-09-14
 
 ### Fixed
