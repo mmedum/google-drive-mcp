@@ -7,6 +7,34 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- `main` is one line and the dispatch lives in
+  `run(args []string, stdout, stderr io.Writer) int`, the shape the
+  sibling servers already had. `main` calls `os.Exit`, which no test
+  survives, so nothing about the dispatch could be tested — and the
+  unknown-command guard added in the previous change proved it: deleting
+  the guard from `main` left every check green, because the test that
+  came with it tested an extracted predicate rather than the behaviour.
+  A test that cannot fail when the behaviour is removed is not holding
+  the behaviour, which is the fault this repository's evidence log
+  already records twice under a different name.
+
+  The guard is now inline, as it is in the siblings, the predicate helper
+  is gone, and `TestAnUnknownCommandIsReported` drives `run` and asserts
+  the exit code, the message and that nothing reached stdout. Verified
+  the only way that counts: neuter the condition so the file still
+  compiles, watch the test go red, put it back. Deleting the guard
+  outright is not that test — it leaves an import unused and fails the
+  *build*, which looks like a red test and proves nothing.
+
+  A second test holds the other direction, since a guard keyed on a
+  leading dash is one typo from rejecting a real flag: `--version`,
+  `-version`, `--dump-schemas`, `help`, `--help` and `-h` must all still
+  reach their command.
+- Every stream the commands write to is passed in rather than reached
+  for. Thirteen `fmt.Print*` calls went straight to the process's stdout,
+  which is why `stdout` looked unused once it was threaded through; they
+  go through the writer now, so what a command prints can be read by a
+  test.
 - Release notes are published one heading level up. In `CHANGELOG.md` a
   version is an `##` and its change kinds are `###` underneath it; on the
   release page the version heading is gone, because GitHub renders the
