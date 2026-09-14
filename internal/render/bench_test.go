@@ -104,8 +104,17 @@ func TestATenThousandItemTreeStaysLinear(t *testing.T) {
 	if small < time.Millisecond {
 		t.Skipf("the smaller tree rendered in %s, too fast to compare against on this machine", small)
 	}
-	if ratio := float64(large) / float64(small); ratio > 20 {
-		t.Errorf("ten times the items cost %.1f times the work; the renderer is not linear any more", ratio)
+	// Ten times the items should cost about ten times the work. The limit
+	// is not 11, or even 20, because this test exists to catch a
+	// complexity regression and not to police a constant factor: if the
+	// renderer went quadratic the ratio would be near 100, while
+	// instrumentation and a shared runner move it by a factor of two.
+	// Measured: 14.7 locally, 21.8 under the race detector, 22.4 on a
+	// contended runner without it. A limit of 20 called all but the first
+	// of those a regression, which is how this came to block a release
+	// twice while reporting nothing about the renderer.
+	if ratio := float64(large) / float64(small); ratio > 40 {
+		t.Errorf("ten times the items cost %.1f times the work; the renderer looks superlinear", ratio)
 	}
 	// A backstop far above anything instrumentation explains, so a
 	// change that made every size equally slow is still caught.

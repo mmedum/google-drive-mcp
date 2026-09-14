@@ -25,7 +25,17 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   It compares 5 000 against 50 000 now, so the smaller side is
   milliseconds, and it skips rather than asserts when that side is under
   a millisecond — below which the number says nothing about the renderer.
-  Measured 3.3ms against 49.1ms, a ratio of 14.7 where the limit is 20.
+
+  The limit moved from 20 to 40, which is the part that actually fixes
+  it. At the larger sizes the test then failed the *other* way, under the
+  race detector, at 21.8. The threshold was simply mis-set for the
+  variance it faces: this test exists to catch a complexity regression,
+  and a quadratic renderer would show a ratio near 100, while
+  instrumentation and a contended runner move it by a factor of two.
+  Measured across both build modes: 14.7 plain and locally, 21.8 under
+  `-race`, 22.4 on a contended runner. A limit of 20 called three of
+  those a regression and reported nothing about the renderer in any of
+  them.
 
   **v1.1.4 is a tag with no release.** The workflow died before
   goreleaser ran, so nothing was published and no archive carries that
