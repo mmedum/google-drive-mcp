@@ -21,8 +21,22 @@ Google Doc, Sheet or Slides deck is out of scope.
    use. This holds for code, docs, fixtures, commit messages, pull
    requests and logs. Fixtures are synthetic. Logs carry truncated ids,
    counts and latencies only. Conventions are cited to primary sources.
-2. **Stdout carries only MCP JSON-RPC frames.** Logs use `slog` to
-   stderr. Never `fmt.Println` on the server path.
+2. **Stdout carries only MCP JSON-RPC frames.** This is the protocol, not
+   a house preference. MCP's stdio transport says the server "MUST NOT
+   write anything to its `stdout` that is not a valid MCP message", and
+   "MAY write UTF-8 strings to its standard error (`stderr`) for logging
+   purposes" —
+   <https://modelcontextprotocol.io/specification/2025-06-18/basic/transports>.
+   Logs use `slog` to stderr. A stray print corrupts the JSON-RPC stream
+   and the client silently stops working, which is why this is a hard
+   rule rather than a style note.
+
+   `forbidigo` enforces it: `fmt.Print*` and `os.Stdout` are forbidden
+   outside `main`, which names the process's streams once and passes them
+   down as `io.Writer`. `scripts/` is excluded, being maintainer tooling
+   rather than the server. Check the message text when verifying it — a
+   settings block that fails to load leaves forbidigo on its defaults,
+   firing, looking like it works.
 3. **Ids are the contract.** A name or path that matches more than one
    item is `[ambiguous]` with the candidates; the server never takes the
    first match and never guesses an id.
