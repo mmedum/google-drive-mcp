@@ -7,6 +7,7 @@
 //	google-drive-mcp login    authorize a Google account (opens a browser)
 //	google-drive-mcp logout   revoke and forget the stored token
 //	google-drive-mcp status   show the active profile and where the token lives
+//	                          (--json for the same state as one JSON object)
 //	google-drive-mcp doctor   run live checks against Google
 //	google-drive-mcp          run the MCP server (default)
 //	google-drive-mcp --version | --dump-schemas
@@ -93,7 +94,7 @@ Usage:
   google-drive-mcp                  run the MCP server over stdio
   google-drive-mcp login            authorize a Google account
   google-drive-mcp logout           revoke and delete the stored token
-  google-drive-mcp status           show profile, token location, settings
+  google-drive-mcp status [--json]  show profile, token location, settings
   google-drive-mcp doctor [FILE]    live checks; FILE is an id, URL or path to read
   google-drive-mcp --version
   google-drive-mcp --dump-schemas   print tool schemas as JSON
@@ -433,44 +434,27 @@ func cmdLogout(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdStatus(args []string, stdout, stderr io.Writer) int {
-	p, _, code := openCommand("status", args, stderr, nil)
+	var asJSON bool
+	p, _, code := openCommand("status", args, stderr, func(fs *flag.FlagSet) {
+		fs.BoolVar(&asJSON, "json", false, "print the same state as one JSON object")
+	})
 	if code != nil {
 		return *code
 	}
-	printStatus(stdout, p)
+	report := newStatusReport(p)
+	if asJSON {
+		if err := report.writeJSON(stdout); err != nil {
+			return fail(stderr, "%v", err)
+		}
+		return 0
+	}
+	report.writeText(stdout)
 	return 0
 }
 
 // printStatus writes what is configured, without contacting Google. It
 // prints the account to the terminal and never to the log.
-func printStatus(w io.Writer, p *profile) {
-	cfg := p.cfg
-	_, _ = fmt.Fprintln(w, version.Info())
-	_, _ = fmt.Fprintf(w, "profile:        %s\n", cfg.Profile)
-	_, _ = fmt.Fprintf(w, "config dir:     %s\n", p.dir)
-	_, _ = fmt.Fprintf(w, "account:        %s\n", orUnset(redact.Account(p.user.AccountEmail)))
-	exists := "missing"
-	if _, err := os.Stat(p.clientSecretPath); err == nil {
-		exists = "present"
-	}
-	_, _ = fmt.Fprintf(w, "client secret:  %s (%s)\n", p.clientSecretPath, exists)
-	if _, src, err := p.store.Resolve(); err == nil {
-		_, _ = fmt.Fprintf(w, "token store:    %s\n", src)
-	} else {
-		_, _ = fmt.Fprintf(w, "token store:    none (%v)\n", err)
-	}
-	if len(p.user.Scopes) > 0 {
-		_, _ = fmt.Fprintf(w, "scopes:         %s\n", strings.Join(p.user.Scopes, " "))
-	}
-	_, _ = fmt.Fprintf(w, "scopes wanted:  %s\n", strings.Join(p.scopes(), " "))
-	_, _ = fmt.Fprintf(w, "read-only:      %t\n", cfg.ReadOnly)
-	_, _ = fmt.Fprintf(w, "sharing tools:  %s\n", cfg.Sharing)
-	_, _ = fmt.Fprintf(w, "destructive:    %t\n", cfg.EnableDestructive)
-	_, _ = fmt.Fprintf(w, "labels:         %t\n", cfg.Labels)
-	_, _ = fmt.Fprintf(w, "local dir:      %s\n", orUnset(cfg.LocalDir))
-	_, _ = fmt.Fprintf(w, "max download:   %s\n", model.HumanSize(cfg.MaxDownload))
-	_, _ = fmt.Fprintf(w, "http timeout:   %s\n", cfg.HTTPTimeout)
-}
+func printStatus(w io.Writer, p *profile) { newStatusReport(p).writeText(w) }
 
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	p, fs, code := openCommand("doctor", args, stderr, nil)
