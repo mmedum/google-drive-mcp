@@ -268,7 +268,8 @@ undo a permanent delete.
 
 ```
 cmd/google-drive-mcp/     main: login / logout / status / doctor subcommands, server default,
-                          --version, --dump-schemas
+                          --version, --dump-schemas; `status` collects its state once and
+                          renders it as text or, with --json, as one object for a script
 internal/config/          GDRIVE_* env with flags bound to the same names; typed enums; validated at start
 internal/credentials/     refresh token: OS keyring → 0600 file under os.UserConfigDir() with a logged
                           warning → GDRIVE_REFRESH_TOKEN env override

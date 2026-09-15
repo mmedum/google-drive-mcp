@@ -109,3 +109,62 @@ added to the consent screen. Enabling the scope without enabling the API,
 or the other way round, both end in a 403 saying only that the token had
 insufficient scopes; the tools name the setup step in their refusal so
 that message is not the last word.
+
+## Reading the setup from a script
+
+`google-drive-mcp status` prints what is configured and where the token
+is, for a person to read. `google-drive-mcp status --json` prints the
+same state as one JSON object on stdout, for something that has to decide
+rather than display — a launcher that will not start the server without
+credentials, a health check, a setup script deciding whether to run
+`login`. Neither form contacts Google; `doctor` is the one that asks
+Google whether the token works.
+
+```console
+$ google-drive-mcp status --json
+{
+  "schema_version": 1,
+  "binary": "google-drive-mcp",
+  "version": "v1.1.5",
+  "profile": "default",
+  "config_dir": "/home/you/.config/google-drive-mcp",
+  "account": "…@example.com",
+  "credentials": {
+    "resolved": true,
+    "token_store": "keyring",
+    "reason": null,
+    "client_secret_path": "/home/you/.config/google-drive-mcp/client_secret.json",
+    "client_secret_present": true
+  },
+  "scopes": {
+    "granted": ["https://www.googleapis.com/auth/drive"],
+    "wanted": ["https://www.googleapis.com/auth/drive"]
+  },
+  "settings": {
+    "read_only": false,
+    "sharing": "all",
+    "destructive": false,
+    "labels": false,
+    "local_dir": null,
+    "max_download_bytes": 1073741824,
+    "http_timeout": "1m0s"
+  }
+}
+```
+
+`credentials.resolved` is the field to branch on. It is `true` when a
+refresh token was found and `false` when every tool will answer `[auth]`
+until `login` succeeds, and it is present either way — so an
+unauthorised answer looks different from no answer at all, which a match
+against the text output cannot manage.
+
+`credentials.token_store` is `keyring`, `file` or `env`, or `null` with
+`credentials.reason` saying why nothing resolved. `account` is masked to
+its domain, exactly as the text line is. Sizes are bytes and durations
+are Go duration strings, so there is nothing to parse back out of `1.0
+GiB`.
+
+`schema_version` changes only when a field is removed or its meaning
+changes. Fields may be added within it, so read the ones you need and
+ignore the rest. The text form carries no such promise: it is written for
+a person and its labels are free to change.
