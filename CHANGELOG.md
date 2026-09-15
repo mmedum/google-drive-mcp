@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-15
+
 ### Added
 - `status --json` prints the same state as one JSON object, for a script
   that has to decide whether this server is authorised rather than show
@@ -1863,6 +1865,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[1.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.5...v1.2.0
 [1.1.5]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.2...v1.1.3
