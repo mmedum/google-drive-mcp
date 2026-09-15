@@ -335,6 +335,12 @@ credentials, the granted scopes and what Google actually answers, and
 names what is missing — most first-run trouble is an API that was never
 enabled or a consent screen without you on it.
 
+`google-drive-mcp status` shows the same setup without contacting Google,
+and `status --json` prints it as one JSON object for a script that has to
+decide whether this server is authorised before starting it —
+`credentials.resolved` is the field to branch on. The shape is in
+[docs/configuration.md](docs/configuration.md#reading-the-setup-from-a-script).
+
 If that does not explain it,
 [open an issue](https://github.com/mmedum/google-drive-mcp/issues). Never
 paste a file id or URL, file contents, a `client_secret.json` or a token

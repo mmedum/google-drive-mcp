@@ -6,6 +6,31 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `status --json` prints the same state as one JSON object, for a script
+  that has to decide whether this server is authorised rather than show
+  it to somebody. `credentials.resolved` is the field to branch on, and
+  it is present whether or not anything resolved — so an unauthorised
+  answer is distinguishable from no answer, which a match against the
+  text output is not: a check written against one release's labels
+  silently reports "not authorised" after a release that reworded one,
+  and the usual response to that is another `login`, which is a browser
+  consent the person already gave.
+
+  The object carries the account (masked to its domain, as the text line
+  is), whether credentials resolve and where the token is, the profile,
+  the config directory, the client secret's path and whether it exists,
+  the scopes granted and wanted, and the settings — sizes in bytes and
+  durations as Go duration strings, so there is nothing to parse back out
+  of `1.0 GiB`. `schema_version` changes only when a field is removed or
+  its meaning changes; fields may be added within it. The shape is in
+  `docs/configuration.md`.
+
+  The text form is unchanged, to the byte, and is held there by a test:
+  both forms are now rendered from one collector, so the object cannot
+  drift from what `status` reports and a change made for the object's
+  sake cannot quietly reach the lines a person reads.
+
 ## [1.1.5] - 2026-09-14
 
 ### Fixed
