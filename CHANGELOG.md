@@ -6,6 +6,41 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- The secret scanner no longer floats. `gitleaks/gitleaks-action` was
+  pinned by SHA with no `GITLEAKS_VERSION`, so every CI run installed
+  whatever gitleaks had shipped that morning: a rule added upstream can
+  fail a merge that was fine an hour ago, and a rule removed upstream
+  stops catching what it used to with nothing to show for it. It is
+  `8.30.1` now, which is what the three sibling servers that use this
+  action pin. **Found by the gate below, on its first run.**
+
+### Added
+- The `pins` gate reads the actions themselves, not only the version
+  inputs they carry. Two shapes it could not see before, both of which
+  this repository was relying on habit for:
+
+  - **An action referenced by a mutable tag.** This file's own opening
+    comment already assumed SHA pinning — "an action pinned by commit
+    SHA still installs a tool whose version is a separate input" — and
+    nothing checked it. Every action here happens to be SHA-pinned; the
+    four sibling servers hold that with a gate and this one did not.
+  - **An action that installs a tool and names no version at all.** That
+    is an absence rather than a value, so a check over written versions
+    is blind to it. The Pipedrive server's release published nothing on
+    exactly this shape: `sigstore/cosign-installer` pinned by SHA with
+    no `cosign-release`, so the job installed whatever cosign was
+    newest, and that cosign had changed its default signing format.
+    **A SHA pins the wrapper, not the tool.**
+
+  Every action is now in one of two tables — the installers with the
+  input that pins each one's tool, and the actions that install nothing
+  with the reason — and an action in neither fails the gate, because
+  being unclassified is the state that let the others through.
+
+  Watched failing on all four shapes before being trusted, and it caught
+  the live gitleaks hole above on its first run against this repository.
+
 ## [1.2.0] - 2026-09-15
 
 ### Added
