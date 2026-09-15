@@ -57,3 +57,81 @@ func TestAToolDownloadedAtLatestIsNotPinned(t *testing.T) {
 		})
 	}
 }
+
+// TestActionPins covers the two shapes the version-input rule cannot
+// see: an action on a mutable tag, and an action whose tool nobody
+// pinned. The gitleaks case is the one this check found live in this
+// repository on its first run — the secret scanner was installing
+// whatever shipped that morning.
+func TestActionPins(t *testing.T) {
+	const sha = "0000000000000000000000000000000000000000"
+	cases := []struct {
+		name    string
+		yaml    string
+		wantBad bool
+	}{
+		{
+			"an action on a tag can be moved under you",
+			"jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v7\n",
+			true,
+		},
+		{
+			"an action on a SHA is pinned",
+			"jobs:\n  a:\n    steps:\n      - uses: actions/checkout@" + sha + "\n",
+			false,
+		},
+		{
+			"gitleaks with no scanner version — found live here",
+			"jobs:\n  a:\n    steps:\n      - uses: gitleaks/gitleaks-action@" + sha + "\n        env:\n          GITHUB_TOKEN: x\n",
+			true,
+		},
+		{
+			"gitleaks with the scanner version",
+			"jobs:\n  a:\n    steps:\n      - uses: gitleaks/gitleaks-action@" + sha + "\n        env:\n          GITLEAKS_VERSION: \"8.30.1\"\n",
+			false,
+		},
+		{
+			"cosign with no release input — this failed a sibling's release",
+			"jobs:\n  a:\n    steps:\n      - name: Install cosign\n        uses: sigstore/cosign-installer@" + sha + "\n",
+			true,
+		},
+		{
+			"cosign pinned",
+			"jobs:\n  a:\n    steps:\n      - uses: sigstore/cosign-installer@" + sha + "\n        with:\n          cosign-release: v3.1.3\n",
+			false,
+		},
+		{
+			"syft with no version input — the same hole one step below",
+			"jobs:\n  a:\n    steps:\n      - uses: anchore/sbom-action/download-syft@" + sha + "\n",
+			true,
+		},
+		{
+			"setup-go pins by reference through the file",
+			"jobs:\n  a:\n    steps:\n      - uses: actions/setup-go@" + sha + "\n        with:\n          go-version-file: go.mod\n",
+			false,
+		},
+		{
+			"an action that installs nothing needs no version",
+			"jobs:\n  a:\n    steps:\n      - uses: actions/upload-artifact@" + sha + "\n",
+			false,
+		},
+		{
+			"an unknown action is not quietly trusted",
+			"jobs:\n  a:\n    steps:\n      - uses: some-vendor/tool-installer@" + sha + "\n        with:\n          version: v1.2.3\n",
+			true,
+		},
+		{
+			"the next step's pin does not cover this one",
+			"jobs:\n  a:\n    steps:\n      - uses: sigstore/cosign-installer@" + sha + "\n\n      - uses: anchore/sbom-action/download-syft@" + sha + "\n        with:\n          syft-version: v1.51.1\n",
+			true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, _, problems := actionPins("test.yml", c.yaml)
+			if got := len(problems) > 0; got != c.wantBad {
+				t.Errorf("found %d problem(s), want bad=%v: %v", len(problems), c.wantBad, problems)
+			}
+		})
+	}
+}
