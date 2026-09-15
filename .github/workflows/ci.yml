@@ -95,6 +95,14 @@ jobs:
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The scanner this wrapper installs, pinned like every other
+          # tool here. A SHA pins the wrapper, not the tool: without
+          # this the secret scan runs whatever gitleaks shipped this
+          # morning, so a rule added upstream can fail a merge that was
+          # fine an hour ago, and a rule removed upstream stops catching
+          # what it used to with nothing to show for it. The three
+          # sibling servers that use this action pin the same version.
+          GITLEAKS_VERSION: "8.30.1"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
