@@ -6,6 +6,36 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- The bundle gate holds what the manifest says about ITSELF, not only
+  that it says something. It required `$schema` and `manifest_version` to
+  be present and read neither, so `$schema` could have named anything —
+  and it named `main`, a branch upstream can amend under a document that
+  claims to conform to it. The version in the path pins the FORMAT; the
+  ref pins the BYTES.
+
+  Four claims now: `$schema` is upstream's published path at a ref that
+  cannot move — a full release tag or a commit SHA — the version in that
+  URL equals `manifest_version`, that version is not below the one this
+  repository has checked, and a `support` URL says where a failing
+  install should be reported. The ref rule is an allow-list over the
+  whole URL, because refusing the branch NAMES `main`, `master` and
+  `HEAD` passes a branch called anything else, a partial tag like `v2.1`
+  that upstream re-points as it releases, and the right filename served
+  by somebody who is not upstream.
+
+  The floor is the claim the others structurally cannot make: they hold
+  the manifest against itself, and 0.2 beside a 0.2 schema is stale and
+  entirely self-consistent. Checked against the published schemas rather
+  than against what other repositories carry — 0.2, 0.3 and 0.4 are
+  served and 0.5 is not, and 0.4's only change is a `uv` value in the
+  `server.type` enum, which a `binary` server gains nothing from.
+
+### Changed
+- The bundle manifest's `$schema` names the `v2.1.2` tag rather than
+  `main`. The copy there is byte-identical today, which is the point:
+  nothing would say if it stopped being.
+
 ### Fixed
 - The secret scanner no longer floats. `gitleaks/gitleaks-action` was
   pinned by SHA with no `GITLEAKS_VERSION`, so every CI run installed
