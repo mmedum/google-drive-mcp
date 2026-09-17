@@ -67,7 +67,13 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 	}
 	good := func() map[string]any {
 		return map[string]any{
-			"$schema": "s", "manifest_version": "0.3", "name": "n",
+			// A real $schema and support URL: the check reads both
+			// now, and a stub for a value nothing looked at is how a
+			// fixture stops describing the thing it stands for.
+			"$schema": "https://raw.githubusercontent.com/anthropics/mcpb/v2.1.2/" +
+				"schemas/mcpb-manifest-v0.3.schema.json",
+			"manifest_version": "0.3", "name": "n",
+			"support": "https://example.invalid/issues",
 			"version": "1.0.0", "description": "d", "author": map[string]any{},
 			"user_config": map[string]any{"client_secret": map[string]any{}},
 			"server": map[string]any{
@@ -425,5 +431,106 @@ func TestThePlatformsGoreleaserBuildsAreStaged(t *testing.T) {
 	}
 	if got := matrixValues(string(source), "goos"); len(got) < 3 {
 		t.Errorf("read %v as the goos matrix; that is too few to be the real one", got)
+	}
+}
+
+// What the manifest says about ITSELF, which is the half neither the
+// staged-tree checks above nor a schema can make: whether the reference
+// is pinned to bytes rather than to a branch, and whether the version is
+// one somebody checked.
+//
+// Each case below is well formed, and four of the six pass every check
+// that holds the document against itself — which is the point. A 0.2
+// manifest citing a 0.2 schema is stale and entirely consistent.
+func TestTheManifestsOwnDeclarationIsHeld(t *testing.T) {
+	const pinned = "https://raw.githubusercontent.com/anthropics/mcpb/v2.1.2/schemas/mcpb-manifest-v0.3.schema.json"
+	const bySHA = "https://raw.githubusercontent.com/anthropics/mcpb/" +
+		"0123456789abcdef0123456789abcdef01234567/schemas/mcpb-manifest-v0.3.schema.json"
+
+	// A commit SHA is the other ref that cannot move, and the stronger
+	// of the two; refusing it would push somebody back to a branch.
+	for _, ok := range []string{pinned, bySHA} {
+		if problems := declarationProblems(ok, "0.3", "https://example.invalid/issues"); len(problems) > 0 {
+			t.Fatalf("a well-formed declaration was refused:\n%s", strings.Join(problems, "\n"))
+		}
+	}
+
+	cases := []struct{ name, schema, version, support, want string }{
+		{"no $schema", "", "0.3", "x", "no $schema"},
+		{
+			"the unpinned dist path",
+			"https://raw.githubusercontent.com/anthropics/mcpb/main/dist/mcpb-manifest.schema.json",
+			"0.3", "x", "not upstream's published",
+		},
+		{
+			"served from a branch",
+			"https://raw.githubusercontent.com/anthropics/mcpb/main/schemas/mcpb-manifest-v0.3.schema.json",
+			"0.3", "x", "can be re-pointed",
+		},
+		{
+			"a partial tag, which upstream re-points",
+			"https://raw.githubusercontent.com/anthropics/mcpb/v2.1/schemas/mcpb-manifest-v0.3.schema.json",
+			"0.3", "x", "can be re-pointed",
+		},
+		{
+			"the right file from another host",
+			"https://example.invalid/schemas/mcpb-manifest-v0.3.schema.json",
+			"0.3", "x", "not upstream's published",
+		},
+		{
+			"a pinned schema that disagrees with manifest_version",
+			pinned, "0.4", "x", "cannot claim one version",
+		},
+		{
+			"stale, and entirely self-consistent",
+			"https://raw.githubusercontent.com/anthropics/mcpb/v2.1.2/schemas/mcpb-manifest-v0.2.schema.json",
+			"0.2", "x", "this repository has checked 0.3",
+		},
+		{"no support URL", pinned, "0.3", "", "no support URL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			problems := declarationProblems(tc.schema, tc.version, tc.support)
+			if len(problems) == 0 {
+				t.Fatalf("%s was accepted", tc.name)
+			}
+			if !strings.Contains(strings.Join(problems, "\n"), tc.want) {
+				t.Fatalf("wanted %q, got:\n%s", tc.want, strings.Join(problems, "\n"))
+			}
+		})
+	}
+}
+
+// The floor compares numbers. As text "0.10" sorts before "0.3", which
+// stays right until the tenth minor version and then reads like the
+// manifest's fault.
+func TestTheFloorComparesVersionsNumerically(t *testing.T) {
+	for _, c := range []struct {
+		version, floor string
+		want           bool
+	}{
+		{"0.3", "0.3", false},
+		{"0.2", "0.3", true},
+		{"0.10", "0.3", false},
+		{"0.9", "1.0", true},
+		{"nonsense", "0.3", true},
+	} {
+		if got := olderThan(c.version, c.floor); got != c.want {
+			t.Errorf("olderThan(%q, %q) = %v, want %v", c.version, c.floor, got, c.want)
+		}
+	}
+}
+
+// The committed manifest meets the floor, stated rather than read from
+// the file: a test taking its expected value from the thing under test
+// passes on any value.
+func TestTheCommittedManifestMeetsTheFloor(t *testing.T) {
+	t.Chdir("../..")
+	manifest, err := readManifest(mcpbManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := manifest["manifest_version"].(string); got != "0.3" {
+		t.Fatalf("the committed manifest declares %q; this repository has checked 0.3", got)
 	}
 }
