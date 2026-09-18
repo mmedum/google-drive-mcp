@@ -6,6 +6,16 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- The registry entry for v1.2.1 could not publish: the step that verifies
+  the checksum file's signature ran before the step that installs cosign,
+  so the job exited 127 on `cosign: command not found`. The release
+  itself was published and signed — this is the third row of the runbook's
+  recovery table, the one that needs a dispatch rather than a new tag.
+  cosign is installed before its first use now, which is where the other
+  servers already had it.
+
 ## [1.2.1] - 2026-09-18
 
 ### Fixed
