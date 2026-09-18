@@ -6,6 +6,17 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-09-18
+
+### Fixed
+
+- The provenance attestation covers the `.mcpb` bundle. It named the
+  archives and `checksums.txt` and not the bundle, so
+  `gh attestation verify` on the bundle answered 404 while every archive
+  passed — the artifact most people install was the one without an
+  attestation of its own. It was covered only through its row in
+  `checksums.txt`, which is a claim about the checksum file.
+
 ## [1.2.2] - 2026-09-18
 
 ### Fixed
@@ -1957,6 +1968,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[1.2.3]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.5...v1.2.0
