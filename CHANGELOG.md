@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-09-18
+
 ### Fixed
 
 - The registry entry for v1.2.1 could not publish: the step that verifies
@@ -1955,6 +1957,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[1.2.2]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.5...v1.2.0
 [1.1.5]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.4...v1.1.5
