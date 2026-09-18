@@ -6,6 +6,21 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-18
+
+### Fixed
+
+- The registry entry is not built from an unverified checksum file.
+  `publish-mcp.yml` downloaded the published `checksums.txt` and fed it
+  to the gate that writes the entry, whose `fileSha256` comes out of that
+  file — the number a registry-driven client checks its download against.
+  The only `cosign verify-blob` in the job covered the `mcp-publisher`
+  tarball. Somebody able to replace a release asset could edit
+  `checksums.txt` beside it, and the dispatch path would copy their
+  digest into a registry that cannot take an entry back. The signature is
+  verified before the file is read, with the certificate identity pinned
+  to this repository's `release.yml` at the exact tag.
+
 ### Added
 - The bundle gate holds what the manifest says about ITSELF, not only
   that it says something. It required `$schema` and `manifest_version` to
@@ -1930,6 +1945,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[1.2.1]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.5...v1.2.0
 [1.1.5]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/mmedum/google-drive-mcp/compare/v1.1.3...v1.1.4
