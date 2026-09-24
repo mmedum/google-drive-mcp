@@ -139,6 +139,13 @@ parity: ## `make check` and CI must run the same gates
 api-diff: ## Refetch the three discovery documents and report what has changed (needs the network)
 	$(GO) run ./scripts/gates api-diff
 
+# The half a vendored schema cannot do for itself: a digest says these
+# bytes are the ones somebody reviewed, not that upstream still serves
+# them. Manual, and read at release time.
+.PHONY: schema-refetch
+schema-refetch: ## Check the vendored schemas against what their sources serve (needs the network)
+	$(GO) run ./scripts/gates schema-refetch
+
 .PHONY: check
 check: fmt vet lint cover vuln licenses leaks pins classes api-coverage api-fields mcpb transcript schema-diff smoke staleness live-cover outcomes registry parity ## Everything CI runs
 

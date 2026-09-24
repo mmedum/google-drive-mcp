@@ -84,6 +84,13 @@ func checkRegistryEntry(raw []byte, wantVersion string) (registryEntry, []string
 		return entry, []string{"decode " + registryFile + ": " + err.Error()}
 	}
 	var problems []string
+	// Against the published schema first, which the rules below extend
+	// rather than repeat. The comment further down is the reason both
+	// halves exist: the registry's validator refuses things its schema
+	// does not, and the schema catches shapes no rule here spells out.
+	if err := validateDocument(registrySchemaFile, registryFile, raw); err != nil {
+		problems = append(problems, err.Error())
+	}
 	if entry.Name != serverName {
 		problems = append(problems, fmt.Sprintf("name is %q, want %q — the io.github. namespace is what "+
 			"GitHub OIDC proves at publish time", entry.Name, serverName))
