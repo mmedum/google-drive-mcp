@@ -329,6 +329,15 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	formatVersion, _ := manifest["manifest_version"].(string)
 	supportURL, _ := manifest["support"].(string)
 	problems = append(problems, declarationProblems(schemaRef, formatVersion, supportURL)...)
+
+	// And against the schema the manifest cites, which the declaration
+	// rules only name: a document can satisfy every claim about the
+	// REFERENCE without satisfying the schema itself.
+	if encoded, err := json.Marshal(manifest); err != nil {
+		problems = append(problems, "the manifest could not be re-encoded to check against its schema: "+err.Error())
+	} else if err := validateDocument(mcpbSchemaFile, "the manifest", encoded); err != nil {
+		problems = append(problems, err.Error())
+	}
 	server, _ := manifest["server"].(map[string]any)
 	if server == nil {
 		return append(problems, "manifest has no server block")

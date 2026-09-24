@@ -6,6 +6,38 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The bundle gate and the registry gate validate their documents against
+  the schemas those documents cite, rather than only checking that the
+  `$schema` line is present, pinned and agreeing with the version beside
+  it. Those are claims about the REFERENCE; a document can cite exactly
+  the right file and not satisfy it. `checkRegistryEntry` runs it, so
+  both the committed entry and the one the publish path builds are held,
+  and the manifest check runs where the packer runs it too.
+
+  The schemas are vendored under `scripts/gates/schemas`, embedded so the
+  gate needs neither the network nor a particular working directory, and
+  each is pinned by a recorded SHA-256 — without that, "make the document
+  pass" and "edit the schema" are the same amount of work.
+
+  This is a floor rather than the whole check, which the registry rules
+  beside it already said in their own comment: the registry's validator
+  refuses things its schema does not, and `version` and `registryType`
+  carry no pattern or enum at all.
+- `make schema-refetch`, which is what a vendored copy cannot do for
+  itself: a digest proves the bytes are the ones somebody reviewed, not
+  that upstream still serves them. It reports a difference and refuses,
+  and never rewrites anything.
+
+### Fixed
+
+- The bundle test's fixture manifest was not a manifest the schema
+  accepts: its `user_config` entry carried no type, title or description
+  and its `author` no name. Harmless while nothing read those fields,
+  and a fixture that has stopped describing what it stands for as soon
+  as something does.
+
 ## [1.2.3] - 2026-09-18
 
 ### Fixed
