@@ -76,6 +76,8 @@ func init() {
 			doc: "the committed bundle manifest names files the packer will stage", gate: true},
 		"api-diff": {run: apiDiff,
 			doc: "refetch the discovery documents and report what changed (needs the network)"},
+		"schema-refetch": {run: schemaRefetchCmd,
+			doc: "check the vendored schemas against what their sources serve (needs the network)"},
 		"precommit":     {run: precommit, doc: "gofmt, vet and a secret scan"},
 		"install-hooks": {run: installHooks, doc: "write the git pre-commit hook"},
 		"mcpb-manifest": {run: mcpbManifest, args: "VERSION [MANIFEST]",
