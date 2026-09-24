@@ -74,8 +74,15 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 				"schemas/mcpb-manifest-v0.3.schema.json",
 			"manifest_version": "0.3", "name": "n",
 			"support": "https://example.invalid/issues",
-			"version": "1.0.0", "description": "d", "author": map[string]any{},
-			"user_config": map[string]any{"client_secret": map[string]any{}},
+			"version": "1.0.0", "description": "d", "author": map[string]any{"name": "Example Maintainer"},
+			// A real user_config entry: the schema requires a type, a
+			// title and a description on each one, and a fixture that
+			// omits them has stopped describing what it stands for.
+			"user_config": map[string]any{"client_secret": map[string]any{
+				"type":        "file",
+				"title":       "OAuth client secret",
+				"description": "The client secret JSON downloaded from Google Cloud.",
+			}},
 			"server": map[string]any{
 				"type":        "binary",
 				"entry_point": "server/google-drive-mcp",
