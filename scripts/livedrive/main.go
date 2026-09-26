@@ -28,7 +28,7 @@
 //
 // -blocked PARTNER@EXAMPLE.ORG is the check §17a has been waiting
 // for a Workspace administrator to make possible: a share the
-// ORGANISATION refuses, rather than one Drive refuses. It reports
+// ORGANIZATION refuses, rather than one Drive refuses. It reports
 // Google's own reason beside the class this server gave it, and says
 // loudly when the two disagree — a policy refusal reported as
 // [forbidden] tells a model to try something else when the truth is that
@@ -63,7 +63,7 @@ func main() {
 	labels := flag.Bool("labels", false, "exercise the label tools, which need GDRIVE_LABELS and the Drive Labels API enabled with its scopes granted at login")
 	activity := flag.Bool("activity", false, "exercise list_activity, which needs GDRIVE_ACTIVITY and the Drive Activity API enabled with its scope granted at login")
 	destructive := flag.Bool("destructive", false, "also exercise the five tools that remove something for good, in a shared drive this run creates and destroys again; needs an account that may create shared drives")
-	blocked := flag.String("blocked", "", "an address the organisation's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
+	blocked := flag.String("blocked", "", "an address the organization's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
 	flag.Parse()
 
 	// The transcript is made here rather than inside run, so that the

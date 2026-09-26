@@ -8,7 +8,7 @@ import (
 	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
 )
 
-// TestEveryLinePrintedIsRedacted is the behaviour behind the structural
+// TestEveryLinePrintedIsRedacted is the behavior behind the structural
 // rule. `gates transcript` says the drivers cannot reach a terminal
 // except through this package; this says that going through it is worth
 // something.

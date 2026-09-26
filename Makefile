@@ -72,7 +72,7 @@ vuln: ## Known vulnerabilities in anything we actually call
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 .PHONY: licenses
-licenses: ## Dependencies must carry a licence we can redistribute under
+licenses: ## Dependencies must carry a license we can redistribute under
 	$(GO) run github.com/google/go-licenses@$(GO_LICENSES_VERSION) check ./... 		--allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC
 
 .PHONY: schemas
@@ -108,7 +108,7 @@ api-coverage: ## Every API method is used on purpose or left out on purpose
 	$(GO) run ./scripts/gates api-coverage
 
 .PHONY: api-fields
-api-fields: ## Every published field is modelled on purpose or left out on purpose
+api-fields: ## Every published field is modeled on purpose or left out on purpose
 	$(GO) run ./scripts/gates api-fields
 
 .PHONY: mcpb

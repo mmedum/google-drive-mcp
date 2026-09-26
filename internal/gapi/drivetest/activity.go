@@ -127,7 +127,7 @@ func activitySubjectID(a *gdrive.DriveActivity) string {
 	return ""
 }
 
-// matchesActionFilter honours only the action-kind clause, which is the
+// matchesActionFilter honors only the action-kind clause, which is the
 // part the client composes.
 func matchesActionFilter(a *gdrive.DriveActivity, filter string) bool {
 	const key = "detail.action_detail_case:"

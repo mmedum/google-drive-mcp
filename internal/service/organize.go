@@ -32,7 +32,7 @@ func (s *Service) CreateFolder(ctx context.Context, in CreateFolderInput) (*Resu
 	if name == "" {
 		return nil, Errorf(ClassInvalid, "name is required")
 	}
-	colour, err := folderColour(in.Color)
+	color, err := folderColor(in.Color)
 	if err != nil {
 		return nil, err
 	}
@@ -47,8 +47,8 @@ func (s *Service) CreateFolder(ctx context.Context, in CreateFolderInput) (*Resu
 	if in.Description != "" {
 		meta.Description = gdrive.String(in.Description)
 	}
-	if colour != "" {
-		meta.FolderColorRgb = gdrive.String(colour)
+	if color != "" {
+		meta.FolderColorRgb = gdrive.String(color)
 	}
 	if err := s.assignID(ctx, meta); err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ type UpdateFileInput struct {
 	Viewed bool
 }
 
-// UpdateFile renames, describes, stars, colours or tags a file. It
+// UpdateFile renames, describes, stars, colors or tags a file. It
 // reports every field before and after, so a patch that did nothing is
 // visible as one.
 func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, error) {
@@ -90,15 +90,15 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 		return nil, err
 	}
 	f := res.File
-	colour, err := folderColour(in.Color)
+	color, err := folderColor(in.Color)
 	if err != nil {
 		return nil, err
 	}
-	if colour != "" && !f.IsFolder() && !f.IsShortcut() {
-		return nil, Errorf(ClassInvalid, "colour is a folder's, and %s is %s", f.Name, model.KindWithArticle(f))
+	if color != "" && !f.IsFolder() && !f.IsShortcut() {
+		return nil, Errorf(ClassInvalid, "color is a folder's, and %s is %s", f.Name, model.KindWithArticle(f))
 	}
 
-	meta, changes, err := metaPatch(f, in, colour, s.now())
+	meta, changes, err := metaPatch(f, in, color, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 // field whose value is already what was asked for is left out of both:
 // Drive would accept it, and the result would claim a change that did
 // not happen.
-func metaPatch(f *gdrive.File, in UpdateFileInput, colour string, now time.Time) (*gdrive.FileMeta, []render.Change, error) {
+func metaPatch(f *gdrive.File, in UpdateFileInput, color string, now time.Time) (*gdrive.FileMeta, []render.Change, error) {
 	meta := &gdrive.FileMeta{}
 	var changes []render.Change
 	if name := strings.TrimSpace(in.Name); name != "" && name != f.Name {
@@ -136,9 +136,9 @@ func metaPatch(f *gdrive.File, in UpdateFileInput, colour string, now time.Time)
 		meta.Starred = in.Starred
 		changes = append(changes, render.Change{Field: "starred", From: yesNo(f.Starred), To: yesNo(*in.Starred)})
 	}
-	if colour != "" && colour != f.FolderColorRgb {
-		meta.FolderColorRgb = gdrive.String(colour)
-		changes = append(changes, render.Change{Field: "colour", From: f.FolderColorRgb, To: colour})
+	if color != "" && color != f.FolderColorRgb {
+		meta.FolderColorRgb = gdrive.String(color)
+		changes = append(changes, render.Change{Field: "color", From: f.FolderColorRgb, To: color})
 	}
 	if in.CopyRequiresWriterPermission != nil && *in.CopyRequiresWriterPermission != f.CopyRequiresWriterPermission {
 		meta.CopyRequiresWriterPermission = in.CopyRequiresWriterPermission
@@ -460,7 +460,7 @@ func (s *Service) CreateShortcut(ctx context.Context, in CreateShortcutInput) (*
 		return nil, wrap(err, fmt.Sprintf("creating a shortcut to %s in %s", target.Name, parent.Name))
 	}
 	return s.write(ctx, f, outcome{Action: render.ActionCreated,
-		Note: fmt.Sprintf("it points at %s (%s). Organising, sharing and trashing "+
+		Note: fmt.Sprintf("it points at %s (%s). Organizing, sharing and trashing "+
 			"act on the shortcut, not on what it points at.", target.Name, target.ID)})
 }
 
@@ -577,13 +577,13 @@ func (s *Service) trashError(err error, f *gdrive.File, trashed bool) error {
 	return wrap(err, doing+" "+f.Name)
 }
 
-// hexColour is the form Drive takes a folder colour in.
-var hexColour = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+// hexColor is the form Drive takes a folder color in.
+var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
-// folderColour validates a colour. Drive publishes a palette and snaps
+// folderColor validates a color. Drive publishes a palette and snaps
 // anything else to the nearest entry in it, which is worth saying rather
 // than pretending the exact value was kept.
-func folderColour(v string) (string, error) {
+func folderColor(v string) (string, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return "", nil
@@ -591,8 +591,8 @@ func folderColour(v string) (string, error) {
 	if !strings.HasPrefix(v, "#") {
 		v = "#" + v
 	}
-	if !hexColour.MatchString(v) {
-		return "", Errorf(ClassInvalid, "colour %q is not an RGB hex value like #4986e7", v)
+	if !hexColor.MatchString(v) {
+		return "", Errorf(ClassInvalid, "color %q is not an RGB hex value like #4986e7", v)
 	}
 	return strings.ToLower(v), nil
 }

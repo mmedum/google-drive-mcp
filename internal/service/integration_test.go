@@ -152,7 +152,7 @@ func TestLiveRootListingAndPathResolution(t *testing.T) {
 		t.Fatalf("list root: %v", err)
 	}
 	if !strings.HasPrefix(out, "My Drive — ") {
-		t.Errorf("the root listing is headed %q; the root is not being recognised as itself",
+		t.Errorf("the root listing is headed %q; the root is not being recognized as itself",
 			strings.SplitN(out, "\n", 2)[0])
 	}
 	// Folders first is what makes a listing readable; assert the shape

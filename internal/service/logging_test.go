@@ -37,7 +37,7 @@ const (
 	secretDrive    = "Sprawlmart acquisition"
 	secretEmail    = "hallucinated.person@example.com"
 	// A domain is its own kind of secret: sharing with one names an
-	// organisation even when it names no person.
+	// organization even when it names no person.
 	secretDomain   = "quimby-restructuring.example"
 	secretPerson   = "Bartholomew Quimby"
 	secretQuery    = "Kwyjibo"
@@ -103,7 +103,7 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	_, _ = svc.Search(ctx, service.SearchInput{Owner: secretEmail, Name: secretQuery})
 	_, _ = svc.Resolve(ctx, secretFileID, service.ResolveOptions{FollowShortcut: true})
 
-	// The writes: content in and out, and everything that organises.
+	// The writes: content in and out, and everything that organizes.
 	_, _ = svc.ReadFile(ctx, service.ReadFileInput{File: secretFileID})
 	_, _ = svc.DownloadFile(ctx, service.DownloadFileInput{File: secretFileID})
 	_, _ = svc.CreateFolder(ctx, service.CreateFolderInput{Name: secretFolder + " (archive)"})

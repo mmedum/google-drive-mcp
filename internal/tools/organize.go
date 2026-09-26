@@ -54,7 +54,7 @@ type CreateFolderInput struct {
 	Name           string `json:"name" jsonschema:"the name for the new folder"`
 	Parent         string `json:"parent,omitempty" jsonschema:"the folder to create it in, as an id, a Drive URL, a path from My Drive, or a shared-drive path like drive:Marketing/Campaigns. Defaults to the root of My Drive."`
 	Description    string `json:"description,omitempty" jsonschema:"a description stored on the folder"`
-	Color          string `json:"color,omitempty" jsonschema:"an RGB hex colour like #4986e7. Drive keeps a palette and uses the nearest colour in it."`
+	Color          string `json:"color,omitempty" jsonschema:"an RGB hex color like #4986e7. Drive keeps a palette and uses the nearest color in it."`
 	AllowDuplicate bool   `json:"allow_duplicate,omitempty" jsonschema:"create it even though a folder of that name is already there"`
 }
 
@@ -64,7 +64,7 @@ type UpdateFileMetaInput struct {
 	Name                         string            `json:"name,omitempty" jsonschema:"a new name"`
 	Description                  *string           `json:"description,omitempty" jsonschema:"a new description; an empty string clears it"`
 	Starred                      *bool             `json:"starred,omitempty" jsonschema:"star or unstar it"`
-	Color                        string            `json:"color,omitempty" jsonschema:"for a folder: an RGB hex colour like #4986e7"`
+	Color                        string            `json:"color,omitempty" jsonschema:"for a folder: an RGB hex color like #4986e7"`
 	Properties                   map[string]string `json:"properties,omitempty" jsonschema:"custom key-value pairs stored on the file and visible to every app. An empty value deletes that key."`
 	CopyRequiresWriterPermission *bool             `json:"copy_requires_writer_permission,omitempty" jsonschema:"true stops viewers and commenters copying, printing or downloading it"`
 	WritersCanShare              *bool             `json:"writers_can_share,omitempty" jsonschema:"false stops editors changing who else can see it"`
@@ -173,7 +173,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "update_file",
 		Description: "Change a file's details without touching its content: rename it, describe it, star it, " +
-			"colour a folder, set custom properties, mark it as opened, or turn off copying and re-sharing. " +
+			"color a folder, set custom properties, mark it as opened, or turn off copying and re-sharing. " +
 			"Only the fields you pass change, and the result shows each one before and after. " +
 			"update_content replaces what is inside a file; move_file changes where it is.",
 		Annotations: idempotentWrite,
@@ -222,7 +222,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "create_shortcut",
 		Description: "Put a pointer to one item in another folder. A file has one parent in Drive, so this is " +
-			"what to use when something has to appear in two places. Organising, sharing and trashing a shortcut " +
+			"what to use when something has to appear in two places. Organizing, sharing and trashing a shortcut " +
 			"act on the shortcut, never on what it points at.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CreateShortcutInput) (*mcp.CallToolResult, *render.WriteJSON, error) {

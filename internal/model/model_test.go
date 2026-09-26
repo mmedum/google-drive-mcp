@@ -285,7 +285,7 @@ func TestRoleWords(t *testing.T) {
 	cases := map[string]string{
 		RoleOwner: "owns it", RoleWriter: "can edit", RoleCommenter: "can comment",
 		RoleReader: "can view", RoleOrganizer: "manages the drive",
-		RoleFileOrganizer: "organises content", "": "has no role", "custom": "has role custom",
+		RoleFileOrganizer: "organizes content", "": "has no role", "custom": "has role custom",
 	}
 	for role, want := range cases {
 		if got := RoleWords(role); got != want {
