@@ -163,7 +163,7 @@ func activitySubject(f *gdrive.File, count int, recursive bool) string {
 // activityFilter builds the API's own filter expression. Its language is
 // not Drive's query language, and the two are not interchangeable: this
 // one joins with AND, compares `time` against an RFC 3339 instant, and
-// matches action kinds with a `has` operator over a parenthesised list.
+// matches action kinds with a `has` operator over a parenthesized list.
 func (s *Service) activityFilter(in ListActivityInput) (string, error) {
 	var clauses []string
 	if since := strings.TrimSpace(in.Since); since != "" {

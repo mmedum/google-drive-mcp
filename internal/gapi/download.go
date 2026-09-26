@@ -22,7 +22,7 @@ type Content struct {
 	MimeType string
 	// Length is Content-Length, or -1 when the response did not say.
 	Length int64
-	// Partial reports a 206, meaning the Range header was honoured and
+	// Partial reports a 206, meaning the Range header was honored and
 	// Length counts the window rather than the file.
 	Partial bool
 	// TotalLength is the file's full size when a partial response named

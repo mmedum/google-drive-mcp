@@ -43,7 +43,7 @@ func registerLabels(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "list_labels",
 		Description: "The Workspace labels this account can use, with the fields on each one and the values " +
-			"those fields take. Labels are metadata an organisation defines centrally — a status, a " +
+			"those fields take. Labels are metadata an organization defines centrally — a status, a " +
 			"retention class, a reviewer — and an administrator publishes them; this server can put them on " +
 			"files but cannot create or change a definition. Read this before manage_labels: a label and its " +
 			"fields are addressed by generated ids that appear nowhere else.",
@@ -67,7 +67,7 @@ func registerLabels(s *mcp.Server, d Deps) []string {
 		Description: "Put a Workspace label on a file, set or clear one of its fields, or take it off. " +
 			"Actions: " + strings.Join(service.LabelActions(), ", ") + ". One label and one field per call. " +
 			"A label is metadata, not access: it changes nothing about who can open the file. But an " +
-			"organisation can attach rules to a label — retention, or a data classification — so a label " +
+			"organization can attach rules to a label — retention, or a data classification — so a label " +
 			"may mean the file is kept, or handled, differently. Setting a field REPLACES its value. " +
 			"The result is the file as it stands afterwards, with every label on it.",
 		Annotations: write,

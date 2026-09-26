@@ -5,12 +5,12 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/mmedum/google-drive-mcp.svg)](https://pkg.go.dev/github.com/mmedum/google-drive-mcp)
 [![License: Apache 2.0](https://img.shields.io/github/license/mmedum/google-drive-mcp)](./LICENSE)
 
-Google Drive as MCP tools. Find, organise, share and move files, and follow what changed.
+Google Drive as MCP tools. Find, organize, share and move files, and follow what changed.
 
 A single Go binary that speaks [Model Context Protocol](https://modelcontextprotocol.io)
 over stdio. It runs as a subprocess of your client, on your own machine,
 one Google account per profile: find files and know where they live and
-who can see them, organise folders, move and copy, get content in and
+who can see them, organize folders, move and copy, get content in and
 out, share without widening access by accident, follow what changed, and
 manage shared drives.
 
@@ -25,13 +25,13 @@ servers built on those APIs, and this one says so rather than guessing
 through an export.
 
 It runs as you, against a Google Cloud project you own, so nothing here
-is tied to any particular organisation or account. Every tool below is
+is tied to any particular organization or account. Every tool below is
 verified against a real Google Workspace account as well as against the
 in-memory Drive the tests use — the five that remove something for good
 included, which run inside a shared drive the live driver creates and
 destroys again. Four paths are not, because each needs a second account
 or an administrator to exercise: handing over ownership, opening a
-link-shared file that needs its resource key, a share an organisation's
+link-shared file that needs its resource key, a share an organization's
 policy refuses, and applying a label. §17a of
 [docs/architecture.md](docs/architecture.md) says what stands in for each.
 
@@ -218,7 +218,7 @@ the server will do at all:
 | `upload_file` | Send a local file, in one request or in chunks that survive a dropped connection |
 | `update_content` | Replace what is inside a file, keeping its id, its place and everything that points at it |
 | `create_folder` | A new folder, refusing a duplicate name unless you allow it |
-| `update_file` | Rename, describe, star, colour, set properties, or turn off copying and re-sharing |
+| `update_file` | Rename, describe, star, color, set properties, or turn off copying and re-sharing |
 | `move_file` | Move an item to another folder or shared drive, with a dry run |
 | `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder |
 | `create_shortcut` | A pointer to one item from another folder |
@@ -292,7 +292,7 @@ Five things it does differently from the alternatives:
   `capabilities.canShare` first, show who can see a file before and
   after, need `allow_anyone: true` for a public link, and send no
   notification mail unless you ask for it. What may actually be shared is
-  decided by your organisation's own policy, which Google enforces on
+  decided by your organization's own policy, which Google enforces on
   every call.
 - Destroy anything without a way back, by default. Trash and restore are
   the default surface; permanent deletion is gated behind
@@ -337,7 +337,7 @@ enabled or a consent screen without you on it.
 
 `google-drive-mcp status` shows the same setup without contacting Google,
 and `status --json` prints it as one JSON object for a script that has to
-decide whether this server is authorised before starting it —
+decide whether this server is authorized before starting it —
 `credentials.resolved` is the field to branch on. The shape is in
 [docs/configuration.md](docs/configuration.md#reading-the-setup-from-a-script).
 
@@ -366,7 +366,7 @@ make live      # drive the binary against the signed-in account, redacted
 ```
 
 `make check` is the definition of done: gofmt, `go vet`, golangci-lint,
-race tests with a per-package coverage floor, `govulncheck`, a licence
+race tests with a per-package coverage floor, `govulncheck`, a license
 check, a leak check over the working tree, pinned-version and error-class
 gates, an API-coverage gate holding every method of all three APIs to a
 recorded decision, a bundle-manifest gate holding the committed manifest

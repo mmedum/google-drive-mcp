@@ -129,12 +129,12 @@ func (s *Service) ManageLabels(ctx context.Context, in ManageLabelsInput) (*Resu
 	f := res.File
 	// canModifyLabels rather than canEdit: Drive computes a capability for
 	// exactly this, and the two come apart. A label can be locked so that
-	// even an editor may not change it, and an organiser of a shared drive
+	// even an editor may not change it, and an organizer of a shared drive
 	// can label a file they cannot edit.
 	if f.Capabilities == nil || !f.Capabilities.CanModifyLabels {
 		return nil, Errorf(ClassForbidden,
 			"you cannot change the labels on %s: Drive's own canModifyLabels says no. "+
-				"Labelling is a permission of its own, so this can be refused on a file you can otherwise edit",
+				"Labeling is a permission of its own, so this can be refused on a file you can otherwise edit",
 			f.Name)
 	}
 
@@ -413,7 +413,7 @@ func (s *Service) allLabelDefinitions(ctx context.Context) (map[string]*model.La
 			// The failure is remembered AS a failure, so it keeps saying
 			// what went wrong instead of turning into an empty listing.
 			// The case this is for is a deployer who turned labels on
-			// without enabling the Labels API: without it every labelled
+			// without enabling the Labels API: without it every labeled
 			// file card pays a fresh failing listing for as long as that
 			// lasts.
 			wrapped := s.labelAPIError(err, "reading the label definitions")

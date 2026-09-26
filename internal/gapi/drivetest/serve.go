@@ -591,7 +591,7 @@ func sizeOf(f *gdrive.File) int64 {
 // project returns the file with only the requested fields, the way Drive
 // does: asking for a narrow field list and reading a field that was not
 // requested is a bug the fake will surface.
-// writeProjected answers with one file, honouring fields and
+// writeProjected answers with one file, honoring fields and
 // includeLabels. It is the one place that reads includeLabels, so the
 // rule that a wildcard is not a label id is enforced for every endpoint
 // that takes the parameter rather than for the one somebody remembered.

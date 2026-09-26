@@ -25,7 +25,7 @@ import (
 )
 
 // AccountEmail is the synthetic signed-in account. Nothing here refers
-// to a real person, organisation or domain.
+// to a real person, organization or domain.
 const AccountEmail = "person@example.com"
 
 // AccountName is that account's display name.
@@ -106,7 +106,7 @@ type Server struct {
 	// RawActivityDetails overrides the action detail served for an
 	// activity, as JSON. See SetActivityDetail: a fake for a wire
 	// protocol has to be able to say things the client's own types
-	// cannot hold, and marshalling gdrive.ActionDetail can only ever
+	// cannot hold, and marshaling gdrive.ActionDetail can only ever
 	// produce what its fields express.
 	RawActivityDetails map[*gdrive.DriveActivity]json.RawMessage
 	// ActivityEnabled stands for the Drive Activity scope having been
@@ -248,7 +248,7 @@ func (s *Server) Now() time.Time { return s.now() }
 // SetNow fixes the clock so timestamps in goldens are stable.
 func (s *Server) SetNow(f func() time.Time) { s.now = f }
 
-// FileOpt customises a file being added.
+// FileOpt customizes a file being added.
 type FileOpt func(*gdrive.File)
 
 // Trashed marks the file as trashed.

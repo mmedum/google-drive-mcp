@@ -56,8 +56,8 @@ func TestIsDisconnect(t *testing.T) {
 // This drives run() rather than a predicate. The predicate version of
 // this test passed with the guard deleted from main entirely, which is
 // the whole reason main was reshaped to take its arguments and streams:
-// a test that cannot fail when the behaviour is removed is not holding
-// the behaviour.
+// a test that cannot fail when the behavior is removed is not holding
+// the behavior.
 func TestAnUnknownCommandIsReported(t *testing.T) {
 	for _, arg := range []string{"statsu", "zzz-bogus", "Status"} {
 		var stdout, stderr bytes.Buffer

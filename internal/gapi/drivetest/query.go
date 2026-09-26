@@ -510,7 +510,7 @@ func fullTextMatch(f *gdrive.File, want string, s *Server) bool {
 }
 
 // words lower-cases and splits on everything that is not a letter or
-// digit, which is close enough to Drive's tokenisation for a fake.
+// digit, which is close enough to Drive's tokenization for a fake.
 func words(s string) []string {
 	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < '0' || r > '9')

@@ -20,7 +20,7 @@ on:
 # explicit `shell: bash` is not the implicit default: it runs
 # `bash --noprofile --norc -eo pipefail`, so pipefail is on for the
 # Linux and macOS runs too. That is strictness in the right direction
-# and it is a behaviour change, not only a normalisation.
+# and it is a behavior change, not only a normalization.
 defaults:
   run:
     shell: bash
@@ -30,7 +30,7 @@ permissions:
 
 # A push that supersedes an earlier one cancels it: two runs of the same
 # branch prove one thing between them, and the older one is the one
-# nobody is waiting for. main is exempt, because a cancelled run there
+# nobody is waiting for. main is exempt, because a canceled run there
 # leaves a commit with no verdict at all.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

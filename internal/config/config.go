@@ -60,7 +60,7 @@ const (
 )
 
 // Sharing says which sharing tools the deployer allows. Google's own
-// organisation policy decides what may actually be shared; this only
+// organization policy decides what may actually be shared; this only
 // decides whether the agent is offered the action at all.
 type Sharing string
 

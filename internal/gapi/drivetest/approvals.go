@@ -64,7 +64,7 @@ func (s *Server) handleListApprovals(w http.ResponseWriter, r *http.Request, fil
 	all := append([]*gdrive.Approval(nil), s.Approvals[fileID]...)
 	s.mu.Unlock()
 
-	// The shared window rather than a private clamp: it honours the page
+	// The shared window rather than a private clamp: it honors the page
 	// token, refuses an oversized page the way Drive does instead of
 	// silently shrinking it, and hands back a next token. A private copy
 	// did none of those, which left the client's paging loop with no test
@@ -251,7 +251,7 @@ func (s *Server) handleStartApproval(w http.ResponseWriter, r *http.Request, fil
 	// back unrestricted and the next update_content succeeded. Approving
 	// is what locks a file. A fake that locked here unconditionally —
 	// which this one did — proves the server's old claim rather than
-	// Drive's behaviour, and that is how the claim survived a phase.
+	// Drive's behavior, and that is how the claim survived a phase.
 	if body.LockFile && s.LockOnApprovalStart {
 		if f := s.Files[fileID]; f != nil {
 			f.ContentRestrictions = append(f.ContentRestrictions, &gdrive.ContentRestriction{
@@ -286,7 +286,7 @@ func (s *Server) AddApproval(fileID, approvalID string, reviewers ...string) *gd
 
 // addApprovalLocked builds an approval and files it. Starting one and
 // placing one as a fixture differ in the id, the initiator and the due
-// time; everything else — the status, the content-change behaviour that
+// time; everything else — the status, the content-change behavior that
 // locks the file once approved, and the reviewer loop that marks the
 // signed-in account as this account — is the same both ways, and was
 // written twice before it was written once. The caller holds the lock.
@@ -296,7 +296,7 @@ func (s *Server) addApprovalLocked(fileID, approvalID string, initiator *gdrive.
 	a := &gdrive.Approval{
 		ApprovalID: approvalID, TargetFileID: fileID, Initiator: initiator,
 		Status: gdriveInProgress, CreateTime: ts, ModifyTime: ts, DueTime: dueTime,
-		// The API's default behaviour, which is the one with the
+		// The API's default behavior, which is the one with the
 		// consequence: a content change resets the answers, and once
 		// approved the file is locked.
 		FileContentChangeBehavior: "RESET_APPROVAL",

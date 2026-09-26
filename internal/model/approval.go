@@ -10,7 +10,7 @@ import (
 const (
 	ApprovalInProgress = "IN_PROGRESS"
 	ApprovalApproved   = "APPROVED"
-	ApprovalCancelled  = "CANCELLED"
+	ApprovalCanceled   = "CANCELLED"
 	ApprovalDeclined   = "DECLINED"
 )
 

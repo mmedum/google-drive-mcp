@@ -155,7 +155,7 @@ $ google-drive-mcp status --json
 `credentials.resolved` is the field to branch on. It is `true` when a
 refresh token was found and `false` when every tool will answer `[auth]`
 until `login` succeeds, and it is present either way — so an
-unauthorised answer looks different from no answer at all, which a match
+unauthorized answer looks different from no answer at all, which a match
 against the text output cannot manage.
 
 `credentials.token_store` is `keyring`, `file` or `env`, or `null` with

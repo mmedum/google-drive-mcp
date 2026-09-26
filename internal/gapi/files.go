@@ -346,7 +346,7 @@ func (c *Client) CreateFile(ctx context.Context, meta *gdrive.FileMeta, o WriteO
 
 // writeFile sends one metadata write and decodes the file it answers
 // with. Create, update and copy differ in method and URL and in nothing
-// else, so the marshalling, the request and the resource-key bookkeeping
+// else, so the marshaling, the request and the resource-key bookkeeping
 // are written once.
 func (c *Client) writeFile(ctx context.Context, method, u string, meta *gdrive.FileMeta, ids []string) (*gdrive.File, error) {
 	payload, err := json.Marshal(orEmptyMeta(meta))

@@ -146,7 +146,7 @@ func FileCard(f *model.File, o FileCardOptions) string {
 			target += " (" + f.ShortcutTargetKind + ")"
 		}
 		b.field("points at", target)
-		b.line("note: organising, sharing and trashing act on the shortcut itself, not on its target")
+		b.line("note: organizing, sharing and trashing act on the shortcut itself, not on its target")
 	}
 	if f.HasSize {
 		size := model.HumanSize(f.Size)

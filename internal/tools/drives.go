@@ -51,7 +51,7 @@ func registerDrives(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "manage_drive",
 		Description: "Make a shared drive, rename one, hide or unhide it, or change its restrictions. " +
-			"Everything in a shared drive belongs to the organisation rather than to a person, which is the " +
+			"Everything in a shared drive belongs to the organization rather than to a person, which is the " +
 			"difference from a folder in My Drive and does not come undone. " +
 			"Members are not managed here: a member is a permission on the drive, so share_file and " +
 			"unshare_file add and remove them with the drive as the target. " +

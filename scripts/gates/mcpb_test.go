@@ -32,7 +32,7 @@ func TestTheCommittedManifestCarriesThePlaceholder(t *testing.T) {
 		t.Errorf("version = %v, want 1.2.3", got)
 	}
 	// Everything else has to survive: the injection rewrites one field
-	// and a struct that modelled the schema would silently drop the rest.
+	// and a struct that modeled the schema would silently drop the rest.
 	for _, key := range []string{"$schema", "manifest_version", "name", "server", "user_config"} {
 		if manifest[key] == nil {
 			t.Errorf("the injected manifest lost %s", key)

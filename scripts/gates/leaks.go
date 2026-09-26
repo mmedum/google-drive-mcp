@@ -37,7 +37,7 @@ var documentedDomains = map[string]bool{
 // make it otherwise.
 //
 // It is a suffix rule rather than three more map entries because a
-// fixture wanting to read as "a different organisation" will reach for a
+// fixture wanting to read as "a different organization" will reach for a
 // subdomain again, and the alternative is weakening the fixture to suit
 // the gate. Which is backwards: this one bit while a test was being
 // written to close a real leak.
