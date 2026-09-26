@@ -23,7 +23,7 @@ on:
 # explicit `shell: bash` is not the implicit default: it runs
 # `bash --noprofile --norc -eo pipefail`, so pipefail is on for the
 # Linux and macOS runs too. That is strictness in the right direction
-# and it is a behaviour change, not only a normalisation.
+# and it is a behavior change, not only a normalization.
 defaults:
   run:
     shell: bash

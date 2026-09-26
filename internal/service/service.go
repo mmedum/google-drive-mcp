@@ -40,7 +40,7 @@ type API interface {
 	UploadMultipart(ctx context.Context, r gapi.UploadRequest, content []byte) (*gdrive.File, error)
 	UploadResumable(ctx context.Context, r gapi.UploadRequest, content io.Reader, size int64, o gapi.ResumableOptions) (*gdrive.File, error)
 
-	// Organising.
+	// Organizing.
 	CreateFile(ctx context.Context, meta *gdrive.FileMeta, o gapi.WriteOptions) (*gdrive.File, error)
 	UpdateFile(ctx context.Context, id string, meta *gdrive.FileMeta, o gapi.UpdateOptions) (*gdrive.File, error)
 	CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta, o gapi.WriteOptions) (*gdrive.File, error)
@@ -134,7 +134,7 @@ type Options struct {
 	// Default 2h, against Google's promise of at least 12.
 	DownloadOpTTL time.Duration
 	// LabelTTL is how long the label definitions are kept. They are a
-	// property of the organisation rather than of a file: an
+	// property of the organization rather than of a file: an
 	// administrator republishing a label is not something that happens
 	// between two calls of one conversation. Default 10m.
 	LabelTTL time.Duration
@@ -337,7 +337,7 @@ func wrap(err error, what string) error {
 		}
 		return &Error{Class: ClassForbidden, Message: "Google refused " + what + ": " + msg, Err: err}
 	case ClassBlocked:
-		return &Error{Class: ClassBlocked, Message: "your organisation's sharing policy does not allow this. Google said: " + msg, Err: err}
+		return &Error{Class: ClassBlocked, Message: "your organization's sharing policy does not allow this. Google said: " + msg, Err: err}
 	case ClassRateLimited:
 		// A daily quota and a burst are both "rate limited", and the
 		// advice is opposite: one is worth trying again in a minute and

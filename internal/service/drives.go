@@ -157,8 +157,8 @@ func (s *Service) createDrive(ctx context.Context, in ManageDriveInput) (*Result
 	if in.DryRun {
 		return driveResult(&model.Drive{Name: name}, outcome{Action: render.ActionCreated,
 			DryRun: true, Changes: changes,
-			Note: "a shared drive is owned by the organisation, not by you, and everything put in it belongs " +
-				"to the organisation from then on"}), nil
+			Note: "a shared drive is owned by the organization, not by you, and everything put in it belongs " +
+				"to the organization from then on"}), nil
 	}
 
 	requestID, err := requestID()
@@ -171,7 +171,7 @@ func (s *Service) createDrive(ctx context.Context, in ManageDriveInput) (*Result
 	}
 	s.forgetDrives()
 	return driveResult(model.NewDrive(created), outcome{Action: render.ActionCreated, Changes: changes,
-		Note: "everything in a shared drive belongs to the organisation rather than to a person, and you are " +
+		Note: "everything in a shared drive belongs to the organization rather than to a person, and you are " +
 			"its organizer. share_file with this drive as the target adds members."}), nil
 }
 
@@ -350,7 +350,7 @@ func hiddenWords(hidden bool) string {
 }
 
 // requestID is the idempotency key drives.create requires: a random
-// value that identifies this attempt, so a retry is recognised as the
+// value that identifies this attempt, so a retry is recognized as the
 // same request rather than as a second one.
 func requestID() (string, error) {
 	var b [16]byte

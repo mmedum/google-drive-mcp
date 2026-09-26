@@ -67,7 +67,7 @@ func Account(about *gdrive.About, o AccountOptions) string {
 		b.field("sharing", "GDRIVE_SHARING=off: no tool here can change who can see a file.")
 	default:
 		b.field("sharing", "an anyone-with-the-link grant needs allow_anyone: true on the call. "+
-			"What may actually be shared is decided by your organisation's own policy, which Google enforces on every call.")
+			"What may actually be shared is decided by your organization's own policy, which Google enforces on every call.")
 	}
 	if o.Destructive {
 		b.field("destructive tools", "enabled (GDRIVE_ENABLE_DESTRUCTIVE=true): the tools that remove something with no way back are registered")

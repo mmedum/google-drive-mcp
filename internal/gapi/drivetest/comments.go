@@ -27,7 +27,7 @@ func (s *Server) AddComment(fileID, id, text string, opts ...CommentOpt) *gdrive
 	return c
 }
 
-// CommentOpt customises a comment being added.
+// CommentOpt customizes a comment being added.
 type CommentOpt func(*gdrive.Comment)
 
 // ByOther attributes the comment to somebody else. Drive does not

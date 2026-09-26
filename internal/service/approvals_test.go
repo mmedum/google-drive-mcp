@@ -306,7 +306,7 @@ func TestManageApprovalRefusesAnActionItDoesNotHave(t *testing.T) {
 // TestAnsweringAFinishedApprovalSaysThatIsPossible holds the message to
 // the case the live run actually produced.
 //
-// The driver cancelled an approval and then answered it. Drive refuses
+// The driver canceled an approval and then answered it. Drive refuses
 // that with a bare Permission denied — the same answer it gives someone
 // who is not a reviewer and someone with no write access — so the
 // message has to offer all three. It named only the other two, and the
@@ -330,7 +330,7 @@ func TestAnsweringAFinishedApprovalSaysThatIsPossible(t *testing.T) {
 		t.Fatal("answering a refused approval succeeded")
 	}
 	msg := err.Error()
-	for _, want := range []string{"already approved, declined or cancelled", "list_approvals"} {
+	for _, want := range []string{"already approved, declined or canceled", "list_approvals"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal does not mention %q:\n%s", want, msg)
 		}
@@ -359,7 +359,7 @@ func TestARefusedListingDoesNotBlameAFinishedApproval(t *testing.T) {
 		t.Fatal("a refused listing succeeded")
 	}
 	msg := err.Error()
-	if strings.Contains(msg, "already approved, declined or cancelled") {
+	if strings.Contains(msg, "already approved, declined or canceled") {
 		t.Errorf("a listing was blamed on a finished approval:\n%s", msg)
 	}
 	if strings.Contains(msg, "list_approvals says") {

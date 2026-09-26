@@ -14,7 +14,7 @@ Google Doc, Sheet or Slides deck is out of scope.
 
 ## Hard rules
 
-1. **Nothing internal, ever.** No organisation names, file or folder ids
+1. **Nothing internal, ever.** No organization names, file or folder ids
    or URLs, account emails, Cloud project ids, OAuth client ids or
    secrets, no names or content of real files, and no reference to any
    other project, repository, account, machine or tool the maintainers
@@ -40,7 +40,7 @@ Google Doc, Sheet or Slides deck is out of scope.
 3. **Ids are the contract.** A name or path that matches more than one
    item is `[ambiguous]` with the candidates; the server never takes the
    first match and never guesses an id.
-4. **Never widen access silently.** Google's organisation policy decides
+4. **Never widen access silently.** Google's organization policy decides
    what may be shared; the server checks `capabilities.canShare` first,
    shows exposure before and after, needs `allow_anyone: true` for a
    public link, sends no mail unless `notify` is set, and treats
@@ -83,7 +83,7 @@ Google Doc, Sheet or Slides deck is out of scope.
 
 `make check` (gofmt, vet, golangci-lint, race tests with the 80% floor,
 govulncheck, stdio smoke, staleness check of README/docs/CHANGELOG
-against the code) plus tests for new behaviour, the live driver against
+against the code) plus tests for new behavior, the live driver against
 a scratch folder, `/simplify` and `/code-review high` on the changed
 files with findings resolved or explained, and a look at
 `--dump-schemas` for breaking changes. A phase ends with a release

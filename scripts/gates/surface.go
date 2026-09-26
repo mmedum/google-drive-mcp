@@ -31,7 +31,7 @@ func fullSurfaceEnv() ([]string, error) {
 }
 
 // gatesATool names the boolean settings that decide whether a tool is
-// registered. A setting that only changes behaviour is not here: setting
+// registered. A setting that only changes behavior is not here: setting
 // GDRIVE_SHARING or GDRIVE_LOCAL_DIR to "true" would be nonsense, and a
 // dump has to stay a dump.
 var gatesATool = map[string]bool{

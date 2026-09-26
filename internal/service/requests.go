@@ -272,7 +272,7 @@ func (s *Service) resolveRequestError(err error, f *gdrive.File, request *model.
 				"list_access_requests shows what is still waiting.", request.ID, f.Name), Err: err}
 	case ClassBlocked:
 		return &Error{Class: ClassBlocked, Message: fmt.Sprintf(
-			"your organisation's sharing policy does not allow giving %s access to %s, so the request "+
+			"your organization's sharing policy does not allow giving %s access to %s, so the request "+
 				"cannot be accepted here. Google said: %s", request.For, f.Name, gapi.Message(err)), Err: err}
 	}
 	return wrap(err, fmt.Sprintf("%sing the access request from %s on %s", action, request.By, f.Name))

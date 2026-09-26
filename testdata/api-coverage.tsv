@@ -24,7 +24,7 @@
 #
 # Three parameters are deliberately unused and have no row of their own,
 # because a row is per method:
-#   useDomainAdminAccess  an administrator acting across an organisation
+#   useDomainAdminAccess  an administrator acting across an organization
 #                         is not what a per-user server is for.
 #   supportsTeamDrives    the pre-2020 spelling of supportsAllDrives,
 #                         which every request already carries.
