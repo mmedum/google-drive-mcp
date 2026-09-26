@@ -55,6 +55,15 @@ func TestOwnerIsReadFromACardForComparison(t *testing.T) {
 	}
 }
 
+func TestTheReviewerAddressLeavesTheAngleBracket(t *testing.T) {
+	// get_account prints "Name <address>". A character class that ran
+	// from + to … took in the <, and Drive refused the reviewer.
+	out := "Jane Doe <jane.doe@example.com>\nstorage: 1 GiB of 15 GiB used\n"
+	if got := addressInAccount.FindString(out); got != "jane.doe@example.com" {
+		t.Errorf("address = %q, want jane.doe@example.com", got)
+	}
+}
+
 // TestEmptyTrashIsNamedInOnePlace holds the safety rule destroy.go
 // claims for itself.
 //
