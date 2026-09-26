@@ -37,7 +37,7 @@ type writeRun struct {
 	// of the sharing surface that needs a second person, spike F
 	// included.
 	share string
-	// blocked is an address the organisation's own sharing policy
+	// blocked is an address the organization's own sharing policy
 	// refuses, or empty. It needs a Workspace administrator to have put
 	// it out of bounds; §17a is what it closes.
 	blocked string
@@ -58,7 +58,7 @@ type writeRun struct {
 }
 
 // scratchPrefix names the folder this driver works in, so a folder left
-// behind by an interrupted run is recognisable and safe to remove.
+// behind by an interrupted run is recognizable and safe to remove.
 const scratchPrefix = "google-drive-mcp livedrive scratch"
 
 // runWrites drives the whole write surface and reports how many calls
@@ -100,13 +100,13 @@ func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o opti
 func (w *writeRun) exercise() {
 	ids := w.create()
 	w.readBack(ids)
-	w.organise(ids)
+	w.organize(ids)
 	w.access(ids)
 	w.history(ids)
 	w.collaboration(ids)
 	w.phase4Extras(ids)
 	w.approvals(ids)
-	w.labelling(ids)
+	w.labeling(ids)
 	w.activityFeed(ids)
 	w.policyRefusal(ids)
 	w.resources(ids)
@@ -205,11 +205,11 @@ func (w *writeRun) pollProperty(property string) {
 // verb on purpose.
 //
 // It starts an approval, reads it back, comments on it and CANCELS it.
-// It never approves one: the default file-content-change behaviour is
+// It never approves one: the default file-content-change behavior is
 // RESET_APPROVAL, and under that an approved file is LOCKED — which
 // would leave the scratch folder holding something this driver cannot
 // clean up, and cleaning up after itself is the whole contract of the
-// -write mode. Cancelling leaves nothing locked.
+// -write mode. Canceling leaves nothing locked.
 //
 // lock_file is not used either, for the same reason.
 //
@@ -263,10 +263,10 @@ func (w *writeRun) approvals(m made) {
 	}, "answering an approval that is already finished")
 }
 
-// labelling exercises the two label tools. They are registered only with
+// labeling exercises the two label tools. They are registered only with
 // GDRIVE_LABELS=true, and even then the account may have no label
 // published to it, which is not a failure.
-func (w *writeRun) labelling(m made) {
+func (w *writeRun) labeling(m made) {
 	if !w.labels {
 		w.out.Say("\n(pass -labels to exercise the label tools, which need GDRIVE_LABELS and its scopes)")
 		return
@@ -470,7 +470,7 @@ var approvalIDInNote = regexp.MustCompile(`Approval (\S+) started on `)
 
 // labelFromResult picks the first label out of a list_labels result,
 // with a field and one of its choices where there is one. The driver
-// cannot know what an organisation has published, so it works with
+// cannot know what an organization has published, so it works with
 // whatever the account actually has.
 func labelFromResult(out string) (label, field, choice string) {
 	if m := labelInListing.FindStringSubmatch(out); len(m) > 1 {
@@ -521,7 +521,7 @@ var addressInAccount = regexp.MustCompile(`[A-Za-z0-9._%%+-…]+@[A-Za-z0-9.-]+\
 func (w *writeRun) access(m made) {
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
 
-	// The acknowledgements. Both must be refused without their flag, and
+	// The acknowledgments. Both must be refused without their flag, and
 	// a refusal here proves as much as a success.
 	w.expecting("share_file", m.text, map[string]any{
 		"file": m.text, "principal": "anyone", "role": "reader",
@@ -873,8 +873,8 @@ func (w *writeRun) readBack(m made) {
 	w.needing("download_file", m.blob, map[string]any{"file": m.blob})
 }
 
-// organise runs everything that changes a file without replacing it.
-func (w *writeRun) organise(m made) {
+// organize runs everything that changes a file without replacing it.
+func (w *writeRun) organize(m made) {
 	w.needing("update_content", m.text, map[string]any{
 		"file": m.text, "content": "name,amount\nfirst,10\n", "keep_previous_revision": true,
 	})
@@ -959,7 +959,7 @@ func (w *writeRun) refusals(m made) {
 	w.expecting("copy_file", m.folder, map[string]any{"file": m.folder},
 		"Drive has no copy for a folder")
 	w.expecting("update_file", m.text, map[string]any{"file": m.text, "color": "#4986e7"},
-		"a colour belongs to a folder")
+		"a color belongs to a folder")
 	w.expecting("download_file", m.text, map[string]any{"file": m.text, "format": "docx"},
 		"format applies to a Google document, not to a file with bytes of its own")
 }
@@ -1175,11 +1175,11 @@ func head(text string, n int) string {
 }
 
 // policyRefusal is the one check §17a has been waiting for an
-// administrator to make possible: a share that the ORGANISATION refuses,
+// administrator to make possible: a share that the ORGANIZATION refuses,
 // rather than one Drive refuses.
 //
 // The distinction is not cosmetic. A policy refusal maps to [blocked] —
-// "your organisation's sharing policy does not allow this, and no option
+// "your organization's sharing policy does not allow this, and no option
 // here can work around it" — and everything else 403 maps to
 // [forbidden], which tells a model its role is wrong and invites it to
 // try something else. §7.4's mapping is built from three reason strings
@@ -1196,7 +1196,7 @@ func (w *writeRun) policyRefusal(m made) {
 		return
 	}
 	w.out.Say("\n--- the policy refusal of §17a ---")
-	w.out.Say("(expecting a refusal: the organisation's sharing policy, not Drive's own rules)")
+	w.out.Say("(expecting a refusal: the organization's sharing policy, not Drive's own rules)")
 	out, isError, err := w.sess.CallTool("share_file", map[string]any{
 		"file": m.text, "principal": w.blocked, "role": "reader",
 	})
@@ -1209,7 +1209,7 @@ func (w *writeRun) policyRefusal(m made) {
 
 	if !isError {
 		w.problem("the share was ALLOWED. Either the admin setting is not in place for this account's "+
-			"organisational unit yet, or "+w.blocked+" is inside it or on the allowlist. "+
+			"organizational unit yet, or "+w.blocked+" is inside it or on the allowlist. "+
 			"Nothing was learned about the mapping, and the grant is still on the file",
 			errors.New("no refusal to classify"))
 		// It really did share, inside the scratch folder; take it back.
@@ -1224,8 +1224,8 @@ func (w *writeRun) policyRefusal(m made) {
 		w.out.Say("VERDICT: classified as [blocked] — but READ GOOGLE'S MESSAGE ABOVE before recording " +
 			"that as confirmation. This check cannot tell a policy refusal from any other refusal that " +
 			"lands in the same class, and the first run of it was fooled: an address with no Google " +
-			"account behind it came back as invalidSharingRequest and was reported as the organisation's " +
-			"policy, when the fix was notify: true. If the message does not describe the organisation " +
+			"account behind it came back as invalidSharingRequest and was reported as the organization's " +
+			"policy, when the fix was notify: true. If the message does not describe the organization " +
 			"refusing, this is that bug again and not a confirmation.")
 	case reason == "":
 		w.problem("the refusal carried no reason this driver could read out of the debug log, so the "+
@@ -1313,7 +1313,7 @@ func (w *writeRun) copyAndCheckComments(id, name, kind string) {
 			"carry them, whatever copy_comments was set to.", kind)
 		return
 	}
-	w.out.Sayf("(the copy of %s carried its comment threads: Drive honoured copy_comments here)", kind)
+	w.out.Sayf("(the copy of %s carried its comment threads: Drive honored copy_comments here)", kind)
 }
 
 // spareArguments drives the options `gates live-cover` recorded as
@@ -1336,7 +1336,7 @@ func (w *writeRun) spareArguments(m made) {
 	// it. The duplicate-name guard is the interesting one: it is refused
 	// by default and these say so.
 	w.needing("create_folder", w.scratchID, map[string]any{
-		"name": "a coloured folder", "parent": w.scratchID, "color": "#4986e7",
+		"name": "a colored folder", "parent": w.scratchID, "color": "#4986e7",
 	})
 	w.needing("create_file", w.scratchID, map[string]any{
 		"name": "described and starred.txt", "parent": w.scratchID, "content": "one\n",

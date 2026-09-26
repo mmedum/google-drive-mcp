@@ -24,7 +24,7 @@ const modulePath = "github.com/mmedum/google-drive-mcp"
 var exemptPackages = map[string]string{
 	// Wire types and a few accessors over them, exercised through every
 	// package that speaks to Drive.
-	"internal/gdrive": "types, no behaviour of its own",
+	"internal/gdrive": "types, no behavior of its own",
 	// One constant and its formatting.
 	"internal/version": "a version string",
 	// The in-memory Drive the tests run against. It is test scaffolding:

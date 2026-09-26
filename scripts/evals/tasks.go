@@ -91,7 +91,7 @@ func (s *taskState) makeFolder(key, name string) error {
 // lines of literal; nothing depends on which group a task is in.
 func tasks() []task {
 	var out []task
-	for _, group := range [][]task{findingTasks(), organisingTasks(), sharingTasks(),
+	for _, group := range [][]task{findingTasks(), organizingTasks(), sharingTasks(),
 		collaborationTasks(), workspaceTasks()} {
 		out = append(out, group...)
 	}
@@ -155,9 +155,9 @@ func findingTasks() []task {
 	}
 }
 
-// organisingTasks move things about, which is where a model that
+// organizingTasks move things about, which is where a model that
 // guesses an id does the most damage.
-func organisingTasks() []task {
+func organizingTasks() []task {
 	return []task{
 		{
 			name: "build-structure",
@@ -197,7 +197,7 @@ func organisingTasks() []task {
 			prompt: "Star the file called \"Report.txt\" in the folder with id {folder}.",
 			check: func(s *taskState, run agentRun) []string {
 				// Two files share the name, so the server answers
-				// [ambiguous] with both. The right behaviour is to say so
+				// [ambiguous] with both. The right behavior is to say so
 				// or to list them, not to pick one.
 				var out []string
 				starred := 0
@@ -402,7 +402,7 @@ func collaborationTasks() []task {
 				// Two files of one name, which is legal in Drive and the
 				// reason download_file appends a short id: they have to
 				// land beside each other rather than on each other. The
-				// task asks for both so that behaviour is asserted rather
+				// task asks for both so that behavior is asserted rather
 				// than explained — an earlier version checked for
 				// "handbook.txt" on disk, failed a download that had
 				// worked, and was then given a comment saying why it did

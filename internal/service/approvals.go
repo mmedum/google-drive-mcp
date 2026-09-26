@@ -17,7 +17,7 @@ import (
 // Two things about them shape the tools. They MAIL people — every verb
 // notifies, and there is no notify flag to turn that off, unlike
 // sharing. And an approval can LOCK the file: lock_file does it for the
-// duration, and the default behaviour on a content change resets the
+// duration, and the default behavior on a content change resets the
 // answers and locks the file once approved. Both are said in the tool
 // descriptions and in the results, because neither is what "start an
 // approval" sounds like it does.
@@ -363,8 +363,8 @@ func approvalState(a *model.Approval) string {
 		return "The approval is complete: approved."
 	case model.ApprovalDeclined:
 		return "The approval is complete: declined."
-	case model.ApprovalCancelled:
-		return "The approval is cancelled."
+	case model.ApprovalCanceled:
+		return "The approval is canceled."
 	case model.ApprovalInProgress:
 		return fmt.Sprintf("It is still open, waiting on %s.",
 			model.Plural(a.Outstanding(), "reviewer", "reviewers"))
@@ -427,15 +427,15 @@ func (s *Service) approvalError(err error, f *gdrive.File, doing, id string) err
 		// so the message has to offer the whole set it could be. The
 		// finished case leads because it is the one the caller can have
 		// caused itself, and the live run met exactly it: the driver
-		// cancelled an approval and then answered it, and a message
+		// canceled an approval and then answered it, and a message
 		// naming only the others sent a reader to check a reviewer list
 		// the account was already on.
 		why := "Approvals are not offered by every Workspace edition, and reaching them at all " +
 			"needs access to the file — starting one needs write access."
 		if id != "" {
-			why = "An approval that is already approved, declined or cancelled cannot be answered " +
+			why = "An approval that is already approved, declined or canceled cannot be answered " +
 				"or changed again; acting on an open one needs to be one of its reviewers, and " +
-				"cancelling it needs write access to the file. list_approvals says which of those " +
+				"canceling it needs write access to the file. list_approvals says which of those " +
 				"it is."
 		}
 		return &Error{Class: ClassForbidden, Message: fmt.Sprintf(

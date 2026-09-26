@@ -221,7 +221,7 @@ func TestRedactionLeavesTheProseAlone(t *testing.T) {
 // phase 4 found one surviving every position the redactor knows —
 // beside "(you)", after "by", after "owner:" — because the NAME SHAPE
 // refused it, not the position. Every invented name in the fixtures was
-// capitalised, so the tests agreed with the bug.
+// capitalized, so the tests agreed with the bug.
 func TestALowercaseDisplayNameIsStillAName(t *testing.T) {
 	cases := []string{
 		"modified 2026-09-06 09:50Z by first.last  ",

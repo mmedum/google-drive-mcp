@@ -157,7 +157,7 @@ type claim struct {
 // boolInputFields is every boolean field on a service input struct.
 //
 // Derived rather than listed, because a list of "fields that ask Drive
-// to make something so" is a judgement that decays the day a phase adds
+// to make something so" is a judgment that decays the day a phase adds
 // one, and §17a is right that choosing the set by hand is the hard part.
 // A boolean input is exactly the shape: a string carries a value, and a
 // boolean asks for a state. Deriving it means a new one is covered by

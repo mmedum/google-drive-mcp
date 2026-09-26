@@ -508,7 +508,7 @@ func TestTreeSaysWhereItStopped(t *testing.T) {
 	}
 }
 
-func TestTreeHonoursTheItemBudget(t *testing.T) {
+func TestTreeHonorsTheItemBudget(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	for i := range 10 {
 		fake.AddFile("id-bulk-fixture-"+string(rune('a'+i)), "Bulk "+string(rune('A'+i)), "text/plain", "id-2026-fixture")
@@ -847,7 +847,7 @@ func TestNoLoginSaysSoPlainly(t *testing.T) {
 func TestAPathNamingAShortcutResolvesToTheShortcut(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 	// The shortcut is what sits in the folder, so it is what the path
-	// names. Organising, sharing and trashing act on it, and following it
+	// names. Organizing, sharing and trashing act on it, and following it
 	// here would make a later trash_file destroy the target instead.
 	res, err := svc.Resolve(context.Background(), "/Projects/Budget shortcut", service.ResolveOptions{})
 	if err != nil {

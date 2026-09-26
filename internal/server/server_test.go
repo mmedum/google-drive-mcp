@@ -517,7 +517,7 @@ func TestGetAccountReportsTheToolsThatExist(t *testing.T) {
 		}
 	}
 	// Naming a tool a later phase will add would be a claim the server
-	// cannot honour today.
+	// cannot honor today.
 	for _, absent := range []string{"delete_file", "delete_comment", "list_labels"} {
 		if strings.Contains(out, absent) {
 			t.Errorf("get_account names %q, which is not registered:\n%s", absent, out)

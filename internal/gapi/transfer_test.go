@@ -44,7 +44,7 @@ func TestDownloadReturnsBytes(t *testing.T) {
 	}
 }
 
-func TestDownloadHonoursARange(t *testing.T) {
+func TestDownloadHonorsARange(t *testing.T) {
 	t.Parallel()
 	s := drivetest.New()
 	defer s.Close()

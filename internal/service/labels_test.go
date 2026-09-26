@@ -12,11 +12,11 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/service"
 )
 
-// labelled builds a service with labels on and one published definition
+// labeled builds a service with labels on and one published definition
 // in the fake: a text field and a selection field with two choices,
 // which is enough to exercise every branch that depends on a field's
 // type without inventing five labels.
-func labelled(t *testing.T) (*service.Service, *drivetest.Server) {
+func labeled(t *testing.T) (*service.Service, *drivetest.Server) {
 	t.Helper()
 	svc, fake := setup(t, service.Options{Labels: true})
 	fake.LabelsEnabled = true
@@ -28,7 +28,7 @@ func labelled(t *testing.T) (*service.Service, *drivetest.Server) {
 }
 
 func TestListLabelsShowsFieldIDsAndTheChoicesAFieldTakes(t *testing.T) {
-	svc, _ := labelled(t)
+	svc, _ := labeled(t)
 
 	out, err := svc.ListLabels(t.Context(), service.ListLabelsInput{})
 	if err != nil {
@@ -45,7 +45,7 @@ func TestListLabelsShowsFieldIDsAndTheChoicesAFieldTakes(t *testing.T) {
 }
 
 func TestListLabelsLeavesOutADraftAndSaysSo(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	draft := fake.AddLabelDefinition("id-label-draft", "Not published yet")
 	draft.Lifecycle = &gdrive.LabelLifecycle{State: "UNPUBLISHED_DRAFT"}
 
@@ -62,7 +62,7 @@ func TestListLabelsLeavesOutADraftAndSaysSo(t *testing.T) {
 }
 
 func TestManageLabelsAppliesSetsAndRemoves(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	const file = "id-budget-fixture"
 
 	if _, err := svc.ManageLabels(t.Context(), service.ManageLabelsInput{
@@ -102,7 +102,7 @@ func TestManageLabelsAppliesSetsAndRemoves(t *testing.T) {
 // A selection field's choices are generated ids. A wrong one has to be
 // answered with the list, because there is nowhere else to find it.
 func TestManageLabelsRefusesAChoiceThatIsNotOfferedAndNamesTheOnesThatAre(t *testing.T) {
-	svc, _ := labelled(t)
+	svc, _ := labeled(t)
 	_, err := svc.ManageLabels(t.Context(), service.ManageLabelsInput{
 		File: "id-budget-fixture", Label: "id-label-review", Action: "set_field",
 		Field: "id-field-stage", Values: []string{"final"},
@@ -118,7 +118,7 @@ func TestManageLabelsRefusesAChoiceThatIsNotOfferedAndNamesTheOnesThatAre(t *tes
 }
 
 func TestManageLabelsRefusesAFieldTheLabelDoesNotHave(t *testing.T) {
-	svc, _ := labelled(t)
+	svc, _ := labeled(t)
 	_, err := svc.ManageLabels(t.Context(), service.ManageLabelsInput{
 		File: "id-budget-fixture", Label: "id-label-review", Action: "set_field",
 		Field: "id-field-absent", Values: []string{"x"},
@@ -135,7 +135,7 @@ func TestManageLabelsRefusesAFieldTheLabelDoesNotHave(t *testing.T) {
 // definition. Picking the wrong one is a refusal from Drive that names
 // neither the type nor the right setter, so it is checked here.
 func TestManageLabelsSendsTheSetterThatMatchesTheFieldType(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	if _, err := svc.ManageLabels(t.Context(), service.ManageLabelsInput{
 		File: "id-budget-fixture", Label: "id-label-review", Action: "set_field",
 		Field: "id-field-owner", Values: []string{"whoever"},
@@ -153,7 +153,7 @@ func TestManageLabelsSendsTheSetterThatMatchesTheFieldType(t *testing.T) {
 }
 
 func TestManageLabelsChecksTheShapeOfADateAndOfANumber(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	fake.AddLabelDefinition("id-label-retention", "Retention",
 		&gdrive.LabelFieldDefinition{
 			ID: "id-field-until", Properties: &gdrive.LabelFieldProperties{DisplayName: "Keep until"},
@@ -199,7 +199,7 @@ func TestManageLabelsChecksTheShapeOfADateAndOfANumber(t *testing.T) {
 // 4, which meant every date-valued field read back empty — and nothing
 // noticed, because an absent member and an unset one look the same.
 func TestADateValuedFieldSurvivesTheRoundTrip(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	fake.AddLabelDefinition("id-label-retention", "Retention",
 		&gdrive.LabelFieldDefinition{
 			ID: "id-field-until", Properties: &gdrive.LabelFieldProperties{DisplayName: "Keep until"},
@@ -237,7 +237,7 @@ func TestLabelToolsRefuseWhenTheDeployerHasNotTurnedLabelsOn(t *testing.T) {
 // separate API with a separate scope, and its refusal says only
 // "insufficient authentication scopes".
 func TestALabelsRefusalNamesTheSetupStepBehindIt(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	fake.LabelsEnabled = false
 
 	_, err := svc.ListLabels(t.Context(), service.ListLabelsInput{})
@@ -258,7 +258,7 @@ func TestALabelsRefusalNamesTheSetupStepBehindIt(t *testing.T) {
 // reason it can state: the setter depends on the field's type, and the
 // type is in the definition.
 func TestApplyAndRemoveWorkWithoutTheDefinitions(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	fake.LabelsEnabled = false
 	const file = "id-budget-fixture"
 
@@ -293,14 +293,14 @@ func TestApplyAndRemoveWorkWithoutTheDefinitions(t *testing.T) {
 }
 
 func TestManageLabelsRefusesAFileDriveSaysYouMayNotLabel(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	fake.Files["id-budget-fixture"].Capabilities.CanModifyLabels = false
 
 	_, err := svc.ManageLabels(t.Context(), service.ManageLabelsInput{
 		File: "id-budget-fixture", Label: "id-label-review", Action: "apply",
 	})
 	if err == nil {
-		t.Fatal("a file whose canModifyLabels is false was labelled anyway")
+		t.Fatal("a file whose canModifyLabels is false was labeled anyway")
 	}
 	if !strings.Contains(err.Error(), "canModifyLabels") {
 		t.Errorf("the refusal does not name the capability it read: %v", err)
@@ -310,7 +310,7 @@ func TestManageLabelsRefusesAFileDriveSaysYouMayNotLabel(t *testing.T) {
 // The file card is where a label is normally seen, and it has to name
 // the label rather than print the id an administrator generated.
 func TestTheFileCardNamesTheLabelsOnAFile(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	fake.ApplyLabel("id-budget-fixture", &gdrive.Label{
 		ID: "id-label-review", RevisionID: "1",
 		Fields: map[string]gdrive.LabelField{
@@ -333,7 +333,7 @@ func TestTheFileCardNamesTheLabelsOnAFile(t *testing.T) {
 // next token — so neither loop had a test that could fail. These are
 // them.
 func TestAFilesLabelsAreReadPastTheFirstPage(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	// More labels on one file than a page holds, which is what makes the
 	// loop run at all.
 	for i := range gapi.MaxFileLabelPageSize + 3 {
@@ -353,7 +353,7 @@ func TestAFilesLabelsAreReadPastTheFirstPage(t *testing.T) {
 }
 
 func TestLabelDefinitionsAreReadPastTheFirstPage(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	for i := range gapi.DefaultLabelPageSize + 2 {
 		fake.AddLabelDefinition(fmt.Sprintf("id-label-many-%03d", i), fmt.Sprintf("Label %d", i))
 	}
@@ -383,7 +383,7 @@ func TestLabelDefinitionsAreReadPastTheFirstPage(t *testing.T) {
 // refused the token" and every call for the next ten minutes said "no
 // published label has that id" — about a label that exists.
 func TestARememberedLabelsFailureKeepsSayingWhatWentWrong(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	fake.LabelsEnabled = false
 
 	for i := range 3 {
@@ -405,7 +405,7 @@ func TestARememberedLabelsFailureKeepsSayingWhatWentWrong(t *testing.T) {
 // change that landed into a reported error, because the read-back asks
 // for labels.
 func TestAFileWhoseLabelsCannotBeReadStillHasACard(t *testing.T) {
-	svc, fake := labelled(t)
+	svc, fake := labeled(t)
 	fake.Fail = func(r *http.Request) *drivetest.Failure {
 		if strings.HasSuffix(r.URL.Path, "/listLabels") {
 			return &drivetest.Failure{Status: http.StatusForbidden,

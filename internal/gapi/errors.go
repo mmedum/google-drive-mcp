@@ -16,7 +16,7 @@ var (
 	ErrUnauthorized = errors.New("unauthorized")
 	ErrMissingScope = errors.New("missing scope")
 	ErrForbidden    = errors.New("forbidden")
-	// ErrBlocked is the organisation's own policy refusing a share. It is
+	// ErrBlocked is the organization's own policy refusing a share. It is
 	// not a bug and not something the server can work around: the
 	// Workspace admin's external-sharing setting is enforced by Drive.
 	ErrBlocked     = errors.New("blocked by policy")
@@ -118,7 +118,7 @@ func (e *APIError) Unwrap() error {
 	// account behind it answers 400 invalidSharingRequest with the
 	// message "you must check the Notify people box to invite this
 	// recipient". This mapping called that a policy refusal, so the
-	// server told the caller that their organisation forbade it and that
+	// server told the caller that their organization forbade it and that
 	// no option here could work around it — when the truth was that the
 	// request was fixable, by the caller, with notify: true. [blocked]
 	// says give up; [invalid] says fix it and try again, which is what a
@@ -235,7 +235,7 @@ func Reason(err error) string {
 }
 
 // Message returns Google's own message for an API error, or "". It is
-// attached to policy refusals so the person sees what their organisation
+// attached to policy refusals so the person sees what their organization
 // actually said.
 func Message(err error) string {
 	var e *APIError

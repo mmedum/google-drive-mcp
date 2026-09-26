@@ -189,7 +189,7 @@ func TestSlogLevels(t *testing.T) {
 	}
 }
 
-func TestNewLoggerHonoursFormatAndLevel(t *testing.T) {
+func TestNewLoggerHonorsFormatAndLevel(t *testing.T) {
 	var buf bytes.Buffer
 	NewLogger(Config{LogLevel: LogError, LogFormat: LogText}, &buf).Info("quiet")
 	if buf.Len() != 0 {

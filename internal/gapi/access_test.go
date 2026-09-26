@@ -233,14 +233,14 @@ func TestEmptyTrashSendsNoDeprecatedParameter(t *testing.T) {
 	}
 }
 
-// TestAReasonIsRecognisedInEitherSpelling covers the confusion that made
+// TestAReasonIsRecognizedInEitherSpelling covers the confusion that made
 // the rate-limit vocabulary silently wrong: Google writes one condition
 // as camelCase in the legacy error.errors[] envelope and as
 // UPPER_SNAKE_CASE in a google.rpc.ErrorInfo detail, and this client
 // prefers the detail. Comparing the camelCase constant with == therefore
 // missed every modern response, classifying a throttled read as a
 // permission error — the exact bug the classes exist to prevent.
-func TestAReasonIsRecognisedInEitherSpelling(t *testing.T) {
+func TestAReasonIsRecognizedInEitherSpelling(t *testing.T) {
 	for _, tc := range []struct {
 		reason string
 		status int
@@ -297,7 +297,7 @@ func TestADailyQuotaIsRateLimitedButNotRetried(t *testing.T) {
 		t.Errorf("Class = %s, want rate_limited", gapi.Class(err))
 	}
 	if !gapi.IsDailyQuota(err) {
-		t.Error("IsDailyQuota did not recognise it")
+		t.Error("IsDailyQuota did not recognize it")
 	}
 	if n := s.Count(http.MethodGet); n != 1 {
 		t.Errorf("%d attempts were made; backing off cannot free a daily quota", n)
@@ -312,7 +312,7 @@ func TestADailyQuotaIsRateLimitedButNotRetried(t *testing.T) {
 			Message: "Daily Limit Exceeded"}
 	}
 	if _, err := c.GetFile(t.Context(), "id-budget-fixture", gapi.GetFileOptions{}); !gapi.IsDailyQuota(err) {
-		t.Errorf("a 429 daily quota = %v, want it recognised", err)
+		t.Errorf("a 429 daily quota = %v, want it recognized", err)
 	}
 	if n := s.Count(http.MethodGet); n != 1 {
 		t.Errorf("a 429 daily quota was retried %d times", n)
@@ -325,10 +325,10 @@ func TestADailyQuotaIsRateLimitedButNotRetried(t *testing.T) {
 		Status: http.StatusTooManyRequests, Reason: "", Message: "slow down",
 	})
 	if _, err := c.GetFile(t.Context(), "id-budget-fixture", gapi.GetFileOptions{}); err != nil {
-		t.Fatalf("an unlabelled 429 was not retried through: %v", err)
+		t.Fatalf("an unlabeled 429 was not retried through: %v", err)
 	}
 	if n := s.Count(http.MethodGet); n != 2 {
-		t.Errorf("%d attempts for an unlabelled 429, want a refusal and a success", n)
+		t.Errorf("%d attempts for an unlabeled 429, want a refusal and a success", n)
 	}
 
 	// A burst, by contrast, is exactly what retrying is for.

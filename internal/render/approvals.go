@@ -86,8 +86,8 @@ func approvalHead(a *model.Approval) string {
 		return "approved"
 	case a.Status == model.ApprovalDeclined:
 		return "declined"
-	case a.Status == model.ApprovalCancelled:
-		return "cancelled"
+	case a.Status == model.ApprovalCanceled:
+		return "canceled"
 	}
 	return strings.ToLower(a.Status)
 }

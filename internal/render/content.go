@@ -30,7 +30,7 @@ type FileTextOptions struct {
 
 // FileText renders a window of a file's text under a header that says
 // what the file is and exactly which part of it this is. A model that
-// cannot tell a whole file from its first page will summarise the first
+// cannot tell a whole file from its first page will summarize the first
 // page and call it the file.
 func FileText(f *model.File, o FileTextOptions) string {
 	if f == nil {

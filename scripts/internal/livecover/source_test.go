@@ -71,7 +71,7 @@ func TestEveryShapeTheDriverUsesIsRead(t *testing.T) {
 		}
 	}
 	// A string literal that is not a tool name must not turn its
-	// neighbouring map into coverage of something.
+	// neighboring map into coverage of something.
 	if len(sent) != len(known) {
 		t.Errorf("read %d tools, want %d: %v", len(sent), len(known), Sorted(sent))
 	}
