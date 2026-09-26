@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-26
+
 ### Added
 
 - The bundle gate and the registry gate validate their documents against
@@ -44,6 +46,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   and its `author` no name. Harmless while nothing read those fields,
   and a fixture that has stopped describing what it stands for as soon
   as something does.
+- The live driver's approval step sent the reviewer as `<address`, with
+  the angle bracket from `Name <address>`, so Drive refused it.
 
 ## [1.2.3] - 2026-09-18
 
@@ -2007,6 +2011,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[1.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.0...v1.2.1
