@@ -507,7 +507,10 @@ func (w *writeRun) accountAddress() string {
 	return addressInAccount.FindString(out)
 }
 
-var addressInAccount = regexp.MustCompile(`[A-Za-z0-9._%%+-…]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
+// The hyphen is last in the class so it is a hyphen. Written as `+-…` it
+// was a range that took in `<`, and the reviewer Drive was sent kept the
+// angle bracket of "Name <address>".
+var addressInAccount = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 
 // access exercises the sharing surface. Everything happens on files
 // inside the scratch folder, and every grant made here is removed again
