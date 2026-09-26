@@ -10,7 +10,7 @@ import (
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 )
 
-// handleDownload serves alt=media: a blob's own bytes, honouring a byte
+// handleDownload serves alt=media: a blob's own bytes, honoring a byte
 // range so a caller that wants the head of a large file pays for the
 // head of a large file.
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, id, revisionID string) {
@@ -123,7 +123,7 @@ func exportBytes(f *gdrive.File, content, format string) []byte {
 	return []byte("(" + format + " export of " + f.Name + ")")
 }
 
-// serveBytes writes content, honouring a Range request the way a media
+// serveBytes writes content, honoring a Range request the way a media
 // download does.
 func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, content []byte, contentType string) {
 	total := int64(len(content))

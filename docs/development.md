@@ -31,7 +31,7 @@ make check
 runs, in order: gofmt, `go vet` (including the integration-tagged tests,
 so they keep compiling), golangci-lint, the tests with the race detector
 and an 80% statement-coverage floor per core package, govulncheck, the
-licence check, the leak check, the pin check, the error-class check, the
+license check, the leak check, the pin check, the error-class check, the
 stdio smoke test and the staleness check. It is the definition of done,
 and CI runs the same gates on Linux, macOS and Windows.
 
@@ -43,7 +43,7 @@ make test           # race tests with coverage
 make cover          # test, then enforce the floor
 make lint
 make vuln
-make licenses       # allowed licences only
+make licenses       # allowed licenses only
 make smoke          # drive the binary over stdio, without credentials
 make schemas        # write schemas.json
 make schema-diff    # compare the tool surface with the last tag
@@ -155,7 +155,7 @@ Its modes, each off unless asked for:
 | `-write` | Every tool that changes Drive, in one scratch folder in My Drive that is trashed at the end |
 | `-drive NAME_OR_ID` | Moves a file into an existing shared drive and back out, and the folder-move refusal |
 | `-share ADDRESS` | The half of sharing that needs a second person, ownership transfer included |
-| `-blocked ADDRESS` | Attempts a share the organisation's policy should refuse, and reports Google's reason beside this server's class |
+| `-blocked ADDRESS` | Attempts a share the organization's policy should refuse, and reports Google's reason beside this server's class |
 | `-labels` | The label tools; needs `GDRIVE_LABELS`, the Labels API enabled and its scopes granted |
 | `-activity` | `list_activity`; needs `GDRIVE_ACTIVITY`, the Drive Activity API enabled and its scope granted |
 | `-destructive` | The five tools that remove something for good — see below |
@@ -286,7 +286,7 @@ public the moment the repository is.
 
 ## Adding a tool
 
-1. Put the behaviour in `internal/service`, with tests against
+1. Put the behavior in `internal/service`, with tests against
    `drivetest`. Tools stay thin.
 2. Register it in `internal/tools`, with a flat schema, `snake_case`
    `verb_noun` name, no dots, and a description that says what it costs

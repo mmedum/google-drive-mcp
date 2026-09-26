@@ -291,7 +291,7 @@ func (d *destroyRun) deleteAComment() {
 // be deleted whole: a file locked while an approval is open, and a file
 // approved, which locks it again with no way to reopen it.
 //
-// The driver has never approved one before. It cancelled instead, and
+// The driver has never approved one before. It canceled instead, and
 // the reason was cleanup: an approved file is locked and a scratch
 // folder cannot be trashed around it. Here the whole drive goes at the
 // end, so the lock has somewhere to live.
@@ -438,7 +438,7 @@ func (d *destroyRun) deleteTheDrive() {
 // driveScratchName is what the shared drive is called. It says "drive"
 // so that a drive left behind by an interrupted run is not mistaken for
 // the My Drive folder the same run makes, and carries the same prefix so
-// both are recognisable as this driver's.
+// both are recognizable as this driver's.
 func driveScratchName(stamp string) string {
 	return fmt.Sprintf("%s drive %s", scratchPrefix, stamp)
 }

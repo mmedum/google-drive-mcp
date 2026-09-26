@@ -41,9 +41,9 @@ func defaultConfig(t *testing.T) config.Config {
 	return cfg
 }
 
-// unauthorisedProfile is a profile nobody has logged in to: no token in
+// unauthorizedProfile is a profile nobody has logged in to: no token in
 // the keyring, no token file, no environment override.
-func unauthorisedProfile(t *testing.T) *profile {
+func unauthorizedProfile(t *testing.T) *profile {
 	t.Helper()
 	dir := t.TempDir()
 	return &profile{
@@ -58,18 +58,18 @@ func unauthorisedProfile(t *testing.T) *profile {
 	}
 }
 
-// The unauthorised case is the one the flag exists for. A script asks
+// The unauthorized case is the one the flag exists for. A script asks
 // this question precisely when it does not know the answer, and the shape
 // that only holds when everything is present is the shape that answers it
-// with silence: an absent field reads as "not authorised", which is also
+// with silence: an absent field reads as "not authorized", which is also
 // how a renamed field reads.
 func TestStatusJSONAnswersWhenThereIsNothingToReport(t *testing.T) {
 	var buf bytes.Buffer
-	if err := newStatusReport(unauthorisedProfile(t)).writeJSON(&buf); err != nil {
+	if err := newStatusReport(unauthorizedProfile(t)).writeJSON(&buf); err != nil {
 		t.Fatalf("writeJSON: %v", err)
 	}
 
-	// Decoded into a map, not into the struct: unmarshalling into
+	// Decoded into a map, not into the struct: unmarshaling into
 	// statusReport would invent the zero value for a field the encoder
 	// never wrote, so the test would pass with the fields missing.
 	var got map[string]any
@@ -78,7 +78,7 @@ func TestStatusJSONAnswersWhenThereIsNothingToReport(t *testing.T) {
 	}
 	for _, key := range []string{"schema_version", "binary", "version", "profile", "config_dir", "account", "credentials", "scopes", "settings"} {
 		if _, ok := got[key]; !ok {
-			t.Errorf("no %q in the unauthorised object; a caller cannot tell it apart from an old binary", key)
+			t.Errorf("no %q in the unauthorized object; a caller cannot tell it apart from an old binary", key)
 		}
 	}
 	if got["account"] != nil {
@@ -101,7 +101,7 @@ func TestStatusJSONAnswersWhenThereIsNothingToReport(t *testing.T) {
 	}
 	reason, _ := creds["reason"].(string)
 	if reason == "" {
-		t.Error("credentials.reason is empty; an unauthorised answer has to say why")
+		t.Error("credentials.reason is empty; an unauthorized answer has to say why")
 	}
 	if creds["client_secret_present"] != false {
 		t.Errorf("credentials.client_secret_present = %v, want false", creds["client_secret_present"])
@@ -121,7 +121,7 @@ func TestStatusJSONAnswersWhenThereIsNothingToReport(t *testing.T) {
 	}
 	// The settings are known whether or not anybody has logged in.
 	if _, ok := got["settings"].(map[string]any)["max_download_bytes"]; !ok {
-		t.Error("no settings.max_download_bytes in the unauthorised object")
+		t.Error("no settings.max_download_bytes in the unauthorized object")
 	}
 }
 
@@ -140,7 +140,7 @@ func TestStatusJSONNamesWhereTheTokenCameFrom(t *testing.T) {
 		{"file", func(p *profile) { writeTokenFile(t, p.store.FilePath) }, "file"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := unauthorisedProfile(t)
+			p := unauthorizedProfile(t)
 			tc.build(p)
 			r := newStatusReport(p)
 			if !r.Credentials.Resolved {
@@ -172,7 +172,7 @@ func writeTokenFile(t *testing.T, path string) {
 // the text: the JSON is another way to read the same state, not a way
 // around the rule about what leaves this process.
 func TestStatusJSONMasksTheAccount(t *testing.T) {
-	p := unauthorisedProfile(t)
+	p := unauthorizedProfile(t)
 	p.user = userconfig.Config{
 		AccountEmail: "somebody@example.com",
 		Scopes:       []string{"https://www.googleapis.com/auth/drive"},
@@ -202,7 +202,7 @@ func TestStatusJSONMasksTheAccount(t *testing.T) {
 // collector and a change made for the object's sake would otherwise
 // reach the lines a person reads without anybody noticing.
 func TestStatusTextIsUnchanged(t *testing.T) {
-	p := unauthorisedProfile(t)
+	p := unauthorizedProfile(t)
 	p.user = userconfig.Config{AccountEmail: "somebody@example.com", Scopes: []string{"https://www.googleapis.com/auth/drive"}}
 	p.store.Keyring = storedToken("refresh-token")
 
@@ -232,7 +232,7 @@ func TestStatusTextIsUnchanged(t *testing.T) {
 // scopes line, which is absent until a login has written one.
 func TestStatusTextOmitsGrantedScopesBeforeALogin(t *testing.T) {
 	var buf bytes.Buffer
-	printStatus(&buf, unauthorisedProfile(t))
+	printStatus(&buf, unauthorizedProfile(t))
 	if strings.Contains(buf.String(), "\nscopes:") {
 		t.Errorf("a granted-scopes line appeared with nothing granted:\n%s", buf.String())
 	}
@@ -247,7 +247,7 @@ func TestStatusTextOmitsGrantedScopesBeforeALogin(t *testing.T) {
 func TestStatusJSONFlagIsTheWholeOfStdout(t *testing.T) {
 	t.Setenv(userconfig.EnvDir, t.TempDir())
 	// A profile no keyring on this machine has an entry for, so the run
-	// is the unauthorised one wherever the tests happen to run.
+	// is the unauthorized one wherever the tests happen to run.
 	t.Setenv("GDRIVE_PROFILE", "status-json-gate")
 
 	var stdout, stderr bytes.Buffer

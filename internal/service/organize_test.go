@@ -22,10 +22,10 @@ func TestCreateFolder(t *testing.T) {
 		t.Fatalf("created %v", f)
 	}
 	if f.FolderColorRgb != "#4986e7" {
-		t.Errorf("colour = %q, want the hash restored", f.FolderColorRgb)
+		t.Errorf("color = %q, want the hash restored", f.FolderColorRgb)
 	}
 	if _, err := svc.CreateFolder(t.Context(), service.CreateFolderInput{Name: "x", Color: "puce"}); err == nil {
-		t.Error("a colour that is not a hex value was accepted")
+		t.Error("a color that is not a hex value was accepted")
 	}
 }
 
@@ -83,10 +83,10 @@ func TestUpdateFileSaysWhenNothingChanged(t *testing.T) {
 	}
 }
 
-func TestUpdateFileRefusesAColourOnAFile(t *testing.T) {
+func TestUpdateFileRefusesAColorOnAFile(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 	_, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{File: "id-budget-fixture", Color: "#4986e7"})
-	if err == nil || !strings.Contains(err.Error(), "colour is a folder's") {
+	if err == nil || !strings.Contains(err.Error(), "color is a folder's") {
 		t.Fatalf("err = %v, want a refusal", err)
 	}
 }

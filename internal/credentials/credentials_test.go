@@ -241,7 +241,7 @@ func TestOSKeyringIsWired(t *testing.T) {
 
 func TestIsKeyringNotFound(t *testing.T) {
 	if !IsKeyringNotFound(keyring.ErrNotFound) {
-		t.Error("keyring.ErrNotFound should be recognised")
+		t.Error("keyring.ErrNotFound should be recognized")
 	}
 	if IsKeyringNotFound(errors.New("other")) {
 		t.Error("an unrelated error should not be a not-found")

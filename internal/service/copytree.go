@@ -264,7 +264,7 @@ func (s *Service) copyOne(ctx context.Context, item *gdrive.File, parent string,
 		// keep_revision_forever applies to the files, not to the folders
 		// that hold them: a folder has no content and so no revision to
 		// pin. Passing it here rather than ignoring it is the difference
-		// between honouring an argument and accepting one.
+		// between honoring an argument and accepting one.
 		made, err := s.api.CopyFile(ctx, item.ID, &gdrive.FileMeta{
 			Name: item.Name, Parents: []string{parent}, ID: ids.take(item.MimeType),
 		}, gapi.WriteOptions{Fields: copiedItemFields, ResourceIDs: []string{item.ID, parent},
@@ -324,7 +324,7 @@ func (s *Service) idPool(ctx context.Context, plan *treePlan) *idPool {
 	}
 	ids, err := s.api.GenerateIDs(ctx, want)
 	if err != nil {
-		// The pool is an optimisation and a safety net, not a
+		// The pool is an optimization and a safety net, not a
 		// requirement: without it every create is simply not repeatable,
 		// which is what a create with no id has always been.
 		s.log.DebugContext(ctx, "id pool unavailable", "class", gapi.Class(err), "wanted", want)

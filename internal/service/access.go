@@ -109,17 +109,17 @@ type ShareFileInput struct {
 	// changed, which is a change the caller never asked for and could
 	// not opt out of.
 	Discoverable *bool
-	// AllowAnyone is the acknowledgement an anyone-with-the-link grant
+	// AllowAnyone is the acknowledgment an anyone-with-the-link grant
 	// needs. Without it the grant is refused however good the role.
 	AllowAnyone bool
-	// TransferOwnership is the acknowledgement the owner role needs.
+	// TransferOwnership is the acknowledgment the owner role needs.
 	TransferOwnership bool
 	DryRun            bool
 }
 
 // ShareFile grants or changes one principal's access, and reports who
 // could see the file before and who can see it after. Google's
-// organisation policy decides what may actually be shared; what this
+// organization policy decides what may actually be shared; what this
 // adds is the brakes on doing something the person is allowed to do but
 // did not ask for.
 func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, error) {
@@ -603,7 +603,7 @@ func (s *Service) shareableTarget(f *gdrive.File, role string) error {
 func (s *Service) shareError(err error, f *gdrive.File, p principal) error {
 	if gapi.Class(err) == ClassBlocked {
 		return &Error{Class: ClassBlocked, Message: fmt.Sprintf(
-			"your organisation's sharing policy does not allow giving %s access to %s. Google said: %s. "+
+			"your organization's sharing policy does not allow giving %s access to %s. Google said: %s. "+
 				"This is set by a Workspace administrator and no option here can work around it.",
 			p.label(), f.Name, gapi.Message(err)), Err: err}
 	}
@@ -673,7 +673,7 @@ func parsePrincipal(v string) (principal, error) {
 	}
 	return principal{}, Errorf(ClassInvalid, "%q is not a principal. Pass an address like "+
 		"someone@example.com, group:team@example.com for a Google group, domain:example.com for everyone "+
-		"in an organisation, or anyone for a link anybody can open.", raw)
+		"in an organization, or anyone for a link anybody can open.", raw)
 }
 
 // label renders the principal the way a result names it.
@@ -714,7 +714,7 @@ func (p principal) matches(g model.Grant) bool {
 
 // allows refuses the role and principal combinations Drive does not
 // have, and the one this server refuses on its own: a public link
-// without the acknowledgement that it is public.
+// without the acknowledgment that it is public.
 func (p principal) allows(role string, allowAnyone bool) error {
 	if p.kind == principalAnyone && !allowAnyone {
 		return Errorf(ClassForbidden, "an anyone-with-the-link grant puts this file within reach of everyone "+
@@ -826,7 +826,7 @@ func expiryWords(expires string) string {
 	return " until " + expires
 }
 
-// joinSentences puts a list of clauses together as prose, capitalising
+// joinSentences puts a list of clauses together as prose, capitalizing
 // nothing: the note is read as a continuation of the line above it.
 func joinSentences(parts []string) string {
 	if len(parts) == 0 {

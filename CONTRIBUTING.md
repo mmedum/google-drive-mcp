@@ -5,7 +5,7 @@ people who run it against their own Drive.
 
 ## Ground rules
 
-- **Nothing deployer-specific enters the repository.** No organisation
+- **Nothing deployer-specific enters the repository.** No organization
   names, file or folder ids or URLs, account emails, Cloud project ids,
   OAuth client ids or secrets, and no names or content of real files.
   Test fixtures are synthetic. Two gates enforce this rather than trusting
@@ -60,7 +60,7 @@ Also:
 
 - Add or update tests (golden files with `go test ./internal/render -update`).
 - Update `README.md`, `docs/`, and `CHANGELOG.md` under `[Unreleased]`
-  when behaviour or the tool surface changes.
+  when behavior or the tool surface changes.
 - Run `./google-drive-mcp --dump-schemas` and check the diff; a removed
   tool or field, or a new required field, is a breaking change.
 
