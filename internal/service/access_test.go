@@ -89,7 +89,7 @@ func TestShareFileSaysNothingChangedWhenTheGrantIsAlreadyThere(t *testing.T) {
 	}
 }
 
-func TestAnyoneLinkNeedsTheAcknowledgement(t *testing.T) {
+func TestAnyoneLinkNeedsTheAcknowledgment(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 
 	_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
@@ -121,7 +121,7 @@ func TestAnyoneLinkNeedsTheAcknowledgement(t *testing.T) {
 	}
 }
 
-func TestOwnershipTransferNeedsItsOwnAcknowledgement(t *testing.T) {
+func TestOwnershipTransferNeedsItsOwnAcknowledgment(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 
 	_, err := svc.ShareFile(t.Context(), service.ShareFileInput{

@@ -190,7 +190,7 @@ func TestActivityQueryIsTreatedAsARead(t *testing.T) {
 // rather than from a response.
 //
 // The fixtures below are therefore written as JSON reaches the decoder,
-// and the fake serialises them, so the round trip is the one the client
+// and the fake serializes them, so the round trip is the one the client
 // makes. A thirteenth kind is a member name nothing here covers; the
 // empty object is the ordinary one.
 func TestTheTwoKindsOfUndescribedActivityAreToldApart(t *testing.T) {

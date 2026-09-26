@@ -7,7 +7,7 @@ body:
       value: |
         **Do not paste anything private.** No file or folder ids or URLs,
         no file names or content, no account or shared-drive email
-        addresses, no organisation names, and never a client secret,
+        addresses, no organization names, and never a client secret,
         refresh token or `client_secret.json`. `doctor` output is safe:
         it redacts ids and prints no credentials. If a problem only
         reproduces on one file, describe its shape — a folder 4 levels

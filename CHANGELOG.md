@@ -30,6 +30,13 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   that upstream still serves them. It reports a difference and refuses,
   and never rewrites anything.
 
+### Changed
+
+- Tool descriptions, error messages and docs use American spelling:
+  "organization", "color", "canceled", "license". Tool names, input
+  and output fields and enum values are unchanged, so no caller needs to
+  act.
+
 ### Fixed
 
 - The bundle test's fixture manifest was not a manifest the schema
@@ -145,12 +152,12 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - `status --json` prints the same state as one JSON object, for a script
-  that has to decide whether this server is authorised rather than show
+  that has to decide whether this server is authorized rather than show
   it to somebody. `credentials.resolved` is the field to branch on, and
-  it is present whether or not anything resolved — so an unauthorised
+  it is present whether or not anything resolved — so an unauthorized
   answer is distinguishable from no answer, which a match against the
   text output is not: a check written against one release's labels
-  silently reports "not authorised" after a release that reworded one,
+  silently reports "not authorized" after a release that reworded one,
   and the usual response to that is another `login`, which is a browser
   consent the person already gave.
 
@@ -257,9 +264,9 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   survives, so nothing about the dispatch could be tested — and the
   unknown-command guard added in the previous change proved it: deleting
   the guard from `main` left every check green, because the test that
-  came with it tested an extracted predicate rather than the behaviour.
-  A test that cannot fail when the behaviour is removed is not holding
-  the behaviour, which is the fault this repository's evidence log
+  came with it tested an extracted predicate rather than the behavior.
+  A test that cannot fail when the behavior is removed is not holding
+  the behavior, which is the fault this repository's evidence log
   already records twice under a different name.
 
   The guard is now inline, as it is in the siblings, the predicate helper
@@ -390,7 +397,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   removed, the domain kept. The domain is the half a diagnosis uses —
   shared drives are a Workspace feature and a personal account cannot
   create one, so `@gmail.com` and a Workspace domain are two different
-  sets of behaviour to explain — while the local part answers nothing.
+  sets of behavior to explain — while the local part answers nothing.
   It is never an input to any command here, and this output is what the
   issue form asks people to paste. One server showed it in full, one
   masked the domain as well (which hid the useful half), and two sat in
@@ -407,7 +414,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   five servers side by side.
   The release stamp now carries the tag itself rather than goreleaser's
   v-stripped form, so the two sources agree at the source; the
-  normalisation stays for a version passed by hand to `make`.
+  normalization stays for a version passed by hand to `make`.
 - `status` prints the same lines, in the same order, with the same
   labels as the three sibling servers, once a profile is configured (the
   not-yet-signed-in message still differs between them). They had drifted into four shapes
@@ -434,7 +441,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   read that declares `File.capabilities` and twenty others as anonymous
   objects rather than as a `$ref`, and the snapshot recorded each as a
   single property name — 166 sub-properties collapsed to 21. The types
-  modelling them matched no schema at all and were never compared. Each
+  modeling them matched no schema at all and were never compared. Each
   inline object is now a schema of its own, named `Parent.property`, so
   the alias rows and per-property verdicts work on them unchanged: 82
   schemas are compared where 34 were before this and the third direction
@@ -444,7 +451,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   schema happens to share. It compared the name matches and skipped the
   rest in silence, with a floor of 20 under the number matched standing in
   for a check — which against a real 34 left 14 renames of headroom. A repo-wide
-  rename of a modelled struct took its properties out of the comparison
+  rename of a modeled struct took its properties out of the comparison
   and the gate still printed ok. It now runs a third direction over the
   wire package: every struct carrying a JSON tag must match a published
   schema, be named by an `alias` row, or carry a new `local` row saying it
@@ -456,7 +463,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - **An API-fields gate.** `make api-fields` is the coverage gate one
   level down: `testdata/api-fields.json` is every schema and property
   the three discovery documents publish, `testdata/api-fields.tsv` is one
-  hand-written row per exception, and the modelled side is read out of
+  hand-written row per exception, and the modeled side is read out of
   `internal/gdrive` with `go/ast`. Both directions fail — a field Google
   adds to a type this server models, and a field this server carries that
   nothing publishes — and the number of schemas matched is part of the
@@ -468,7 +475,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   both publish a `File`, a `Comment`, a `Drive`, a `Permission` and a
   `User`, and the Activity API's are its outside description of the
   thing, not the resource. Measured with the names merged, the gap looked
-  like 45 missing fields and 80 fields modelled that nothing publishes;
+  like 45 missing fields and 80 fields modeled that nothing publishes;
   keyed by API it is 31 missing and none, and the 80 were entirely the
   collision. An `owner` row now says which API a struct of a shared name
   models — and adding those five rows is what brought those schemas into
@@ -551,13 +558,13 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - A shared drive's download restriction survives a restriction change.
   `manage_drive` sends the whole restrictions object back — it copies what
   it decoded and re-sends it, because Drive replaces rather than merges —
-  and `downloadRestriction` was not modelled, so it decoded as absent and
+  and `downloadRestriction` was not modeled, so it decoded as absent and
   was cleared on the next change to any other switch. Drive publishes it
   as a `$ref`, not as one of the booleans, which is why it was missed.
 - Starting an approval asks Drive the question Drive answers.
   `manage_approval` guarded on `canEdit`; Drive publishes
   `canStartApproval` for exactly this operation, and a file can be
-  editable and still refuse an approval. The capability was not modelled,
+  editable and still refuse an approval. The capability was not modeled,
   so the weaker question was the only one available.
 - Three capability fields that Drive publishes nowhere are gone:
   `canShareChildFiles`, `canShareChildFolders` and
@@ -884,7 +891,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   write of the request frames fails, it fails because the server has
   already gone — so the error in hand is a broken pipe and the
   explanation is in the server's stderr, which this discarded. A server
-  that panicked during initialisation reported `write frames: broken
+  that panicked during initialization reported `write frames: broken
   pipe` and nothing else. It reports the stderr with it now.
 
 - **The README's status line was two releases stale.** It said "Status:
@@ -1066,7 +1073,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
   three are tested.
 
 - **The README now looks like a released project's.** Status badges for
-  CI, the latest release, the Go reference and the licence; a link to the
+  CI, the latest release, the Go reference and the license; a link to the
   latest release beside the `go install` line, with `--ignore-missing` on
   the checksum command because `checksums.txt` covers every archive and
   you will have taken one; a **How it works** section with the package
@@ -1211,7 +1218,7 @@ two data points that happen to line up.
   expired.
 
 - **A refused approval named every cause but the likely one.** Answering
-  an approval that is already approved, declined or cancelled is refused
+  an approval that is already approved, declined or canceled is refused
   with the same bare `Permission denied` Drive gives someone who is not a
   reviewer, so the message has to offer the whole set. It offered two of
   three, and left out the only one the caller can have caused itself. The
@@ -1316,7 +1323,7 @@ two data points that happen to line up.
   shows the address's local part instead — lowercase, dotted. It survived
   every position the redactor knows, because the SHAPE refused it before
   the position was ever consulted. The fixtures were the other half:
-  every invented name in them was capitalised, so the tests agreed with
+  every invented name in them was capitalized, so the tests agreed with
   the bug. Found by reading a live transcript rather than by any test.
 
 - **`search_files` by property refused what Google's guide documents.**
@@ -1379,7 +1386,7 @@ two data points that happen to line up.
   was being written to close a real leak — a gate that makes fixtures
   weaker is working against its own purpose.
 
-- **The download eval asserts the behaviour it was explaining.** It had
+- **The download eval asserts the behavior it was explaining.** It had
   been rewritten to stop failing on a working download — `download_file`
   appends a short id so two files of one name land beside each other
   rather than on each other — and then carried a comment saying why it
@@ -1388,10 +1395,10 @@ two data points that happen to line up.
   decay into a comment. Suggested by a sibling repository.
 
 - **A share refused for a fixable reason no longer claims your
-  organisation forbade it.** Sharing with an address that has no Google
+  organization forbade it.** Sharing with an address that has no Google
   account behind it answers 400 `invalidSharingRequest`, and every
   `invalidSharingRequest` was mapped to `[blocked]` — so the server
-  reported "your organisation's sharing policy does not allow this…no
+  reported "your organization's sharing policy does not allow this…no
   option here can work around it" when Google's own message said the
   opposite: check the Notify people box. Google uses that reason for a
   policy refusal and for a malformed request, and the status tells them
@@ -1520,7 +1527,7 @@ different questions.
   open needs `allow_anyone: true`; handing over ownership needs
   `transfer_ownership: true`. No notification mail unless `notify` is
   set, which is the opposite of Drive's own default; where Google forces
-  it on, the result says so. An organisation's policy refusal comes back
+  it on, the result says so. An organization's policy refusal comes back
   as `[blocked]` with Google's own words and who set it.
 - `unshare_file`: revoke one grant, or the link that let anybody open it,
   and say what access is left. An inherited grant is refused with its
@@ -1572,7 +1579,7 @@ different questions.
   folds both spellings. The in-memory Drive used to send the same string
   in both places, which is why no test caught it; it now sends each in
   its own spelling, as Google does.
-- **`dailyLimitExceeded` is recognised, and deliberately not retried.**
+- **`dailyLimitExceeded` is recognized, and deliberately not retried.**
   It is a 403 quota reason like the others, but backing off cannot free a
   daily quota, so retrying only spent attempts and the advice "wait a
   minute and try again" was false. It is reported as rate limiting with
@@ -1611,12 +1618,12 @@ different questions.
 - **A 429 could override the daily-quota decision.** The status was
   consulted before the reason, so a 429 carrying `dailyLimitExceeded`
   was retried through the whole backoff schedule — exactly the loop the
-  fix above exists to prevent. The reason decides; an unlabelled 429 is
+  fix above exists to prevent. The reason decides; an unlabeled 429 is
   still treated as a burst, which is the safe reading.
 - **The ownership-transfer note asserted a flow that had not been
   observed.** It stated that a consumer account produces a pending
   transfer; this server never sets `pendingOwner` and nobody has watched
-  Drive's behaviour here. The note now states the one certain
+  Drive's behavior here. The note now states the one certain
   consequence — this account becomes a writer — and reports a pending
   transfer only when the answer shows one. Spike F settles the rest.
 - **`manage_revision` rendered a poorer card when it worked than when it
@@ -1712,7 +1719,7 @@ different questions.
 
 ## [0.1.0] - 2026-09-05
 
-Content and organising: a file's text out, a file in, and everything
+Content and organizing: a file's text out, a file in, and everything
 that arranges what is there. Verified against a real Workspace account,
 including a file moved into a shared drive and back, which refuted five
 things the design had asserted since phase 0 — two of them making a tool
@@ -1783,7 +1790,7 @@ fail outright.
   at 100 quota units per listing per segment.
 - A folder read while resolving a destination is no longer read again
   while working out where the result landed, and the root of My Drive is
-  no longer fetched just to recognise that it is the root.
+  no longer fetched just to recognize that it is the root.
 - `download_file` no longer hashes a file it cannot compare — an export
   and an older revision have no checksum to check against — and copies
   in 256 KiB blocks rather than 32 KiB.
@@ -1947,7 +1954,7 @@ account and reference machinery, and the four read tools.
 - Loopback OAuth with PKCE, refresh token in the OS keyring with a `0600`
   file fallback that warns, and profiles for several accounts.
 - A raw Drive v3 REST client over hand-written wire types, with retries
-  that honour Google's own reasons and `Retry-After`, separate rate
+  that honor Google's own reasons and `Retry-After`, separate rate
   limiters for reads, writes and sharing, per-attempt deadlines, a
   Google-only host allowlist checked before credentials are attached, and
   resource keys remembered from URLs and responses and replayed on later

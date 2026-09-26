@@ -51,7 +51,7 @@ var patterns = []pattern{
 	{"ID", regexp.MustCompile(`[A-Za-z0-9_\-]{19,}={0,2}`)},
 }
 
-// personName is the shape of a display name: capitalised words of two
+// personName is the shape of a display name: capitalized words of two
 // letters or more, with the usual lowercase particles allowed between
 // them. Requiring the capital keeps the match off the words around it —
 // without it, "13:17Z by Kim" was swallowed whole, timestamp and all.
@@ -67,19 +67,19 @@ var patterns = []pattern{
 // capital anywhere. It survived every position — beside "(you)", after
 // "by", after "owner:" — because the shape, not the position, refused
 // it. The fixtures could not have caught it either: every invented name
-// in them was capitalised, so the test agreed with the bug.
+// in them was capitalized, so the test agreed with the bug.
 //
 // So a dotted lowercase token is a name shape too. It is safe only
 // BECAUSE the positions are anchored: matched loose it would swallow
 // "modified_before", and the positions are what keep it from being asked
 // anywhere a field name could stand.
-const personName = `(?:` + capitalisedName + `|` + dottedName + `)`
+const personName = `(?:` + capitalizedName + `|` + dottedName + `)`
 
-// capitalisedName is the ordinary shape: capitalised words of two
+// capitalizedName is the ordinary shape: capitalized words of two
 // letters or more, with the usual lowercase particles between them.
 // Requiring the capital keeps the match off the words around it —
 // without it, "13:17Z by Kim" was swallowed whole, timestamp and all.
-const capitalisedName = `(?:\p{Lu}[\p{L}'\-.]+)(?: (?:\p{Lu}[\p{L}'\-.]+|van|von|der|den|de|del|di|du|la|le|bin|al)){0,4}`
+const capitalizedName = `(?:\p{Lu}[\p{L}'\-.]+)(?: (?:\p{Lu}[\p{L}'\-.]+|van|von|der|den|de|del|di|du|la|le|bin|al)){0,4}`
 
 // dottedName is what Google shows for an account with no display name
 // set: the address's local part, lowercase, joined by dots, hyphens or

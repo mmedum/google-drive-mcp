@@ -14,7 +14,7 @@ import (
 // DeleteFileInput names one item to remove for good.
 type DeleteFileInput struct {
 	File string
-	// Confirm is the acknowledgement that this cannot be undone. The
+	// Confirm is the acknowledgment that this cannot be undone. The
 	// deployer's GDRIVE_ENABLE_DESTRUCTIVE decides whether the tool
 	// exists at all; this decides whether one particular call goes
 	// through, because a tool that is registered is a tool a model will

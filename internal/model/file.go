@@ -14,7 +14,7 @@ type Location struct {
 	// Drive is the containing drive's name: "My Drive", or a shared
 	// drive's name.
 	Drive string
-	// SharedDrive marks a shared drive, which is labelled as such
+	// SharedDrive marks a shared drive, which is labeled as such
 	// because its rules differ from My Drive's.
 	SharedDrive bool
 	// Folders are the folder names from the drive root down to the
@@ -91,7 +91,7 @@ type File struct {
 	// name the location already carries.
 	IsDriveRoot bool
 	// ShortcutTargetID and ShortcutTargetKind describe what a shortcut
-	// points at; organising and sharing act on the shortcut itself.
+	// points at; organizing and sharing act on the shortcut itself.
 	ShortcutTargetID   string
 	ShortcutTargetKind string
 

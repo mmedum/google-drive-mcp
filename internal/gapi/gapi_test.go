@@ -246,7 +246,7 @@ func TestRetriesRateLimiting(t *testing.T) {
 	}
 }
 
-func TestRetriesServerErrorsAndHonoursRetryAfter(t *testing.T) {
+func TestRetriesServerErrorsAndHonorsRetryAfter(t *testing.T) {
 	s := fixture(t)
 	s.Fail = drivetest.FailTimes(1, "/files/", drivetest.Failure{
 		Status: 503, Reason: "backendError", Message: "Backend Error", RetryAfter: "1",
@@ -300,7 +300,7 @@ func TestErrorClasses(t *testing.T) {
 		{403, "ACCESS_TOKEN_SCOPE_INSUFFICIENT", "forbidden"},
 		{403, "domainPolicy", "blocked"},
 		// invalidSharingRequest is the one reason whose status decides
-		// its meaning: 403 is the organisation refusing, 400 is a
+		// its meaning: 403 is the organization refusing, 400 is a
 		// request the caller can fix. See
 		// TestAMalformedShareIsNotAPolicyRefusal.
 		{403, "invalidSharingRequest", "blocked"},
@@ -344,7 +344,7 @@ func TestAbuseAndOwnershipHelpers(t *testing.T) {
 	c := newClient(t, s)
 	_, err := c.GetFile(context.Background(), "id-budget-fixture", gapi.GetFileOptions{})
 	if !gapi.IsAbuse(err) {
-		t.Error("IsAbuse should recognise cannotDownloadAbusiveFile")
+		t.Error("IsAbuse should recognize cannotDownloadAbusiveFile")
 	}
 	if gapi.IsNotOwner(err) {
 		t.Error("IsNotOwner should not match an abuse refusal")
@@ -682,7 +682,7 @@ func sameCondition(a, b string) bool {
 //
 // Sharing with an address that has no Google account behind it answers
 // 400 invalidSharingRequest, and the mapping treated every
-// invalidSharingRequest as the organisation's policy refusing. So the
+// invalidSharingRequest as the organization's policy refusing. So the
 // server told the caller that a Workspace administrator forbade the
 // share and that no option here could work around it, when the truth
 // was that the request was fixable by the caller with notify: true.
@@ -709,7 +709,7 @@ func TestAMalformedShareIsNotAPolicyRefusal(t *testing.T) {
 		t.Fatal("the refusal was not reported at all")
 	}
 	if got := gapi.Class(err); got != gapi.ClassInvalid {
-		t.Errorf("class = %q, want %q: a request the caller can fix is not the organisation refusing",
+		t.Errorf("class = %q, want %q: a request the caller can fix is not the organization refusing",
 			got, gapi.ClassInvalid)
 	}
 	// Google's own words have to survive, because they carry the fix.
@@ -734,7 +734,7 @@ func TestAPolicyRefusalIsStillBlocked(t *testing.T) {
 			defer s.Close()
 			drivetest.SmallTree(s)
 			s.Fail = drivetest.FailTimes(1, "/permissions", drivetest.Failure{
-				Status: tc.status, Reason: tc.reason, Message: "the organisation refuses this",
+				Status: tc.status, Reason: tc.reason, Message: "the organization refuses this",
 			})
 			c := drivetest.Client(t, s)
 			_, err := c.CreatePermission(t.Context(), "id-budget-fixture", &gdrive.PermissionMeta{

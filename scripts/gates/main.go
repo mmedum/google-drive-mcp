@@ -43,7 +43,7 @@ type command struct {
 // only way to add a command is to add it here.
 //
 // Filled in init rather than as a literal because parity reads the list
-// and the list names parity, which Go sees as an initialisation cycle.
+// and the list names parity, which Go sees as an initialization cycle.
 var commands map[string]command
 
 func init() {
@@ -58,7 +58,7 @@ func init() {
 		"api-coverage": {run: apiCoverage,
 			doc: "every API method is used on purpose or left out on purpose", gate: true},
 		"api-fields": {run: apiFields,
-			doc: "every published field is modelled on purpose or left out on purpose", gate: true},
+			doc: "every published field is modeled on purpose or left out on purpose", gate: true},
 		"parity": {run: parity, doc: "`make check` and CI run the same gates", gate: true},
 		"release-notes": {run: releaseNotes, args: "VERSION [CHANGELOG]",
 			doc: "one version's CHANGELOG section, which is the release note"},

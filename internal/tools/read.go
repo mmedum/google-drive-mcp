@@ -63,7 +63,7 @@ func registerRead(s *mcp.Server, d Deps) []string {
 			"shared drives and which ones it can see, and what this server will let you do on their behalf: whether it " +
 			"is read-only, whether the sharing and destructive tools are registered, and whether files can be " +
 			"downloaded or uploaded at all. Call it once when something is refused and you want to know whether it is " +
-			"the account, the organisation or this server's configuration saying no. " +
+			"the account, the organization or this server's configuration saying no. " +
 			"It describes the account, not any file: get_file does that.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ AccountInput) (*mcp.CallToolResult, any, error) {

@@ -27,7 +27,7 @@ type ShareOptions struct {
 	// is being sent.
 	EmailMessage string
 	// TransferOwnership is required for the owner role; Drive refuses the
-	// role without it, as an acknowledgement of what it does.
+	// role without it, as an acknowledgment of what it does.
 	TransferOwnership bool
 	// MoveToNewOwnersRoot puts a transferred file in the new owner's root
 	// folder. It takes effect only outside a shared drive and only on a

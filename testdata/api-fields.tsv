@@ -2,8 +2,8 @@
 # testdata/api-fields.json, is not — `gates api-diff` writes that.
 #
 # out		the property is published and this server deliberately does not model it
-# extra		the field is modelled and public discovery does not publish it
-# alias		the schema is modelled by the struct the reason names (property *)
+# extra		the field is modeled and public discovery does not publish it
+# alias		the schema is modeled by the struct the reason names (property *)
 # owner		which API a struct of a shared name models (property *)
 # unrelated	a struct sharing this schema's name is about something else (property *)
 # local		a struct in internal/gdrive that models no published schema at all (property *)
@@ -24,7 +24,7 @@
 # which describes the same things from the outside: an activity's target
 # is a file, but the Activity API's File is a name and a MIME type, not
 # Drive's file resource. Every one of these structs is Drive's; the
-# Activity API's own shapes are modelled under their own names.
+# Activity API's own shapes are modeled under their own names.
 drive	Comment	*	owner	Drive's resource, not the Activity API's description of one
 drive	Drive	*	owner	Drive's resource, not the Activity API's description of one
 drive	File	*	owner	Drive's resource, not the Activity API's description of one
@@ -57,17 +57,17 @@ drive	RevisionList	kind	out	Google restating the type it just sent; a caller alr
 # Team Drives were renamed shared drives in 2020 and Drive still
 # publishes the old spelling beside the new one. This server reads the
 # new one.
-drive	Change	teamDrive	out	deprecated alias of drive; the new spelling is modelled
-drive	Change	teamDriveId	out	deprecated alias of driveId; the new spelling is modelled
-drive	Change	type	out	deprecated alias of changeType; the new spelling is modelled
-drive	About	canCreateTeamDrives	out	deprecated alias of canCreateDrives; the new spelling is modelled
+drive	Change	teamDrive	out	deprecated alias of drive; the new spelling is modeled
+drive	Change	teamDriveId	out	deprecated alias of driveId; the new spelling is modeled
+drive	Change	type	out	deprecated alias of changeType; the new spelling is modeled
+drive	About	canCreateTeamDrives	out	deprecated alias of canCreateDrives; the new spelling is modeled
 drive	About	teamDriveThemes	out	deprecated alias of driveThemes, which is itself out below
 #
 # About: what the signed-in account can do. This server reads the quota
 # and the user; the rest is for a client that draws Drive's own UI.
 drive	About	appInstalled	out	whether the caller's own Drive app is installed; this server is not a Drive app
-drive	About	driveThemes	out	background images and colours for a shared drive, which no tool sets or shows
-drive	About	folderColorPalette	out	the colours Drive's UI offers for a folder; no tool sets a folder colour
+drive	About	driveThemes	out	background images and colors for a shared drive, which no tool sets or shows
+drive	About	folderColorPalette	out	the colors Drive's UI offers for a folder; no tool sets a folder color
 #
 # Content restrictions: this server reports whether a file is locked and
 # by whom. Who is *allowed* to lift the lock is a separate question no
@@ -97,8 +97,8 @@ drive	Drive	kind	out	Google restating the type it just sent; a caller already kn
 drive	File	kind	out	Google restating the type it just sent; a caller already knows what it asked for
 drive	Permission	kind	out	Google restating the type it just sent; a caller already knows what it asked for
 drive	User	kind	out	Google restating the type it just sent; a caller already knows what it asked for
-drive	File	teamDriveId	out	deprecated alias of driveId; the new spelling is modelled
-drive	Permission	teamDrivePermissionDetails	out	deprecated alias of permissionDetails; the new spelling is modelled
+drive	File	teamDriveId	out	deprecated alias of driveId; the new spelling is modeled
+drive	Permission	teamDrivePermissionDetails	out	deprecated alias of permissionDetails; the new spelling is modeled
 #
 # A comment's assignment, mentions and HTML are the same three this
 # record writes off on a Reply, for the same reasons.
@@ -121,12 +121,12 @@ drive	File	videoMediaMetadata	out	a video's width, height and duration; no tool 
 drive	File	thumbnailLink	out	a short-lived URL to a preview image; no tool sets or shows it
 drive	File	thumbnailVersion	out	the version of that preview, for cache invalidation; no tool sets or shows it
 drive	File	contentHints	out	a caller-supplied thumbnail and indexable text, set at upload; no tool sets or shows it
-drive	File	sha1Checksum	out	md5Checksum and sha256Checksum are modelled and reported; a third digest of the same bytes adds nothing
+drive	File	sha1Checksum	out	md5Checksum and sha256Checksum are modeled and reported; a third digest of the same bytes adds nothing
 #
 # Per-user state. The two timestamps beside these — modifiedByMeTime and
-# viewedByMeTime — are modelled and say the same thing with a date on it.
-drive	File	modifiedByMe	out	modifiedByMeTime is modelled and carries when, not just whether
-drive	File	viewedByMe	out	viewedByMeTime is modelled and carries when, not just whether
+# viewedByMeTime — are modeled and say the same thing with a date on it.
+drive	File	modifiedByMe	out	modifiedByMeTime is modeled and carries when, not just whether
+drive	File	viewedByMe	out	viewedByMeTime is modeled and carries when, not just whether
 #
 # Security and app plumbing no tool sets or reports. list_permissions and
 # share_file work in roles and types; capabilities is what this server
@@ -136,7 +136,7 @@ drive	File	downloadRestrictions	out	a download and copy restriction newer than t
 drive	File	hasAugmentedPermissions	out	whether a shared-drive file carries permissions beyond the drive's
 drive	File	inheritedPermissionsDisabled	out	whether a folder stops inheriting permissions
 drive	File	isAppAuthorized	out	whether the file was created by the calling app; this server is not a Drive app
-drive	File	viewersCanCopyContent	out	deprecated alias of copyRequiresWriterPermission, which is modelled
+drive	File	viewersCanCopyContent	out	deprecated alias of copyRequiresWriterPermission, which is modeled
 drive	File	spaces	out	which of drive, appDataFolder or photos the file sits in; every file this server reaches is in drive
 drive	Permission	inheritedPermissionsDisabled	out	whether this permission stops being inherited; no tool sets it
 drive	Permission	photoLink	out	the grantee's profile picture; get_account reports the address, not the portrait
@@ -256,7 +256,7 @@ drive	Status	details	out	not read by any tool
 # names each one Parent.property so it can be aliased and compared like
 # any other schema. Before the snapshot descended into them these types
 # matched nothing and were never checked — File.capabilities publishes
-# 46 fields and this server modelled 30 of them in silence.
+# 46 fields and this server modeled 30 of them in silence.
 drive	File.capabilities	*	alias	Capabilities
 drive	Drive.capabilities	*	alias	DriveCapabilities
 drive	Drive.restrictions	*	alias	DriveRestrictions
@@ -276,14 +276,14 @@ drive	File.capabilities	canModifyContentRestriction	out	get_file reports a conte
 drive	File.capabilities	canModifyEditorContentRestriction	out	as canModifyContentRestriction
 drive	File.capabilities	canModifyOwnerContentRestriction	out	as canModifyContentRestriction
 drive	File.capabilities	canMoveChildrenOutOfDrive	out	as canMoveChildrenWithinDrive
-drive	File.capabilities	canMoveChildrenOutOfTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
+drive	File.capabilities	canMoveChildrenOutOfTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modeled
 drive	File.capabilities	canMoveChildrenWithinDrive	out	move_file guards on the item being moved, not on a folder's children
-drive	File.capabilities	canMoveChildrenWithinTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
-drive	File.capabilities	canMoveItemIntoTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
-drive	File.capabilities	canMoveItemOutOfTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
-drive	File.capabilities	canMoveItemWithinTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
-drive	File.capabilities	canMoveTeamDriveItem	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
-drive	File.capabilities	canReadTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modelled
+drive	File.capabilities	canMoveChildrenWithinTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modeled
+drive	File.capabilities	canMoveItemIntoTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modeled
+drive	File.capabilities	canMoveItemOutOfTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modeled
+drive	File.capabilities	canMoveItemWithinTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modeled
+drive	File.capabilities	canMoveTeamDriveItem	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modeled
+drive	File.capabilities	canReadTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modeled
 drive	File.capabilities	canRemoveContentRestriction	out	as canModifyContentRestriction
 drive	File.capabilities	canRemoveMyDriveParent	out	as canAddFolderFromAnotherDrive
 drive	Drive.capabilities	canChangeDownloadRestriction	out	manage_drive reports what Drive accepted; no tool sets a download restriction

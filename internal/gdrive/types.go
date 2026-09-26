@@ -5,7 +5,7 @@
 // dependencies outside the standard library, so it can be compared
 // against the API reference field by field.
 //
-// Beyond a few accessors the only behaviour here is decoding, and only
+// Beyond a few accessors the only behavior here is decoding, and only
 // where a Go shape cannot hold what the wire said: such a type owns an
 // UnmarshalJSON that keeps the missing fact. Nothing here encodes, and
 // nothing here decides anything — policy belongs to internal/service.
@@ -481,7 +481,7 @@ type DownloadRestriction struct {
 // DriveRestrictions are the switches a shared drive carries, plus the
 // download restriction Drive keeps beside them.
 type DriveRestrictions struct {
-	// DownloadRestriction has to be modelled even though no tool sets it,
+	// DownloadRestriction has to be modeled even though no tool sets it,
 	// because manage_drive sends the whole restrictions object back:
 	// driveRestrictionPatch copies what it decoded and re-sends it, so a
 	// field missing here is a field cleared on the next restriction

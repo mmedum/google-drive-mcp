@@ -101,7 +101,7 @@ func transcript(out io.Writer, _ []string) error {
 // fails when a program under scripts/ imports the redactor and is not
 // here, which is what a third driver would do on its first day. "The day
 // a third one is written it belongs on this line" was the original
-// defence of the list, and it is the argument this same file rejects two
+// defense of the list, and it is the argument this same file rejects two
 // paragraphs earlier: an allowlist is how a gate stops being believed.
 var transcriptPackages = []string{
 	filepath.Join("scripts", "livedrive"),
@@ -200,7 +200,7 @@ func terminalWrites(path string) ([]terminalWrite, error) {
 // passthrough helper would satisfy every other check here and leak
 // exactly as much. So each write in the exempt package must have a call
 // to the redactor somewhere in its arguments. That is a shallow check of
-// a small file, and it is honest about being one — the behaviour is held
+// a small file, and it is honest about being one — the behavior is held
 // by TestEveryLinePrintedIsRedacted, which asserts what comes out.
 func exemptionRedacts() (bool, error) {
 	files, err := goFiles(transcriptPackage)

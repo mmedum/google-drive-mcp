@@ -62,7 +62,7 @@ var driveRestrictionWords = []struct {
 }{
 	{"only members of this drive can open items in it",
 		func(r *gdrive.DriveRestrictions) bool { return r.DriveMembersOnly }},
-	{"only people in the organisation can be given access",
+	{"only people in the organization can be given access",
 		func(r *gdrive.DriveRestrictions) bool { return r.DomainUsersOnly }},
 	{"readers and commenters cannot copy, print or download",
 		func(r *gdrive.DriveRestrictions) bool { return r.CopyRequiresWriterPermission }},

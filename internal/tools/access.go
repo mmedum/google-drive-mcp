@@ -22,7 +22,7 @@ type PermissionsInput struct {
 // ShareInput is one grant to make or change.
 type ShareInput struct {
 	File              string `json:"file" jsonschema:"what to share: a file id, any Drive URL, a path from My Drive, or a shared drive as drive:Marketing to add a member to it. A shortcut is shared itself, not what it points at."`
-	Principal         string `json:"principal" jsonschema:"who gets access: an address like someone@example.com, group:team@example.com for a Google group, domain:example.com for everyone in an organisation, or anyone for a link that needs no sign-in"`
+	Principal         string `json:"principal" jsonschema:"who gets access: an address like someone@example.com, group:team@example.com for a Google group, domain:example.com for everyone in an organization, or anyone for a link that needs no sign-in"`
 	Role              string `json:"role" jsonschema:"what they may do: reader, commenter, writer, or file_organizer and organizer inside a shared drive. owner hands the file over and needs transfer_ownership."`
 	Notify            bool   `json:"notify,omitempty" jsonschema:"send Google's notification email. Off by default: a tool call is not a reason to put mail in somebody's inbox. An ownership transfer always mails, whatever this says."`
 	Message           string `json:"message,omitempty" jsonschema:"a line to include in that email; only used when notify is true"`
@@ -77,7 +77,7 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 			"Accepted roles: " + strings.Join(service.Roles(), ", ") + ". " +
 			"A link anyone can open needs allow_anyone: true, and handing over ownership needs " +
 			"transfer_ownership: true; without those the call is refused. No email is sent unless notify is set. " +
-			"What may actually be shared is decided by the organisation's own policy, which Google enforces: a " +
+			"What may actually be shared is decided by the organization's own policy, which Google enforces: a " +
 			"refusal comes back as [blocked] with Google's own words.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ShareInput) (*mcp.CallToolResult, *render.WriteJSON, error) {

@@ -74,9 +74,9 @@ func TestCreateDriveMakesOneAndSaysWhatItMeans(t *testing.T) {
 	if fake.Drives[got.JSON.Drive.ID] == nil {
 		t.Fatalf("the drive was not created: %+v", fake.Drives)
 	}
-	// Ownership passing to the organisation is the difference from a
+	// Ownership passing to the organization is the difference from a
 	// folder, and it does not come undone.
-	if !strings.Contains(got.Text, "belongs to the organisation") {
+	if !strings.Contains(got.Text, "belongs to the organization") {
 		t.Errorf("the result does not say what a shared drive means:\n%s", got.Text)
 	}
 	// The requestId is what makes the create idempotent.

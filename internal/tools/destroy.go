@@ -109,7 +109,7 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 // requiresUserInteraction marks a tool that a client should not run
 // without a person seeing it. It is a hint and nothing more — the gate
 // that actually holds is that these tools are not registered at all
-// unless the deployer asked for them — but a client that honours it
+// unless the deployer asked for them — but a client that honors it
 // gives the person the look at the call that the hint is for.
 func requiresUserInteraction() mcp.Meta {
 	return mcp.Meta{"anthropic/requiresUserInteraction": true}

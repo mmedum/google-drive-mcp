@@ -166,7 +166,7 @@ Verified against the Drive API v3 reference and guides on 2026-09-05.
 | A file has **one parent** (since 2020). A move is `files.update` with `addParents` and `removeParents`. A folder cannot be moved from My Drive into a shared drive (`teamDrivesFolderMoveInNotSupported`); a file can. My Drive allows 100 levels of nesting and 500 000 items per folder. | `move_file` is one call and reports old and new location; the folder-into-shared-drive case is refused up front with the alternative spelled out. |
 | **Search is not substring search.** `name contains 'x'` matches names whose words *start* with x. Verified live (spike A, §18): the match ignores case, every word of x must prefix *some* word of the name, and **their order is irrelevant** — "Decentralized Identity" and "Identity Decentralized" return the same set. `name = 'x'` matches the whole name and **also ignores case**. `fullText contains` is looser than whole-token matching. Single quotes and backslashes are escaped with a backslash. | `search_files` builds the query from typed fields and says in its description and in an empty result what "contains" means. Path resolution uses `name =`, so two siblings differing only in case are `[ambiguous]`, not a coin toss. |
 | Shared drives need `supportsAllDrives=true` on nearly every method, `includeItemsFromAllDrives` plus `corpora` on listings, and `driveId` for one drive. `corpora=allDrives` can return `incompleteSearch=true`. A shared drive's root folder id is the drive id. | Every request carries `supportsAllDrives`. Listings default to `allDrives` and report `incomplete_search`. |
-| **Quota is in units**: a read costs 5, a list 100, a download 200, an edit 50; 325 000 units per minute per user, 1 000 000 per minute per project. Over the limit Google answers 403 `userRateLimitExceeded` / `rateLimitExceeded` or 429; the guide says truncated exponential backoff. Sharing has its own `sharingRateLimitExceeded`. | A list is twenty reads. Listings are paged and budgeted; path resolution is cached; sharing has its own limiter; retries honour the reasons above. |
+| **Quota is in units**: a read costs 5, a list 100, a download 200, an edit 50; 325 000 units per minute per user, 1 000 000 per minute per project. Over the limit Google answers 403 `userRateLimitExceeded` / `rateLimitExceeded` or 429; the guide says truncated exponential backoff. Sharing has its own `sharingRateLimitExceeded`. | A list is twenty reads. Listings are paged and budgeted; path resolution is cached; sharing has its own limiter; retries honor the reasons above. |
 | **Uploads**: simple or multipart up to 5 MB; resumable above that, in chunks that are multiples of 256 KiB, resumed with `Content-Range: bytes */total` and a `308` carrying the received `Range`. 5 TB per file, 750 GB per user per day. Import conversion is asked for with `mimeType` in the metadata: Word, ODT, HTML, RTF, plain text and Markdown to a Doc; Excel, ODS, CSV, TSV to a Sheet; PowerPoint, ODP to Slides; images and PDF to a Doc with OCR. | `create_file` (inline text) uses multipart; `upload_file` streams from disk, multipart under 5 MB and resumable above, and recovers from a cut connection inside the call. `convert_to` is one field. |
 | **Downloads**: `files.get?alt=media` for blobs, with `Range` for partial reads and `acknowledgeAbuse` for flagged files; `files.export` for Workspace documents, capped at **10 MB**, no `Range`; `files.download` (a long-running operation, alive **a minimum of 12 h**) for Google Vids and for *revisions* of Docs and Sheets. Export formats: Docs to docx, odt, rtf, pdf, txt, html, zip, epub, md; Sheets to xlsx, ods, pdf, zip, csv, tsv; Slides to pptx, odp, pdf, txt; Drawings to pdf, jpg, png, svg. | `read_file` fetches only the byte window it shows; `download_file` streams to disk and verifies the md5; old revisions of Docs go through `files.download`. |
 | **Permissions**: roles `owner`, `organizer`, `fileOrganizer` (shared drives only), `writer`, `commenter`, `reader`; types `user`, `group`, `domain`, `anyone`; **one permission per principal**; `expirationTime` only for users and groups, at most one year out; `sendNotificationEmail` defaults to true for users and groups and cannot be turned off for an ownership transfer; making someone owner needs `transferOwnership=true`; on consumer accounts the transfer is pending until the new owner accepts (`pendingOwner`); `allowFileDiscovery` applies to `domain` and `anyone`; in shared drives `permissionDetails.inherited` marks permissions that can only be removed at their source. | `share_file` updates an existing grant instead of failing, defaults `notify` to off, treats ownership as its own explicit action, and reports exposure before and after. Inherited permissions are refused with the source named. |
@@ -212,7 +212,7 @@ undo a permanent delete.
 8. Large text is budgeted with continuation (#17).
 9. Every write says what changed and what the state is now (#1031).
 10. Conventions checked against the MCP specification, Anthropic's tool
-    guidance and the observed behaviour of Claude Code (§18): flat strict
+    guidance and the observed behavior of Claude Code (§18): flat strict
     schemas, snake_case verb_noun names, `[class] message` errors, dry
     run on writes, destructive tools unregistered unless enabled, read
     tools return text only.
@@ -293,11 +293,11 @@ internal/model/           the server's view of a file: kind names, location path
 internal/render/          text renderers: file card, listing, tree, permissions, revisions, changes,
                           comments; budgets and continuation
 internal/service/         orchestration: resolve refs and paths (short cache), search, listing and
-                          walking, content in and out, organising, the sharing policy, trash, drives,
+                          walking, content in and out, organizing, the sharing policy, trash, drives,
                           history, comments, access requests, labels
 internal/server/          SDK wiring; the gdrive:// resource templates; schema dump through an
                           in-memory client session
-internal/tools/           one file per area: files.go, content.go, organise.go, access.go, drives.go,
+internal/tools/           one file per area: files.go, content.go, organize.go, access.go, drives.go,
                           history.go, comments.go, resources.go, tools.go
 internal/version/
 testdata/                 synthetic fixtures (§14) and golden outputs
@@ -369,7 +369,7 @@ path costs one walk. Trashed items are skipped; a trashed item is reached
 by id.
 
 **Shortcuts.** Read and content tools follow a shortcut to its target and
-say so in the header. Organising, sharing and trash tools act on the
+say so in the header. Organizing, sharing and trash tools act on the
 shortcut itself, because that is the thing sitting in the folder the
 person is looking at, and the result says "this is a shortcut to X".
 
@@ -382,7 +382,7 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
 `unsupported`, `blocked`, `rate_limited`, `server`, `network`,
 `ambiguous_outcome`, `unexpected`.
 
-## 7. Reading, content, organising, sharing
+## 7. Reading, content, organizing, sharing
 
 ### 7.1 Read path
 
@@ -478,7 +478,7 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   a new file with convert_to`), folders and shortcuts. Returns old and new head revision
   ids and sizes.
 
-### 7.3 Organising
+### 7.3 Organizing
 
 - `create_folder`: `name`, `parent`, `description`, `color`. Drive allows
   two folders of one name side by side; this tool does not, unless
@@ -508,9 +508,9 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
 
 ### 7.4 Sharing (`internal/service/access.go`)
 
-**Who decides what may be shared.** Google does, per organisation: the
+**Who decides what may be shared.** Google does, per organization: the
 Workspace admin's external-sharing setting (off, allowlisted domains, or
-on, per organisational unit) is enforced by the Drive backend on every
+on, per organizational unit) is enforced by the Drive backend on every
 API call, and shared drives add their own restrictions. This server does
 not copy those rules. What it adds is what only the server can add:
 brakes on the agent doing something the person is *allowed* to do but
@@ -524,11 +524,11 @@ did not ask for. The deployer sets `GDRIVE_SHARING`:
 Before any sharing call the server reads `capabilities.canShare` on the
 file and refuses with `[forbidden] you cannot change sharing on this
 file` when it is false, as the sharing guide asks. A grant the
-organisation's policy blocks comes back from Google as 400
+organization's policy blocks comes back from Google as 400
 `invalidSharingRequest` ("ACL change not allowed"), 400
 `shareOutNotPermittedForContent` (a file flagged as restricted content)
 or 403 `domainPolicy`; the server maps that family to `[blocked] your
-organisation's sharing policy does not allow this` with Google's own
+organization's sharing policy does not allow this` with Google's own
 message attached. The exact shape of a policy refusal is observed live
 in Phase 2 (§16) and recorded in §18.
 
@@ -674,7 +674,7 @@ about them are not what the name suggests and are said in the tool
 description and in every result: every verb MAILS somebody, with no
 notify flag anywhere, unlike sharing; and an approval can LOCK the file,
 at once with `lock_file` or on approval under the default
-`RESET_APPROVAL` behaviour. Declining completes an approval on its own
+`RESET_APPROVAL` behavior. Declining completes an approval on its own
 where approving waits for everybody. Drive cannot remove a reviewer, so
 the tool says so rather than offering an argument that always fails.
 They are not behind `GDRIVE_SHARING`: an approval grants nobody access,
@@ -710,7 +710,7 @@ grants a permission.
 | `upload_file` | A local file, multipart or resumable, optional conversion | — | 1 |
 | `update_content` | Replace a blob's content; new revision, old one kept | — | 1 |
 | `create_folder` | New folder; refuses a duplicate name unless allowed | — | 1 |
-| `update_file` | Rename, describe, star, colour, properties, sharing switches | idempotent | 1 |
+| `update_file` | Rename, describe, star, color, properties, sharing switches | idempotent | 1 |
 | `move_file` | Move to a folder or shared drive; single parent; dry run | idempotent | 1 |
 | `copy_file` | Copy, optionally converting (OCR); `recursive` walks a folder, refusing a tree over budget rather than copying half of it | — | 1, 3 |
 | `create_shortcut` | Shortcut to a file or folder | — | 1 |
@@ -774,7 +774,7 @@ before and after summaries.
 **Nothing internal leaves the user's machine or enters the repository**
 (**decided**).
 
-- The repository never contains organisation names, file or folder ids,
+- The repository never contains organization names, file or folder ids,
   URLs, account emails, Cloud project ids, OAuth client ids or secrets,
   names or content of real files, or any reference to other projects,
   accounts, machines or tooling its maintainers use. Conventions are
@@ -802,13 +802,13 @@ before and after summaries.
 | Risk | What limits it |
 |---|---|
 | Acting on the wrong file | Ids are the contract; a name or path that matches more than one item is refused; every result shows the location. |
-| Exposing a file to the world or to the wrong domain | The organisation's own sharing policy, enforced by Google on every call; `allow_anyone` per call; before-and-after exposure in every sharing result; `dry_run`; `GDRIVE_SHARING=off`; no publish-to-web at all. |
+| Exposing a file to the world or to the wrong domain | The organization's own sharing policy, enforced by Google on every call; `allow_anyone` per call; before-and-after exposure in every sharing result; `dry_run`; `GDRIVE_SHARING=off`; no publish-to-web at all. |
 | Unwanted email to people | `notify` is off unless asked; the result says when Google forced it on. |
 | Mass deletion | Trash is the only default removal and it is reversible; permanent deletion and emptying the trash are gated; no bulk tool. |
 | Copying private files onto disk | Downloads only under `GDRIVE_LOCAL_DIR`, size-capped, named in the result. |
 | Uploading files the person did not mean to share | Uploads only from `GDRIVE_LOCAL_DIR`; inline content is what the model wrote. |
 | Instructions hidden in file content | Read tools are read-only and content is returned as data; the server never acts on what a file says; the client's per-call approval covers writes. |
-| Runaway listings and quota exhaustion | Page and tree budgets, per-process limiters, backoff honouring Google's reasons. |
+| Runaway listings and quota exhaustion | Page and tree budgets, per-process limiters, backoff honoring Google's reasons. |
 | A stalled request hanging the server | Every call, token refresh and chunk has a deadline; bodies and frames are bounded. |
 | Secrets in the repository | gitleaks in pre-commit and CI; synthetic fixtures. |
 
@@ -823,7 +823,7 @@ before and after summaries.
   accounts, which means weekly `login`) → add the scopes → Desktop-app
   client → download `client_secret.json` → `login` → `doctor`.
 - **No Developer Preview is needed.** Everything this server uses is GA.
-  Google's own Drive MCP is in the preview programme and is a comparison
+  Google's own Drive MCP is in the preview program and is a comparison
   (Phase 0 spike B), not a dependency.
 - **Scopes.** Full: `drive`. Read-only: `drive.readonly`. With
   `GDRIVE_LABELS=true`: plus `drive.labels.readonly`, and `drive.labels`
@@ -892,7 +892,7 @@ honest option and the one a model can act on.
 
 - **Retries.** Reads and listings retry on 429, 403 `rateLimitExceeded`
   and `userRateLimitExceeded`, 5xx and network errors with exponential
-  backoff and full jitter, capped at 30 s, five attempts, honouring
+  backoff and full jitter, capped at 30 s, five attempts, honoring
   `Retry-After`. Metadata patches, moves and permission updates retry the
   same way: they are idempotent. Creates, uploads and copies retry
   because they carry a pre-generated id; a duplicate-id answer after an
@@ -980,7 +980,7 @@ honest option and the one a model can act on.
   in-memory Drive behind `httptest`: files with parents and kinds, trash
   with cascade, permissions with the one-per-principal rule and inherited
   shared-drive grants, revisions, shared drives, a changes log, resumable
-  upload sessions that honour `Content-Range` and answer `308` with the
+  upload sessions that honor `Content-Range` and answer `308` with the
   received `Range`, `alt=media` with `Range`, export stubs, and error
   injection (429, each 403 reason, 5xx, a connection cut at byte *N*).
   Every service area is tested against it. Renderer goldens live in
@@ -995,7 +995,7 @@ honest option and the one a model can act on.
 - **Coverage floor** 80% per core package: `config`, `credentials`,
   `auth`, `gapi`, `ref`, `model`, `render`, `service`, `tools`, `server`.
 - **Schema dump and diff** in CI against the last tag.
-- **Stdio smoke** without credentials: initialise with the newest
+- **Stdio smoke** without credentials: initialize with the newest
   protocol version the SDK offers and with `2025-11-25`, list tools and
   resource templates, call `get_file` and expect an `[auth]` tool error.
 - **Integration** (`//go:build integration`, `GDRIVE_INTEGRATION=1`):
@@ -1057,7 +1057,7 @@ honest option and the one a model can act on.
 
 ## 15. Reliability of the plan itself: what must be verified live
 
-Everything in §2 comes from the reference. Five things have behaviour
+Everything in §2 comes from the reference. Five things have behavior
 the reference does not pin down. The first — the exact semantics of
 `name contains` and `name =` — was spiked on 2026-09-05 and **refuted
 two claims this document made** (§18); the rest run at the start of the
@@ -1122,9 +1122,9 @@ spike that gets skipped and then forgotten. So:
   account is available; the client already sends the header, and the
   test in `internal/gapi` covers the mechanism.
 - **B (Google's Drive MCP)** needs a Cloud project in the Developer
-  Preview Programme. Nothing depends on it.
+  Preview Program. Nothing depends on it.
 
-**Phase 1 — content and organisation (v0.1.0). Done 2026-09-05.**
+**Phase 1 — content and organization (v0.1.0). Done 2026-09-05.**
 `read_file`,
 `download_file`, `create_file`, `upload_file`, `update_content`,
 `create_folder`, `update_file`, `move_file`, `copy_file`,
@@ -1170,10 +1170,10 @@ release (§17a):
 - **Spike F** (ownership transfer). Blocked: it needs a second Google
   account, and there is not one to hand. It cannot be undone from this
   side either, so a colleague's account is not a substitute.
-- **A share the organisation's policy blocks**, so the `[blocked]`
+- **A share the organization's policy blocks**, so the `[blocked]`
   mapping in §7.4 is built from a real response rather than an injected
   one. It needs an administrator to put an external address out of
-  bounds on an organisational unit.
+  bounds on an organizational unit.
 - **The destructive four against Drive.** They are gated off by default
   and the live driver does not enable them: `empty_trash` cannot be
   scoped to a scratch folder — it takes the whole account's trash — so
@@ -1247,7 +1247,7 @@ every method used on purpose or left out on purpose in
 Three things are worth carrying forward.
 
 **Reading the documents first paid for itself before a line of feature
-code.** Four corrections, two of them in behaviour that had already
+code.** Four corrections, two of them in behavior that had already
 shipped: `includeLabels=*` is a 400 and had never worked, and
 `LabelField`'s date member is `dateString`, so every date-valued label
 field decoded to nothing. Neither could have been caught by a test here
@@ -1368,10 +1368,10 @@ SENT rather than a gate reading what it says it sends.
 None. The five choices below were decided on 2026-09-05 and are kept
 here so they are not reopened.
 
-1. **Sharing.** Google's organisation policy is the authority (§7.4).
+1. **Sharing.** Google's organization policy is the authority (§7.4).
    `GDRIVE_SHARING` is `all` or `off`; an `internal` mode that copied the
    admin's rules was dropped because the admin console and the Drive
-   backend already enforce them per organisational unit, the sharing
+   backend already enforce them per organizational unit, the sharing
    guide asks apps to check `canShare` rather than re-implement policy,
    and the MCP specification places consent at the host and access
    controls, not policy copies, at the server.
@@ -1397,7 +1397,7 @@ difference is a decision rather than a drift.
 |---|---|---|
 | A test fails if **an id** appears in a log | Full ids never appear; a **six-character prefix** does, at debug level | A retry, its backoff and its outcome are separate log lines, and without a correlation key a failure cannot be traced to the call that caused it. Six characters of a 33-character id cannot be looked up, cannot be pasted into a URL, and identify nothing on their own. Everything else the standard names — names, titles, addresses, queries, content, and whole ids — is absent and stays absent: `TestLogsCarryNoTraceOfWhatWasTouched` runs the whole surface at debug level against unmistakable fixtures and fails on any of them. *(Phase 2: "the whole surface" had quietly stopped being true — the test was written for phase 1's tools and eight more had been added around it, including the only ones that take an email address as an argument. It covers them now, a domain was added to the forbidden fixtures, and `method=DELETE` joined the assertion that the writes actually reached the network. A claim like this decays every time the surface grows, which is the argument for asserting the methods rather than trusting the list of calls.)* *(Phase 3: a comment, a reply and an access request's message joined the forbidden fixtures. They are a new KIND of subject rather than a new call on an old one — somebody else's words about the file — and the test would have passed without them.)* *(No longer a deviation: the standard's wording is being changed to the intent it always had — a log must not identify or reconstruct its subject.)* |
 | The staleness gate **deliberately fails** between the release commit and the tag | It passes, by accepting notes under an untagged version heading | Our release flow (§12) puts the release commit on a topic branch and requires CI green *before* the merge and therefore before the tag exists. A gate that fails there fails the release pull request. The gate still refuses an undocumented change: with the notes removed it fails, which is tested |
-| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Fourteen classes, including `ambiguous`, `blocked`, `rate_limited`, `ambiguous_outcome` and `pending` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organisation's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 4 added `pending`: work Google has begun and not finished, which is a long-running download whose operation is still running. It is not `server`, which says something went wrong, and not `rate_limited`, which says you asked too often — nothing is wrong and nothing needs backing off from, and the same call in a minute picks up the finished render. A model told `server` would report a failure that did not happen.)* *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* |
+| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Fourteen classes, including `ambiguous`, `blocked`, `rate_limited`, `ambiguous_outcome` and `pending` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organization's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 4 added `pending`: work Google has begun and not finished, which is a long-running download whose operation is still running. It is not `server`, which says something went wrong, and not `rate_limited`, which says you asked too often — nothing is wrong and nothing needs backing off from, and the same call in a minute picks up the finished render. A model told `server` would report a failure that did not happen.)* *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* |
 
 ## 17a. Deferred cleanups
 
@@ -1551,8 +1551,8 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   (new/upload/copy), `ActivityComment` (post/assignment/suggestion),
   `ActivityActor`, `ActivityUser` and `ActivityTarget` have the identical
   shape and the identical blindness — and worse symptoms, because they do
-  not report it: `actionWords` falls through an unrecognised create
-  sub-kind to "created", and `actorWords` falls through an unrecognised
+  not report it: `actionWords` falls through an unrecognized create
+  sub-kind to "created", and `actorWords` falls through an unrecognized
   actor to "somebody". A loud wrong answer was fixed; four silent ones
   are still there, and a silent one is what the phase-4 lesson says costs
   a phase to find.
@@ -1621,7 +1621,7 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   true`.
 
   What is still unverified is the genuine article: a 403
-  `invalidSharingRequest`, or a `domainPolicy`, from an organisation's
+  `invalidSharingRequest`, or a `domainPolicy`, from an organization's
   own external-sharing restriction. It needs an address that a Workspace
   administrator has actually put out of bounds; the maintainer is one,
   and the check is written and waiting for the address.
@@ -1796,7 +1796,7 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   above a card contradicting it. It reads the lock off the file now, so
   it is right whether or not Drive applies one; the fake no longer
   applies one either, since it was asserting the claim rather than the
-  behaviour, which is how the claim survived a phase.
+  behavior, which is how the claim survived a phase.
 
 - **A stray editor file is in the public history.** A
   `.claude/settings.local.json.tmp.*` file reached a commit through
@@ -1927,16 +1927,16 @@ own numbers.
 | A reply is a reply; resolving is a state on the comment | **Refuted.** `Comment.resolved` is output only, and the only way to set it is a reply whose `action` is `resolve` or `reopen` | Resolving lives in `reply_comment` rather than in a state-setting tool, and closing a thread is visible to everybody who can see the file. Resolving one already resolved reports "unchanged" instead of posting a second reply |
 | An access proposal asks for a role | **Refuted.** `AccessProposal.rolesAndViews` is a LIST, and `ResolveAccessProposalRequest.role` is a list too, required for `ACCEPT` | A proposal naming exactly one role is accepted as that one; a proposal naming several is `[ambiguous]` with them listed, because picking between candidates is the thing this server never does |
 | `accessproposals.resolve` reports what it did | **Refuted, and it shapes the tool.** The method has no response type: Drive answers with an empty body | The exposure after an acceptance is read back with a second call, the way `share_file` reads it. Nothing about the result is predicted from the request |
-| Two resource templates sharing a prefix shadow each other | **Refuted for go-sdk v1.7.0 with uritemplate v3.0.2**, and checked rather than reasoned about: `Regexp()` anchors with `^` and `$`, and a simple expansion's character class excludes `/`. `gdrive://{file}` cannot match `gdrive://x/meta` | The three templates are registered as they are. A reserved expansion (`{+file}`) *would* shadow and is not used; the price is that a path or a URL must arrive percent-encoded, which a test records as behaviour rather than a footnote |
+| Two resource templates sharing a prefix shadow each other | **Refuted for go-sdk v1.7.0 with uritemplate v3.0.2**, and checked rather than reasoned about: `Regexp()` anchors with `^` and `$`, and a simple expansion's character class excludes `/`. `gdrive://{file}` cannot match `gdrive://x/meta` | The three templates are registered as they are. A reserved expansion (`{+file}`) *would* shadow and is not used; the price is that a path or a URL must arrive percent-encoded, which a test records as behavior rather than a footnote |
 | `get_file` costs at most two calls (§11, since phase 0) | **Refuted by measurement.** Two holds for a file at the top of My Drive. Three folders down it is four: the file, and one read per folder above it, because the card's location line is a climb | The target is restated as the code behaves and asserted in a test, including that the second call costs nothing at all. The code did not change: a card that says where a file is only sometimes is worse than one that costs a read per level once |
 | A search page's parent lookups are one, because they are cached (§11) | **Refuted by measurement.** A hundred hits in one folder three levels down cost three reads, not one and not a hundred: the cache is per folder, and the chain above the hits has three of them | The target names the chain. Still well inside the budget of twenty that the number was protecting |
 | A wall-clock target can be asserted in `make check` | **Refuted.** 10 000 items render in 4.7 ms uninstrumented and over 60 ms under the race detector with coverage counters, which is what `make check` runs | The test asserts linearity — ten times the items within twenty times the work — plus a backstop far above anything instrumentation explains. The millisecond figure lives in the benchmark, where nothing is instrumented |
 | A benchmark's fixture shape does not matter, only its size | **Refuted, by getting it wrong.** The first 10 000-item tree made one folder per folder, so it was a thousand levels deep — a shape Drive would never return — and measured the cost of the indent string, at 226 MB allocated per render. A realistic shape is 6.8 MB | The fixture branches three ways, which puts 10 000 items about eight levels down, inside the depth a walk will go to |
 | A gate that runs on one platform of a three-platform matrix is enough | **Refuted** (reported by a sibling Go MCP server, checked here). The coverage floor ran under `if: runner.os == 'Linux'`, so a test skipped on Windows cost coverage nobody could measure | It runs on all three. One of the two Windows skips here turned out to be unnecessary — `os.UserConfigDir` reads `%AppData%` there, so clearing that is the same experiment — and now runs everywhere |
-| Every `invalidSharingRequest` is the organisation's policy refusing (§7.4's mapping since phase 2) | **Refuted, live, and it was the wrong instruction rather than the wrong word.** Sharing with an address that has no Google account behind it answers **400** `invalidSharingRequest` — "you must check the Notify people box to invite this recipient". Google uses the reason for a policy refusal AND for a request the caller can simply fix, and the status is what tells them apart | `invalidSharingRequest` maps to `blocked` only at 403; at 400 it is `invalid`, which keeps Google's own message and with it the fix. `[blocked]` says give up and names an administrator; `[invalid]` says fix it and try again. The mapping had been built from documented reasons and had never been shown a real one — which is the whole argument for the check that found it |
+| Every `invalidSharingRequest` is the organization's policy refusing (§7.4's mapping since phase 2) | **Refuted, live, and it was the wrong instruction rather than the wrong word.** Sharing with an address that has no Google account behind it answers **400** `invalidSharingRequest` — "you must check the Notify people box to invite this recipient". Google uses the reason for a policy refusal AND for a request the caller can simply fix, and the status is what tells them apart | `invalidSharingRequest` maps to `blocked` only at 403; at 400 it is `invalid`, which keeps Google's own message and with it the fix. `[blocked]` says give up and names an administrator; `[invalid]` says fix it and try again. The mapping had been built from documented reasons and had never been shown a real one — which is the whole argument for the check that found it |
 | A driver that reads the CLASS of a refusal has verified the classification | **Refuted by its own first run.** The `-blocked` check compared the class against `blocked`, saw `blocked`, and printed "the mapping holds" for a refusal that was not a policy refusal at all | The verdict now prints Google's message and says to read it, and names both readings when the class is not `blocked` — the reason may be missing from the mapping, or the address may simply not be policy-refused. A check whose pass condition is one field of the thing it is checking can be fooled by that field |
 | The reference listing a field means the field can be requested | **Refuted, live.** `Comment.assigneeEmailAddress` is in the discovery document and is a real field; Drive answers 400 "Invalid field selection assignee_email_address" when a `fields` expression names it, so asking fails the whole call. Every `add_comment` failed on the first live run | The field is out of the request, the model and the renderer, and a note sits where it was in the wire types, because the next person to read the reference will want to add it back. Neither the fake nor the discovery document could have caught this: the first answered the field happily, and the second is the source that says it exists |
-| A live run that reports "all calls behaved as expected" has verified the tool surface | **Refuted, and it is the most useful thing phase 2 learned.** Two runs said exactly that while three results were wrong: a file card reporting `sharing: private to you` in the same result whose change line said the file was now public, a removal reporting "shared, but no grants are visible" instead of "private to you", and every My Drive file blaming an inherited grant on a shared drive it had never been near. The driver checks whether a call *succeeded*, not whether it *told the truth*, and those are different questions | The transcript is read, not just its verdict. Phase 3's evals are the mechanised version of this: a result that is wrong while succeeding is the class of defect no status code catches |
+| A live run that reports "all calls behaved as expected" has verified the tool surface | **Refuted, and it is the most useful thing phase 2 learned.** Two runs said exactly that while three results were wrong: a file card reporting `sharing: private to you` in the same result whose change line said the file was now public, a removal reporting "shared, but no grants are visible" instead of "private to you", and every My Drive file blaming an inherited grant on a shared drive it had never been near. The driver checks whether a call *succeeded*, not whether it *told the truth*, and those are different questions | The transcript is read, not just its verdict. Phase 3's evals are the mechanized version of this: a result that is wrong while succeeding is the class of defect no status code catches |
 | The changes feed answering "0 changes" straight after a write is a bug | Neither confirmed nor refuted for two runs, which was the problem: Drive's feed is eventually consistent, so a feed that works and reports nothing is indistinguishable from a broken one when you ask once. The third run reported the change and a fresh token | The live driver polls the feed and says which happened rather than printing an empty answer. **The general rule: where a system is eventually consistent, a single read cannot be evidence of absence** |
 | `permissions.create` and `permissions.update` take the same parameters (assumed; one options struct was written for both) | Refuted by the discovery document: create has `sendNotificationEmail`, `emailMessage` and `moveToNewOwnersRoot`; update has none of those and has `removeExpiration` instead | Two option types in `internal/gapi`, so a parameter cannot be offered on a call that ignores it |
 | An empty `expirationTime` clears a permission's expiry (assumed) | Refuted: clearing it is the `removeExpiration` query parameter on update. Drive does not read `""` as "remove this" | `PermissionMeta.ExpirationTime` is a plain string that only sets; `UpdateShareOptions.RemoveExpiration` clears |
@@ -1951,7 +1951,7 @@ own numbers.
 | The per-request deadline in `internal/gapi` covers a token refresh (asserted by `docs/security.md`) | **Refuted, and it was a live defect in a security claim.** A refresh runs inside the oauth2 transport against the context the token source was built with, not the one on the request, and with no client of our own it used `http.DefaultClient`, which has no timeout. A token endpoint that accepted a connection and never answered would hang the first tool call for the life of the process | `auth.TokenSource` and `login`'s code exchange both put a client with a deadline in the context. The test uses a raw listener that accepts and never answers, because `httptest.Server.Close` blocks on exactly the connection such a test must leave open — and it was checked to fail without the fix |
 | `~> v2.18.0` pins `goreleaser-action`'s binary (recorded in this log as a fix earlier the same day) | Refuted by the action's own README at the tag this workflow pins: the input takes "a fixed version like `v0.117.0` or a max satisfying semver one like `~> 0.132`. In this case this will return `v0.132.1`". Narrowing a range is not pinning it, and it reads as though it were | `version: "v2.18.0"`, no operator. Worth recording twice: the wrong version of this fix survived a review looking straight at it |
 | Google has an official Drive MCP (my assumption: no) | Refuted: `drivemcp.googleapis.com/mcp/v1`, Developer Preview, eight tools, remote HTTP, Web OAuth client with the host's callback, `drive.readonly` + `drive.file` | §1 states what it does; spike B records its schemas; this server stays stdio, per-user, full-scope |
-| The Drive API has no preview-only features this server would want (my assumption) | Confirmed for everything in §8: files, permissions, drives, revisions, comments, changes, access proposals, labels and approvals are GA methods in the v3 reference | No preview enrolment in the setup guide; an enrolled project is needed only for spike B, which is skipped without one |
+| The Drive API has no preview-only features this server would want (my assumption) | Confirmed for everything in §8: files, permissions, drives, revisions, comments, changes, access proposals, labels and approvals are GA methods in the v3 reference | No preview enrollment in the setup guide; an enrolled project is needed only for spike B, which is skipped without one |
 | Quotas are per-request counts (inherited from the Docs limits) | Refuted: Drive charges units per method (read 5, list 100, download 200, edit 50; 325 000 per minute per user) | Listings are the expensive call; budgets and caches in §7.1 and §11 |
 | `name contains` is substring search (a common assumption in the OSS servers) | **Confirmed refuted, live (spike A, 2026-09-05)**: `name contains 'nferences'` returns 0 against an account where `name contains 'Conferences'` returns 6. A prefix match on words, not a substring match | Typed fields with the semantics in the description; `name =` for paths |
 | `name contains` requires its words to be consecutive and in order (my reading of the reference, and what `drivetest` implemented) | **Refuted live (spike A)**: "Decentralized Identity" and "Identity Decentralized" return the same 28 items, and "Decentralized Ide" returns 48. Every word must prefix *some* word of the name; order and adjacency are irrelevant | `drivetest` corrected; the `search_files` description had told the model the opposite, and was corrected with it |
@@ -1982,13 +1982,13 @@ own numbers.
 | Shared-drive creation can be retried freely | Refined: `requestId` is required and makes it idempotent | `manage_drive create` keeps the id for the retry |
 | Shared drives are available to every account | Refuted: Workspace editions only; `about.canCreateDrives` | `get_account` and `doctor` report it; tests skip on consumer accounts |
 | "Ask somebody to review this file" leads a model to the approval tools (the assumption behind `manage_approval`'s description) | **Refuted by an eval in phase 4.** Given exactly that sentence, the model shared the file as a commenter with a "could you review this?" message, and never looked at the approval tools at all — its tool search selected `share_file` and four others, and no approval tool among them. The answer is defensible and arguably the better one for the need, so the task was wrong to demand one of two correct calls, and now names the mechanism | The eval says "start a formal approval", which still does not name the tool. The finding stands on its own though: a surface where two tools answer one sentence is a surface where the more familiar one wins, and `manage_approval` is discoverable only to somebody already looking for approvals |
-| A display name is capitalised, so a capital is what tells it from prose (the redactor, phases 1-3) | **Refuted live in phase 4.** A Workspace account with no display name set shows the address's local part instead — lowercase, dotted — and it survived EVERY position the redactor knows, because the shape refused it before the position was consulted. The transcript carried the maintainer's own name throughout | A dotted lowercase token is a name shape too, safe only because the positions are anchored. The fixtures were the other half of the problem: every invented name in them was capitalised, so the tests agreed with the bug |
+| A display name is capitalized, so a capital is what tells it from prose (the redactor, phases 1-3) | **Refuted live in phase 4.** A Workspace account with no display name set shows the address's local part instead — lowercase, dotted — and it survived EVERY position the redactor knows, because the shape refused it before the position was consulted. The transcript carried the maintainer's own name throughout | A dotted lowercase token is a name shape too, safe only because the positions are anchored. The fixtures were the other half of the problem: every invented name in them was capitalized, so the tests agreed with the bug |
 | Labels are a Drive API feature | Refined: applied through the Drive API, defined through the separate Drive Labels API with its own scopes | Phase 4 with `GDRIVE_LABELS` |
 | Reading the labels on a file needs the labels scopes (§10 as written) | **Refuted in phase 4** against the discovery document: `files.listLabels` and `files.modifyLabels` list only `drive`, `drive.file` and `drive.metadata`. The labels scopes belong to the Labels API, which defines labels; Drive alone reads and writes the values ON a file | `GDRIVE_LABELS` still governs both tools, because applying a label needs a label id and a field id and those live in the definitions. But the reason is now stated as it is, and `manage_labels` still applies and removes when the definitions are out of reach — only `set_field` is refused there, since the setter depends on the field's type |
 | `includeLabels` asks Drive for a file's labels (what phase 1 shipped) | **Refuted in phase 4, twice over.** The discovery document says it is "a comma-separated list of IDs of labels to include"; a live probe answers `includeLabels=*` with 400 `badRequest`. `get_file` under `GDRIVE_LABELS=true` had therefore never worked since phase 1, and nothing noticed: the flag is off by default and no test could see it, because the fake accepted anything | `files.listLabels` is the method for "which labels are on this file"; `GetFileOptions.IncludeLabelIDs` takes ids when a caller has them. `drivetest` refuses a wildcard now, with Drive's own status, so the case a test could not see is a case a test now fails on |
 | `LabelField`'s date member is `date` (what phase 1's wire type said) | **Refuted in phase 4** against the discovery document: it is `dateString`, an RFC 3339 full-date. The wrong tag decoded every date-valued field to nothing — silently, an absent member being indistinguishable from an unset one | Tag corrected, and a round-trip test asserts a date survives rather than describing the tag |
 | Access requests can be created through the API | Refuted: listed and resolved only | §7.8 |
-| Approvals are part of Drive v3 (my assumption: no) | Confirmed present in the v3 reference (`approvals.*`), edition and behaviour unverified | Phase 4, verified live first |
+| Approvals are part of Drive v3 (my assumption: no) | Confirmed present in the v3 reference (`approvals.*`), edition and behavior unverified | Phase 4, verified live first |
 | `approvals.list` returns the approvals (the obvious reading) | **Refuted in phase 4** by the discovery document's own words: "By default, this method returns a minimal response that may not include the items array. To retrieve approval details, you must explicitly specify the fields you want." The same shape as the comment endpoints, which cost phase 3 a live run to find | `ApprovalFields` is sent on every call, and `drivetest` refuses a fields-less request. Reading the document first is what turned a live-run defect into a line of code |
 | Starting an approval only asks people to look at a file | **Refined in phase 4** from the schemas: `StartApprovalRequest.lockFile` locks the content for the duration, and the default `fileContentChangeBehavior` of `RESET_APPROVAL` locks the file once it is approved. Every verb also mails somebody, with no notify flag anywhere | Said in `manage_approval`'s description and in every result. The live driver deliberately cancels rather than approves: an approved file is locked, and a scratch folder holding something the driver cannot clean up would break its own contract |
 | Drive Activity is in Drive v3 | Refuted: a separate API (`driveactivity.googleapis.com`, v2) with its own scopes; its overview page returned 404 during this check | Phase 4, verified before design |
@@ -1998,14 +1998,14 @@ own numbers.
 | Every activity says what happened | Refuted live in phase 4: some activities carry no action. **The shape was recorded wrongly and corrected after v0.4.0** — see the row below | `list_activity` counts and reports those separately from an action kind it has no words for — which would mean Google had added a thirteenth, and IS worth acting on. Reporting the first as the second sends a reader hunting a case that is not missing |
 | An activity with no action arrives with `primaryActionDetail` **missing** (phase 4, from a live probe of 400) | **Refuted live after v0.4.0.** A fresh probe of 400 activities finds that shape **zero** times: Drive sends `primaryActionDetail: {}`, ten times in 400. Phase 4 saw the right entries and wrote down the wrong shape — a probe that asks whether the member is *falsy* cannot tell an absent object from an empty one, and `{}` is falsy in most languages a probe gets written in. The code was then built to the record rather than to the response, so the branch meant to catch the ordinary case never ran, and every one of those entries was reported as a thirteenth kind Google had added: the exact confusion the phase-4 split was written to end | `ActionDetail` keeps the member names it decoded, because an empty object and a member no field covers are otherwise the same Go value. `NewActivity` decides on the names; the fixtures are JSON the decoder reads rather than struct literals, since a literal cannot express the difference. On a real account the false alarms go from ten to none, and a kind Drive really grows is named rather than counted |
 | A refutation is worth trusting once it has been checked live | **Refined after v0.4.0**, and this is the third time §18 has bent this way. Phase 4 learned that a parameter list read once has a date on it. This one has a SHAPE on it: the live observation was real and the record of it was not, and a note in this table is what the next phase builds against. What makes the difference is keeping the response — the bytes, or a decoder run over them — rather than a sentence about the response | The fixtures for both branches are now JSON, so the test is written in the same language as the evidence. Where a probe settles a question, the probe's own classification is quoted in the row |
-| Approvals exist in the API but the edition is unverified (phase 4, from the discovery document) | **Confirmed live**: start, list, comment and cancel all work on this Workspace edition, and the file-content-change behaviour comes back `RESET_APPROVAL` as the schema says | The approved state and `lock_file` are still unrun, deliberately — §17a |
+| Approvals exist in the API but the edition is unverified (phase 4, from the discovery document) | **Confirmed live**: start, list, comment and cancel all work on this Workspace edition, and the file-content-change behavior comes back `RESET_APPROVAL` as the schema says | The approved state and `lock_file` are still unrun, deliberately — §17a |
 | A shared drive can be addressed by its id as soon as it exists | **Refuted live after v0.4.0.** `drives.list` is eventually consistent and `drives.get` is not, so a drive created moments ago answers by id and is absent from the listing for minutes. Everything taking a `drive` argument resolved through the listing alone, so the driver made a scratch drive, wrote files into it by that id, and was then told there was no drive of that NAME — with a list of unrelated drive names attached — when it tried to empty its trash and delete it. It stranded a shared drive in a real Workspace twice | `findDrive` falls back to `drives.get` when the listing has no match, which costs nothing on the paths that already worked: a name can only be answered by the listing, and an id that is in the listing is answered before the fallback. The refusal says both readings were tried. `drivetest.UnlistedDrives` is the fake's version of the lag |
 | `files.emptyTrash` empties the trash | **Refined live after v0.4.0.** The method has NO response — the reference gives it none — so nothing can be read back about what went. A run trashed a file, emptied that shared drive's trash, and restored the same file on the very next call; the dry run before it counted the trash as holding 0 items while that file was in it | The result says Drive accepted the call, says the method reports nothing at all, and says the view it works from lags. It had been claiming "is empty. Everything that was in it is gone for good", which is the strongest claim in the whole surface and the one thing this call cannot know |
 | `lockFile` on an approval locks the file | **Refuted live after v0.4.0**, on two runs: Drive applied no content restriction, the card showed the file fully editable, and `update_content` succeeded. APPROVING is what locks it — that half is confirmed, with the restriction reading "Locked for File Approval" and the next content change refused for violating it | The sentence is read off the file rather than written from the argument, so it is right in both worlds. The fake locked on `lockFile` too, which is how the claim survived a phase: it was built from the reference and agreed with the belief |
 | A content restriction stops a file being removed | Refuted from the reference before the run that depended on it: `readOnly` stops a new revision, a comment, and the title — and says nothing about trashing or deletion, and `files.delete` takes no parameter a restriction could refuse. Confirmed live: an approved, locked file was permanently deleted | Checked BEFORE designing the destructive driver, because the answer decided whether an approved file could strand a scratch shared drive. `drives.delete`'s `allowItemDeletion` needs `useDomainAdminAccess`, which this server does not offer, so a drive must be emptied before it can go |
 | `revisions.get` agrees with `revisions.list` | **Refuted live after v0.4.0**: a revision `list_revisions` had just shown answered 404 from `revisions.get` seconds later, and the delete that followed — same path, same call — succeeded. Drive's revision endpoint lags a write | The refusal says "or not yet" and tells the caller to try again, instead of explaining that the revision must have expired |
 | Drive's eventual consistency is a property of the changes feed | **Refuted, cumulatively.** Six surfaces now: the changes feed (phase 2), the property index (phase 4), and after v0.4.0 `drives.list` after a create, a shared drive's trash count, the trash itself surviving `emptyTrash`, and `revisions.get` after a write. It is a property of Drive, not of one endpoint | The rule this repository now works to: a message must never assert an outcome the response did not carry. Every one of the findings after v0.4.0 — including the `list_activity` false alarm and `lock_file` — is the same mistake, which is that a sentence was built from the REQUEST |
-| A refused approval is a permissions problem | **Refined live after v0.4.0**: answering an approval that is already finished is refused with the same bare `Permission denied` as answering one you are not a reviewer of. Drive does not distinguish them, so the message cannot either — it has to offer the whole set. It named two of three and left out the only cause the caller can have produced itself, so the live run, having just cancelled the approval it then answered, was told to check a reviewer list the account was already on | The finished case is named first and the message points at `list_approvals`, which is the one call that says which of the three it is |
+| A refused approval is a permissions problem | **Refined live after v0.4.0**: answering an approval that is already finished is refused with the same bare `Permission denied` as answering one you are not a reviewer of. Drive does not distinguish them, so the message cannot either — it has to offer the whole set. It named two of three and left out the only cause the caller can have produced itself, so the live run, having just canceled the approval it then answered, was told to check a reviewer list the account was already on | The finished case is named first and the message points at `list_approvals`, which is the one call that says which of the three it is |
 | Drive Activity says who did something | **Refuted in phase 4** from the schemas: an actor is a `KnownUser` carrying a People API resource name (`people/123456`) and an `isCurrentUser` flag, and nothing else. No display name, no address. The permissions inside a `PermissionChange` carry no address either | `list_activity` says "you" or "somebody else" and prints a line saying why it cannot say more. Resolving the name would be a third API and a third scope for a decoration, and the id itself never reaches the output |
 | go-sdk latest is v1.7.0 | Confirmed (proxy, 2026-07-27); v1.8.0-pre.2 tagged 2026-09-04 hardens bounds and adds `SupportedProtocolVersions`; protocol `2026-07-28` supported | Pin v1.7.0; smoke tests two protocol versions |
 | Go latest is 1.27.x | Confirmed: 1.27.1 is current; 1.27 brings generic methods, `encoding/json/v2` behind `encoding/json`, a `uuid` package (useful for `requestId`) | §17 item 5 |
@@ -2013,7 +2013,7 @@ own numbers.
 | `[class] message` errors, flat schemas, snake_case names, server-side gating, keep serving without credentials, keyring → file → env, loopback PKCE, env-first config with bound flags (convention) | Confirmed against primary sources: the MCP spec requires only `isError` and treats annotations as untrusted, so gates must be server-side; `gh` falls back from the keyring to a file; Google's native-app guide requires loopback with PKCE (OOB blocked since 2023); Claude Code, Claude Desktop and Cursor pass only `command`, `args` and `env`; a server that exits at startup shows the person "failed to connect" and the model never learns why | Kept unchanged |
 | Duplicate names are the model's problem (my first thought) | Changed in review of the OSS failures: a lost result creates the same folder twice and nothing refuses it | The guard in §7.3, pending §17 item 2 |
 | Bulk operations belong in the tool surface | Rejected: one item per call keeps every removal and every share a visible approval; a folder is the unit of bulk work | §8 |
-| The server should carry its own "internal only" sharing mode (my first design) | Refuted in review: the Workspace admin's external-sharing setting (off, allowlisted domains, on; per organisational unit) is enforced by Google on the API, the sharing guide's instruction to apps is to check `capabilities.canShare` before offering the action, and the MCP specification asks servers for "appropriate access controls" while putting consent at the host | `GDRIVE_SHARING` is `all` or `off`; `share_file` checks `canShare` first; policy refusals map to `[blocked]` |
+| The server should carry its own "internal only" sharing mode (my first design) | Refuted in review: the Workspace admin's external-sharing setting (off, allowlisted domains, on; per organizational unit) is enforced by Google on the API, the sharing guide's instruction to apps is to check `capabilities.canShare` before offering the action, and the MCP specification asks servers for "appropriate access controls" while putting consent at the host | `GDRIVE_SHARING` is `all` or `off`; `share_file` checks `canShare` first; policy refusals map to `[blocked]` |
 | A policy-blocked share has one documented error | Refuted: the handle-errors guide lists 400 `invalidSharingRequest` ("ACL change not allowed") and 403 `domainPolicy`; 400 `shareOutNotPermittedForContent` is seen in the wild for restricted content; the external-sharing admin page says nothing about the API | Mapped as a family in §7.4; the real shape is recorded in Phase 2 |
 | Pinning actions to a major tag (`@v7`) is enough | Refuted by GitHub's hardening guide, verified 2026-09-05: "Pinning an action to a full-length commit SHA is currently the only way to use an action as an immutable release"; a tag can be moved by anyone who can write to that repository ([Security hardening for GitHub Actions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions)) | Every action pinned to a full SHA with the version in a trailing comment, which is also what Scorecard's Pinned-Dependencies check scores; Dependabot updates the SHAs and keeps the comment in step |
 | Declaring `permissions` once at the top of a workflow is least privilege | Refined: Scorecard's Token-Permissions wants the top level read-only and write raised per job ([Scorecard checks](https://github.com/ossf/scorecard/blob/main/docs/checks.md)) | Top level `contents: read` everywhere; the release job raises `contents`, `id-token` and `attestations`; the CodeQL job raises `security-events` |
@@ -2033,7 +2033,7 @@ own numbers.
 | An empty result page needs no footer | Refuted in the phase-0 review: Drive returns empty pages that carry a `nextPageToken`, and an `incompleteSearch` that matched nothing is the case where the warning matters most. Both were being suppressed | The footer (note, incomplete-search warning, continuation) is written whether or not the page had rows |
 | Shell with a little Python is fine for the gates (my first cut) | Rejected: it put a Python interpreter on the `make check` path of a single-static-binary Go project, to parse JSON that Go parses natively, and the gate code was the only code here exempt from gofmt, vet, lint and tests. Porting it also found two defects the shell had masked — a coverage floor that folded `drivetest` into `internal/gapi`, and a server that exited non-zero when a client disconnected mid-request | `scripts/gates` and `scripts/livedrive` are Go packages, built and vetted with everything else; `pre-commit` (itself a Python tool) is replaced by a git hook that calls the same gate |
 | The MCP registry's MCPB rules are in its published schema, so a document that validates will be accepted | **Refuted against the registry's own validator** (`internal/validators/registries/mcpb.go`, read 2026-09-06). None of them is in the schema. The identifier must be HTTPS, must be `github.com` or `gitlab.com`, must be shaped like a release asset, must contain "mcp" somewhere case-insensitively, must not sit beside a `registryBaseUrl`, and must answer a **HEAD** — 200, or a 3xx carrying a `Location`. `fileSha256` is required and never verified by the registry; its own documentation says so, and clients check it before installing. A sibling's account of these was accurate in every particular; reading the code confirmed it and added the redirect case, which nobody had mentioned and which decides the outcome: GitHub answers a release-asset HEAD with 302, so a check written to expect 200 would reject every GitHub release there is | `gates registry` enforces all of them on the committed entry, each watched failing. The HEAD was made by hand against the published v1.0.1 URL rather than reasoned about, which is what turned "cannot be tested locally at all" into two things that are tested |
-| A gate over the registry entry should check the rules the schema does not carry (this repository, an hour earlier) | **Half a rule, and the missing half cost the first publish.** Reading the validator was right and finding the rules absent from the schema was right; aiming ONLY at those was not. The first entry refused was `body.description: expected length <= 100` against a 205-character description the gate had just passed, and the refusal arrived AFTER the OIDC login succeeded — so everything that could have failed for a boring reason had already worked. The schema carries `description` and `title` at 1..100, `name` at 3..200 with pattern `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`, `version` up to 255, and `fileSha256` as `^[a-f0-9]{64}$` (schema `2025-12-11`, read 2026-09-07) | Both sets are enforced, each watched failing. The limits are transcribed with their source and date rather than fetched, because a gate that reaches the network fails when somebody else's CDN is slow. The lesson generalises past this file: two documents describe one contract, and checking the one somebody told you about is not checking the contract |
+| A gate over the registry entry should check the rules the schema does not carry (this repository, an hour earlier) | **Half a rule, and the missing half cost the first publish.** Reading the validator was right and finding the rules absent from the schema was right; aiming ONLY at those was not. The first entry refused was `body.description: expected length <= 100` against a 205-character description the gate had just passed, and the refusal arrived AFTER the OIDC login succeeded — so everything that could have failed for a boring reason had already worked. The schema carries `description` and `title` at 1..100, `name` at 3..200 with pattern `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`, `version` up to 255, and `fileSha256` as `^[a-f0-9]{64}$` (schema `2025-12-11`, read 2026-09-07) | Both sets are enforced, each watched failing. The limits are transcribed with their source and date rather than fetched, because a gate that reaches the network fails when somebody else's CDN is slow. The lesson generalizes past this file: two documents describe one contract, and checking the one somebody told you about is not checking the contract |
 | `copy_file` with `copy_comments: true` brings the threads with it (the note this server printed, phases 4-6) | **A rule, on three data points.** A Google Doc's threads came across and a Google Sheet's did too; an uploaded CSV's did not, on the same runs with the same argument. The CSV was checked twice minutes apart with `include_deleted: true` — `0 comment threads` / `no comments: nobody has commented on this file, and none has been deleted either` — so it is not `comments.list` lagging, which was the other explanation and the one the code had been written to allow for. Two points made this an inference; the Sheet is Drive's own format that is not a Doc, so it either agreed with the reading or refuted it, and it agreed | Drive's own formats carry comments and uploaded bytes do not. The note and the SCHEMA say Drive does not always do it and name the kinds actually seen; the schema matters more, because it is read before the call. The driver copies all three kinds every run and says which carried, so a fact that has already changed once is re-checked rather than remembered |
 | `files.copy` can bring the comments with it (§7.3 as written) | **Refuted in phase 1** against the v3 reference — and the refutation was itself **refuted in phase 4** against the discovery document, which lists `copyComments` on `files.copy` with a default of `false`. Whether Google added it since or the phase-1 check read the reference page rather than the document cannot be told from here, and the difference does not matter: the lesson is that a parameter list read once is a fact with a date on it | `copy_comments` is back on `copy_file`, off by default. The result said out loud "when a copy carried somebody else's words somewhere new" — which was this overpromise written down as a feature: files.copy answers with a File and mentions comments nowhere, so nothing could know it had. `gates outcomes` found it. The result now says what Drive was ASKED to do and names list_comments on the copy as the call that settles it This is the argument for re-reading the discovery document every phase rather than trusting §18 |
 | An old revision of a Docs editors file is fetched with `files.download` (§18, from the revisions guide) | Refined in phase 1: `files.download` is a long-running operation that hands back an `Operation` to poll, while the `Revision` resource itself carries `exportLinks` for exactly this — a direct URL per format, on a Google host the allowlist already permits. The simpler documented route was taken | `download_file revision:` reads the revision, then fetches its export link. `files.download` stays for Vids in phase 4. To be confirmed by the live run |

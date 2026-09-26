@@ -33,7 +33,7 @@ func RoleWords(role string) string {
 	case RoleOrganizer:
 		return "manages the drive"
 	case RoleFileOrganizer:
-		return "organises content"
+		return "organizes content"
 	case RoleWriter:
 		return "can edit"
 	case RoleCommenter:
@@ -123,7 +123,7 @@ type Sharing struct {
 	SharedDrive string
 }
 
-// NewSharing summarises a permission list. known says the list was read;
+// NewSharing summarizes a permission list. known says the list was read;
 // an empty list that was read means "no grants", while one that could
 // not be read means "unknown", and the two must not print the same.
 func NewSharing(shared bool, perms []*gdrive.Permission, known bool) Sharing {
@@ -275,7 +275,7 @@ func (s Sharing) Summary() string {
 func (s Sharing) Public() bool { return s.Link != nil }
 
 // Plural renders a count with its noun. It lives here because model owns
-// the other humanising helpers (HumanSize, HumanTime, Ago) that render
+// the other humanizing helpers (HumanSize, HumanTime, Ago) that render
 // and service already call, and three copies of one English rule is how
 // a tree title and a listing title come to disagree.
 func Plural(n int, one, many string) string {

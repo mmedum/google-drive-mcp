@@ -20,7 +20,7 @@ type LabelsOptions struct {
 // exists to answer two questions before a manage_labels call is made:
 // which label, and what may be set on it. So every field is named with
 // the id that has to be typed AND the words a person reads, and a
-// selection field's choices are listed rather than summarised — an
+// selection field's choices are listed rather than summarized — an
 // unlisted choice id is unguessable, and a wrong one is a failed call.
 func Labels(defs []*model.LabelDefinition, o LabelsOptions) string {
 	var b buf
