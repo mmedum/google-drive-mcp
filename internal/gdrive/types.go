@@ -481,11 +481,10 @@ type DownloadRestriction struct {
 // DriveRestrictions are the switches a shared drive carries, plus the
 // download restriction Drive keeps beside them.
 type DriveRestrictions struct {
-	// DownloadRestriction has to be modeled even though no tool sets it,
-	// because manage_drive sends the whole restrictions object back:
-	// driveRestrictionPatch copies what it decoded and re-sends it, so a
-	// field missing here is a field cleared on the next restriction
-	// change. Drive publishes it as a $ref rather than as a switch.
+	// DownloadRestriction is read and never written: drives.update
+	// refuses it inside restrictions, and copyRequiresWriterPermission
+	// sets restrictedForReaders along with itself (§18, live
+	// 2026-09-30). Drive publishes it as a $ref rather than as a switch.
 	DownloadRestriction *DownloadRestriction `json:"downloadRestriction,omitempty"`
 
 	AdminManagedRestrictions                  bool `json:"adminManagedRestrictions,omitempty"`
@@ -664,10 +663,24 @@ type PermissionMeta struct {
 
 // DriveMeta is the body of drives.create and drives.update.
 type DriveMeta struct {
-	Name         string             `json:"name,omitempty"`
-	ColorRgb     string             `json:"colorRgb,omitempty"`
-	Hidden       *bool              `json:"hidden,omitempty"`
-	Restrictions *DriveRestrictions `json:"restrictions,omitempty"`
+	Name         string                  `json:"name,omitempty"`
+	ColorRgb     string                  `json:"colorRgb,omitempty"`
+	Hidden       *bool                   `json:"hidden,omitempty"`
+	Restrictions *DriveRestrictionsPatch `json:"restrictions,omitempty"`
+}
+
+// DriveRestrictionsPatch is the restrictions half of a drives.create or
+// drives.update body. Drive merges it switch by switch, so a switch left
+// out keeps its value, and each is a pointer because false has to be
+// sent to turn one off. downloadRestriction is not here: drives.update
+// refuses a restrictions object that carries it at all, even with the
+// values Drive already holds (§18, live 2026-09-30).
+type DriveRestrictionsPatch struct {
+	AdminManagedRestrictions                  *bool `json:"adminManagedRestrictions,omitempty"`
+	CopyRequiresWriterPermission              *bool `json:"copyRequiresWriterPermission,omitempty"`
+	DomainUsersOnly                           *bool `json:"domainUsersOnly,omitempty"`
+	DriveMembersOnly                          *bool `json:"driveMembersOnly,omitempty"`
+	SharingFoldersRequiresOrganizerPermission *bool `json:"sharingFoldersRequiresOrganizerPermission,omitempty"`
 }
 
 // StartPageToken is the changes.getStartPageToken response: the point in

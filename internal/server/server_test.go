@@ -135,8 +135,14 @@ func TestToolsListed(t *testing.T) {
 			t.Errorf("%s has no annotations", tool.Name)
 			continue
 		}
-		if _, isRead := readTools[tool.Name]; isRead != tool.Annotations.ReadOnlyHint {
-			t.Errorf("%s: readOnlyHint = %v, want %v", tool.Name, tool.Annotations.ReadOnlyHint, isRead)
+		_, isRead := readTools[tool.Name]
+		if want := isRead && !writesLocally[tool.Name]; want != tool.Annotations.ReadOnlyHint {
+			t.Errorf("%s: readOnlyHint = %v, want %v", tool.Name, tool.Annotations.ReadOnlyHint, want)
+		}
+		// An unset destructiveHint means true, so a reversible write that
+		// leaves it out warns like a permanent delete.
+		if !tool.Annotations.ReadOnlyHint && tool.Annotations.DestructiveHint == nil {
+			t.Errorf("%s writes and leaves destructiveHint unset, which reads as destructive", tool.Name)
 		}
 		if strings.Contains(tool.Name, ".") {
 			t.Errorf("tool names carry no dots: %q", tool.Name)
@@ -668,6 +674,24 @@ func TestWriteToolsThroughTheProtocol(t *testing.T) {
 	}
 }
 
+// writesLocally names the tools that read Drive and write a new file
+// under GDRIVE_LOCAL_DIR. They change nothing in Drive, so read-only
+// mode keeps them, and they are not read-only by the specification's
+// meaning, which is the whole environment.
+var writesLocally = map[string]bool{"download_file": true}
+
+// leavesDriveAlone is whether read-only mode may register tool.
+func leavesDriveAlone(tool *mcp.Tool) bool {
+	a := tool.Annotations
+	if a == nil {
+		return false
+	}
+	if writesLocally[tool.Name] {
+		return a.DestructiveHint != nil && !*a.DestructiveHint
+	}
+	return a.ReadOnlyHint
+}
+
 func TestReadOnlyModeRegistersNoWriteTools(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.ReadOnly = true
@@ -677,7 +701,7 @@ func TestReadOnlyModeRegistersNoWriteTools(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	for _, tool := range res.Tools {
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+		if !leavesDriveAlone(tool) {
 			t.Errorf("read-only mode registered %q, which changes Drive", tool.Name)
 		}
 	}
@@ -946,7 +970,7 @@ func TestReadOnlyModeKeepsEveryListingAndNoWrite(t *testing.T) {
 	registered := map[string]bool{}
 	for _, tool := range res.Tools {
 		registered[tool.Name] = true
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+		if !leavesDriveAlone(tool) {
 			t.Errorf("read-only mode registered %q, which changes Drive", tool.Name)
 		}
 	}

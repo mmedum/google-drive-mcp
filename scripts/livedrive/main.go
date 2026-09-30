@@ -123,6 +123,33 @@ type options struct {
 	// starts: the server does not register them without the variable
 	// below, and this driver does not set it without being asked.
 	destructive bool
+	// person answers the server's questions.
+	person *person
+}
+
+// person is who the server asks before a write it cannot take back.
+type person struct {
+	out *transcript.Transcript
+	// next is the answer to the next question, accept when empty; it is
+	// spent by that question.
+	next     string
+	asked    int
+	declined int
+}
+
+func (p *person) answer(message string) string {
+	p.asked++
+	p.out.Say("(the server asked the person:)\n" + message)
+	a := p.next
+	p.next = ""
+	if a == "" {
+		a = "accept"
+	}
+	if a != "accept" {
+		p.declined++
+	}
+	p.out.Say("(the person answered: " + a + ")")
+	return a
 }
 
 func run(o options, t *transcript.Transcript) error {
@@ -159,6 +186,11 @@ func run(o options, t *transcript.Transcript) error {
 	// runs from one that merely exists; this can, and says so at the end.
 	rec := livecover.NewRecorder()
 	sess.OnCall(rec.Sent)
+	// The driver is the person the server asks before a write it cannot
+	// take back: it prints every question into the transcript, accepts,
+	// and declines once where a step says so.
+	o.person = &person{out: t}
+	sess.OnElicit(o.person.answer)
 
 	proto, tools, err := sess.Initialize("livedrive")
 	if err != nil {
@@ -227,6 +259,7 @@ func run(o options, t *transcript.Transcript) error {
 			t.Say(line)
 		}
 	}
+	t.Sayf("\n%d question(s) put to the person, %d declined", o.person.asked, o.person.declined)
 	t.Say("\n" + coverage(rec, sess))
 	t.Say("\n" + t.Summary())
 	if unexpected > 0 {

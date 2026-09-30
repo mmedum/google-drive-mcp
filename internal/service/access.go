@@ -112,6 +112,9 @@ type ShareFileInput struct {
 	// AllowAnyone is the acknowledgment an anyone-with-the-link grant
 	// needs. Without it the grant is refused however good the role.
 	AllowAnyone bool
+	// AllowDomain is the acknowledgment a domain-wide grant needs: it
+	// reaches everyone in an organization, most of whom nobody named.
+	AllowDomain bool
 	// TransferOwnership is the acknowledgment the owner role needs.
 	TransferOwnership bool
 	DryRun            bool
@@ -134,7 +137,7 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 	if err != nil {
 		return nil, err
 	}
-	if err := principal.allows(role, in.AllowAnyone); err != nil {
+	if err := principal.allows(role, in.AllowAnyone, in.AllowDomain); err != nil {
 		return nil, err
 	}
 	if role == model.RoleOwner && !in.TransferOwnership {
@@ -185,6 +188,11 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 	if in.DryRun {
 		return s.shareResult(ctx, res, before, before, plan, true), nil
 	}
+	if q, ok := plan.question(); ok {
+		if err := ask(ctx, q); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := s.applyShare(ctx, f, plan); err != nil {
 		return nil, s.shareError(err, f, principal)
@@ -232,6 +240,23 @@ func (p sharePlan) changesAnything() bool {
 		return p.discoverable != nil && *p.discoverable != p.existing.Discoverable
 	}
 	return false
+}
+
+// question is what the person is asked before a grant that reaches past
+// people somebody named: a link anyone can open, a whole domain, or a
+// new owner. Any other grant asks nothing.
+func (p sharePlan) question() (render.Question, bool) {
+	discoverable := p.discoverable != nil && *p.discoverable ||
+		p.discoverable == nil && p.existing != nil && p.existing.Discoverable
+	switch {
+	case p.role == model.RoleOwner:
+		return render.AskShare(p.file.ID, p.file.Name, render.ShareOwner, p.principal.email, p.role, false), true
+	case p.principal.kind == principalAnyone:
+		return render.AskShare(p.file.ID, p.file.Name, render.ShareAnyone, "", p.role, discoverable), true
+	case p.principal.kind == principalDomain:
+		return render.AskShare(p.file.ID, p.file.Name, render.ShareDomain, p.principal.domain, p.role, discoverable), true
+	}
+	return render.Question{}, false
 }
 
 // applyShare makes the call: an update when the principal already has a
@@ -715,11 +740,16 @@ func (p principal) matches(g model.Grant) bool {
 // allows refuses the role and principal combinations Drive does not
 // have, and the one this server refuses on its own: a public link
 // without the acknowledgment that it is public.
-func (p principal) allows(role string, allowAnyone bool) error {
+func (p principal) allows(role string, allowAnyone, allowDomain bool) error {
 	if p.kind == principalAnyone && !allowAnyone {
 		return Errorf(ClassForbidden, "an anyone-with-the-link grant puts this file within reach of everyone "+
 			"who has or guesses the link, with no sign-in. Pass allow_anyone: true on the same call if that "+
 			"is really what is wanted.")
+	}
+	if p.kind == principalDomain && !allowDomain {
+		return Errorf(ClassForbidden, "a grant to %s reaches the whole organization, not only people "+
+			"somebody named. Pass allow_domain: true on the same call if that is really what is wanted.",
+			p.label())
 	}
 	switch p.kind {
 	case principalAnyone, principalDomain:
