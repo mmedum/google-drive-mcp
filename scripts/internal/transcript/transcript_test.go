@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/redact"
 )
 
 // TestEveryLinePrintedIsRedacted is the behavior behind the structural

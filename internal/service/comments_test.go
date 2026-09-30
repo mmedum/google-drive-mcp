@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 func TestListCommentsShowsThreadsRepliesAndWhatIsOpen(t *testing.T) {
@@ -184,7 +184,7 @@ func TestUnknownCommentActionNamesTheOnesThatExist(t *testing.T) {
 func TestDeleteCommentIsGatedTwice(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddComment("id-budget-fixture", "id-comment-1", "hello")
-	_, err := svc.DeleteComment(t.Context(), service.DeleteCommentInput{
+	_, err := svc.DeleteComment(yes(t), service.DeleteCommentInput{
 		File: "id-budget-fixture", Comment: "id-comment-1", Confirm: true,
 	})
 	if err == nil {
@@ -193,7 +193,7 @@ func TestDeleteCommentIsGatedTwice(t *testing.T) {
 
 	svc, fake = setup(t, service.Options{Destructive: true})
 	fake.AddComment("id-budget-fixture", "id-comment-1", "hello")
-	if _, err := svc.DeleteComment(t.Context(), service.DeleteCommentInput{
+	if _, err := svc.DeleteComment(yes(t), service.DeleteCommentInput{
 		File: "id-budget-fixture", Comment: "id-comment-1",
 	}); err == nil {
 		t.Error("a comment was deleted without confirm")
@@ -201,7 +201,7 @@ func TestDeleteCommentIsGatedTwice(t *testing.T) {
 	if fake.Comments["id-budget-fixture"][0].Deleted {
 		t.Fatal("the unconfirmed call deleted it anyway")
 	}
-	got, err := svc.DeleteComment(t.Context(), service.DeleteCommentInput{
+	got, err := svc.DeleteComment(yes(t), service.DeleteCommentInput{
 		File: "id-budget-fixture", Comment: "id-comment-1", Confirm: true,
 	})
 	if err != nil {

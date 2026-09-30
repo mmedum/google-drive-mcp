@@ -20,11 +20,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/auth"
-	"github.com/mmedum/google-drive-mcp/internal/credentials"
-	"github.com/mmedum/google-drive-mcp/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/internal/service"
-	"github.com/mmedum/google-drive-mcp/internal/userconfig"
+	"github.com/mmedum/google-drive-mcp/v2/internal/auth"
+	"github.com/mmedum/google-drive-mcp/v2/internal/credentials"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/userconfig"
 )
 
 // live builds a service against the account the profile is logged in to,

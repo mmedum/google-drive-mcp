@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
 // FileTextOptions describe one window of a file's text.

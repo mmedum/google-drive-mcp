@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 // tree fills the fake with a folder holding a file, a subfolder with two
@@ -168,6 +168,30 @@ func TestADryRunCopiesNothingAndSaysHowBigItIs(t *testing.T) {
 		if !strings.Contains(got.Text, want) {
 			t.Errorf("the dry run does not say %q:\n%s", want, got.Text)
 		}
+	}
+}
+
+// TestADryRunOfOneFileCopiesNothing holds the single-file path to the
+// dry-run contract. It used to copy: only a tree read dry_run.
+func TestADryRunOfOneFileCopiesNothing(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	copyTree(fake)
+	before := len(fake.Files)
+
+	got, err := svc.CopyFile(t.Context(), service.CopyFileInput{
+		File: "id-source-sheet-fixture", To: "id-destination-fixture", DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("CopyFile: %v", err)
+	}
+	if !got.JSON.DryRun {
+		t.Error("the result does not say it was a dry run")
+	}
+	if len(fake.Files) != before || fake.Count(http.MethodPost) != 0 {
+		t.Error("a dry run wrote something")
+	}
+	if !strings.Contains(got.Text, "Nothing was copied") {
+		t.Errorf("the dry run does not say nothing was copied:\n%s", got.Text)
 	}
 }
 

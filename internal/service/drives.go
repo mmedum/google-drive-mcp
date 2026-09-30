@@ -5,13 +5,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/model"
-	"github.com/mmedum/google-drive-mcp/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
 )
 
 // ListDrivesInput tunes a shared-drive listing.
@@ -149,7 +152,7 @@ func (s *Service) createDrive(ctx context.Context, in ManageDriveInput) (*Result
 	}
 
 	meta := &gdrive.DriveMeta{Name: name}
-	restrictions, changes, err := driveRestrictionPatch(nil, in.Restrictions)
+	restrictions, changes, _, err := driveRestrictionPatch(nil, in.Restrictions)
 	if err != nil {
 		return nil, err
 	}
@@ -216,13 +219,25 @@ func (s *Service) changeDrive(ctx context.Context, action string, in ManageDrive
 		return nil, Errorf(ClassInvalid, "restrictions is required for restrict: pass the switches to set, "+
 			"as name to true or false. The names are %s.", strings.Join(model.DriveRestrictionNames, ", "))
 	}
-	restrictions, changes, err := driveRestrictionPatch(d.Restrictions, in.Restrictions)
+	restrictions, changes, off, err := driveRestrictionPatch(d.Restrictions, in.Restrictions)
 	if err != nil {
 		return nil, err
 	}
 	if len(changes) == 0 {
 		return driveResult(model.NewDrive(d), outcome{Action: render.ActionUnchanged,
 			Note: "every restriction passed already had that value."}), nil
+	}
+	if len(off) > 0 {
+		if s.opts.Sharing == config.SharingOff {
+			return nil, Errorf(ClassForbidden, "this server was started with GDRIVE_SHARING=off, and turning off %s "+
+				"on %s would widen who can reach or pass on what is in it. Nothing was changed. Turning a "+
+				"restriction on is still allowed.", strings.Join(off, ", "), d.Name)
+		}
+		if !in.DryRun {
+			if err := ask(ctx, render.AskLoosenDrive(d.ID, d.Name, off)); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return s.applyDriveChange(ctx, d, action, &gdrive.DriveMeta{Restrictions: restrictions}, changes, in.DryRun)
 }
@@ -249,7 +264,45 @@ func (s *Service) applyDriveChange(ctx context.Context, d *gdrive.Drive, action 
 		return nil, wrap(err, fmt.Sprintf("%s on the shared drive %s", action, d.Name))
 	}
 	s.forgetDrives()
-	return driveResult(model.NewDrive(updated), outcome{Action: driveAction(action), Changes: changes}), nil
+	out := outcome{Action: driveAction(action), Changes: changes}
+	if action == DriveRestrict && updated.Restrictions != nil {
+		// Read off the response rather than the request, which is what
+		// changes was built from for the dry run: a switch Drive did not
+		// apply is not reported as changed.
+		out.Changes, out.Note = restrictionOutcome(d.Restrictions, updated.Restrictions, meta.Restrictions)
+	}
+	return driveResult(model.NewDrive(updated), out), nil
+}
+
+// restrictionOutcome is what a restriction change did, from the drive
+// before and after: every switch that moved, and a note naming any
+// switch that was asked for and did not take.
+func restrictionOutcome(before, after *gdrive.DriveRestrictions, asked *gdrive.DriveRestrictionsPatch) ([]render.Change, string) {
+	var changes []render.Change
+	var missed []string
+	for _, name := range model.DriveRestrictionNames {
+		was, now := model.DriveRestriction(before, name), model.DriveRestriction(after, name)
+		if was != now {
+			changes = append(changes, render.Change{Field: "restriction " + name, From: yesNo(was), To: yesNo(now)})
+		}
+		if asked != nil {
+			if want := *model.DriveRestrictionSwitch(asked, name); want != nil && *want != now {
+				missed = append(missed, name)
+			}
+		}
+	}
+	// Drive couples the copy switch to the readers' download restriction
+	// and moves both, so the second is reported too.
+	dl := func(r *gdrive.DriveRestrictions) bool {
+		return r != nil && r.DownloadRestriction != nil && r.DownloadRestriction.RestrictedForReaders
+	}
+	if was, now := dl(before), dl(after); was != now {
+		changes = append(changes, render.Change{Field: "readers may download", From: yesNo(!was), To: yesNo(!now)})
+	}
+	if len(missed) == 0 {
+		return changes, ""
+	}
+	return changes, "Drive answered without applying " + strings.Join(missed, ", ") + "; list_drives shows what it holds now."
 }
 
 // driveAction maps a manage_drive action onto the word a result reports,
@@ -289,36 +342,35 @@ func driveChangeAllowed(d *gdrive.Drive, action string) error {
 // restrictions body and the before-and-after list that goes with it. A
 // switch already at the value asked for is left out of both: Drive would
 // accept it, and the result would claim a change that did not happen.
-func driveRestrictionPatch(current *gdrive.DriveRestrictions, want map[string]bool) (*gdrive.DriveRestrictions, []render.Change, error) {
+func driveRestrictionPatch(current *gdrive.DriveRestrictions, want map[string]bool) (
+	patch *gdrive.DriveRestrictionsPatch, changes []render.Change, off []string, err error,
+) {
 	if len(want) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
-	// Drive replaces the whole restrictions object, so the patch starts
-	// from what is there: sending only the switch being changed would
-	// silently clear the others.
-	out := &gdrive.DriveRestrictions{}
-	if current != nil {
-		*out = *current
-	}
-	var changes []render.Change
-	names := make([]string, 0, len(want))
-	for name := range want {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	// Drive merges the restrictions switch by switch, so the patch
+	// carries only the ones that change, false included. Every switch is
+	// a limit, so one turned off loosens the drive; those are named in
+	// off.
+	patch = &gdrive.DriveRestrictionsPatch{}
+	for _, name := range slices.Sorted(maps.Keys(want)) {
 		on := want[name]
-		if !model.SetDriveRestriction(out, name, on) {
-			return nil, nil, Errorf(ClassInvalid, "restriction %q is not one of %s", name,
+		field := model.DriveRestrictionSwitch(patch, name)
+		if field == nil {
+			return nil, nil, nil, Errorf(ClassInvalid, "restriction %q is not one of %s", name,
 				strings.Join(model.DriveRestrictionNames, ", "))
 		}
 		was := model.DriveRestriction(current, name)
 		if was == on {
 			continue
 		}
+		*field = &on
 		changes = append(changes, render.Change{Field: "restriction " + name, From: yesNo(was), To: yesNo(on)})
+		if was {
+			off = append(off, strings.ToLower(strings.TrimSpace(name)))
+		}
 	}
-	return out, changes, nil
+	return patch, changes, off, nil
 }
 
 // driveResult renders a shared drive the way write renders a file: one

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/service"
-	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
-	"github.com/mmedum/google-drive-mcp/scripts/internal/transcript"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/transcript"
 )
 
 // writeRun exercises every tool that changes Drive, inside one scratch
@@ -23,6 +23,8 @@ import (
 // changes anything in a real account.
 type writeRun struct {
 	sess *mcpstdio.Session
+	// person answers the server's questions.
+	person *person
 	// out is the only way this run prints anything; see the transcript
 	// package, and `gates transcript`, which is what makes that true.
 	out *transcript.Transcript
@@ -64,7 +66,7 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 // runWrites drives the whole write surface and reports how many calls
 // behaved unexpectedly.
 func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o options) (int, error) {
-	w := &writeRun{sess: s, out: t, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
+	w := &writeRun{sess: s, person: o.person, out: t, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
 		labels: o.labels, activity: o.activity}
 	now := time.Now().UTC()
 	w.started = now.Format(time.RFC3339)
@@ -519,8 +521,8 @@ var addressInAccount = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-
 //
 // -share NAME@EXAMPLE.COM adds the half that needs a second person: a
 // real grant to a real address, and the ownership transfer of spike F.
-// Without it the run still covers the refusals, the link grant and the
-// domain grant, which is most of the policy.
+// Without it the run still covers the refusals, the link grant and a
+// dry run of a domain grant, which is most of the policy.
 func (w *writeRun) access(m made) {
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
 
@@ -529,6 +531,9 @@ func (w *writeRun) access(m made) {
 	w.expecting("share_file", m.text, map[string]any{
 		"file": m.text, "principal": "anyone", "role": "reader",
 	}, "a public link without allow_anyone")
+	w.expecting("share_file", m.text, map[string]any{
+		"file": m.text, "principal": "domain:example.com", "role": "reader",
+	}, "a domain-wide grant without allow_domain")
 	w.expecting("share_file", m.text, map[string]any{
 		"file": m.text, "principal": "someone@example.com", "role": "owner",
 	}, "an ownership transfer without transfer_ownership")
@@ -553,6 +558,10 @@ func (w *writeRun) access(m made) {
 		"file": m.text, "principal": "anyone", "role": "reader", "allow_anyone": true,
 	})
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
+	w.needing("share_file", m.text, map[string]any{
+		"file": m.text, "principal": "domain:example.com", "role": "reader",
+		"allow_domain": true, "dry_run": true,
+	})
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true, "dry_run": true})
 	// By id rather than by principal, which is the path for a grant with
 	// no address to name it by. Drive gives an anyone-with-the-link
@@ -1036,6 +1045,23 @@ func (w *writeRun) needing(tool, id string, args map[string]any) {
 		return
 	}
 	w.call(call{tool: tool, args: args})
+}
+
+// declining is a call the person is asked about and declines, which
+// must be refused with nothing changed. A call that asks nothing fails
+// the step: the question is what is being checked.
+func (w *writeRun) declining(tool string, args map[string]any) {
+	before := w.person.asked
+	w.person.next = "decline"
+	out := w.call(call{tool: tool, args: args, expectError: true, why: "the person declines"})
+	w.person.next = ""
+	if w.person.asked == before {
+		w.failures++
+		w.out.Say("!! the server did not ask the person")
+	} else if !strings.Contains(out, "not confirmed by the person") {
+		w.failures++
+		w.out.Say("!! the refusal does not say the person did not confirm it")
+	}
 }
 
 // expecting is needing for a call that ought to be refused.

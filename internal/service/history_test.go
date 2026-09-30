@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 func TestListRevisionsIsNewestFirstAndMarksTheCurrentOne(t *testing.T) {
@@ -175,7 +175,7 @@ func TestARemovedFileIsNotReportedAsTrashed(t *testing.T) {
 	svc, fake := setup(t, service.Options{Destructive: true})
 	token := startToken(t, svc)
 
-	if _, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{
+	if _, err := svc.DeleteFile(yes(t), service.DeleteFileInput{
 		File: "id-budget-fixture", Confirm: true,
 	}); err != nil {
 		t.Fatalf("DeleteFile: %v", err)

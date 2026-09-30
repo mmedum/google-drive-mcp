@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/mcpstdio"
 	"strings"
 	"time"
 )
@@ -171,6 +171,9 @@ func (d *destroyRun) deleteAFile() {
 		d.out.Say("\n=== delete_file: skipped, the file it needs was never created ===")
 		return
 	}
+	// Declined first: the file must still be there afterwards.
+	d.declining("delete_file", map[string]any{"file": id, "confirm": true})
+	d.needing("get_file", id, map[string]any{"file": id})
 	d.destroyFile(id, false)
 	d.call(call{tool: "get_file", args: map[string]any{"file": id},
 		expectError: true, why: "a permanently deleted file is not there any more"})
@@ -264,6 +267,7 @@ func (d *destroyRun) deleteAComment() {
 	}})
 	d.call(call{tool: "delete_comment", args: map[string]any{"file": id, "comment": comment},
 		expectError: true, why: "removing a comment without confirm: true"})
+	d.call(call{tool: "delete_comment", args: map[string]any{"file": id, "comment": comment, "dry_run": true}})
 	// One reply first, then the whole thread. Deleting a single reply
 	// needs its id, which lives only in a listing — the renderer prints
 	// it indented under its thread rather than on an `id:` line — so
@@ -467,5 +471,10 @@ func (d *destroyRun) driveScopedArguments() {
 	d.needing("manage_drive", d.driveID, map[string]any{
 		"action": "restrict", "drive": d.driveID,
 		"restrictions": map[string]any{"copy_requires_writer_permission": true},
+	})
+	// Turning it off again loosens the drive, which is put to the person.
+	d.needing("manage_drive", d.driveID, map[string]any{
+		"action": "restrict", "drive": d.driveID,
+		"restrictions": map[string]any{"copy_requires_writer_permission": false},
 	})
 }

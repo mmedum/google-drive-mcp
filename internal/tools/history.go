@@ -6,8 +6,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/internal/render"
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 // RevisionsInput selects a file's history.
@@ -81,7 +81,9 @@ func registerHistory(s *mcp.Server, d Deps) []string {
 			"Without a pin Drive discards a version 30 days after it stops being current, so this is what to " +
 			"call before replacing content you may want back. Actions: " +
 			strings.Join(service.RevisionActions(), ", ") + ".",
-		Annotations: idempotentWrite,
+		// unkeep lets Drive purge an old revision for good, so the tool
+		// is destructive even though keep is not.
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true), IdempotentHint: true, OpenWorldHint: new(false)},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageRevisionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ManageRevision(ctx, service.ManageRevisionInput{
 			File: in.File, Revision: in.Revision, Action: in.Action,

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
 // AccountOptions carry the settings a person needs to see alongside the
@@ -66,7 +66,7 @@ func Account(about *gdrive.About, o AccountOptions) string {
 	case "off":
 		b.field("sharing", "GDRIVE_SHARING=off: no tool here can change who can see a file.")
 	default:
-		b.field("sharing", "an anyone-with-the-link grant needs allow_anyone: true on the call. "+
+		b.field("sharing", "an anyone-with-the-link grant needs allow_anyone: true on the call, and a domain-wide one allow_domain: true. "+
 			"What may actually be shared is decided by your organization's own policy, which Google enforces on every call.")
 	}
 	if o.Destructive {

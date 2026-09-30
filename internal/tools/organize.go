@@ -5,8 +5,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/internal/render"
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 // The file argument's accepted forms are spelled out in each schema: a
@@ -45,7 +45,7 @@ type UpdateContentInput struct {
 	Content              string `json:"content,omitempty" jsonschema:"the new text, written inline. Pass this or local_path."`
 	LocalPath            string `json:"local_path,omitempty" jsonschema:"a file inside the server's local directory to take the new content from. Pass this or content."`
 	MimeType             string `json:"mime_type,omitempty" jsonschema:"what the new content is; by default the file keeps the type it had"`
-	KeepPreviousRevision bool   `json:"keep_previous_revision,omitempty" jsonschema:"pin the version being replaced so Drive keeps it. Without this Drive discards it after 30 days."`
+	KeepPreviousRevision bool   `json:"keep_previous_revision,omitempty" jsonschema:"pin the version being replaced so Drive keeps it. Without this Drive may discard it after 30 days, or sooner once the file has 100 revisions."`
 	ExpectHeadRevision   string `json:"expect_head_revision,omitempty" jsonschema:"the head revision id you last saw. The write is refused if the file has changed since. Drive has no true preconditions, so this is a check, not a lock."`
 }
 
@@ -90,7 +90,7 @@ type CopyFileInput struct {
 	AllowDuplicate      bool   `json:"allow_duplicate,omitempty" jsonschema:"copy it even though the destination folder already holds something of that name"`
 	Recursive           bool   `json:"recursive,omitempty" jsonschema:"required to copy a folder: Drive has no call for it, so it is one listing per folder and one write per item inside"`
 	MaxItems            int    `json:"max_items,omitempty" jsonschema:"how many items a recursive copy may write, default 200, ceiling 2000. A tree larger than this is refused before anything is copied, rather than copied halfway."`
-	DryRun              bool   `json:"dry_run,omitempty" jsonschema:"report how big the tree is and what would be copied, and copy nothing"`
+	DryRun              bool   `json:"dry_run,omitempty" jsonschema:"report what would be copied, and for a folder how big the tree is, and copy nothing"`
 }
 
 // CreateShortcutInput describes a shortcut to create.
@@ -146,11 +146,12 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "update_content",
 		Description: "Replace what is inside a file, keeping its id, its place, its sharing and every link and " +
-			"shortcut that points at it. Drive keeps the old version as a revision. " +
+			"shortcut that points at it. Drive keeps the old version as a revision for about 30 days, and sooner " +
+			"drops it once a file has 100 revisions, unless keep_previous_revision pins it. " +
 			"A Google Doc, Sheet or Slides deck is refused: their content belongs to the Docs, Sheets and Slides " +
 			"APIs, which this server does not offer. To edit a text file, read_file it, change the text, and " +
 			"pass the whole new text back here.",
-		Annotations: write,
+		Annotations: replacing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateContentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.UpdateContent(ctx, service.UpdateContentInput{
 			File: in.File, Content: in.Content, LocalPath: in.LocalPath, MimeType: in.MimeType,

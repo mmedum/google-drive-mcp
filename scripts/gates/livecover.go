@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/scripts/internal/livecover"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/livecover"
 )
 
 // The live driver is the only check that Drive agrees with this server,
