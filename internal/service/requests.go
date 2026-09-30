@@ -148,6 +148,13 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 	if in.DryRun {
 		return s.requestResult(ctx, res, request, action, role, before, before, in.Notify, true), nil
 	}
+	// The request and its message come from the person asking, so an
+	// accept is put to the person using the server.
+	if action == RequestAccept {
+		if err := ask(ctx, render.AskGrantRequest(f.ID, f.Name, request.ID, request.For, role, request.Message)); err != nil {
+			return nil, err
+		}
+	}
 
 	body := &gdrive.ResolveProposal{
 		Action: gdrive.ProposalDeny, View: request.View, SendNotification: in.Notify,

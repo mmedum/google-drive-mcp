@@ -69,12 +69,14 @@ func TestQuestionsAreInertMarkdown(t *testing.T) {
 		"share_file_anyone":  AskShare(Share{FileID: "id-1", File: hostile, Reach: ShareAnyone, Role: "reader", Discoverable: true}),
 		"share_file_domain":  AskShare(Share{FileID: "id-1", File: hostile, Kind: "folder", Reach: ShareDomain, Who: hostile, Role: "writer"}),
 		"share_file_owner":   AskShare(Share{FileID: "id-1", File: hostile, Reach: ShareOwner, Who: hostile, Role: "owner", Message: hostile}),
+		"share_file_outside": AskShare(Share{FileID: "id-1", File: hostile, Reach: ShareOutside, Who: hostile, Role: "writer", Group: true}),
+		"resolve_request":    AskGrantRequest("id-1", hostile, "r-1", hostile, "reader", hostile),
 		"manage_drive_loose": AskLoosenDrive("id-2", hostile, []string{"domain_users_only", "members_only"}),
 	}
 	// Every hostile field reaches its own span.
 	wantSpans := map[string]int{"delete_file": 1, "empty_trash": 1, "empty_trash_own": 0, "delete_drive": 1,
 		"delete_revision": 3, "delete_comment": 3, "share_file_anyone": 1, "share_file_domain": 2,
-		"share_file_owner": 3, "manage_drive_loose": 1}
+		"share_file_owner": 3, "share_file_outside": 2, "resolve_request": 3, "manage_drive_loose": 1}
 	for name, q := range qs {
 		quotedSpans := 0
 		lines := strings.Split(strings.TrimSuffix(q.Text, "\n"), "\n\n")

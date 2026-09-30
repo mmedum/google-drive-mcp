@@ -163,6 +163,8 @@ func rendered() map[string]string {
 		render.AskDeleteComment(fixtureID, "Budget.xlsx", true, me, "yes", nil).Text,
 		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOwner, Who: their, Role: "owner"}).Text,
 		render.AskLoosenDrive(fixtureDriveID, "Marketing", []string{"domain_users_only"}).Text,
+		render.AskGrantRequest(fixtureID, "Budget.xlsx", "id-request-1", their, "writer", "please let me in").Text,
+		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOutside, Who: their, Role: "writer"}).Text,
 	}, "\n")
 	return out
 }
@@ -384,6 +386,7 @@ var renderedKey = map[string]string{
 	"AskDeleteComment":  "questions",
 	"AskShare":          "questions",
 	"AskLoosenDrive":    "questions",
+	"AskGrantRequest":   "questions",
 }
 
 // notRenderers are the exported string functions in internal/render that

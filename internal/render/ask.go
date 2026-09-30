@@ -115,6 +115,9 @@ const (
 	ShareAnyone = "anyone"
 	ShareDomain = "domain"
 	ShareOwner  = "owner"
+	// ShareOutside is a person or a group outside the signed-in
+	// account's own organization.
+	ShareOutside = "outside"
 )
 
 // Share is a share_file grant that reaches past people somebody named:
@@ -126,8 +129,9 @@ type Share struct {
 	Kind  string
 	Reach string // ShareAnyone, ShareDomain or ShareOwner
 	// Who is the domain or the address from the call; Role is Drive's
-	// role word, from a closed set.
+	// role word, from a closed set. Group marks Who as a Google group.
 	Who, Role string
+	Group     bool
 	// Message is the line Google emails the new owner, if any.
 	Message string
 	// Discoverable is whether a link grant also turns up in search.
@@ -152,6 +156,15 @@ func AskShare(sh Share) Question {
 			fmt.Sprintf("share_file: let everyone at %s open %s as %s?", quoted(sh.Who, quotedLen), target, sh.Role),
 			"It reaches the whole organization, not only people somebody named.",
 		}
+	case ShareOutside:
+		who := quoted(sh.Who, quotedLen)
+		if sh.Group {
+			who = "the group " + who
+		}
+		lines = []string{
+			fmt.Sprintf("share_file: let %s open %s as %s?", who, target, sh.Role),
+			"The address is outside this account's organization.",
+		}
 	default:
 		lines = []string{
 			fmt.Sprintf("share_file: hand ownership of %s to %s?", target, quoted(sh.Who, quotedLen)),
@@ -168,6 +181,21 @@ func AskShare(sh Share) Question {
 		lines = append(lines, "It also turns up in their search results, not only by link.")
 	}
 	return ask(lines, sh.FileID)
+}
+
+// AskGrantRequest asks before resolve_access_request accepts a request
+// for access. who is the address that would get it, role Drive's role
+// word; message is what the requester wrote, which is theirs, not the
+// person's.
+func AskGrantRequest(fileID, file, requestID, who, role, message string) Question {
+	lines := []string{
+		fmt.Sprintf("resolve_access_request: let %s open %s as %s?", quoted(who, quotedLen), quoted(file, quotedLen), role),
+		"They asked for it themselves.",
+	}
+	if strings.TrimSpace(message) != "" {
+		lines = append(lines, "their message: "+quoted(message, quotedLen))
+	}
+	return ask(lines, fileID, requestID)
 }
 
 // AskLoosenDrive asks before a manage_drive that turns restrictions off.
