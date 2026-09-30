@@ -10,7 +10,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- The server asks the person, through the MCP client, before the destructive five, before a share to `anyone`, a `domain:` or a new owner, and before `manage_drive` turns a restriction off. Anything but Accept is `[blocked]` and changes nothing. A client without elicitation gets no question.
+- The server asks the person, through the MCP client, before the destructive five, before a share to `anyone`, a `domain:`, a new owner or a person or group outside the account's organization, before accepting an access request, and before `manage_drive` turns a restriction off. Anything but Accept is `[blocked]` and changes nothing. A client without elicitation gets no question.
 - `GDRIVE_REQUIRE_PROMPT=true` refuses those writes when the client cannot ask.
 - `delete_comment` takes `dry_run`.
 

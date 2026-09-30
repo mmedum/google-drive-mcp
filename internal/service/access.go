@@ -188,6 +188,11 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 	if in.DryRun {
 		return s.shareResult(ctx, res, before, before, plan, true), nil
 	}
+	// Whether a person or a group is outside the organization costs a
+	// read, paid only for a grant that widens and a question that may go.
+	if principal.notifiable() && role != model.RoleOwner && plan.widens() && asks(ctx) {
+		plan.outside = s.outside(ctx, principal.email)
+	}
 	if q, ok := plan.question(); ok {
 		if err := ask(ctx, q); err != nil {
 			return nil, err
@@ -220,6 +225,9 @@ type sharePlan struct {
 	message      string
 	discoverable *bool
 	file         *gdrive.File
+	// outside is set when the principal is a person or a group outside
+	// the signed-in account's organization.
+	outside bool
 }
 
 // changesAnything reports whether a repeat of an identical grant would
@@ -240,6 +248,14 @@ func (p sharePlan) changesAnything() bool {
 		return p.discoverable != nil && *p.discoverable != p.existing.Discoverable
 	}
 	return false
+}
+
+// widens reports whether the grant reaches more than it did: a new one,
+// a higher role, or turning up in search. A change that only narrows an
+// existing grant reaches nobody new, and asks nothing.
+func (p sharePlan) widens() bool {
+	return p.existing == nil || model.RoleWidens(p.existing.Role, p.role) ||
+		p.findable() && !p.existing.Discoverable
 }
 
 // findable is whether a domain or anyone grant turns up in search once
@@ -263,15 +279,13 @@ func (p sharePlan) question() (render.Question, bool) {
 	case p.file.IsFolder():
 		sh.Kind = "folder"
 	}
-	// A change that only narrows an existing grant — a lower role, or no
-	// longer in search — reaches nobody new, and asks nothing.
-	widens := p.existing == nil || model.RoleWidens(p.existing.Role, p.role) ||
-		p.findable() && !p.existing.Discoverable
 	switch {
 	case p.role == model.RoleOwner:
 		sh.Reach, sh.Who, sh.Message, sh.Discoverable = render.ShareOwner, p.principal.email, p.message, false
-	case !widens:
+	case !p.widens():
 		return render.Question{}, false
+	case p.outside:
+		sh.Reach, sh.Who, sh.Group = render.ShareOutside, p.principal.email, p.principal.kind == principalGroup
 	case p.principal.kind == principalAnyone:
 		sh.Reach = render.ShareAnyone
 	case p.principal.kind == principalDomain:
@@ -882,4 +896,27 @@ func joinSentences(parts []string) string {
 		return ""
 	}
 	return strings.Join(parts, ". ") + "."
+}
+
+// consumerDomains are the addresses of personal Google accounts. Two of
+// them share a domain and no organization, so an address there is
+// outside whoever holds the other.
+var consumerDomains = map[string]bool{"gmail.com": true, "googlemail.com": true}
+
+// outside reports whether address is outside the signed-in account's
+// organization, taken as its email domain. A secondary domain of the
+// same organization counts as outside, and so does everything when the
+// account cannot be read: both ask a question too many rather than one
+// too few.
+func (s *Service) outside(ctx context.Context, address string) bool {
+	_, theirs, ok := strings.Cut(strings.ToLower(strings.TrimSpace(address)), "@")
+	if !ok || consumerDomains[theirs] {
+		return true
+	}
+	about, err := s.api.About(ctx)
+	if err != nil || about.User == nil {
+		return true
+	}
+	_, mine, _ := strings.Cut(strings.ToLower(about.User.EmailAddress), "@")
+	return mine == "" || mine != theirs
 }

@@ -36,8 +36,8 @@ const instructions = "Google Drive tools, at the file boundary: finding files, w
 	"Three of the reads are also resources, for a client that attaches them rather than calling a tool: " +
 	"gdrive://<id> is the file's text, gdrive://<id>/meta is the card, and gdrive://<id>/children is a " +
 	"folder's first page. A reference with a slash in it has to be percent-encoded there, so pass an id. " +
-	"Before a write that cannot be undone, or that opens a file to anyone with the link, a whole domain or a " +
-	"new owner, the server also asks the person through the client when it can; a call they did not confirm " +
+	"Before a write that cannot be undone, or that opens a file to anyone with the link, a whole domain, a " +
+	"new owner, someone outside the organization or someone who asked for access, the server also asks the person through the client when it can; a call they did not confirm " +
 	"is [blocked], and is not made again unless they ask."
 
 // Deps are what the server needs.
