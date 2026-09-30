@@ -53,6 +53,9 @@ func (s *Service) DeleteFile(ctx context.Context, in DeleteFileInput) (*Result, 
 		"trash_file removes it reversibly instead"); err != nil {
 		return nil, err
 	}
+	if err := ask(ctx, render.AskDeleteFile(f.ID, f.Name, f.IsFolder())); err != nil {
+		return nil, err
+	}
 	if err := s.api.DeleteFile(ctx, f.ID); err != nil {
 		return nil, wrap(err, "permanently deleting "+f.Name)
 	}
@@ -146,6 +149,14 @@ func (s *Service) EmptyTrash(ctx context.Context, in EmptyTrashInput) (*Result, 
 		return nil, s.confirmed(false, "empty_trash", "destroy everything in "+what()+
 			", with no way back. Items in the trash can be restored one by one with restore_file "+
 			"until this runs")
+	}
+	// The count is read only for a question that goes out: a confirmed
+	// call a client cannot ask about still pays nothing for it.
+	if asks(ctx) {
+		count, counted := s.trashCount(ctx, driveID)
+		if err := ask(ctx, render.AskEmptyTrash(driveID, driveName, count, counted)); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.api.EmptyTrash(ctx, driveID); err != nil {
 		return nil, wrap(err, "emptying "+whose)
@@ -250,6 +261,9 @@ func (s *Service) DeleteDrive(ctx context.Context, in DeleteDriveInput) (*Result
 	if err := s.confirmed(in.Confirm, "delete_drive", "destroy "+what+", with no way back"); err != nil {
 		return nil, err
 	}
+	if err := ask(ctx, render.AskDeleteDrive(d.ID, d.Name)); err != nil {
+		return nil, err
+	}
 	if err := s.api.DeleteDrive(ctx, d.ID); err != nil {
 		return nil, s.deleteDriveError(err, d)
 	}
@@ -303,7 +317,8 @@ func (s *Service) DeleteRevision(ctx context.Context, in DeleteRevisionInput) (*
 		return nil, Errorf(ClassInvalid, "revision %s is the version %s is at now, and Drive will not delete "+
 			"the current one. update_content replaces it; list_revisions shows the older ones.", revisionID, f.Name)
 	}
-	if _, err := s.api.GetRevision(ctx, f.ID, revisionID); err != nil {
+	rev, err := s.api.GetRevision(ctx, f.ID, revisionID)
+	if err != nil {
 		return nil, s.revisionError(err, f, revisionID)
 	}
 	what := fmt.Sprintf("revision %s of %s", revisionID, f.Name)
@@ -313,6 +328,9 @@ func (s *Service) DeleteRevision(ctx context.Context, in DeleteRevisionInput) (*
 	}
 	if err := s.confirmed(in.Confirm, "delete_revision", "destroy "+what+
 		", with no way back. The file's current content is untouched"); err != nil {
+		return nil, err
+	}
+	if err := ask(ctx, render.AskDeleteRevision(f.ID, f.Name, revisionID, rev.ModifiedTime)); err != nil {
 		return nil, err
 	}
 	if err := s.api.DeleteRevision(ctx, f.ID, revisionID); err != nil {

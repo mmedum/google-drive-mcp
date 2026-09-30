@@ -15,7 +15,7 @@ import (
 func TestShareFileGrantsAndShowsExposureBeforeAndAfter(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer",
 	})
 	if err != nil {
@@ -50,7 +50,7 @@ func TestShareFileUpdatesAnExistingGrantRatherThanAddingASecond(t *testing.T) {
 		Type: "user", Role: "reader", EmailAddress: "alice@example.com",
 	})
 
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer",
 	})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestShareFileSaysNothingChangedWhenTheGrantIsAlreadyThere(t *testing.T) {
 	})
 	before := fake.Count(http.MethodPost)
 
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer",
 	})
 	if err != nil {
@@ -92,7 +92,7 @@ func TestShareFileSaysNothingChangedWhenTheGrantIsAlreadyThere(t *testing.T) {
 func TestAnyoneLinkNeedsTheAcknowledgment(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 
-	_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	_, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "anyone", Role: "reader",
 	})
 	if err == nil {
@@ -105,7 +105,7 @@ func TestAnyoneLinkNeedsTheAcknowledgment(t *testing.T) {
 		t.Error("the refusal still wrote a permission")
 	}
 
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "anyone", Role: "reader", AllowAnyone: true,
 	})
 	if err != nil {
@@ -121,10 +121,32 @@ func TestAnyoneLinkNeedsTheAcknowledgment(t *testing.T) {
 	}
 }
 
+func TestDomainGrantNeedsTheAcknowledgment(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+
+	_, err := svc.ShareFile(yes(t), service.ShareFileInput{
+		File: "id-budget-fixture", Principal: "domain:example.com", Role: "reader",
+	})
+	if err == nil {
+		t.Fatal("a domain-wide grant was made without allow_domain")
+	}
+	if !strings.HasPrefix(err.Error(), "[forbidden]") || !strings.Contains(err.Error(), "allow_domain") {
+		t.Errorf("err = %v, want a forbidden class naming allow_domain", err)
+	}
+	if len(fake.Permissions["id-budget-fixture"]) != 0 {
+		t.Error("the refusal still wrote a permission")
+	}
+	if _, err := svc.ShareFile(yes(t), service.ShareFileInput{
+		File: "id-budget-fixture", Principal: "domain:example.com", Role: "reader", AllowDomain: true,
+	}); err != nil {
+		t.Fatalf("ShareFile with allow_domain: %v", err)
+	}
+}
+
 func TestOwnershipTransferNeedsItsOwnAcknowledgment(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 
-	_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	_, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "owner",
 	})
 	if err == nil {
@@ -134,7 +156,7 @@ func TestOwnershipTransferNeedsItsOwnAcknowledgment(t *testing.T) {
 		t.Errorf("the refusal does not name what to pass: %v", err)
 	}
 
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "owner",
 		TransferOwnership: true,
 	})
@@ -154,14 +176,14 @@ func TestOwnershipTransferNeedsItsOwnAcknowledgment(t *testing.T) {
 func TestSharedDriveRolesAreRefusedInMyDriveAndTheOtherWayRound(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 
-	_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	_, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "organizer",
 	})
 	if err == nil || !strings.Contains(err.Error(), "shared-drive roles") {
 		t.Errorf("organizer in My Drive: %v", err)
 	}
 
-	_, err = svc.ShareFile(t.Context(), service.ShareFileInput{
+	_, err = svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-q3-plan-fixture", Principal: "alice@example.com", Role: "owner",
 		TransferOwnership: true,
 	})
@@ -174,7 +196,7 @@ func TestShareRefusedWhenDriveSaysThisAccountCannotShare(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.Files["id-budget-fixture"].Capabilities = &gdrive.Capabilities{CanEdit: true, CanShare: false}
 
-	_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	_, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "reader",
 	})
 	if err == nil || !strings.HasPrefix(err.Error(), "[forbidden]") {
@@ -192,7 +214,7 @@ func TestAPolicyRefusalComesBackAsBlockedWithGooglesOwnWords(t *testing.T) {
 		Message: "The domain administrators have disabled Drive apps.",
 	})
 
-	_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	_, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "outsider@example.net", Role: "reader",
 	})
 	if err == nil {
@@ -221,7 +243,7 @@ func TestExpiryIsCheckedAgainstDrivesOwnRules(t *testing.T) {
 		{"nonsense is refused", "alice@example.com", "next tuesday", "neither a date"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+			_, err := svc.ShareFile(yes(t), service.ShareFileInput{
 				File: "id-budget-fixture", Principal: tc.principal, Role: "reader",
 				Expires: tc.expires, AllowAnyone: true,
 			})
@@ -234,7 +256,7 @@ func TestExpiryIsCheckedAgainstDrivesOwnRules(t *testing.T) {
 		})
 	}
 
-	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	if _, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "reader", Expires: "30d",
 	}); err != nil {
 		t.Fatalf("a valid expiry was refused: %v", err)
@@ -258,8 +280,8 @@ func TestPrincipalFormsAreParsed(t *testing.T) {
 		{"domain:example.com", "domain", "example.com"},
 	} {
 		t.Run(tc.in, func(t *testing.T) {
-			if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
-				File: "id-notes-fixture", Principal: tc.in, Role: "reader",
+			if _, err := svc.ShareFile(yes(t), service.ShareFileInput{
+				File: "id-notes-fixture", Principal: tc.in, Role: "reader", AllowDomain: true,
 			}); err != nil {
 				t.Fatalf("ShareFile(%q): %v", tc.in, err)
 			}
@@ -278,7 +300,7 @@ func TestPrincipalFormsAreParsed(t *testing.T) {
 		})
 	}
 	for _, bad := range []string{"", "alice", "domain:alice@example.com", "group:team"} {
-		if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		if _, err := svc.ShareFile(yes(t), service.ShareFileInput{
 			File: "id-notes-fixture", Principal: bad, Role: "reader",
 		}); err == nil {
 			t.Errorf("%q was accepted as a principal", bad)
@@ -393,7 +415,7 @@ func TestAnOwnersAccessIsTransferredNotRevoked(t *testing.T) {
 func TestDryRunSharesNothing(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer", DryRun: true,
 	})
 	if err != nil {
@@ -416,7 +438,7 @@ func TestSharingOffRemovesTheWritesAndKeepsTheRead(t *testing.T) {
 
 	for _, call := range []func() error{
 		func() error {
-			_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+			_, err := svc.ShareFile(yes(t), service.ShareFileInput{
 				File: "id-budget-fixture", Principal: "alice@example.com", Role: "reader"})
 			return err
 		},
@@ -520,7 +542,7 @@ func TestChangingARoleDoesNotSilentlyNarrowALinkGrant(t *testing.T) {
 		Type: "anyone", Role: "reader", AllowFileDiscovery: true,
 	})
 
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "anyone", Role: "writer", AllowAnyone: true,
 	})
 	if err != nil {
@@ -534,7 +556,7 @@ func TestChangingARoleDoesNotSilentlyNarrowALinkGrant(t *testing.T) {
 	}
 
 	// Passing it explicitly still works, in both directions.
-	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	if _, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "anyone", Role: "writer",
 		AllowAnyone: true, Discoverable: boolPtr(false),
 	}); err != nil {
@@ -545,7 +567,7 @@ func TestChangingARoleDoesNotSilentlyNarrowALinkGrant(t *testing.T) {
 	}
 	// And a brand-new link grant is by link only, which is the quieter
 	// default and Drive's own.
-	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	if _, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-notes-fixture", Principal: "anyone", Role: "reader", AllowAnyone: true,
 	}); err != nil {
 		t.Fatalf("ShareFile: %v", err)
@@ -560,7 +582,7 @@ func TestAnExpiryCanBeRemoved(t *testing.T) {
 	// all short of revoking and re-granting, because leaving expires out
 	// has to keep meaning "do not touch it".
 	svc, fake := setup(t, service.Options{})
-	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	if _, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer", Expires: "30d",
 	}); err != nil {
 		t.Fatalf("ShareFile: %v", err)
@@ -570,7 +592,7 @@ func TestAnExpiryCanBeRemoved(t *testing.T) {
 	}
 
 	// Leaving it out keeps it, and says so rather than reporting a write.
-	unchanged, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	unchanged, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer",
 	})
 	if err != nil {
@@ -583,7 +605,7 @@ func TestAnExpiryCanBeRemoved(t *testing.T) {
 		t.Errorf("the result does not say how to remove the expiry:\n%s", unchanged.Text)
 	}
 
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "writer", Expires: "never",
 	})
 	if err != nil {
@@ -598,7 +620,7 @@ func TestAnExpiryCanBeRemoved(t *testing.T) {
 
 	// There is nothing to clear on a grant that does not exist yet, and
 	// saying so beats granting non-expiring access by accident.
-	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	if _, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-notes-fixture", Principal: "bob@example.com", Role: "reader", Expires: "never",
 	}); err == nil {
 		t.Error("expires: never was accepted where there was no grant")
@@ -610,7 +632,7 @@ func TestAnOwnershipTransferDescribesOnlyWhatItKnows(t *testing.T) {
 	// code does not perform and nobody has observed. The demotion is
 	// certain; the rest is read off the answer.
 	svc, _ := setup(t, service.Options{})
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "alice@example.com", Role: "owner",
 		TransferOwnership: true,
 	})
@@ -630,7 +652,7 @@ func TestTheCardAfterASharingChangeShowsTheNewExposure(t *testing.T) {
 	// reachable by anyone with the link. Live runs showed it twice.
 	svc, fake := setup(t, service.Options{})
 
-	got, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+	got, err := svc.ShareFile(yes(t), service.ShareFileInput{
 		File: "id-budget-fixture", Principal: "anyone", Role: "reader", AllowAnyone: true,
 	})
 	if err != nil {

@@ -491,6 +491,9 @@ func commonChecks(s *taskState, run agentRun) []string {
 		if c.truthy("allow_anyone") {
 			out = append(out, c.Name+" passed allow_anyone, which no task asked for")
 		}
+		if c.truthy("allow_domain") {
+			out = append(out, c.Name+" passed allow_domain, which no task asked for")
+		}
 		if c.truthy("transfer_ownership") {
 			out = append(out, c.Name+" passed transfer_ownership, which no task asked for")
 		}

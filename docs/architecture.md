@@ -1,6 +1,10 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 6 complete (2026-09-06), released as v1.3.0. A default
+**Status:** phase 6 complete (2026-09-06), released as v1.3.0. Phase 7
+is built and not yet released: the server asks the person before a
+write it cannot take back or that opens a file past people somebody
+named (§4a), and six defects are fixed, two of them found by its live
+run (§16). A default
 build registers **31** tools; eight more exist behind a flag — the
 destructive five, plus `list_labels` and `manage_labels` under
 `GDRIVE_LABELS` and `list_activity` under `GDRIVE_ACTIVITY`. Those last
@@ -264,6 +268,93 @@ undo a permanent delete.
     (edit, share, trash, delete, download), starred, trashed, size,
     modified by whom and when.
 
+### 4a. A write that cannot be undone, or that widens access, is confirmed by the person
+
+`confirm: true`, `allow_anyone`, `allow_domain` and
+`transfer_ownership` are arguments the model writes, and a persuaded
+model writes them too. So when the client can ask, the server asks the
+person itself, through MCP form elicitation, before seven writes:
+`delete_file`, `empty_trash`, `delete_drive`, `delete_revision`,
+`delete_comment`; `share_file` when it grants `anyone`, a whole
+`domain:` or ownership; and `manage_drive` when it turns a restriction
+off.
+
+1. **A second gate, not a replacement.** The arguments stay and are
+   checked first. A call a guard refuses asks nothing. The question
+   comes after every read, every other guard and the dry run, just
+   before the write, so it shows what the write would do.
+2. **Accepting is the confirmation.** The form has no fields: an empty
+   object schema, which the specification allows. Anything but
+   `accept` — decline, cancel, an error, an answer that came back after
+   its question expired — is `[blocked]`, refused before the retry
+   reads anything, and nothing is changed. The refusal says the call
+   was "not confirmed by the person" and names the client's answer. It
+   never says the person declined: a client can answer without showing
+   anyone anything, and a client hook can accept for the person (§18).
+   So an unattended client that declares elicitation cannot make these
+   writes. Two clients accept an empty form without a person choosing
+   to: Codex under approval policy `never` with full access, and VS Code
+   when the person skips the question.
+3. **No question possible.** A client that declares no form elicitation
+   gets no question, and the arguments are the guard, as before.
+   `GDRIVE_REQUIRE_PROMPT=true` refuses those writes as `[blocked]`
+   instead. The bundle does not set it.
+4. **A dry run never asks.** `delete_comment` gained `dry_run` for it.
+5. **What the question says.** The tool, the target and the effect, in
+   the server's words: a file or folder by name; a trash by whose it is
+   and how many items Drive's listing shows; a shared drive by name; a
+   revision by id and when it was saved; a comment by its author and the
+   start of its text; a share by who it reaches and with what role; a
+   restriction change by the switches it turns off. Text from Drive or
+   from the call stands in a code span, between backticks, on one line:
+   format characters removed, controls made spaces; backticks, grave
+   and acute marks and every quote mark made a plain single quote; a URL
+   scheme, `mailto:`, `www.` and a bare domain followed by a path broken
+   so no client draws a link, in any script and after any character;
+   cut at 120 characters, a comment at 300 with the count of the rest.
+   A closing line says text in backticks is not the server's. A client
+   that draws the question as Markdown shows a code span literally, and
+   a blank line between lines keeps them apart.
+6. **One handler on every protocol.** The handler returns the question
+   as an input request, the multi-round-trip pattern of 2026-07-28.
+   Before that revision the SDK asks with `elicitation/create` and calls
+   the handler again within the same request. A client failure there is
+   a JSON-RPC error inside the SDK, and middleware turns it into
+   `[blocked]`.
+7. **The answer is bound to its question.** `requestState` is signed
+   with HMAC-SHA256 under a key drawn per process. It carries the tool,
+   a hash of the arguments, a hash of what the question binds, a nonce
+   and an expiry. A retry is refused when its state is forged, for
+   another call, expired or already used; answers on a call with no
+   state are refused, and so is an answer sent to a tool that asks
+   nothing. The retry reads again; if what it binds differs from what
+   was answered, it is refused, and the next call asks again. A
+   question binds its text and the id it acts on, and a comment binds
+   its whole text. The trash count is shown and not bound, since it
+   moves whenever anything is trashed.
+8. **The expiry applies where the state travels**: 5 minutes from
+   2026-07-28, when the client carries `requestState` between rounds.
+   Before, the state never leaves the process and the request itself
+   waits for the person.
+9. **A failure after the answer is never "nothing was changed".** From
+   the start of a round that carries an accept, a call that fails
+   without a result is `[ambiguous_outcome]`: verdict `written` when the
+   handler returned from its write, `unknown` otherwise.
+10. **Asking costs the reads again.** The retry repeats every read
+    before the write. `empty_trash` counts the trash only for a question
+    that goes out, and `delete_comment` reads the comment only for a
+    question or a dry run.
+11. **Logs** say `person_asked` and `person_answered` with the tool and
+    the client's action, never the question.
+12. **Held in one place.** A tool asks only through `asked`, which is
+    the only thing that installs an asker; a service write that asks,
+    reached without one, is `[unexpected]` rather than made unasked.
+    `TestEveryToolThatTakesConfirmAsks` reads the published schemas and
+    requires every tool that takes `confirm`, and the two that widen
+    access, to ask, and `TestEveryAskingWriteWaitsForThePerson` holds
+    each on every protocol: declined, nothing written; accepted, one
+    write.
+
 ## 5. Module layout
 
 ```
@@ -498,8 +589,9 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   conversion, OCR for PDFs and images, `ocr_language`),
   `keep_revision_forever`. Uses a pre-generated id. Folders are refused
   in Phase 1 with the reason; Phase 3 adds `recursive: true` with an item
-  budget. (`copy_comments` was in this list until Phase 1 checked: v3's
-  `files.copy` has no such parameter — §18.)
+  budget. `copy_comments`, off by default, asks Drive to bring the
+  threads along; Drive's own formats carry them and uploaded bytes do
+  not (§18).
 - `create_shortcut`: `target`, `parent`, `name` (default the target's).
 - `trash_file` and `restore_file`: the result names the item, says
   "folder with its contents" when it is one, reminds that the trash
@@ -518,7 +610,7 @@ did not ask for. The deployer sets `GDRIVE_SHARING`:
 
 | Value | Meaning |
 |---|---|
-| `all` (default) | Every principal type the account may share with. `anyone` still needs `allow_anyone: true` on the call. |
+| `all` (default) | Every principal type the account may share with. `anyone` still needs `allow_anyone: true` on the call, and `domain:` needs `allow_domain: true`. |
 | `off` | `share_file`, `unshare_file` and shared-drive membership changes are not registered. `list_permissions` stays. |
 
 Before any sharing call the server reads `capabilities.canShare` on the
@@ -539,14 +631,16 @@ in Phase 2 (§16) and recorded in §18.
 ownership transfer forces it on, which the result says), `message`,
 `expires` (RFC 3339 or a duration like `30d`; users and groups only, at
 most a year), `discoverable` (`allowFileDiscovery` for domain and anyone;
-default false), `transfer_ownership: true` (required for `owner`; on a
+default false), `allow_anyone: true` and `allow_domain: true` (required
+for those principals), `transfer_ownership: true` (required for `owner`; on a
 consumer account the result explains the pending acceptance), and
 `dry_run`. A principal that already has a grant is updated, and the
 result says "changed from reader to writer". The text shows exposure
 before and after; the JSON carries the permission id and the new sharing
 summary. `unshare_file` takes `principal` or `permission_id`, and
 `remove_link: true` for the `anyone` or `domain` link grant; an inherited
-shared-drive permission is refused with the source named.
+shared-drive permission is refused with the source named. A grant to
+`anyone`, a `domain:` or a new owner is also put to the person (§4a).
 
 Publishing a revision to the web (`revisions.update published`) is an
 exposure with no audience control and is deliberately not offered.
@@ -555,9 +649,12 @@ exposure with no audience control and is deliberately not offered.
 
 `list_drives` shows name, id, the signed-in person's role, hidden state
 and restrictions, with `include_hidden`. `manage_drive` takes `action`
-(`create`, `rename`, `hide`, `unhide`, `restrict`), `name`, the four
+(`create`, `rename`, `hide`, `unhide`, `restrict`), `name`, the five
 restriction flags (`domain_users_only`, `members_only`,
-`copy_requires_writer_permission`, `admin_managed`), `dry_run`. Members
+`copy_requires_writer_permission`, `admin_managed`,
+`folder_sharing_requires_organizer`), `dry_run`. Every flag is a limit,
+so turning one off loosens the drive: with `GDRIVE_SHARING=off` that is
+refused, and turning one on is not. Members
 are added and removed through `share_file` and `unshare_file` with the
 drive as the target. `delete_drive` is gated and needs an empty drive.
 
@@ -693,8 +790,10 @@ nothing, and what happened inside it — so the head says which was asked.
 snake_case verb_noun, no dots. Claude Code prefixes `mcp__<server>__`.
 "Gated" means registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`;
 gated tools also set `_meta["anthropic/requiresUserInteraction"]`.
-`GDRIVE_READ_ONLY=true` registers only the readOnly rows and requests
-`drive.readonly`. `GDRIVE_SHARING=off` removes the rows marked *sharing*
+`GDRIVE_READ_ONLY=true` registers only the readOnly rows, and
+`download_file`, which writes only a new local file, and requests
+`drive.readonly`. Every write states `destructiveHint`: the
+specification reads an unset one as true. `GDRIVE_SHARING=off` removes the rows marked *sharing*
 — which includes `resolve_access_request`, because accepting a request
 grants a permission.
 
@@ -705,10 +804,10 @@ grants a permission.
 | `search_files` | Typed search across My Drive, shared with me and shared drives | readOnly | 0 |
 | `list_folder` | One page of children, or a budgeted tree | readOnly | 0 |
 | `read_file` | Text of a file, budgeted with continuation | readOnly | 1 |
-| `download_file` | Blob, export or old revision to `GDRIVE_LOCAL_DIR`, checksum-verified | readOnly | 1 |
+| `download_file` | Blob, export or old revision to `GDRIVE_LOCAL_DIR`, checksum-verified | local write | 1 |
 | `create_file` | Empty Workspace file, or inline text with optional conversion | — | 1 |
 | `upload_file` | A local file, multipart or resumable, optional conversion | — | 1 |
-| `update_content` | Replace a blob's content; new revision, old one kept | — | 1 |
+| `update_content` | Replace a blob's content; the old one stays a revision for about 30 days unless pinned | destructive | 1 |
 | `create_folder` | New folder; refuses a duplicate name unless allowed | — | 1 |
 | `update_file` | Rename, describe, star, color, properties, sharing switches | idempotent | 1 |
 | `move_file` | Move to a folder or shared drive; single parent; dry run | idempotent | 1 |
@@ -1349,6 +1448,41 @@ reaching `checksums.txt` only through `extra_files`, three parity and
 vocabulary holes, and the argument for a live driver recording what it
 SENT rather than a gate reading what it says it sends.
 
+
+**Phase 7 — the person confirms (v2.0.0). Built 2026-09-30.**
+The server asks the person, through MCP form elicitation, before the
+destructive five, before a share to `anyone`, a `domain:` or a new
+owner, and before `manage_drive` turns a restriction off (§4a). First,
+the defects a review of the surface had found:
+
+- `copy_file` with `dry_run` on one file copied it. Only a tree read
+  the flag.
+- Seven reversible writes left `destructiveHint` unset, which the
+  specification reads as true; `update_content` said false while
+  replacing content; `download_file` said read-only while writing a
+  local file. A test now fails on any write with the hint unset.
+- A `domain:` grant needed no acknowledgment; it needs `allow_domain`.
+- `manage_drive restrict` could loosen a drive with
+  `GDRIVE_SHARING=off`. It may now only tighten one there.
+
+The first live run failed one step, and the probe it led to found two
+more, both in `manage_drive restrict` and both older than this phase
+(§18): Drive refuses `downloadRestriction` in the body, which the wire
+type had echoed back since 1.1.0, so every restrict failed; and Drive
+merges the switches, so the `omitempty` booleans never sent a `false`:
+turning a restriction off was a no-op that reported a change. The fake
+had been built on the belief that Drive replaces the object, and agreed
+with the bug. The patch now carries only the switches that change, as
+pointers, and the result reads what changed from Drive's answer.
+
+The live run's transcript printed the comment author's display name
+inside a question. The redactor finds names by the positions the
+renderers print them in, and its coverage test read only functions
+returning a string, so the questions were invisible to it. It reads
+`Question` too now, and the position is added.
+
+Run live 2026-09-30 with `-write -destructive`: 250 calls, all as
+expected, 15 questions, one declined and the file still there after.
 
 ### Closing a phase
 
@@ -2056,3 +2190,20 @@ own numbers.
 | A release workflow that has never run can be trusted because its parts are pinned | Refuted by the same failure. It had been validated with `goreleaser check` and a full local `goreleaser build`, and still failed at the signing step, which only runs with an OIDC token in CI | The first tag of a project is a test of the release path as much as of the code; `docs/development.md` says to verify the published artifacts from outside rather than trust the workflow's own green tick |
 | Direct pushes to `main` by the maintainer are fine for a one-person project | Rejected: `main` is released code, and a rule with an exception for the person who releases is not a rule; Scorecard's Branch-Protection asks for pull requests gated by a passing check, and its two-reviewer tier cannot apply to a single maintainer | Pull requests required with CI green on three platforms as the gate; the review count does not apply; tags pushed directly, one at a time |
 | The bundle manifest's `$schema` and `manifest_version` are right because they are present | Refuted, 2026-09-17, against the published schemas. The gate required both keys to EXIST and read neither, so `$schema` could have said anything: it named `main`, a branch upstream can amend under a document that claims to conform to it — the path pins the FORMAT, the ref pins the BYTES. Fetched `mcpb-manifest-v0.2`, `v0.3` and `v0.4`, which are served, and `v0.5`, which is not; the copy at tag `v2.1.2` is byte-identical to `main` today, which is the argument for the tag rather than against it. 0.4 is not adopted: its only difference from 0.3 is a `uv` value in the `server.type` enum, and this bundle's type is `binary`. | `checkManifest` holds the declaration as well as the staged tree: upstream's path at a full release tag or a commit SHA — an allow-list, because refusing branch NAMES passes a partial tag like `v2.1` — the version agreeing with the URL, a floor under it, and a support URL. The floor is the one the others cannot make: 0.2 beside a 0.2 schema is stale and self-consistent |
+
+**Phase 7 additions (2026-09-30).** Asking the person, and what the
+live run of it found.
+
+| Convention | Verdict | Effect |
+|---|---|---|
+| `drives.update` replaces the whole `restrictions` object, so a patch re-sends the switches it keeps (§7.5 as written, and the fake) | **Refuted by a live probe, 2026-09-30,** on a shared drive the probe made and deleted. A body with only `copyRequiresWriterPermission: true` changed that switch and kept the others; a body that left a switch out kept it; only an explicit `false` turned one off. A body carrying `downloadRestriction` — `{}`, or the values Drive already held — was refused, 400 `badRequest`, "Bad Request". Turning `copyRequiresWriterPermission` on set `downloadRestriction.restrictedForReaders` too, and turning it off cleared it | The patch is `DriveRestrictionsPatch`: pointer switches, only the ones that change, no `downloadRestriction`. The result reads the change from the response and names a switch Drive did not apply. The fake merges and refuses the same way. `manage_drive restrict` had failed on every call since 1.1.0 and had never turned a switch off |
+| An unset `destructiveHint` means not destructive | **Refuted.** The specification's `ToolAnnotations` in `schema/2026-07-28/schema.ts`, read 2026-09-30: "Default: true", and `false` means "the tool performs only additive updates" | Every write states the hint, and a test fails on one that does not. Trash, move, restore, rename, unshare and the drive settings say `false`: each can be set back, and a client that confirms on the hint would otherwise ask as it does for a permanent delete. That is a reading, not the letter, which calls any non-additive update destructive. `update_content` says `true`: the old content survives only as a revision Drive may purge |
+| `readOnlyHint` is about Drive | **Refuted**, same source: "the tool does not modify its environment" | `download_file` writes a local file, so it is not read-only; read-only mode still registers it, since it changes nothing in Drive |
+| Drive keeps a replaced file's old content | **Refined.** The revisions overview (<https://developers.google.com/workspace/drive/api/guides/change-overview>), read 2026-09-30: a blob revision not kept forever "is purgeable", "typically preserved for 30 days", and purged sooner once a file has 100 such revisions | `update_content`'s description and `keep_previous_revision` say so |
+| The Go SDK's typed handler can return a question | **Confirmed** in MCP Go SDK v1.8.0, `mcp/server.go`, read 2026-09-30: when a handler's result carries `InputRequests`, the output is not marshaled or validated against the output schema | The asking tools keep their typed handlers and output schema |
+| A form elicitation must ask for at least one field | **Refuted.** `ElicitRequestFormParams` in the specification's `schema.ts` for 2025-06-18, 2025-11-25 and 2026-07-28, read 2026-09-28: `properties` is an open map with no minimum, and `required` is optional | The question's form is `{"type":"object","properties":{}}`; accepting it is the answer (§4a) |
+| A client that declares elicitation has a person to answer it | **Refuted.** `claude -p` 2.1.284 against a throwaway probe server, 2026-09-28, answered `cancel` within milliseconds on both 2025-11-25 and 2026-07-28 | An unattended client that declares elicitation cannot make the asking writes; the refusal says "not confirmed by the person" and never that the person declined |
+| An `accept` comes from a person | **Refuted.** Claude Code's MCP documentation (<https://code.claude.com/docs/en/mcp>), read 2026-09-28: an `Elicitation` hook can answer without a dialog. Codex (`codex-rs/codex-mcp/src/elicitation.rs`, read 2026-09-29) accepts a form with no properties itself under approval policy `never` with full access, and a VS Code question the person skips resolves as `accept` | Recorded as a limit of the empty form. A required choice would stop both, and was found slower and less clear than Accept in the maintainer's check in Claude Code, 2026-09-29 |
+| A client draws a question as plain text | **Refuted.** VS Code's `mcpElicitationService.ts`, read 2026-09-29, builds a form question as an untrusted `MarkdownString` | Every value from Drive or the call stands in a code span with its backticks and quote marks folded, and links broken |
+| `\b` in a Go regular expression is a word boundary in any script | **Refuted.** `go doc regexp/syntax`, Go 1.27.1: `\b` is "at ASCII word boundary" | The link shapes in a question are unanchored, so a link after an underscore or in a non-Latin domain is broken too; a test holds both |
+

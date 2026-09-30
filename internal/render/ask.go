@@ -1,0 +1,280 @@
+package render
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
+// Question is what the server asks the person before a write that cannot
+// be undone or that widens who can reach a file (§4a). Text is the
+// message a client shows; accepting it is the confirmation. Every word
+// is the server's, except what stands in backticks, which is quoted from
+// Drive or from the call and cut to one line. A blank line separates the
+// lines, so a client that draws Markdown keeps them apart.
+//
+// Bind is what an answer is bound to: what the write depends on, which
+// must not change between the question and the write. It is Text, and
+// more where Text shows less than the write uses — an id, a whole
+// comment. A count that moves while the person reads is shown and not
+// bound, or the question could never be confirmed.
+type Question struct {
+	Text string
+	Bind string
+}
+
+// quotedLen caps one quoted value: a name, an address. A comment is
+// capped at bodyLen.
+const (
+	quotedLen = 120
+	bodyLen   = 300
+)
+
+// AskDeleteFile asks before delete_file.
+func AskDeleteFile(id, name string, folder bool) Question {
+	what := "the file"
+	if folder {
+		what = "the folder"
+	}
+	lines := []string{fmt.Sprintf("delete_file: destroy %s %s for good, skipping the trash?", what, quoted(name, quotedLen))}
+	if folder {
+		lines = append(lines, "Everything inside it that this account owns goes with it.")
+	}
+	lines = append(lines, "There is no way back, not even for an administrator.")
+	q := ask(lines...)
+	q.Bind += "\x00" + id
+	return q
+}
+
+// AskEmptyTrash asks before empty_trash. drive is the shared drive's
+// name, or empty for this account's own trash. The count is shown and
+// not bound: it lags, and it moves whenever anything is trashed.
+func AskEmptyTrash(driveID, drive string, count int, counted bool) Question {
+	whose := "this account's trash"
+	if driveID != "" {
+		whose = "the trash of the shared drive " + quoted(drive, quotedLen)
+	}
+	lines := make([]string, 0, 3)
+	lines = append(lines, fmt.Sprintf("empty_trash: destroy everything in %s for good?", whose),
+		"There is no way back. Until this runs, restore_file can bring any of it back.")
+	how := "How much is in it could not be counted."
+	if counted {
+		how = fmt.Sprintf("Drive's listing shows %s in it now, and it lags.", plural(count, "item", "items"))
+	}
+	q := ask(append(lines, how)...)
+	q.Bind = ask(lines...).Bind + "\x00" + driveID
+	return q
+}
+
+// AskDeleteDrive asks before delete_drive.
+func AskDeleteDrive(id, name string) Question {
+	q := ask(fmt.Sprintf("delete_drive: destroy the shared drive %s for good?", quoted(name, quotedLen)),
+		"There is no way back. Drive refuses it while anything untrashed is still in it.")
+	q.Bind += "\x00" + id
+	return q
+}
+
+// AskDeleteRevision asks before delete_revision. modified is when the
+// revision was saved, as Drive wrote it.
+func AskDeleteRevision(fileID, file, revisionID, modified string) Question {
+	lines := []string{
+		fmt.Sprintf("delete_revision: destroy revision %s of %s for good?", quoted(revisionID, quotedLen), quoted(file, quotedLen)),
+	}
+	if modified != "" {
+		lines = append(lines, "saved "+quoted(modified, quotedLen))
+	}
+	lines = append(lines, "There is no way back. The file's current content is untouched.")
+	q := ask(lines...)
+	q.Bind += "\x00" + fileID
+	return q
+}
+
+// AskDeleteComment asks before delete_comment. reply is true when one
+// reply is deleted rather than the whole thread. The whole text is
+// bound, of which the question shows the start.
+func AskDeleteComment(fileID, file string, reply bool, author, body string) Question {
+	what := "a comment thread"
+	if reply {
+		what = "a reply"
+	}
+	q := ask(
+		fmt.Sprintf("delete_comment: delete %s on %s for good?", what, quoted(file, quotedLen)),
+		"by "+quoted(author, quotedLen),
+		body0(body),
+		"There is no way back: Drive keeps the thread with its words removed.",
+	)
+	q.Bind += "\x00" + fileID + "\x00" + sum(body)
+	return q
+}
+
+// Who a share reaches, for AskShare.
+const (
+	ShareAnyone = "anyone"
+	ShareDomain = "domain"
+	ShareOwner  = "owner"
+)
+
+// AskShare asks before a share_file that reaches past people somebody
+// named: a link anyone can open, a whole domain, or a new owner. who is
+// the domain or the address from the call; role is Drive's role word.
+// discoverable is whether a link grant also turns up in search.
+func AskShare(fileID, file, reach, who, role string, discoverable bool) Question {
+	var lines []string
+	switch reach {
+	case ShareAnyone:
+		lines = []string{
+			fmt.Sprintf("share_file: let anyone with the link open %s as %s?", quoted(file, quotedLen), role),
+			"No sign-in is needed: whoever has or guesses the link gets in.",
+		}
+	case ShareDomain:
+		lines = []string{
+			fmt.Sprintf("share_file: let everyone at %s open %s as %s?", quoted(who, quotedLen), quoted(file, quotedLen), role),
+			"It reaches the whole organization, not only people somebody named.",
+		}
+	default:
+		lines = []string{
+			fmt.Sprintf("share_file: hand ownership of %s to %s?", quoted(file, quotedLen), quoted(who, quotedLen)),
+			"This account becomes a writer, and only the new owner can hand it back. Google emails them.",
+		}
+	}
+	if reach != ShareOwner && discoverable {
+		lines = append(lines, "It also turns up in their search results, not only by link.")
+	}
+	q := ask(lines...)
+	q.Bind += "\x00" + fileID
+	return q
+}
+
+// AskLoosenDrive asks before a manage_drive that turns restrictions off.
+// off are the restriction names, which are this server's own words.
+func AskLoosenDrive(id, drive string, off []string) Question {
+	q := ask(
+		fmt.Sprintf("manage_drive: turn off %s on the shared drive %s?", strings.Join(off, ", "), quoted(drive, quotedLen)),
+		"Each is a limit, so turning it off widens who can reach, share or copy what is in the drive.",
+	)
+	q.Bind += "\x00" + id
+	return q
+}
+
+// body0 is the start of a body, quoted on one line, and how much more
+// there is.
+func body0(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "text: empty"
+	}
+	if n := utf8.RuneCountInString(body); n > bodyLen {
+		return fmt.Sprintf("text: %s (%d more characters)", quoted(string([]rune(body)[:bodyLen]), bodyLen), n-bodyLen)
+	}
+	return "text: " + quoted(body, bodyLen)
+}
+
+// sum binds a whole text, of which a question shows the start.
+func sum(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+// plural is n with the word that goes with it.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
+// ask builds a question from its lines, closes it with what its quotes
+// mean, sets its lines apart, and binds it to its text.
+func ask(lines ...string) Question {
+	text := strings.Join(lines, "\n")
+	if strings.Contains(text, "`") {
+		text += "\nText in backticks or code style is quoted as written, and is not this server's."
+	}
+	text = strings.ReplaceAll(text, "\n", "\n\n") + "\n"
+	return Question{Text: text, Bind: text}
+}
+
+// quoted is text from Drive or from a call's arguments, shown in a
+// question put to the person (§4a), where no boundary can go: a
+// client draws the question as plain text in a dialog, or as Markdown.
+// It stands in a code span, `like this`, which Markdown shows literally
+// — no emphasis, link, HTML or entity — and plain text shows as it is.
+// It is made one line; every backtick, grave or acute mark and quote
+// mark a reader could take for one becomes a plain single quote, so it
+// cannot close its span or seem to; and a URL scheme, a mailto:, a
+// leading "www." and a bare domain followed by a path are broken so no
+// client draws a link. It is cut at max runes. Text with nothing to show
+// is said in words, since an empty span is two backticks Markdown shows
+// as they are: "empty" when it is blank, and "invisible characters
+// only" when it is not.
+func quoted(s string, max int) string {
+	blank := strings.TrimSpace(s) == ""
+	s = strings.Join(strings.Fields(blankMarks.Replace(askLine(s, max))), " ")
+	s = quoteMarks.Replace(s)
+	s = linkShape.ReplaceAllString(s, "${1}[:]//")
+	s = mailtoShape.ReplaceAllString(s, "${1}[:]")
+	s = wwwShape.ReplaceAllString(s, "${1}[.]")
+	s = pathShape.ReplaceAllString(s, "${1}[.]${2}${3}")
+	switch {
+	case s == "" && blank:
+		return "empty"
+	case s == "":
+		return "invisible characters only"
+	}
+	return "`" + s + "`"
+}
+
+// askLine is text made one line: format characters, which draw nothing
+// and can reorder what does, removed; controls and line separators made
+// spaces; cut at max runes.
+func askLine(s string, max int) string {
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case unicode.Is(unicode.Cf, r):
+			return -1
+		case unicode.IsControl(r), r == '\u2028', r == '\u2029':
+			return ' '
+		}
+		return r
+	}, strings.ToValidUTF8(s, "\ufffd"))
+	if utf8.RuneCountInString(s) > max {
+		s = string([]rune(s)[:max]) + "…"
+	}
+	return s
+}
+
+var (
+	// quoteMarks folds every backtick, grave or acute mark and quotation
+	// mark a reader could take for the question's own to a plain single
+	// quote.
+	quoteMarks = strings.NewReplacer("`", "'", "\u02cb", "'", "\uff40", "'", "\u1fef", "'", "\u00b4", "'",
+		"\u02ca", "'", "\u02f4", "'", "\u02f5", "'", "\u1ffd", "'", "\u1fed", "'", "\u1fee", "'",
+		"\u0384", "'", "\u0385", "'", `"`, "'", "\u2018", "'", "\u2019", "'", "\u201a", "'", "\u201b", "'",
+		"\u201c", "'", "\u201d", "'", "\u201e", "'", "\u201f", "'", "\u2032", "'", "\u2033", "'",
+		"\u00ab", "'", "\u00bb", "'", "\u2039", "'", "\u203a", "'", "\u301d", "'", "\u301e", "'",
+		"\u301f", "'", "\uff02", "'", "\uff07", "'", "\u02b9", "'", "\u02ba", "'", "\u02ee", "'",
+		"\u05f3", "'", "\u05f4", "'", "\u2035", "'", "\u2036", "'", "\u275b", "'", "\u275c", "'",
+		"\u275d", "'", "\u275e", "'", "\u3003", "'")
+	// blankMarks are characters drawn as blank space that are not format
+	// characters; they become spaces and collapse with the rest.
+	blankMarks = strings.NewReplacer("\u2800", " ", "\u3164", " ", "\uffa0", " ")
+	// No shape is anchored: \b is ASCII-only, and a class before the
+	// shape would consume a separator the next link needs. A match inside
+	// a longer word is broken too, which costs only a bracket.
+	//
+	// linkShape is a URL scheme followed by //, as a client links it.
+	linkShape = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*)://`)
+	// mailtoShape is a mail link without //.
+	mailtoShape = regexp.MustCompile(`(?i)(mailto):`)
+	// wwwShape is a host a client links without a scheme.
+	wwwShape = regexp.MustCompile(`(?i)(www)\.`)
+	// pathShape is a bare domain followed by a path, a port, a query or a
+	// fragment, x.example/..., which a client links too; its last dot is
+	// broken. Letters and their marks from any script count, so a
+	// non-ASCII domain is broken as well.
+	pathShape = regexp.MustCompile(`(?i)([\p{L}\p{M}\p{N}-]+(?:\.[\p{L}\p{M}\p{N}-]+)*)\.([\p{L}\p{M}]{2,63})([/:?#])`)
+)

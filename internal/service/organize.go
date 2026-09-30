@@ -383,6 +383,18 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 	if becomes == "" {
 		becomes = f.MimeType
 	}
+	if in.DryRun {
+		where := parentName
+		if where == "" {
+			where = "the folder it is in now"
+		}
+		note := fmt.Sprintf("Would copy it as %s into %s", name, where)
+		if convert != "" {
+			note += ", imported as " + model.KindName(convert)
+		}
+		return s.report(ctx, res, outcome{Action: render.ActionCopied, DryRun: true,
+			Note: note + ". Nothing was copied."}), nil
+	}
 	if err := s.assignIDFor(ctx, meta, becomes); err != nil {
 		return nil, err
 	}

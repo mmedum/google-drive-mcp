@@ -56,13 +56,16 @@ func registerDrives(s *mcp.Server, d Deps) []string {
 			"Members are not managed here: a member is a permission on the drive, so share_file and " +
 			"unshare_file add and remove them with the drive as the target. " +
 			"Restrictions: " + strings.Join(model.DriveRestrictionNames, ", ") + ". " +
+			"With GDRIVE_SHARING=off a restriction may be turned on but not off. Turning one off is also put " +
+			"to the person when the client can ask; a call they do not confirm is [blocked], and is not made " +
+			"again unless they ask. " +
 			"Deleting a shared drive is a separate, gated tool.",
 		Annotations: idempotentWrite,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageDriveInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "manage_drive", func(ctx context.Context, in ManageDriveInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ManageDrive(ctx, service.ManageDriveInput{
 			Action: in.Action, Drive: in.Drive, Name: in.Name,
 			Restrictions: in.Restrictions, DryRun: in.DryRun,
 		}))
-	})
+	}))
 	return []string{"list_drives", "manage_drive"}
 }

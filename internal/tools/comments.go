@@ -41,6 +41,7 @@ type DeleteCommentInput struct {
 	Comment string `json:"comment" jsonschema:"the thread to delete, by the id list_comments shows"`
 	Reply   string `json:"reply,omitempty" jsonschema:"delete one reply instead of the whole thread, by its id"`
 	Confirm bool   `json:"confirm,omitempty" jsonschema:"required to actually delete. Without it the call is refused, because there is no trash for a comment and nothing brings the words back."`
+	DryRun  bool   `json:"dry_run,omitempty" jsonschema:"report what would be deleted and delete nothing"`
 }
 
 // AccessRequestsInput selects a file's pending requests.
@@ -152,13 +153,13 @@ func registerComments(s *mcp.Server, d Deps) []string {
 		Name: "delete_comment",
 		Description: "Delete a comment thread, or one reply in it, permanently. THERE IS NO UNDO: Drive keeps " +
 			"the thread with its words removed and nothing brings them back. Resolving a thread with " +
-			"reply_comment is what closes a conversation; this removes it. Needs confirm: true.",
+			"reply_comment is what closes a conversation; this removes it. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "delete_comment", func(ctx context.Context, in DeleteCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteComment(ctx, service.DeleteCommentInput{
-			File: in.File, Comment: in.Comment, Reply: in.Reply, Confirm: in.Confirm,
+			File: in.File, Comment: in.Comment, Reply: in.Reply, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
-	})
+	}))
 	return append(names, "delete_comment")
 }

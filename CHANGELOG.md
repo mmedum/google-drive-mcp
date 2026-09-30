@@ -6,6 +6,27 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The server asks the person, through the MCP client, before the destructive five, before a share to `anyone`, a `domain:` or a new owner, and before `manage_drive` turns a restriction off. Anything but Accept is `[blocked]` and changes nothing. A client without elicitation gets no question.
+- `GDRIVE_REQUIRE_PROMPT=true` refuses those writes when the client cannot ask.
+- `delete_comment` takes `dry_run`.
+
+### Changed
+
+- **Breaking:** a `domain:` grant in `share_file` needs `allow_domain: true`, as `anyone` needs `allow_anyone: true`.
+- **Breaking:** a client that declares elicitation but has no person to answer, such as `claude -p`, can no longer make the writes that ask.
+- **Breaking:** with `GDRIVE_SHARING=off`, `manage_drive` refuses to turn a shared drive's restriction off.
+- Reversible writes (`move_file`, `trash_file`, `restore_file`, `update_file`, `unshare_file`, `manage_drive`, `manage_revision`) now say `destructiveHint: false`; an unset hint reads as destructive.
+- `update_content` says `destructiveHint: true`, and its description says an unpinned old revision lasts about 30 days, or fewer once a file has 100.
+- `download_file` is no longer marked read-only, since it writes a local file; read-only mode still registers it.
+
+### Fixed
+
+- `copy_file` with `dry_run` on a single file copied it; it now copies nothing.
+- `manage_drive restrict` failed with `Bad Request` since 1.1.0: it sent the drive's `downloadRestriction` back, which Drive refuses. It now sends only the switches that change.
+- `manage_drive restrict` could never turn a restriction off, and said it had: a switch set to false was left out of the patch, and Drive keeps a switch it is not sent. The result now reads what changed from Drive's answer.
+
 ## [1.3.0] - 2026-09-26
 
 ### Added

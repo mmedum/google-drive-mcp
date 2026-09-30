@@ -19,6 +19,9 @@ type Deps struct {
 	Service *service.Service
 	Config  config.Config
 	Logger  *slog.Logger
+
+	// asking is this server's way to the person, made by Register.
+	asking *asking
 }
 
 // FullSurface is the configuration under which every tool registers.
@@ -64,6 +67,8 @@ func Register(s *mcp.Server, d Deps) []string {
 	if d.Logger == nil {
 		d.Logger = slog.New(slog.DiscardHandler)
 	}
+	d.asking = newAsking(d.Logger)
+	s.AddReceivingMiddleware(askFailures(d.asking))
 	names := registerRead(s, d)
 	names = append(names, registerContent(s, d)...)
 	if !d.Config.ReadOnly {
@@ -108,13 +113,27 @@ func fail(err error) error {
 	return errors.New("[unexpected] " + err.Error())
 }
 
+// asksNote closes the description of every tool that asks the person.
+const asksNote = " When the client can, the server also asks the person before the write; a call they do not " +
+	"confirm is [blocked], and is not made again unless they ask."
+
 var (
 	readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)}
 	// write adds something without removing anything.
 	write = &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}
 	// idempotentWrite sets a state rather than adding to one, so calling
-	// it twice with the same arguments leaves the same result.
-	idempotentWrite = &mcp.ToolAnnotations{IdempotentHint: true, OpenWorldHint: new(false)}
+	// it twice with the same arguments leaves the same result. Each one
+	// can be set back, so none is destructive: the specification's
+	// default for an unset destructiveHint is true, which is why it is
+	// written out.
+	idempotentWrite = &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}
+	// replacing overwrites what is there. The old content survives only
+	// as a revision Drive may purge, so it is destructive.
+	replacing = &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)}
+	// localWrite reads Drive and writes a new local file. It is not
+	// read-only, and it never overwrites a local file, so it is not
+	// destructive either.
+	localWrite = &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}
 	// destructive removes something with no way back. Calling it twice is
 	// harmless only because the second call finds nothing left, which is
 	// not what idempotent is for, so it is not marked as such.
