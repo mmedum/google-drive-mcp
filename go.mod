@@ -1,4 +1,4 @@
-module github.com/mmedum/google-drive-mcp
+module github.com/mmedum/google-drive-mcp/v2
 
 go 1.27.1
 

@@ -3,7 +3,7 @@
 GO       ?= go
 BIN      ?= ./google-drive-mcp
 VERSION  ?= dev
-PKG       = github.com/mmedum/google-drive-mcp
+PKG       = github.com/mmedum/google-drive-mcp/v2
 LDFLAGS   = -s -w -X $(PKG)/internal/version.Version=$(VERSION)
 COVER_MIN ?= 80
 # Tool versions are pinned: @latest means today's green build cannot be
