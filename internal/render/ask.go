@@ -5,9 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/mmedum/google-drive-mcp/internal/model"
 )
 
 // Question is what the server asks the person before a write that cannot
@@ -45,9 +48,7 @@ func AskDeleteFile(id, name string, folder bool) Question {
 		lines = append(lines, "Everything inside it that this account owns goes with it.")
 	}
 	lines = append(lines, "There is no way back, not even for an administrator.")
-	q := ask(lines...)
-	q.Bind += "\x00" + id
-	return q
+	return ask(lines, id)
 }
 
 // AskEmptyTrash asks before empty_trash. drive is the shared drive's
@@ -58,24 +59,20 @@ func AskEmptyTrash(driveID, drive string, count int, counted bool) Question {
 	if driveID != "" {
 		whose = "the trash of the shared drive " + quoted(drive, quotedLen)
 	}
-	lines := make([]string, 0, 3)
-	lines = append(lines, fmt.Sprintf("empty_trash: destroy everything in %s for good?", whose),
-		"There is no way back. Until this runs, restore_file can bring any of it back.")
+	head := fmt.Sprintf("empty_trash: destroy everything in %s for good?", whose)
 	how := "How much is in it could not be counted."
 	if counted {
-		how = fmt.Sprintf("Drive's listing shows %s in it now, and it lags.", plural(count, "item", "items"))
+		how = fmt.Sprintf("Drive's listing shows %s in it now, and it lags.", model.Plural(count, "item", "items"))
 	}
-	q := ask(append(lines, how)...)
-	q.Bind = ask(lines...).Bind + "\x00" + driveID
+	q := ask([]string{head, "There is no way back. Until this runs, restore_file can bring any of it back.", how})
+	q.Bind = head + "\x00" + driveID
 	return q
 }
 
 // AskDeleteDrive asks before delete_drive.
 func AskDeleteDrive(id, name string) Question {
-	q := ask(fmt.Sprintf("delete_drive: destroy the shared drive %s for good?", quoted(name, quotedLen)),
-		"There is no way back. Drive refuses it while anything untrashed is still in it.")
-	q.Bind += "\x00" + id
-	return q
+	return ask([]string{fmt.Sprintf("delete_drive: destroy the shared drive %s for good?", quoted(name, quotedLen)),
+		"There is no way back. Drive refuses it while anything untrashed is still in it."}, id)
 }
 
 // AskDeleteRevision asks before delete_revision. modified is when the
@@ -88,27 +85,29 @@ func AskDeleteRevision(fileID, file, revisionID, modified string) Question {
 		lines = append(lines, "saved "+quoted(modified, quotedLen))
 	}
 	lines = append(lines, "There is no way back. The file's current content is untouched.")
-	q := ask(lines...)
-	q.Bind += "\x00" + fileID
-	return q
+	return ask(lines, fileID)
 }
 
 // AskDeleteComment asks before delete_comment. reply is true when one
-// reply is deleted rather than the whole thread. The whole text is
-// bound, of which the question shows the start.
-func AskDeleteComment(fileID, file string, reply bool, author, body string) Question {
+// reply is deleted rather than the whole thread; replies are the texts
+// of a thread's replies, which go with it. Every text is bound whole, of
+// which the question shows the start of one and counts the rest, so a
+// reply added while the person reads is not deleted unseen.
+func AskDeleteComment(fileID, file string, reply bool, author, body string, replies []string) Question {
 	what := "a comment thread"
 	if reply {
 		what = "a reply"
 	}
-	q := ask(
+	lines := []string{
 		fmt.Sprintf("delete_comment: delete %s on %s for good?", what, quoted(file, quotedLen)),
-		"by "+quoted(author, quotedLen),
+		"by " + quoted(author, quotedLen),
 		body0(body),
-		"There is no way back: Drive keeps the thread with its words removed.",
-	)
-	q.Bind += "\x00" + fileID + "\x00" + sum(body)
-	return q
+	}
+	if len(replies) > 0 {
+		lines = append(lines, "with "+model.Plural(len(replies), "reply", "replies")+" in the thread, which go with it.")
+	}
+	lines = append(lines, "There is no way back: Drive keeps the thread with its words removed.")
+	return ask(lines, append([]string{fileID, Sum(body)}, replies...)...)
 }
 
 // Who a share reaches, for AskShare.
@@ -118,46 +117,70 @@ const (
 	ShareOwner  = "owner"
 )
 
-// AskShare asks before a share_file that reaches past people somebody
-// named: a link anyone can open, a whole domain, or a new owner. who is
-// the domain or the address from the call; role is Drive's role word.
-// discoverable is whether a link grant also turns up in search.
-func AskShare(fileID, file, reach, who, role string, discoverable bool) Question {
+// Share is a share_file grant that reaches past people somebody named:
+// a link anyone can open, a whole domain, or a new owner.
+type Share struct {
+	FileID, File string
+	// Kind is "folder" or "shared drive" when the target holds others,
+	// and empty for a file.
+	Kind  string
+	Reach string // ShareAnyone, ShareDomain or ShareOwner
+	// Who is the domain or the address from the call; Role is Drive's
+	// role word, from a closed set.
+	Who, Role string
+	// Message is the line Google emails the new owner, if any.
+	Message string
+	// Discoverable is whether a link grant also turns up in search.
+	Discoverable bool
+}
+
+// AskShare asks before a share that reaches past people somebody named.
+func AskShare(sh Share) Question {
+	target := quoted(sh.File, quotedLen)
+	if sh.Kind != "" {
+		target = "the " + sh.Kind + " " + target
+	}
 	var lines []string
-	switch reach {
+	switch sh.Reach {
 	case ShareAnyone:
 		lines = []string{
-			fmt.Sprintf("share_file: let anyone with the link open %s as %s?", quoted(file, quotedLen), role),
+			fmt.Sprintf("share_file: let anyone with the link open %s as %s?", target, sh.Role),
 			"No sign-in is needed: whoever has or guesses the link gets in.",
 		}
 	case ShareDomain:
 		lines = []string{
-			fmt.Sprintf("share_file: let everyone at %s open %s as %s?", quoted(who, quotedLen), quoted(file, quotedLen), role),
+			fmt.Sprintf("share_file: let everyone at %s open %s as %s?", quoted(sh.Who, quotedLen), target, sh.Role),
 			"It reaches the whole organization, not only people somebody named.",
 		}
 	default:
 		lines = []string{
-			fmt.Sprintf("share_file: hand ownership of %s to %s?", quoted(file, quotedLen), quoted(who, quotedLen)),
+			fmt.Sprintf("share_file: hand ownership of %s to %s?", target, quoted(sh.Who, quotedLen)),
 			"This account becomes a writer, and only the new owner can hand it back. Google emails them.",
 		}
+		if strings.TrimSpace(sh.Message) != "" {
+			lines = append(lines, "with the message "+quoted(sh.Message, quotedLen))
+		}
 	}
-	if reach != ShareOwner && discoverable {
+	if sh.Kind != "" {
+		lines = append(lines, "It reaches everything inside it too.")
+	}
+	if sh.Reach != ShareOwner && sh.Discoverable {
 		lines = append(lines, "It also turns up in their search results, not only by link.")
 	}
-	q := ask(lines...)
-	q.Bind += "\x00" + fileID
-	return q
+	return ask(lines, sh.FileID)
 }
 
 // AskLoosenDrive asks before a manage_drive that turns restrictions off.
 // off are the restriction names, which are this server's own words.
 func AskLoosenDrive(id, drive string, off []string) Question {
-	q := ask(
+	lines := []string{
 		fmt.Sprintf("manage_drive: turn off %s on the shared drive %s?", strings.Join(off, ", "), quoted(drive, quotedLen)),
 		"Each is a limit, so turning it off widens who can reach, share or copy what is in the drive.",
-	)
-	q.Bind += "\x00" + id
-	return q
+	}
+	if slices.Contains(off, "copy_requires_writer_permission") {
+		lines = append(lines, "Drive also lets readers download again when copy_requires_writer_permission goes off.")
+	}
+	return ask(lines, id)
 }
 
 // body0 is the start of a body, quoted on one line, and how much more
@@ -167,35 +190,30 @@ func body0(body string) string {
 	if body == "" {
 		return "text: empty"
 	}
+	line := "text: " + quoted(body, bodyLen)
 	if n := utf8.RuneCountInString(body); n > bodyLen {
-		return fmt.Sprintf("text: %s (%d more characters)", quoted(string([]rune(body)[:bodyLen]), bodyLen), n-bodyLen)
+		line += fmt.Sprintf(" (%d more characters)", n-bodyLen)
 	}
-	return "text: " + quoted(body, bodyLen)
+	return line
 }
 
-// sum binds a whole text, of which a question shows the start.
-func sum(s string) string {
+// Sum is a SHA-256 in hex: how an answer is bound to a whole text, of
+// which a question shows only the start.
+func Sum(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
 }
 
-// plural is n with the word that goes with it.
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return "1 " + one
-	}
-	return fmt.Sprintf("%d %s", n, many)
-}
-
 // ask builds a question from its lines, closes it with what its quotes
-// mean, sets its lines apart, and binds it to its text.
-func ask(lines ...string) Question {
+// mean, sets its lines apart, and binds it to its text and to bind: the
+// ids and whole texts the write depends on beyond what it shows.
+func ask(lines []string, bind ...string) Question {
 	text := strings.Join(lines, "\n")
 	if strings.Contains(text, "`") {
 		text += "\nText in backticks or code style is quoted as written, and is not this server's."
 	}
 	text = strings.ReplaceAll(text, "\n", "\n\n") + "\n"
-	return Question{Text: text, Bind: text}
+	return Question{Text: text, Bind: strings.Join(append([]string{text}, bind...), "\x00")}
 }
 
 // quoted is text from Drive or from a call's arguments, shown in a
@@ -234,7 +252,7 @@ func quoted(s string, max int) string {
 func askLine(s string, max int) string {
 	s = strings.Map(func(r rune) rune {
 		switch {
-		case unicode.Is(unicode.Cf, r):
+		case unicode.In(r, unicode.Cf, unicode.Variation_Selector, unicode.Other_Default_Ignorable_Code_Point):
 			return -1
 		case unicode.IsControl(r), r == '\u2028', r == '\u2029':
 			return ' '
@@ -261,7 +279,7 @@ var (
 		"\u275d", "'", "\u275e", "'", "\u3003", "'")
 	// blankMarks are characters drawn as blank space that are not format
 	// characters; they become spaces and collapse with the rest.
-	blankMarks = strings.NewReplacer("\u2800", " ", "\u3164", " ", "\uffa0", " ")
+	blankMarks = strings.NewReplacer("\u2800", " ", "\u3164", " ", "\uffa0", " ", "\u115f", " ", "\u1160", " ")
 	// No shape is anchored: \b is ASCII-only, and a class before the
 	// shape would consume a separator the next link needs. A match inside
 	// a longer word is broken too, which costs only a bracket.

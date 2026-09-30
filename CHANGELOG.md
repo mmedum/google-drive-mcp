@@ -16,8 +16,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Breaking:** a `domain:` grant in `share_file` needs `allow_domain: true`, as `anyone` needs `allow_anyone: true`.
 - **Breaking:** a client that declares elicitation but has no person to answer, such as `claude -p`, can no longer make the writes that ask.
-- **Breaking:** with `GDRIVE_SHARING=off`, `manage_drive` refuses to turn a shared drive's restriction off.
-- Reversible writes (`move_file`, `trash_file`, `restore_file`, `update_file`, `unshare_file`, `manage_drive`, `manage_revision`) now say `destructiveHint: false`; an unset hint reads as destructive.
+- **Breaking:** with `GDRIVE_SHARING=off`, `manage_drive` refuses to turn a shared drive's restriction off, and `update_file` refuses to let viewers copy a file or editors reshare it.
+- Reversible writes (`move_file`, `trash_file`, `restore_file`, `update_file`, `unshare_file`, `manage_drive`) now say `destructiveHint: false`, and `manage_revision` says `true`, since `unkeep` lets Drive purge a revision; an unset hint reads as destructive.
 - `update_content` says `destructiveHint: true`, and its description says an unpinned old revision lasts about 30 days, or fewer once a file has 100.
 - `download_file` is no longer marked read-only, since it writes a local file; read-only mode still registers it.
 

@@ -334,7 +334,7 @@ func (s *Service) DeleteComment(ctx context.Context, in DeleteCommentInput) (*Re
 		if err != nil {
 			return nil, s.commentError(err, f, commentID)
 		}
-		author, body, err := commentWords(c, replyID, f)
+		author, body, replies, err := commentWords(c, replyID, f)
 		if err != nil {
 			return nil, err
 		}
@@ -343,7 +343,7 @@ func (s *Service) DeleteComment(ctx context.Context, in DeleteCommentInput) (*Re
 				"%s on %s would be deleted for good; Drive would keep the thread with its words removed.",
 				what, f.Name)}), nil
 		}
-		if err := ask(ctx, render.AskDeleteComment(f.ID, f.Name, replyID != "", author, body)); err != nil {
+		if err := ask(ctx, render.AskDeleteComment(f.ID, f.Name, replyID != "", author, body, replies)); err != nil {
 			return nil, err
 		}
 	}
@@ -360,23 +360,24 @@ func (s *Service) DeleteComment(ctx context.Context, in DeleteCommentInput) (*Re
 }
 
 // commentWords is who wrote the comment or the reply about to be
-// deleted, and what it says.
-func commentWords(c *gdrive.Comment, replyID string, f *gdrive.File) (author, body string, err error) {
-	name := func(u *gdrive.User) string {
-		if u == nil {
-			return ""
-		}
-		return u.DisplayName
-	}
+// deleted and what it says, in the words list_comments uses, and for a
+// whole thread the texts of the replies that go with it.
+func commentWords(c *gdrive.Comment, replyID string, f *gdrive.File) (author, body string, replies []string, err error) {
+	m := model.NewComment(c)
 	if replyID == "" {
-		return name(c.Author), c.Content, nil
+		for _, r := range m.Replies {
+			if !r.Deleted {
+				replies = append(replies, r.Text)
+			}
+		}
+		return m.By, m.Text, replies, nil
 	}
-	for _, r := range c.Replies {
+	for _, r := range m.Replies {
 		if r.ID == replyID && !r.Deleted {
-			return name(r.Author), r.Content, nil
+			return r.By, r.Text, nil, nil
 		}
 	}
-	return "", "", Errorf(ClassNotFound, "comment %s on %s has no reply %s that this account can see. "+
+	return "", "", nil, Errorf(ClassNotFound, "comment %s on %s has no reply %s that this account can see. "+
 		"list_comments shows the reply ids.", c.ID, f.Name, replyID)
 }
 

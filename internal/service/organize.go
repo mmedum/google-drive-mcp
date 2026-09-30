@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mmedum/google-drive-mcp/internal/config"
 	"github.com/mmedum/google-drive-mcp/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/internal/model"
@@ -101,6 +102,15 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 	meta, changes, err := metaPatch(f, in, color, s.now())
 	if err != nil {
 		return nil, err
+	}
+	// The two sharing switches loosen a file the way a shared drive's
+	// restrictions do, and GDRIVE_SHARING=off refuses them the same way.
+	loosens := meta.CopyRequiresWriterPermission != nil && !*meta.CopyRequiresWriterPermission ||
+		meta.WritersCanShare != nil && *meta.WritersCanShare
+	if loosens && s.opts.Sharing == config.SharingOff {
+		return nil, Errorf(ClassForbidden, "this server was started with GDRIVE_SHARING=off, and letting viewers copy "+
+			"%s or editors reshare it would widen who can reach or pass on what is in it. Nothing was changed. "+
+			"Tightening either is still allowed.", f.Name)
 	}
 
 	if len(changes) == 0 {

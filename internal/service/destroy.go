@@ -150,10 +150,14 @@ func (s *Service) EmptyTrash(ctx context.Context, in EmptyTrashInput) (*Result, 
 			", with no way back. Items in the trash can be restored one by one with restore_file "+
 			"until this runs")
 	}
-	// The count is read only for a question that goes out: a confirmed
-	// call a client cannot ask about still pays nothing for it.
+	// The count is read only for a question that goes out. It is shown
+	// and not bound, so the round that brings the answer back, and a
+	// confirmed call a client cannot ask about, pay nothing for it.
 	if asks(ctx) {
-		count, counted := s.trashCount(ctx, driveID)
+		count, counted := 0, false
+		if shows(ctx) {
+			count, counted = s.trashCount(ctx, driveID)
+		}
 		if err := ask(ctx, render.AskEmptyTrash(driveID, driveName, count, counted)); err != nil {
 			return nil, err
 		}
