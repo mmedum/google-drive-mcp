@@ -206,7 +206,8 @@ the server will do at all:
 | `GDRIVE_REQUIRE_PROMPT` | `false` | Refuse the writes that ask the person when the client cannot ask them. |
 
 Before a write that cannot be undone, a share to anyone with the link, a
-whole domain or a new owner, or turning a shared drive's restriction
+whole domain, a new owner or someone outside your organization,
+accepting a request for access, or turning a shared drive's restriction
 off, the server asks you through your MCP client when the client
 supports elicitation. Anything but Accept stops the write.
 

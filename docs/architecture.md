@@ -272,11 +272,21 @@ undo a permanent delete.
 `confirm: true`, `allow_anyone`, `allow_domain` and
 `transfer_ownership` are arguments the model writes, and a persuaded
 model writes them too. So when the client can ask, the server asks the
-person itself, through MCP form elicitation, before seven writes:
+person itself, through MCP form elicitation, before eight writes:
 `delete_file`, `empty_trash`, `delete_drive`, `delete_revision`,
 `delete_comment`; `share_file` when it grants `anyone`, a whole
-`domain:` or ownership; and `manage_drive` when it turns a restriction
-off.
+`domain:` or ownership, or widens a grant to a person or group outside
+the account's organization; `resolve_access_request` when it accepts;
+and `manage_drive` when it turns a restriction off.
+
+Outside means an address whose domain is not the signed-in account's.
+A personal Google address is always outside, since two of them share a
+domain and no organization, and so is a secondary domain of the same
+organization: the server cannot tell it apart, and asks a question too
+many rather than one too few. A share inside the organization, and one
+that only narrows a grant, asks nothing. Accepting an access request
+always asks, because the request and its message come from the person
+asking for access, which under injection is the attacker.
 
 1. **A second gate, not a replacement.** The arguments stay and are
    checked first. A call a guard refuses asks nothing. The question
@@ -1491,7 +1501,13 @@ and reports, that readers may download again; a share of a folder or a
 shared drive says it reaches everything inside; an ownership transfer
 shows its message; more invisible characters are stripped; and
 `update_file` may not loosen a file's two sharing switches with
-`GDRIVE_SHARING=off`. What it left open is in §17a. Run live again
+`GDRIVE_SHARING=off`. What it left open is in §17a. After it, by the
+maintainer's decision, a share outside the organization and accepting
+an access request ask too; `update_file`'s switches stay unasked, being
+reversible and reaching nobody new. Run live on the final build: 249 calls,
+all as expected, 15 questions. A share outside the organization is held
+by tests rather than the live run, which shares with a second person only
+under `-share`, and that flag also makes the ownership transfer. Run live again
 after it: 249 calls, all as expected, 14 questions — one fewer because a
 cleanup delete found its file already taken by the trash empty, which
 the driver accepts either way.
@@ -1549,11 +1565,10 @@ difference is a decision rather than a drift.
 
 Raised by the phase 7 reviews (2026-09-30) and left open on purpose:
 
-- **Grants that ask nothing.** A share to a named address or group, and
-  approving an access request, reach only people somebody named, so
-  they are outside the set §4a asks about. Under injection the
-  attacker is who names them. Asking for any grant outside the
-  account's own domain is the next step if the maintainer wants it.
+- **Grants inside the organization ask nothing.** A share to a
+  colleague is routine, and asking on it would wear the question out
+  for the ones that matter (§4a). Under injection, a colleague's address
+  is still one somebody named.
 - **`update_file`'s two sharing switches ask nothing.** Letting viewers
   copy a file or editors reshare it is refused with
   `GDRIVE_SHARING=off`, as the drive-level switches are, but not asked.

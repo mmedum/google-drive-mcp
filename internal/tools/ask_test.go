@@ -60,6 +60,7 @@ func fixtures(t *testing.T) *drivetest.Server {
 	fake.SetContent("id-budget-fixture", "second")
 	fake.AddDrive("id-drive-empty", "Empty drive")
 	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
+	fake.AddProposal("id-notes-fixture", "id-request-fixture", "outsider@example.org", "writer")
 	return fake
 }
 
@@ -135,6 +136,11 @@ var askCases = map[string]askCase{
 		args:   map[string]any{"file": "id-budget-fixture", "principal": "anyone", "role": "reader", "allow_anyone": true},
 		method: http.MethodPost, path: "/permissions",
 		shows: []string{"let anyone with the link open `Budget.xlsx` as reader"},
+	},
+	"resolve_access_request": {
+		args:   map[string]any{"file": "id-notes-fixture", "request": "id-request-fixture", "action": "accept"},
+		method: http.MethodPost, path: ":resolve",
+		shows: []string{"let `outsider@example.org` open `Meeting notes` as writer", "asked for it themselves"},
 	},
 	"manage_drive": {
 		args: map[string]any{"action": "restrict", "drive": "Marketing",
@@ -227,7 +233,7 @@ func TestEveryToolThatTakesConfirmAsks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"share_file": true, "manage_drive": true}
+	want := map[string]bool{"share_file": true, "manage_drive": true, "resolve_access_request": true}
 	registered := map[string]bool{}
 	for _, tool := range res.Tools {
 		registered[tool.Name] = true
@@ -271,6 +277,31 @@ func TestAClientThatCannotAsk(t *testing.T) {
 	}
 }
 
+// A new grant to a person outside the account's organization asks,
+// and one inside it does not.
+func TestAShareOutsideTheOrganizationAsks(t *testing.T) {
+	for _, tc := range []struct {
+		who  string
+		asks bool
+	}{
+		{"colleague@example.com", false},
+		{"someone@example.org", true},
+		{"group:team@example.net", true},
+	} {
+		p := &person{action: "decline"}
+		cs, fake := connect(t, everything(), "2026-07-28", p)
+		res := callTool(t, cs, &mcp.CallToolParams{Name: "share_file", Arguments: map[string]any{
+			"file": "id-budget-fixture", "principal": tc.who, "role": "writer"}})
+		asked := len(p.asked()) == 1
+		if asked != tc.asks || res.IsError != tc.asks || (fake.Count(http.MethodPost) > 0) == tc.asks {
+			t.Errorf("%s: asked %v, refused %v: %s", tc.who, asked, res.IsError, text(res))
+		}
+		if tc.asks && asked && !strings.Contains(p.asked()[0].Message, "outside this account's organization") {
+			t.Errorf("%s: %s", tc.who, p.asked()[0].Message)
+		}
+	}
+}
+
 // A dry run, and a write that stays among people somebody named, ask
 // nothing.
 func TestWhatAsksNothing(t *testing.T) {
@@ -280,6 +311,8 @@ func TestWhatAsksNothing(t *testing.T) {
 		{Name: "delete_file", Arguments: map[string]any{"file": "id-budget-fixture", "dry_run": true}},
 		{Name: "delete_comment", Arguments: map[string]any{"file": "id-notes-fixture", "comment": "id-comment-fixture", "dry_run": true}},
 		{Name: "share_file", Arguments: map[string]any{"file": "id-budget-fixture", "principal": "someone@example.com", "role": "reader"}},
+		{Name: "resolve_access_request", Arguments: map[string]any{"file": "id-notes-fixture", "request": "id-request-fixture",
+			"action": "accept", "dry_run": true}},
 		{Name: "manage_drive", Arguments: map[string]any{"action": "restrict", "drive": "Marketing",
 			"restrictions": map[string]any{"members_only": true}}},
 		{Name: "manage_drive", Arguments: map[string]any{"action": "rename", "drive": "Marketing", "name": "Brand"}},

@@ -80,8 +80,9 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 			"and handing over ownership needs " +
 			"transfer_ownership: true; without those the call is refused. No email is sent unless notify is set. " +
 			"What may actually be shared is decided by the organization's own policy, which Google enforces: a " +
-			"refusal comes back as [blocked] with Google's own words. A link for anyone, a domain-wide grant and an " +
-			"ownership transfer are also put to the person when the client can ask; one they do not confirm is " +
+			"refusal comes back as [blocked] with Google's own words. A link for anyone, a domain-wide grant, a new " +
+			"grant to someone outside this account's organization and an ownership transfer are also put to the " +
+			"person when the client can ask; one they do not confirm is " +
 			"[blocked], and is not made again unless they ask.",
 		Annotations: write,
 	}, asked(d, "share_file", func(ctx context.Context, in ShareInput) (*mcp.CallToolResult, *render.WriteJSON, error) {

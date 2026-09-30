@@ -135,14 +135,14 @@ func registerComments(s *mcp.Server, d Deps) []string {
 			Description: "Accept or deny somebody's request to be let into a file. Accepting GRANTS THEM " +
 				"ACCESS, so this reports who could see the file before and who can see it after, the way " +
 				"share_file does. Left without a role, an acceptance grants the role the person asked for; a " +
-				"request naming more than one is refused rather than guessed at. No mail unless notify is set.",
+				"request naming more than one is refused rather than guessed at. No mail unless notify is set." + asksNote,
 			Annotations: write,
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in ResolveAccessRequestInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+		}, asked(d, "resolve_access_request", func(ctx context.Context, in ResolveAccessRequestInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 			return result(d.Service.ResolveAccessRequest(ctx, service.ResolveAccessRequestInput{
 				File: in.File, Request: in.Request, Action: in.Action, Role: in.Role,
 				Notify: in.Notify, DryRun: in.DryRun,
 			}))
-		})
+		}))
 		names = append(names, "resolve_access_request")
 	}
 
