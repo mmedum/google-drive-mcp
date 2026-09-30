@@ -11,7 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 // Scheme is the URI scheme this server's resources live under. It is the

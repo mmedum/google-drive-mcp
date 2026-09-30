@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
 // benchTree builds a tree of n items to lay out. It is the renderer's

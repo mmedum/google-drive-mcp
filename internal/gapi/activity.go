@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 // The Drive Activity API is a separate service on its own host, with its

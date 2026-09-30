@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 func TestPermissionsAreCreatedUpdatedAndRemoved(t *testing.T) {

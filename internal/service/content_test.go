@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/mediatype"
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/mediatype"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 // withLocalDir builds a service whose transfers land in a temporary

@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/internal/model"
-	"github.com/mmedum/google-drive-mcp/internal/redact"
-	"github.com/mmedum/google-drive-mcp/internal/version"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v2/internal/version"
 )
 
 // statusSchemaVersion is the version of the JSON object `status --json`

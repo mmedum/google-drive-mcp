@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 // handleListRevisions serves revisions.list, oldest first as Drive sends

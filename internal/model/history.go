@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 // Revision is the server's view of one version of a file's content.

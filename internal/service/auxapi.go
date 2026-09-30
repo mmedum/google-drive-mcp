@@ -3,7 +3,7 @@ package service
 import (
 	"fmt"
 
-	"github.com/mmedum/google-drive-mcp/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
 )
 
 // Two of this server's features are not Drive. Labels are defined by the

@@ -1,10 +1,9 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 6 complete (2026-09-06), released as v1.3.0. Phase 7
-is built and not yet released: the server asks the person before a
-write it cannot take back or that opens a file past people somebody
-named (§4a), and six defects are fixed, two of them found by its live
-run (§16). A default
+**Status:** phase 7 complete (2026-09-30), released as v2.0.0. The
+server asks the person before a write it cannot take back or that opens
+a file past people somebody named (§4a), and six defects are fixed, two
+of them found by its live run (§16). The Go module path is now `/v2`. A default
 build registers **31** tools; eight more exist behind a flag — the
 destructive five, plus `list_labels` and `manage_labels` under
 `GDRIVE_LABELS` and `list_activity` under `GDRIVE_ACTIVITY`. Those last
@@ -1449,7 +1448,7 @@ vocabulary holes, and the argument for a live driver recording what it
 SENT rather than a gate reading what it says it sends.
 
 
-**Phase 7 — the person confirms (v2.0.0). Built 2026-09-30.**
+**Phase 7 — the person confirms (v2.0.0). Done 2026-09-30.**
 The server asks the person, through MCP form elicitation, before the
 destructive five, before a share to `anyone`, a `domain:` or a new
 owner, and before `manage_drive` turns a restriction off (§4a). First,

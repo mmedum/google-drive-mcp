@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")

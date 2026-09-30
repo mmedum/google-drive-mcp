@@ -19,7 +19,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 // Entry is everything known about one media type. Every field is

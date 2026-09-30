@@ -13,9 +13,9 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/time/rate"
 
-	"github.com/mmedum/google-drive-mcp/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 // newClient wires a client to a fake Drive with the limiters wide open

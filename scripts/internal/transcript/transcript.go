@@ -35,7 +35,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/redact"
 )
 
 // A Transcript is the only way its program writes anything.

@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/mmedum/google-drive-mcp/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
 )
 
 // Asker puts a question to the person using the server before a write

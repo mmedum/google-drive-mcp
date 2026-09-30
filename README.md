@@ -38,7 +38,7 @@ policy refuses, and applying a label. §17a of
 ## Install
 
 ```
-go install github.com/mmedum/google-drive-mcp/cmd/google-drive-mcp@latest
+go install github.com/mmedum/google-drive-mcp/v2/cmd/google-drive-mcp@latest
 ```
 
 That puts the binary in Go's bin directory, which is often not on your

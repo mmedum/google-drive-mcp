@@ -5,7 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 // ReadFileInput selects a window of a file's text.

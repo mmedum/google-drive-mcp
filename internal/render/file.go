@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
 // cardHead is how any result introduces the file it is about: what it

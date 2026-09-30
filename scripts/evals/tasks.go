@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/mcpstdio"
 )
 
 // task is one thing a person might ask for, and how to tell whether it
