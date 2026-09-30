@@ -35,6 +35,7 @@ func TestQuotedIsOneInertLine(t *testing.T) {
 		{"x.example/y.example/z http://https://evil.example", span("x[.]example/y[.]example/z http[:]//https[:]//evil.example")},
 		{"www.www.evil.example mailto:mailto:someone@example.com", span("www[.]www[.]evil.example mailto[:]mailto[:]someone@example.com")},
 		{"pad\u2800\u2800\u2800ded", span("pad ded")},
+		{"\u115f\u1160\ufe0f\u034f", "invisible characters only"},
 		{" \t", "empty"},
 		{" \u200b\t", "invisible characters only"},
 		{"empty", span("empty")},
@@ -64,16 +65,16 @@ func TestQuestionsAreInertMarkdown(t *testing.T) {
 		"empty_trash_own":    AskEmptyTrash("", "", 0, false),
 		"delete_drive":       AskDeleteDrive("id-2", hostile),
 		"delete_revision":    AskDeleteRevision("id-1", hostile, hostile, hostile),
-		"delete_comment":     AskDeleteComment("id-1", hostile, true, hostile, hostile),
-		"share_file_anyone":  AskShare("id-1", hostile, ShareAnyone, "", "reader", true),
-		"share_file_domain":  AskShare("id-1", hostile, ShareDomain, hostile, "writer", false),
-		"share_file_owner":   AskShare("id-1", hostile, ShareOwner, hostile, "owner", false),
+		"delete_comment":     AskDeleteComment("id-1", hostile, false, hostile, hostile, []string{hostile}),
+		"share_file_anyone":  AskShare(Share{FileID: "id-1", File: hostile, Reach: ShareAnyone, Role: "reader", Discoverable: true}),
+		"share_file_domain":  AskShare(Share{FileID: "id-1", File: hostile, Kind: "folder", Reach: ShareDomain, Who: hostile, Role: "writer"}),
+		"share_file_owner":   AskShare(Share{FileID: "id-1", File: hostile, Reach: ShareOwner, Who: hostile, Role: "owner", Message: hostile}),
 		"manage_drive_loose": AskLoosenDrive("id-2", hostile, []string{"domain_users_only", "members_only"}),
 	}
 	// Every hostile field reaches its own span.
 	wantSpans := map[string]int{"delete_file": 1, "empty_trash": 1, "empty_trash_own": 0, "delete_drive": 1,
 		"delete_revision": 3, "delete_comment": 3, "share_file_anyone": 1, "share_file_domain": 2,
-		"share_file_owner": 2, "manage_drive_loose": 1}
+		"share_file_owner": 3, "manage_drive_loose": 1}
 	for name, q := range qs {
 		quotedSpans := 0
 		lines := strings.Split(strings.TrimSuffix(q.Text, "\n"), "\n\n")
@@ -122,13 +123,17 @@ func TestAQuestionBindsWhatTheWriteDependsOn(t *testing.T) {
 	if AskDeleteFile("id-1", "a", false).Bind == AskDeleteFile("id-2", "a", false).Bind {
 		t.Error("two files of one name bind the same answer")
 	}
-	if AskDeleteComment("id-1", "f", false, "x", "first words, then more").Bind ==
-		AskDeleteComment("id-1", "f", false, "x", "first words, then other").Bind {
+	if AskDeleteComment("id-1", "f", false, "x", "first words, then more", nil).Bind ==
+		AskDeleteComment("id-1", "f", false, "x", "first words, then other", nil).Bind {
 		t.Error("two comments that differ bind the same answer")
 	}
 	long := strings.Repeat("a", bodyLen)
-	if AskDeleteComment("id-1", "f", false, "x", long+"b").Bind == AskDeleteComment("id-1", "f", false, "x", long+"c").Bind {
+	if AskDeleteComment("id-1", "f", false, "x", long+"b", nil).Bind == AskDeleteComment("id-1", "f", false, "x", long+"c", nil).Bind {
 		t.Error("a comment's words past what is shown are not bound")
+	}
+	if AskDeleteComment("id-1", "f", false, "x", "y", []string{"a"}).Bind ==
+		AskDeleteComment("id-1", "f", false, "x", "y", []string{"a", "b"}).Bind {
+		t.Error("a reply added to a thread is not bound")
 	}
 	a, b := AskEmptyTrash("id-1", "d", 3, true), AskEmptyTrash("id-1", "d", 4, true)
 	if a.Bind != b.Bind {

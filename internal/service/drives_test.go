@@ -200,7 +200,9 @@ func TestRestrictTurnsASwitchOffAndSendsOnlyWhatChanges(t *testing.T) {
 		if r.CopyRequiresWriterPermission != on {
 			t.Errorf("copy_requires_writer_permission = %v, want %v", r.CopyRequiresWriterPermission, on)
 		}
-		if len(got.JSON.Changes) != 1 || got.JSON.Note != "" {
+		// The copy switch and the readers' download restriction move
+		// together, and both are reported.
+		if len(got.JSON.Changes) != 2 || got.JSON.Note != "" {
 			t.Errorf("changes %+v, note %q", got.JSON.Changes, got.JSON.Note)
 		}
 	}
@@ -228,6 +230,28 @@ func TestSharingOffKeepsRestrictionsOn(t *testing.T) {
 		Restrictions: map[string]bool{"members_only": true},
 	}); err != nil {
 		t.Fatalf("turning a restriction on was refused: %v", err)
+	}
+}
+
+// TestSharingOffKeepsFileSwitchesTight is the same rule for a file's
+// own sharing switches in update_file.
+func TestSharingOffKeepsFileSwitchesTight(t *testing.T) {
+	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
+	fake.Files["id-budget-fixture"].CopyRequiresWriterPermission = true
+	yes, no := true, false
+	for _, in := range []service.UpdateFileInput{
+		{File: "id-budget-fixture", CopyRequiresWriterPermission: &no},
+		{File: "id-budget-fixture", WritersCanShare: &yes},
+	} {
+		if _, err := svc.UpdateFile(t.Context(), in); err == nil || !strings.HasPrefix(err.Error(), "[forbidden]") {
+			t.Errorf("%+v: err = %v, want a forbidden refusal", in, err)
+		}
+	}
+	if !fake.Files["id-budget-fixture"].CopyRequiresWriterPermission {
+		t.Error("the refusal still loosened the file")
+	}
+	if _, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{File: "id-budget-fixture", WritersCanShare: &no}); err != nil {
+		t.Errorf("tightening was refused: %v", err)
 	}
 }
 

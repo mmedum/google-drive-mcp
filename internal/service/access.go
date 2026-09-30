@@ -242,21 +242,44 @@ func (p sharePlan) changesAnything() bool {
 	return false
 }
 
+// findable is whether a domain or anyone grant turns up in search once
+// made: what this call asks for, or what the grant already has when the
+// call leaves it out.
+func (p sharePlan) findable() bool {
+	if p.discoverable == nil {
+		return p.existing != nil && p.existing.Discoverable
+	}
+	return *p.discoverable
+}
+
 // question is what the person is asked before a grant that reaches past
 // people somebody named: a link anyone can open, a whole domain, or a
 // new owner. Any other grant asks nothing.
 func (p sharePlan) question() (render.Question, bool) {
-	discoverable := p.discoverable != nil && *p.discoverable ||
-		p.discoverable == nil && p.existing != nil && p.existing.Discoverable
+	sh := render.Share{FileID: p.file.ID, File: p.file.Name, Role: p.role, Discoverable: p.findable()}
+	switch {
+	case p.file.DriveID != "" && p.file.ID == p.file.DriveID:
+		sh.Kind = "shared drive"
+	case p.file.IsFolder():
+		sh.Kind = "folder"
+	}
+	// A change that only narrows an existing grant — a lower role, or no
+	// longer in search — reaches nobody new, and asks nothing.
+	widens := p.existing == nil || model.RoleWidens(p.existing.Role, p.role) ||
+		p.findable() && !p.existing.Discoverable
 	switch {
 	case p.role == model.RoleOwner:
-		return render.AskShare(p.file.ID, p.file.Name, render.ShareOwner, p.principal.email, p.role, false), true
+		sh.Reach, sh.Who, sh.Message, sh.Discoverable = render.ShareOwner, p.principal.email, p.message, false
+	case !widens:
+		return render.Question{}, false
 	case p.principal.kind == principalAnyone:
-		return render.AskShare(p.file.ID, p.file.Name, render.ShareAnyone, "", p.role, discoverable), true
+		sh.Reach = render.ShareAnyone
 	case p.principal.kind == principalDomain:
-		return render.AskShare(p.file.ID, p.file.Name, render.ShareDomain, p.principal.domain, p.role, discoverable), true
+		sh.Reach, sh.Who = render.ShareDomain, p.principal.domain
+	default:
+		return render.Question{}, false
 	}
-	return render.Question{}, false
+	return render.AskShare(sh), true
 }
 
 // applyShare makes the call: an update when the principal already has a
@@ -365,12 +388,8 @@ func (s *Service) shareNote(p sharePlan, after model.Sharing) string {
 		// What the grant is now, not what this call asked for: leaving
 		// discoverable out keeps whatever the grant already had, and the
 		// exposure a person needs to read is the resulting one.
-		findable := p.discoverable != nil && *p.discoverable
-		if p.discoverable == nil && p.existing != nil {
-			findable = p.existing.Discoverable
-		}
 		what := "anyone with the link can now reach it without signing in"
-		if findable {
+		if p.findable() {
 			what = "anyone on the internet can now reach it AND find it by search"
 		}
 		parts = append(parts, what)

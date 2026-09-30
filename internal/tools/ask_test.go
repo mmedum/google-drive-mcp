@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -146,10 +147,7 @@ var askCases = map[string]askCase{
 // argsFor is a case's arguments against fake, with the revision filled
 // in from what the fake holds.
 func argsFor(name string, fake *drivetest.Server) map[string]any {
-	args := map[string]any{}
-	for k, v := range askCases[name].args {
-		args[k] = v
-	}
+	args := maps.Clone(askCases[name].args)
 	if name == "delete_revision" {
 		args["revision"] = fake.Revisions["id-budget-fixture"][0].ID
 	}
@@ -341,7 +339,7 @@ func TestTheAnswerIsBoundToItsQuestion(t *testing.T) {
 	blocked(&mcp.CallToolParams{Name: "empty_trash", Arguments: map[string]any{"confirm": true}, InputResponses: accepted,
 		RequestState: state}, "another call")
 	blocked(&mcp.CallToolParams{Name: "trash_file", Arguments: map[string]any{"file": "id-budget-fixture"},
-		InputResponses: accepted, RequestState: state}, "asks the person nothing")
+		InputResponses: accepted, RequestState: state}, "not a tool here that asks the person")
 	if writes(fake, c) != 0 || fake.Count("/trash") != 0 {
 		t.Fatalf("%d writes before the answer", writes(fake, c))
 	}

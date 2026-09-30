@@ -17,6 +17,9 @@ type Asker interface {
 	// than let the write go ahead unasked: the client can ask, or the
 	// configuration requires it.
 	Asks() bool
+	// Shows reports whether Ask would put a new question to the person,
+	// rather than check an answer, refuse, or let the write go ahead.
+	Shows() bool
 }
 
 type askerKey struct{}
@@ -45,4 +48,12 @@ func ask(ctx context.Context, q render.Question) error {
 func asks(ctx context.Context) bool {
 	a, ok := ctx.Value(askerKey{}).(Asker)
 	return !ok || a.Asks()
+}
+
+// shows reports whether an asking write on ctx would put a new question,
+// so a write pays for what only the question shows, and not what it
+// binds, only then.
+func shows(ctx context.Context) bool {
+	a, ok := ctx.Value(askerKey{}).(Asker)
+	return ok && a.Shows()
 }

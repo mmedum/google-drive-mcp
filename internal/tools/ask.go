@@ -63,14 +63,14 @@ type asking struct {
 	lg  *slog.Logger
 
 	mu    sync.Mutex
-	used  map[string]time.Time // nonce → when it expires
-	tools map[string]bool      // the tools registered to ask
+	used  map[string]int64 // nonce → when it expires, in Unix seconds
+	tools map[string]bool  // the tools registered to ask
 }
 
 func newAsking(lg *slog.Logger) *asking {
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
-	return &asking{key: key, lg: lg, used: map[string]time.Time{}, tools: map[string]bool{}}
+	return &asking{key: key, lg: lg, used: map[string]int64{}, tools: map[string]bool{}}
 }
 
 // asks reports whether the tool was registered to ask.
@@ -124,7 +124,7 @@ func (a *asking) redeem(state, tool, args string, now time.Time) (askState, erro
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for n, exp := range a.used {
-		if now.Unix() > exp.Unix() {
+		if now.Unix() > exp {
 			delete(a.used, n)
 		}
 	}
@@ -135,7 +135,7 @@ func (a *asking) redeem(state, tool, args string, now time.Time) (askState, erro
 	if _, spent := a.used[st.Nonce]; spent {
 		return st, service.Errorf(service.ClassBlocked, "that answer was already used once; nothing was changed")
 	}
-	a.used[st.Nonce] = time.Unix(st.Expires, 0)
+	a.used[st.Nonce] = st.Expires
 	return st, nil
 }
 
@@ -174,8 +174,7 @@ var errAsking = service.Errorf(service.ClassBlocked, "the person has not answere
 func (p *person) args() string {
 	if p.argSum == "" {
 		raw, _ := json.Marshal(p.in)
-		sum := sha256.Sum256(raw)
-		p.argSum = hex.EncodeToString(sum[:])
+		p.argSum = render.Sum(string(raw))
 	}
 	return p.argSum
 }
@@ -240,6 +239,9 @@ func (a *asking) personFor(req *mcp.CallToolRequest, tool string, in any, requir
 // Asks implements service.Asker.
 func (p *person) Asks() bool { return p.answer != nil || p.canAsk || p.require }
 
+// Shows implements service.Asker.
+func (p *person) Shows() bool { return p.answer == nil && p.canAsk }
+
 // Ask implements service.Asker.
 func (p *person) Ask(_ context.Context, q render.Question) error {
 	if ans := p.answer; ans != nil {
@@ -287,10 +289,7 @@ func (p *person) inputRequest() *mcp.CallToolResult {
 }
 
 // questionSum binds a state to what the question binds.
-func questionSum(q render.Question) string {
-	sum := sha256.Sum256([]byte(q.Bind))
-	return hex.EncodeToString(sum[:])
-}
+func questionSum(q render.Question) string { return render.Sum(q.Bind) }
 
 // asked wraps the handler of a tool that asks the person before its
 // write. It is the only way to install an asker, so a service write that
@@ -375,8 +374,8 @@ func askFailures(a *asking) mcp.Middleware {
 				name = call.Params.Name
 			}
 			if p := call.Params; p != nil && (p.RequestState != "" || len(p.InputResponses) > 0) && !a.asks(p.Name) {
-				return errorResult(service.Errorf(service.ClassBlocked, "%s asks the person nothing, and the call "+
-					"came with an answer; nothing was done. Call it again without one", name)), nil
+				return errorResult(service.Errorf(service.ClassBlocked, "%s is not a tool here that asks the person, "+
+					"and the call came with an answer; nothing was done. Call it again without one", name)), nil
 			}
 			stage := &atomic.Int32{}
 			res, err := next(context.WithValue(ctx, stageKey{}, stage), method, req)

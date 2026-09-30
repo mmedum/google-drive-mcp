@@ -47,6 +47,7 @@ type accepting struct{}
 
 func (accepting) Ask(context.Context, render.Question) error { return nil }
 func (accepting) Asks() bool                                 { return true }
+func (accepting) Shows() bool                                { return true }
 
 // hitCount reads the count out of a rendered listing head without
 // keeping any of the names in it. The integration tests need the same
