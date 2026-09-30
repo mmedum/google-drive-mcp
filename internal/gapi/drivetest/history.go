@@ -1,7 +1,9 @@
 package drivetest
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -133,7 +135,7 @@ func (s *Server) handleDrive(w http.ResponseWriter, r *http.Request, driveID str
 
 func (s *Server) patchDrive(w http.ResponseWriter, r *http.Request, d *gdrive.Drive) {
 	var meta gdrive.DriveMeta
-	if !s.decodeJSON(w, r, &meta) {
+	if !s.decodeDriveMeta(w, r, &meta) {
 		return
 	}
 	s.mu.Lock()
@@ -152,10 +154,7 @@ func (s *Server) patchDrive(w http.ResponseWriter, r *http.Request, d *gdrive.Dr
 		d.Hidden = *meta.Hidden
 	}
 	if meta.Restrictions != nil {
-		// Drive replaces the whole object, which is why the client sends
-		// the restrictions it is keeping along with the one it changes.
-		copied := *meta.Restrictions
-		d.Restrictions = &copied
+		d.Restrictions = mergeRestrictions(d.Restrictions, meta.Restrictions)
 	}
 	s.recordDriveChangeLocked(d)
 	writeJSON(w, d)
@@ -194,7 +193,7 @@ func (s *Server) handleCreateDrive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var meta gdrive.DriveMeta
-	if !s.decodeJSON(w, r, &meta) {
+	if !s.decodeDriveMeta(w, r, &meta) {
 		return
 	}
 	if strings.TrimSpace(meta.Name) == "" {
@@ -216,8 +215,7 @@ func (s *Server) handleCreateDrive(w http.ResponseWriter, r *http.Request) {
 	d := s.AddDrive(id, meta.Name)
 	s.mu.Lock()
 	if meta.Restrictions != nil {
-		copied := *meta.Restrictions
-		d.Restrictions = &copied
+		d.Restrictions = mergeRestrictions(d.Restrictions, meta.Restrictions)
 	}
 	// The creator is the drive's organizer, which is what makes every
 	// item in it inherit a grant.
@@ -361,4 +359,60 @@ func (s *Server) recordDriveChangeLocked(d *gdrive.Drive) {
 		ChangeType: "drive", DriveID: d.ID, Drive: d,
 		Time: s.now().UTC().Format(time.RFC3339),
 	})
+}
+
+// decodeDriveMeta decodes a drives.create or drives.update body the way
+// Drive takes it: a restrictions object that carries downloadRestriction
+// is refused outright, even with the values the drive already holds
+// (§18, live 2026-09-30), and Drive's answer is a bare "Bad Request".
+func (s *Server) decodeDriveMeta(w http.ResponseWriter, r *http.Request, meta *gdrive.DriveMeta) bool {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
+	if err != nil {
+		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid request body: "+err.Error())
+		return false
+	}
+	var probe struct {
+		Restrictions map[string]json.RawMessage `json:"restrictions"`
+	}
+	if json.Unmarshal(raw, &probe) == nil {
+		if _, ok := probe.Restrictions["downloadRestriction"]; ok {
+			s.errorJSON(w, http.StatusBadRequest, "badRequest", "Bad Request")
+			return false
+		}
+	}
+	if err := json.Unmarshal(raw, meta); err != nil {
+		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid request body: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// mergeRestrictions applies a patch the way Drive does: switch by
+// switch, a switch left out keeping its value. Turning
+// copyRequiresWriterPermission on or off sets the download restriction
+// for readers with it, as Drive was seen to (§18, live 2026-09-30).
+func mergeRestrictions(cur *gdrive.DriveRestrictions, p *gdrive.DriveRestrictionsPatch) *gdrive.DriveRestrictions {
+	out := &gdrive.DriveRestrictions{}
+	if cur != nil {
+		*out = *cur
+	}
+	set := func(dst *bool, v *bool) {
+		if v != nil {
+			*dst = *v
+		}
+	}
+	set(&out.AdminManagedRestrictions, p.AdminManagedRestrictions)
+	set(&out.CopyRequiresWriterPermission, p.CopyRequiresWriterPermission)
+	set(&out.DomainUsersOnly, p.DomainUsersOnly)
+	set(&out.DriveMembersOnly, p.DriveMembersOnly)
+	set(&out.SharingFoldersRequiresOrganizerPermission, p.SharingFoldersRequiresOrganizerPermission)
+	if v := p.CopyRequiresWriterPermission; v != nil {
+		dr := gdrive.DownloadRestriction{}
+		if out.DownloadRestriction != nil {
+			dr = *out.DownloadRestriction
+		}
+		dr.RestrictedForReaders = *v
+		out.DownloadRestriction = &dr
+	}
+	return out
 }

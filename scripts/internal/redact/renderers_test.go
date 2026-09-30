@@ -154,6 +154,16 @@ func rendered() map[string]string {
 			}),
 		}, render.AccessRequestsOptions{Subject: "Budget.xlsx", Now: now, CanShare: true}),
 	}
+	out["questions"] = strings.Join([]string{
+		render.AskDeleteFile(fixtureID, "Budget.xlsx", false).Text,
+		render.AskEmptyTrash(fixtureDriveID, "Marketing", 2, true).Text,
+		render.AskDeleteDrive(fixtureDriveID, "Marketing").Text,
+		render.AskDeleteRevision(fixtureID, "Budget.xlsx", "id-revision-1", "2026-03-04T09:00:00Z").Text,
+		render.AskDeleteComment(fixtureID, "Budget.xlsx", false, other, "is this right?").Text,
+		render.AskDeleteComment(fixtureID, "Budget.xlsx", true, me, "yes").Text,
+		render.AskShare(fixtureID, "Budget.xlsx", render.ShareOwner, their, "owner", false).Text,
+		render.AskLoosenDrive(fixtureDriveID, "Marketing", []string{"domain_users_only"}).Text,
+	}, "\n")
 	return out
 }
 
@@ -343,8 +353,9 @@ func returnsOnlyString(fn *ast.FuncDecl) bool {
 	if fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
 		return false
 	}
+	// A Question is rendered text too: what the person is asked.
 	ident, ok := fn.Type.Results.List[0].Type.(*ast.Ident)
-	return ok && ident.Name == "string"
+	return ok && (ident.Name == "string" || ident.Name == "Question")
 }
 
 // renderedKey maps a renderer's Go name to the key it appears under in
@@ -365,6 +376,14 @@ var renderedKey = map[string]string{
 	"Changes":        "changes",
 	"FileText":       "file text",
 	"Download":       "download",
+	// Every question put to the person, joined in one fixture.
+	"AskDeleteFile":     "questions",
+	"AskEmptyTrash":     "questions",
+	"AskDeleteDrive":    "questions",
+	"AskDeleteRevision": "questions",
+	"AskDeleteComment":  "questions",
+	"AskShare":          "questions",
+	"AskLoosenDrive":    "questions",
 }
 
 // notRenderers are the exported string functions in internal/render that

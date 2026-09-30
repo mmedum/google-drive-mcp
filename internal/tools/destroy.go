@@ -54,54 +54,54 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 		Description: "Destroy a file or folder permanently, skipping the trash. THERE IS NO UNDO: not in Drive, " +
 			"not for an administrator, not through support. Deleting a folder takes everything inside it that " +
 			"this account owns. Use trash_file instead unless permanence is the point; a trashed item can be " +
-			"restored, and Drive clears the trash after 30 days anyway. Needs confirm: true.",
+			"restored, and Drive clears the trash after 30 days anyway. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "delete_file", func(ctx context.Context, in DeleteFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteFile(ctx, service.DeleteFileInput{
 			File: in.File, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
-	})
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "empty_trash",
 		Description: "Destroy everything in the trash permanently. THERE IS NO UNDO, and this is the one " +
 			"destructive call that does not name what it removes, so run it with dry_run first: that says how " +
 			"much is in there. Anything in the trash can still be brought back with restore_file until this " +
-			"runs. Needs confirm: true.",
+			"runs. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in EmptyTrashInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "empty_trash", func(ctx context.Context, in EmptyTrashInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.EmptyTrash(ctx, service.EmptyTrashInput{
 			Drive: in.Drive, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
-	})
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "delete_drive",
 		Description: "Destroy a shared drive permanently. THERE IS NO UNDO. Drive refuses it while the drive " +
 			"still holds anything untrashed, and this server never asks for the override that would take the " +
-			"contents with it: trash what is in there first, then empty_trash. Needs confirm: true.",
+			"contents with it: trash what is in there first, then empty_trash. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteDriveInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "delete_drive", func(ctx context.Context, in DeleteDriveInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteDrive(ctx, service.DeleteDriveInput{
 			Drive: in.Drive, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
-	})
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "delete_revision",
 		Description: "Destroy one old version of a file's content permanently. THERE IS NO UNDO. The file's " +
 			"current content is untouched. Drive allows this only for a file with bytes of its own, never for a " +
-			"Google Doc, Sheet or Slides deck, and never for the version the file is at now. Needs confirm: true.",
+			"Google Doc, Sheet or Slides deck, and never for the version the file is at now. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteRevisionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "delete_revision", func(ctx context.Context, in DeleteRevisionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteRevision(ctx, service.DeleteRevisionInput{
 			File: in.File, Revision: in.Revision, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
-	})
+	}))
 
 	return []string{"delete_file", "empty_trash", "delete_drive", "delete_revision"}
 }

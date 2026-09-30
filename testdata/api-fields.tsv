@@ -247,6 +247,7 @@ drive	Status	details	out	not read by any tool
 -	CommentMeta	*	local	the comments.create and comments.update body
 -	DownloadResponse	*	local	the shape download_file reduces a finished operation to: where to fetch the bytes from
 -	DriveMeta	*	local	the drives.create and drives.update body
+-	DriveRestrictionsPatch	*	local	the restrictions in that body: the switches a caller may set, with pointers so false is sent, and no downloadRestriction, which drives.update refuses
 -	FileMeta	*	local	the files.create, files.update and files.copy body: the fields of File a caller may set, with pointers so an unset field is not sent
 -	OperationMetadata	*	local	the metadata inside a download operation, not the Operation itself: it carries the resource key a link-shared file needs on the follow-up request, which Drive publishes under no schema of its own
 -	PermissionMeta	*	local	the permissions.create and permissions.update body

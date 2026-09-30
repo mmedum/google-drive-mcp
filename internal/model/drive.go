@@ -108,22 +108,47 @@ var DriveRestrictionNames = []string{
 // the patch here keeps the accepted words and the wire fields in one
 // place; a second copy in the service is how a typo becomes a switch
 // that silently never changes.
-func SetDriveRestriction(r *gdrive.DriveRestrictions, name string, on bool) bool {
+func SetDriveRestriction(r *gdrive.DriveRestrictionsPatch, name string, on bool) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "members_only":
-		r.DriveMembersOnly = on
+		r.DriveMembersOnly = &on
 	case "domain_users_only":
-		r.DomainUsersOnly = on
+		r.DomainUsersOnly = &on
 	case "copy_requires_writer_permission":
-		r.CopyRequiresWriterPermission = on
+		r.CopyRequiresWriterPermission = &on
 	case "admin_managed":
-		r.AdminManagedRestrictions = on
+		r.AdminManagedRestrictions = &on
 	case "folder_sharing_requires_organizer":
-		r.SharingFoldersRequiresOrganizerPermission = on
+		r.SharingFoldersRequiresOrganizerPermission = &on
 	default:
 		return false
 	}
 	return true
+}
+
+// DriveRestrictionAsked reads one switch out of a patch, and whether the
+// patch sets it at all.
+func DriveRestrictionAsked(p *gdrive.DriveRestrictionsPatch, name string) (on, ok bool) {
+	if p == nil {
+		return false, false
+	}
+	var v *bool
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "members_only":
+		v = p.DriveMembersOnly
+	case "domain_users_only":
+		v = p.DomainUsersOnly
+	case "copy_requires_writer_permission":
+		v = p.CopyRequiresWriterPermission
+	case "admin_managed":
+		v = p.AdminManagedRestrictions
+	case "folder_sharing_requires_organizer":
+		v = p.SharingFoldersRequiresOrganizerPermission
+	}
+	if v == nil {
+		return false, false
+	}
+	return *v, true
 }
 
 // DriveRestriction reads one restriction by the name a caller passes.

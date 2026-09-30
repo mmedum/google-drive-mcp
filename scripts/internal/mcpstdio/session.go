@@ -34,6 +34,9 @@ type Session struct {
 	// go out, so a call cannot be made without being counted.
 	onCall  func(tool string, args map[string]any)
 	options map[string][]string
+	// onElicit answers the server's questions to the person; when set,
+	// Initialize declares form elicitation.
+	onElicit func(message string) (action string)
 
 	mu     sync.Mutex
 	stderr []string
@@ -120,6 +123,14 @@ func (s *Session) request(method string, params any) (map[string]any, error) {
 		if err := json.Unmarshal([]byte(line), &reply); err != nil {
 			return nil, fmt.Errorf("stdout carried a line that is not JSON-RPC: %q", line)
 		}
+		if m, ok := reply["method"].(string); ok && reply["id"] != nil {
+			// The server's own request, made while this call waits on it:
+			// a question to the person, before 2026-07-28.
+			if err := s.answer(reply["id"], m, reply["params"]); err != nil {
+				return nil, fmt.Errorf("answer %s: %w", m, err)
+			}
+			continue
+		}
 		if got, ok := reply["id"].(float64); ok && int(got) == id {
 			if e, ok := reply["error"]; ok {
 				return nil, &RPCError{Method: method, Detail: message(e)}
@@ -136,6 +147,41 @@ func (s *Session) request(method string, params any) (map[string]any, error) {
 	return nil, fmt.Errorf("%s: the server closed the connection; stderr:\n%s",
 		method, strings.Join(s.StderrTail(20), "\n"))
 }
+
+// answer replies to one request the server sent: ping with an empty
+// result, elicitation/create through onElicit, anything else with
+// method-not-found.
+func (s *Session) answer(id any, method string, params any) error {
+	frame := map[string]any{"jsonrpc": "2.0", "id": id}
+	switch {
+	case method == "ping":
+		frame["result"] = map[string]any{}
+	case method == "elicitation/create" && s.onElicit != nil:
+		p, _ := params.(map[string]any)
+		message, _ := p["message"].(string)
+		result := map[string]any{"action": s.onElicit(message)}
+		if result["action"] == "accept" {
+			// The question's form has no fields (docs/architecture.md
+			// §4a): the accept is the answer.
+			result["content"] = map[string]any{}
+		}
+		frame["result"] = result
+	default:
+		frame["error"] = map[string]any{"code": -32601, "message": "this client does not take " + method}
+	}
+	raw, err := json.Marshal(frame)
+	if err != nil {
+		return err
+	}
+	_, err = s.stdin.Write(append(raw, '\n'))
+	return err
+}
+
+// OnElicit makes the session a client that can ask the person: it
+// declares form elicitation at Initialize, so it is set before, and f
+// answers each question the server puts with an action: accept,
+// decline or cancel.
+func (s *Session) OnElicit(f func(message string) (action string)) { s.onElicit = f }
 
 func (s *Session) notify(method string) error {
 	raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": method})
@@ -172,9 +218,13 @@ func message(e any) string {
 // Initialize completes the handshake and lists the tool surface.
 // name is what the server sees as the client.
 func (s *Session) Initialize(name string) (protocol string, tools []string, err error) {
+	capabilities := map[string]any{}
+	if s.onElicit != nil {
+		capabilities["elicitation"] = map[string]any{"form": map[string]any{}}
+	}
 	reply, err := s.request("initialize", map[string]any{
 		"protocolVersion": "2025-11-25",
-		"capabilities":    map[string]any{},
+		"capabilities":    capabilities,
 		"clientInfo":      map[string]any{"name": name, "version": "0"},
 	})
 	if err != nil {
