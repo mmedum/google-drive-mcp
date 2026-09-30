@@ -103,52 +103,25 @@ var DriveRestrictionNames = []string{
 	"admin_managed", "folder_sharing_requires_organizer",
 }
 
-// SetDriveRestriction turns one of DriveRestrictionNames on or off in a
-// restrictions body, and reports whether the name was known. Building
-// the patch here keeps the accepted words and the wire fields in one
-// place; a second copy in the service is how a typo becomes a switch
+// DriveRestrictionSwitch is where one of DriveRestrictionNames lives in a
+// restrictions patch, or nil for a name that is not one. Setting and
+// reading both go through it, which keeps the accepted words and the
+// wire fields in one place: a second copy is how a typo becomes a switch
 // that silently never changes.
-func SetDriveRestriction(r *gdrive.DriveRestrictionsPatch, name string, on bool) bool {
+func DriveRestrictionSwitch(p *gdrive.DriveRestrictionsPatch, name string) **bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "members_only":
-		r.DriveMembersOnly = &on
+		return &p.DriveMembersOnly
 	case "domain_users_only":
-		r.DomainUsersOnly = &on
+		return &p.DomainUsersOnly
 	case "copy_requires_writer_permission":
-		r.CopyRequiresWriterPermission = &on
+		return &p.CopyRequiresWriterPermission
 	case "admin_managed":
-		r.AdminManagedRestrictions = &on
+		return &p.AdminManagedRestrictions
 	case "folder_sharing_requires_organizer":
-		r.SharingFoldersRequiresOrganizerPermission = &on
-	default:
-		return false
+		return &p.SharingFoldersRequiresOrganizerPermission
 	}
-	return true
-}
-
-// DriveRestrictionAsked reads one switch out of a patch, and whether the
-// patch sets it at all.
-func DriveRestrictionAsked(p *gdrive.DriveRestrictionsPatch, name string) (on, ok bool) {
-	if p == nil {
-		return false, false
-	}
-	var v *bool
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "members_only":
-		v = p.DriveMembersOnly
-	case "domain_users_only":
-		v = p.DomainUsersOnly
-	case "copy_requires_writer_permission":
-		v = p.CopyRequiresWriterPermission
-	case "admin_managed":
-		v = p.AdminManagedRestrictions
-	case "folder_sharing_requires_organizer":
-		v = p.SharingFoldersRequiresOrganizerPermission
-	}
-	if v == nil {
-		return false, false
-	}
-	return *v, true
+	return nil
 }
 
 // DriveRestriction reads one restriction by the name a caller passes.

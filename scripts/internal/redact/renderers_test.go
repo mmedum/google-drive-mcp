@@ -159,9 +159,9 @@ func rendered() map[string]string {
 		render.AskEmptyTrash(fixtureDriveID, "Marketing", 2, true).Text,
 		render.AskDeleteDrive(fixtureDriveID, "Marketing").Text,
 		render.AskDeleteRevision(fixtureID, "Budget.xlsx", "id-revision-1", "2026-03-04T09:00:00Z").Text,
-		render.AskDeleteComment(fixtureID, "Budget.xlsx", false, other, "is this right?").Text,
-		render.AskDeleteComment(fixtureID, "Budget.xlsx", true, me, "yes").Text,
-		render.AskShare(fixtureID, "Budget.xlsx", render.ShareOwner, their, "owner", false).Text,
+		render.AskDeleteComment(fixtureID, "Budget.xlsx", false, other, "is this right?", []string{"yes"}).Text,
+		render.AskDeleteComment(fixtureID, "Budget.xlsx", true, me, "yes", nil).Text,
+		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOwner, Who: their, Role: "owner"}).Text,
 		render.AskLoosenDrive(fixtureDriveID, "Marketing", []string{"domain_users_only"}).Text,
 	}, "\n")
 	return out
@@ -392,6 +392,7 @@ var renderedKey = map[string]string{
 var notRenderers = map[string]string{
 	"StripDataURIs": "a text filter over content, not a result: it takes a string and gives one back",
 	"Checksum":      "one verdict word about a download's md5, with nothing in it but the verdict",
+	"Sum":           "a SHA-256 in hex that binds an answer to a text, never shown to anyone",
 	"Activity":      "asserted by TestActivityNamesNobody, which is stronger: it prints no person at all",
 	"Labels":        "a label definition as this server models it has no person in it to print",
 }

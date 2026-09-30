@@ -201,7 +201,7 @@ the server will do at all:
 |---|---|---|
 | `GDRIVE_LOCAL_DIR` | unset | The one directory downloads are written to and uploads are read from. **Unset means no file transfer at all.** |
 | `GDRIVE_READ_ONLY` | `false` | Register only read tools, and ask for read-only scopes at login. |
-| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, and keeps a shared drive's restrictions from being turned off. |
+| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, and keeps a shared drive's restrictions, and a file's copy and reshare switches, from being loosened. |
 | `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back. Each still needs `confirm: true` per call. |
 | `GDRIVE_REQUIRE_PROMPT` | `false` | Refuse the writes that ask the person when the client cannot ask them. |
 

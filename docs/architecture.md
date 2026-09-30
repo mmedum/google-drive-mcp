@@ -410,7 +410,7 @@ code holding the gates shut as the only code in the repository that was
 neither vetted, linted nor tested. As Go packages under `scripts/` they
 are all three, and a contributor needs one toolchain.
 
-Dependencies, all pinned: `modelcontextprotocol/go-sdk` v1.7.0 (with
+Dependencies, all pinned: `modelcontextprotocol/go-sdk` v1.8.0 (with
 `google/jsonschema-go`), `golang.org/x/oauth2` v0.36.0,
 `zalando/go-keyring` v0.2.8, `golang.org/x/time` v0.15.0. Nothing else.
 There is no markdown here to parse and no diff to compute.
@@ -427,9 +427,7 @@ repository is self-contained: it imports no code from any other project
 and refers to none.
 
 Toolchain, newest as of 2026-09-05: Go 1.27.1 (`go 1.27.1` in go.mod,
-see §17), go-sdk v1.7.0 (v1.8.0-pre.2 exists; it hardens input bounds
-and adds `SupportedProtocolVersions`, and Dependabot will propose it when
-it is final), golangci-lint v2.13.2, govulncheck v1.7.0, go-licenses
+see §17), go-sdk v1.8.0 (since 2026-09, through Dependabot), golangci-lint v2.13.2, govulncheck v1.7.0, go-licenses
 v1.6.0, gitleaks v8.30.1, GoReleaser v2.18.
 
 ## 6. Addressing: file references and paths (`internal/ref`)
@@ -654,7 +652,9 @@ restriction flags (`domain_users_only`, `members_only`,
 `copy_requires_writer_permission`, `admin_managed`,
 `folder_sharing_requires_organizer`), `dry_run`. Every flag is a limit,
 so turning one off loosens the drive: with `GDRIVE_SHARING=off` that is
-refused, and turning one on is not. Members
+refused, and turning one on is not. `update_file`'s
+`copy_requires_writer_permission: false` and `writers_can_share: true`
+are refused there the same way. Members
 are added and removed through `share_file` and `unshare_file` with the
 drive as the target. `delete_drive` is gated and needs an empty drive.
 
@@ -1484,6 +1484,19 @@ returning a string, so the questions were invisible to it. It reads
 Run live 2026-09-30 with `-write -destructive`: 250 calls, all as
 expected, 15 questions, one declined and the file still there after.
 
+The review round (quality, correctness, security) found no way past the
+question. It changed: a thread delete binds its replies; a narrowing
+share asks nothing; `manage_revision` is destructive again, since
+`unkeep` lets Drive purge a revision; turning the copy switch off says,
+and reports, that readers may download again; a share of a folder or a
+shared drive says it reaches everything inside; an ownership transfer
+shows its message; more invisible characters are stripped; and
+`update_file` may not loosen a file's two sharing switches with
+`GDRIVE_SHARING=off`. What it left open is in §17a. Run live again
+after it: 249 calls, all as expected, 14 questions — one fewer because a
+cleanup delete found its file already taken by the trash empty, which
+the driver accepts either way.
+
 ### Closing a phase
 
 1. `make check` green on all three platforms; the live driver run, and
@@ -1534,6 +1547,32 @@ difference is a decision rather than a drift.
 | Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Fourteen classes, including `ambiguous`, `blocked`, `rate_limited`, `ambiguous_outcome` and `pending` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organization's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 4 added `pending`: work Google has begun and not finished, which is a long-running download whose operation is still running. It is not `server`, which says something went wrong, and not `rate_limited`, which says you asked too often — nothing is wrong and nothing needs backing off from, and the same call in a minute picks up the finished render. A model told `server` would report a failure that did not happen.)* *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* |
 
 ## 17a. Deferred cleanups
+
+Raised by the phase 7 reviews (2026-09-30) and left open on purpose:
+
+- **Grants that ask nothing.** A share to a named address or group, and
+  approving an access request, reach only people somebody named, so
+  they are outside the set §4a asks about. Under injection the
+  attacker is who names them. Asking for any grant outside the
+  account's own domain is the next step if the maintainer wants it.
+- **`update_file`'s two sharing switches ask nothing.** Letting viewers
+  copy a file or editors reshare it is refused with
+  `GDRIVE_SHARING=off`, as the drive-level switches are, but not asked.
+- **Shown, not bound.** The trash count and a folder's contents are not
+  bound. An unasked `trash_file` or `move_file` running while the person
+  reads can add to what an accepted `empty_trash` or `delete_file`
+  destroys. The question says the count lags.
+- **A question names a file without its folder.** Drive allows two
+  items of one name; the answer is bound to the id, so the target
+  cannot change between rounds, but the person reads only the name.
+- **`GDRIVE_REQUIRE_PROMPT` with a client that cannot ask** pays for the
+  comment read or the trash count before it refuses.
+- **The protocol a question is sent on** is read from what the client
+  asked for in `initialize`, not the negotiated version. The SDK's own
+  multi-round-trip check reads the same field, and the two must agree,
+  so this follows it.
+
+Raised by the phase-0 review passes and deliberately not done in phase 0.
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
 

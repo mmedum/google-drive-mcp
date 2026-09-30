@@ -25,6 +25,10 @@ var roleRank = map[string]int{
 	RoleWriter: 3, RoleCommenter: 4, RoleReader: 5,
 }
 
+// RoleWidens reports whether moving a grant from one role to another
+// gives more access.
+func RoleWidens(from, to string) bool { return roleRank[to] < roleRank[from] }
+
 // RoleWords describes a role in plain words.
 func RoleWords(role string) string {
 	switch role {
