@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-30
+
 ### Added
 
 - The server asks the person, through the MCP client, before the destructive five, before a share to `anyone`, a `domain:` or a new owner, and before `manage_drive` turns a restriction off. Anything but Accept is `[blocked]` and changes nothing. A client without elicitation gets no question.
@@ -14,6 +16,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** the Go module path is now `github.com/mmedum/google-drive-mcp/v2`, as Go requires from v2; install with `go install github.com/mmedum/google-drive-mcp/v2/cmd/google-drive-mcp@latest`.
 - **Breaking:** a `domain:` grant in `share_file` needs `allow_domain: true`, as `anyone` needs `allow_anyone: true`.
 - **Breaking:** a client that declares elicitation but has no person to answer, such as `claude -p`, can no longer make the writes that ask.
 - **Breaking:** with `GDRIVE_SHARING=off`, `manage_drive` refuses to turn a shared drive's restriction off, and `update_file` refuses to let viewers copy a file or editors reshare it.
@@ -2032,6 +2035,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[2.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.1...v1.2.2

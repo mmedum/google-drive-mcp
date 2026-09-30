@@ -3,7 +3,7 @@ package drivetest
 import (
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 func match(t *testing.T, q string, f *gdrive.File, s *Server) bool {

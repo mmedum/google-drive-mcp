@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 // Drive is the server's view of one shared drive.

@@ -46,10 +46,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/scripts/internal/livecover"
-	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
-	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
-	"github.com/mmedum/google-drive-mcp/scripts/internal/transcript"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/livecover"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/transcript"
 )
 
 func main() {

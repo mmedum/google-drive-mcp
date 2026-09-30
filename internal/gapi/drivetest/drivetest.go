@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 // AccountEmail is the synthetic signed-in account. Nothing here refers
