@@ -92,7 +92,11 @@ type Config struct {
 	Labels      bool
 	// Activity turns on list_activity, which reads the separate Drive
 	// Activity API and asks for its scope at login.
-	Activity         bool
+	Activity bool
+	// RequirePrompt refuses the writes that ask the person when the
+	// client cannot ask, rather than letting the call's own arguments
+	// stand in for the person.
+	RequirePrompt    bool
 	ClientSecretPath string
 }
 
@@ -110,6 +114,7 @@ type Settings struct {
 	HTTPTimeout       string
 	Labels            string
 	Activity          string
+	RequirePrompt     string
 	ClientSecretPath  string
 }
 
@@ -138,6 +143,8 @@ func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	def(&s.Labels, "labels", "LABELS", "false", "enable Workspace labels (adds the Drive Labels API scopes at login)")
 	def(&s.Activity, "activity", "ACTIVITY", "false",
 		"enable list_activity (adds the Drive Activity API scope at login)")
+	def(&s.RequirePrompt, "require-prompt", "REQUIRE_PROMPT", "false",
+		"refuse the writes that ask the person when the client cannot ask them")
 	def(&s.ClientSecretPath, "client-secret", "CLIENT_SECRET", "", "path to the OAuth Desktop client JSON (overrides the stored profile setting)")
 	return s
 }
@@ -182,6 +189,9 @@ func (s *Settings) Build() (Config, error) {
 		errs = append(errs, err)
 	}
 	if c.Labels, err = parseBool("labels", s.Labels); err != nil {
+		errs = append(errs, err)
+	}
+	if c.RequirePrompt, err = parseBool("require-prompt", s.RequirePrompt); err != nil {
 		errs = append(errs, err)
 	}
 

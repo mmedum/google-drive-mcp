@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 func TestKindNames(t *testing.T) {

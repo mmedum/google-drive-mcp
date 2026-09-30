@@ -6,7 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/internal/config"
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
 )
 
 // registeredUnder is the set of tool names a configuration registers,

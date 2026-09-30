@@ -1,7 +1,7 @@
 package render
 
 import (
-	"github.com/mmedum/google-drive-mcp/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
 // Change is one field a write altered, before and after. A write that

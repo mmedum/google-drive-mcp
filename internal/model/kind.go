@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/mediatype"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/mediatype"
 )
 
 // KindName describes a media type in the words the Drive interface

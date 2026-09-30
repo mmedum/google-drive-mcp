@@ -6,9 +6,9 @@ import (
 
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/internal/model"
-	"github.com/mmedum/google-drive-mcp/internal/render"
-	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/mcpstdio"
 )
 
 // Both drivers read the id out of a rendered card, because the card is

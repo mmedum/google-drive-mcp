@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/internal/config"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 func TestListAccessRequestsShowsWhoIsWaitingAndForWhat(t *testing.T) {
@@ -35,7 +35,7 @@ func TestAccessRequestsAreReadableWithSharingOffAndUnanswerable(t *testing.T) {
 	if !strings.Contains(out, "sharing switched off") {
 		t.Errorf("the listing does not say the deployment cannot answer these:\n%s", out)
 	}
-	_, err = svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+	_, err = svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 		File: "id-budget-fixture", Request: "id-request-1", Action: "accept",
 	})
 	if err == nil {
@@ -53,7 +53,7 @@ func TestAcceptingGrantsTheRoleAskedForAndReportsExposure(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddProposal("id-budget-fixture", "id-request-1", "alice@example.com", "commenter")
 
-	got, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+	got, err := svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 		File: "id-budget-fixture", Request: "id-request-1", Action: "accept",
 	})
 	if err != nil {
@@ -84,7 +84,7 @@ func TestARequestNamingSeveralRolesIsRefusedRatherThanGuessedAt(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddProposal("id-budget-fixture", "id-request-1", "alice@example.com", "reader", "writer")
 
-	_, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+	_, err := svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 		File: "id-budget-fixture", Request: "id-request-1", Action: "accept",
 	})
 	if err == nil {
@@ -98,7 +98,7 @@ func TestARequestNamingSeveralRolesIsRefusedRatherThanGuessedAt(t *testing.T) {
 	}
 
 	// Naming the role settles it.
-	if _, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+	if _, err := svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 		File: "id-budget-fixture", Request: "id-request-1", Action: "accept", Role: "reader",
 	}); err != nil {
 		t.Fatalf("ResolveAccessRequest with a role: %v", err)
@@ -113,7 +113,7 @@ func TestDenyingRefusesTheRequestAndGrantsNothing(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddProposal("id-budget-fixture", "id-request-1", "alice@example.com", "writer")
 
-	got, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+	got, err := svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 		File: "id-budget-fixture", Request: "id-request-1", Action: "deny",
 	})
 	if err != nil {
@@ -134,7 +134,7 @@ func TestADryRunAnswersNobody(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddProposal("id-budget-fixture", "id-request-1", "alice@example.com", "writer")
 
-	got, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+	got, err := svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 		File: "id-budget-fixture", Request: "id-request-1", Action: "accept", DryRun: true,
 	})
 	if err != nil {
@@ -152,7 +152,7 @@ func TestAnAccessRequestCannotHandOverOwnership(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddProposal("id-budget-fixture", "id-request-1", "alice@example.com", "writer")
 
-	_, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+	_, err := svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 		File: "id-budget-fixture", Request: "id-request-1", Action: "accept", Role: "owner",
 	})
 	if err == nil {
@@ -165,7 +165,7 @@ func TestAnAccessRequestCannotHandOverOwnership(t *testing.T) {
 
 func TestAnswerNeedsARequestThatIsStillWaiting(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
-	_, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+	_, err := svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 		File: "id-budget-fixture", Request: "id-nothing", Action: "accept",
 	})
 	if err == nil {
@@ -188,7 +188,7 @@ func TestOnlyAnApproverIsToldWhoIsWaiting(t *testing.T) {
 	if !strings.Contains(err.Error(), "[forbidden]") {
 		t.Errorf("class = %v", err)
 	}
-	_, err = svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+	_, err = svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 		File: "id-budget-fixture", Request: "id-request-1", Action: "accept",
 	})
 	if err == nil {
@@ -209,7 +209,7 @@ func TestAProposalAskingForOwnershipIsRefusedEvenWhenItIsTheOnlyRole(t *testing.
 			svc, fake := setup(t, service.Options{})
 			fake.AddProposal("id-budget-fixture", "id-request-1", "alice@example.com", role)
 
-			_, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+			_, err := svc.ResolveAccessRequest(yes(t), service.ResolveAccessRequestInput{
 				File: "id-budget-fixture", Request: "id-request-1", Action: "accept",
 			})
 			if err == nil {

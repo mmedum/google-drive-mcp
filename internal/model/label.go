@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 // A label definition says what a label is; the values on a file say what

@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
 // Drive is the server's view of one shared drive.
@@ -103,27 +103,25 @@ var DriveRestrictionNames = []string{
 	"admin_managed", "folder_sharing_requires_organizer",
 }
 
-// SetDriveRestriction turns one of DriveRestrictionNames on or off in a
-// restrictions body, and reports whether the name was known. Building
-// the patch here keeps the accepted words and the wire fields in one
-// place; a second copy in the service is how a typo becomes a switch
+// DriveRestrictionSwitch is where one of DriveRestrictionNames lives in a
+// restrictions patch, or nil for a name that is not one. Setting and
+// reading both go through it, which keeps the accepted words and the
+// wire fields in one place: a second copy is how a typo becomes a switch
 // that silently never changes.
-func SetDriveRestriction(r *gdrive.DriveRestrictions, name string, on bool) bool {
+func DriveRestrictionSwitch(p *gdrive.DriveRestrictionsPatch, name string) **bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "members_only":
-		r.DriveMembersOnly = on
+		return &p.DriveMembersOnly
 	case "domain_users_only":
-		r.DomainUsersOnly = on
+		return &p.DomainUsersOnly
 	case "copy_requires_writer_permission":
-		r.CopyRequiresWriterPermission = on
+		return &p.CopyRequiresWriterPermission
 	case "admin_managed":
-		r.AdminManagedRestrictions = on
+		return &p.AdminManagedRestrictions
 	case "folder_sharing_requires_organizer":
-		r.SharingFoldersRequiresOrganizerPermission = on
-	default:
-		return false
+		return &p.SharingFoldersRequiresOrganizerPermission
 	}
-	return true
+	return nil
 }
 
 // DriveRestriction reads one restriction by the name a caller passes.

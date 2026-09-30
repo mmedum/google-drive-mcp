@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
 // ApprovalsOptions tune a listing of a file's approvals.

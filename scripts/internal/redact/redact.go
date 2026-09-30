@@ -129,6 +129,9 @@ var personPositions = []*regexp.Regexp{
 	// "Name, 2026-03-04 …" — a comment or reply author, which is the
 	// form with nothing else beside it at all.
 	regexp.MustCompile(`(` + personName + `), \d{4}-\d{2}-\d{2}`),
+	// "by `Name`" alone on a line: the author of a comment, in the
+	// question put to the person before it is deleted.
+	regexp.MustCompile("(?m)^by `(" + personName + ")`$"),
 }
 
 var (

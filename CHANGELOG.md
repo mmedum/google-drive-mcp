@@ -6,6 +6,30 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-30
+
+### Added
+
+- The server asks the person, through the MCP client, before the destructive five, before a share to `anyone`, a `domain:`, a new owner or a person or group outside the account's organization, before accepting an access request, and before `manage_drive` turns a restriction off. Anything but Accept is `[blocked]` and changes nothing. A client without elicitation gets no question.
+- `GDRIVE_REQUIRE_PROMPT=true` refuses those writes when the client cannot ask.
+- `delete_comment` takes `dry_run`.
+
+### Changed
+
+- **Breaking:** the Go module path is now `github.com/mmedum/google-drive-mcp/v2`, as Go requires from v2; install with `go install github.com/mmedum/google-drive-mcp/v2/cmd/google-drive-mcp@latest`.
+- **Breaking:** a `domain:` grant in `share_file` needs `allow_domain: true`, as `anyone` needs `allow_anyone: true`.
+- **Breaking:** a client that declares elicitation but has no person to answer, such as `claude -p`, can no longer make the writes that ask.
+- **Breaking:** with `GDRIVE_SHARING=off`, `manage_drive` refuses to turn a shared drive's restriction off, and `update_file` refuses to let viewers copy a file or editors reshare it.
+- Reversible writes (`move_file`, `trash_file`, `restore_file`, `update_file`, `unshare_file`, `manage_drive`) now say `destructiveHint: false`, and `manage_revision` says `true`, since `unkeep` lets Drive purge a revision; an unset hint reads as destructive.
+- `update_content` says `destructiveHint: true`, and its description says an unpinned old revision lasts about 30 days, or fewer once a file has 100.
+- `download_file` is no longer marked read-only, since it writes a local file; read-only mode still registers it.
+
+### Fixed
+
+- `copy_file` with `dry_run` on a single file copied it; it now copies nothing.
+- `manage_drive restrict` failed with `Bad Request` since 1.1.0: it sent the drive's `downloadRestriction` back, which Drive refuses. It now sends only the switches that change.
+- `manage_drive restrict` could never turn a restriction off, and said it had: a switch set to false was left out of the patch, and Drive keeps a switch it is not sent. The result now reads what changed from Drive's answer.
+
 ## [1.3.0] - 2026-09-26
 
 ### Added
@@ -2011,6 +2035,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[2.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.1...v1.2.2

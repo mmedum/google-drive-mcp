@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/model"
-	"github.com/mmedum/google-drive-mcp/internal/render"
-	"github.com/mmedum/google-drive-mcp/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/redact"
 )
 
 // A redactor tested against lines somebody typed out is a redactor that
@@ -154,6 +154,18 @@ func rendered() map[string]string {
 			}),
 		}, render.AccessRequestsOptions{Subject: "Budget.xlsx", Now: now, CanShare: true}),
 	}
+	out["questions"] = strings.Join([]string{
+		render.AskDeleteFile(fixtureID, "Budget.xlsx", false).Text,
+		render.AskEmptyTrash(fixtureDriveID, "Marketing", 2, true).Text,
+		render.AskDeleteDrive(fixtureDriveID, "Marketing").Text,
+		render.AskDeleteRevision(fixtureID, "Budget.xlsx", "id-revision-1", "2026-03-04T09:00:00Z").Text,
+		render.AskDeleteComment(fixtureID, "Budget.xlsx", false, other, "is this right?", []string{"yes"}).Text,
+		render.AskDeleteComment(fixtureID, "Budget.xlsx", true, me, "yes", nil).Text,
+		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOwner, Who: their, Role: "owner"}).Text,
+		render.AskLoosenDrive(fixtureDriveID, "Marketing", []string{"domain_users_only"}).Text,
+		render.AskGrantRequest(fixtureID, "Budget.xlsx", "id-request-1", their, "writer", "please let me in").Text,
+		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOutside, Who: their, Role: "writer"}).Text,
+	}, "\n")
 	return out
 }
 
@@ -343,8 +355,9 @@ func returnsOnlyString(fn *ast.FuncDecl) bool {
 	if fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
 		return false
 	}
+	// A Question is rendered text too: what the person is asked.
 	ident, ok := fn.Type.Results.List[0].Type.(*ast.Ident)
-	return ok && ident.Name == "string"
+	return ok && (ident.Name == "string" || ident.Name == "Question")
 }
 
 // renderedKey maps a renderer's Go name to the key it appears under in
@@ -365,6 +378,15 @@ var renderedKey = map[string]string{
 	"Changes":        "changes",
 	"FileText":       "file text",
 	"Download":       "download",
+	// Every question put to the person, joined in one fixture.
+	"AskDeleteFile":     "questions",
+	"AskEmptyTrash":     "questions",
+	"AskDeleteDrive":    "questions",
+	"AskDeleteRevision": "questions",
+	"AskDeleteComment":  "questions",
+	"AskShare":          "questions",
+	"AskLoosenDrive":    "questions",
+	"AskGrantRequest":   "questions",
 }
 
 // notRenderers are the exported string functions in internal/render that
@@ -373,6 +395,7 @@ var renderedKey = map[string]string{
 var notRenderers = map[string]string{
 	"StripDataURIs": "a text filter over content, not a result: it takes a string and gives one back",
 	"Checksum":      "one verdict word about a download's md5, with nothing in it but the verdict",
+	"Sum":           "a SHA-256 in hex that binds an answer to a text, never shown to anyone",
 	"Activity":      "asserted by TestActivityNamesNobody, which is stronger: it prints no person at all",
 	"Labels":        "a label definition as this server models it has no person in it to print",
 }

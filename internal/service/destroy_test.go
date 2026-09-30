@@ -4,27 +4,27 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 func TestDestructiveToolsRefuseWithoutTheDeployersSwitch(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	calls := map[string]func() error{
 		"delete_file": func() error {
-			_, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{File: "id-budget-fixture", Confirm: true})
+			_, err := svc.DeleteFile(yes(t), service.DeleteFileInput{File: "id-budget-fixture", Confirm: true})
 			return err
 		},
 		"empty_trash": func() error {
-			_, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{Confirm: true})
+			_, err := svc.EmptyTrash(yes(t), service.EmptyTrashInput{Confirm: true})
 			return err
 		},
 		"delete_drive": func() error {
-			_, err := svc.DeleteDrive(t.Context(), service.DeleteDriveInput{Drive: "Marketing", Confirm: true})
+			_, err := svc.DeleteDrive(yes(t), service.DeleteDriveInput{Drive: "Marketing", Confirm: true})
 			return err
 		},
 		"delete_revision": func() error {
-			_, err := svc.DeleteRevision(t.Context(), service.DeleteRevisionInput{
+			_, err := svc.DeleteRevision(yes(t), service.DeleteRevisionInput{
 				File: "id-budget-fixture", Revision: "x", Confirm: true})
 			return err
 		},
@@ -54,7 +54,7 @@ func TestDestructiveToolsAlsoNeedConfirmOnTheCall(t *testing.T) {
 
 	// The deployer's switch says the tool may exist; confirm says this
 	// particular call was meant. They are different questions.
-	_, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{File: "id-budget-fixture"})
+	_, err := svc.DeleteFile(yes(t), service.DeleteFileInput{File: "id-budget-fixture"})
 	if err == nil {
 		t.Fatal("a delete went through without confirm")
 	}
@@ -65,7 +65,7 @@ func TestDestructiveToolsAlsoNeedConfirmOnTheCall(t *testing.T) {
 		t.Fatal("the refusal still deleted the file")
 	}
 
-	if _, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{}); err == nil ||
+	if _, err := svc.EmptyTrash(yes(t), service.EmptyTrashInput{}); err == nil ||
 		!strings.Contains(err.Error(), "confirm: true") {
 		t.Errorf("empty_trash without confirm: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestDestructiveToolsAlsoNeedConfirmOnTheCall(t *testing.T) {
 func TestDeleteFileDestroysItWithNoWayBack(t *testing.T) {
 	svc, fake := setup(t, service.Options{Destructive: true})
 
-	got, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{
+	got, err := svc.DeleteFile(yes(t), service.DeleteFileInput{
 		File: "id-budget-fixture", Confirm: true,
 	})
 	if err != nil {
@@ -95,7 +95,7 @@ func TestDeleteFileDestroysItWithNoWayBack(t *testing.T) {
 
 func TestDeletingAFolderSaysItTakesItsContents(t *testing.T) {
 	svc, fake := setup(t, service.Options{Destructive: true})
-	got, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{
+	got, err := svc.DeleteFile(yes(t), service.DeleteFileInput{
 		File: "id-2026-fixture", Confirm: true, DryRun: true,
 	})
 	if err != nil {
@@ -108,7 +108,7 @@ func TestDeletingAFolderSaysItTakesItsContents(t *testing.T) {
 		t.Fatal("a dry run destroyed something")
 	}
 
-	if _, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{
+	if _, err := svc.DeleteFile(yes(t), service.DeleteFileInput{
 		File: "id-2026-fixture", Confirm: true,
 	}); err != nil {
 		t.Fatalf("DeleteFile: %v", err)
@@ -121,7 +121,7 @@ func TestDeletingAFolderSaysItTakesItsContents(t *testing.T) {
 func TestEmptyTrashSaysHowMuchItWouldDestroy(t *testing.T) {
 	svc, fake := setup(t, service.Options{Destructive: true})
 
-	got, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{DryRun: true})
+	got, err := svc.EmptyTrash(yes(t), service.EmptyTrashInput{DryRun: true})
 	if err != nil {
 		t.Fatalf("EmptyTrash: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestEmptyTrashSaysHowMuchItWouldDestroy(t *testing.T) {
 		t.Fatal("a dry run emptied the trash")
 	}
 
-	if _, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{Confirm: true}); err != nil {
+	if _, err := svc.EmptyTrash(yes(t), service.EmptyTrashInput{Confirm: true}); err != nil {
 		t.Fatalf("EmptyTrash: %v", err)
 	}
 	if fake.Files["id-old-plan-fixture"] != nil {
@@ -152,7 +152,7 @@ func TestDeleteDriveRefusesOneThatStillHoldsThings(t *testing.T) {
 	// drive list, so one added later would not be visible yet.
 	empty := fake.AddDrive("id-drive-empty", "Retired")
 
-	_, err := svc.DeleteDrive(t.Context(), service.DeleteDriveInput{Drive: "Marketing", Confirm: true})
+	_, err := svc.DeleteDrive(yes(t), service.DeleteDriveInput{Drive: "Marketing", Confirm: true})
 	if err == nil {
 		t.Fatal("a shared drive with items in it was deleted")
 	}
@@ -165,7 +165,7 @@ func TestDeleteDriveRefusesOneThatStillHoldsThings(t *testing.T) {
 		t.Fatal("the drive went anyway")
 	}
 
-	if _, err := svc.DeleteDrive(t.Context(), service.DeleteDriveInput{
+	if _, err := svc.DeleteDrive(yes(t), service.DeleteDriveInput{
 		Drive: "Retired", Confirm: true,
 	}); err != nil {
 		t.Fatalf("DeleteDrive on an empty drive: %v", err)
@@ -182,7 +182,7 @@ func TestDeleteRevisionRefusesTheCurrentOneAndGoogleDocuments(t *testing.T) {
 	revs := fake.Revisions["id-budget-fixture"]
 	old, head := revs[0].ID, revs[1].ID
 
-	_, err := svc.DeleteRevision(t.Context(), service.DeleteRevisionInput{
+	_, err := svc.DeleteRevision(yes(t), service.DeleteRevisionInput{
 		File: "id-budget-fixture", Revision: head, Confirm: true,
 	})
 	if err == nil || !strings.Contains(err.Error(), "will not delete") {
@@ -190,14 +190,14 @@ func TestDeleteRevisionRefusesTheCurrentOneAndGoogleDocuments(t *testing.T) {
 	}
 
 	fake.SetContent("id-notes-fixture", "a doc")
-	_, err = svc.DeleteRevision(t.Context(), service.DeleteRevisionInput{
+	_, err = svc.DeleteRevision(yes(t), service.DeleteRevisionInput{
 		File: "id-notes-fixture", Revision: fake.Revisions["id-notes-fixture"][0].ID, Confirm: true,
 	})
 	if err == nil || !strings.HasPrefix(err.Error(), "[unsupported]") {
 		t.Errorf("a Google document's revision: %v", err)
 	}
 
-	got, err := svc.DeleteRevision(t.Context(), service.DeleteRevisionInput{
+	got, err := svc.DeleteRevision(yes(t), service.DeleteRevisionInput{
 		File: "id-budget-fixture", Revision: old, Confirm: true,
 	})
 	if err != nil {
@@ -215,7 +215,7 @@ func TestDestructiveToolsAreNeverAvailableReadOnly(t *testing.T) {
 	// Read-only wins over the destructive switch: a deployer who set
 	// both meant the stricter one.
 	svc, _ := setup(t, service.Options{ReadOnly: true, Destructive: true})
-	_, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{File: "id-budget-fixture", Confirm: true})
+	_, err := svc.DeleteFile(yes(t), service.DeleteFileInput{File: "id-budget-fixture", Confirm: true})
 	if err == nil {
 		t.Fatal("a delete ran on a read-only server")
 	}
@@ -234,7 +234,7 @@ func TestDeleteFileWillNotDestroyTheTopOfADrive(t *testing.T) {
 	svc, fake := setup(t, service.Options{Destructive: true})
 	for _, ref := range []string{"root", drivetest.RootFolderID, "drive:Marketing", "id-drive-marketing"} {
 		t.Run(ref, func(t *testing.T) {
-			_, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{File: ref, Confirm: true})
+			_, err := svc.DeleteFile(yes(t), service.DeleteFileInput{File: ref, Confirm: true})
 			if err == nil {
 				t.Fatalf("delete_file accepted %q", ref)
 			}
@@ -249,7 +249,7 @@ func TestDeleteFileWillNotDestroyTheTopOfADrive(t *testing.T) {
 	// Capabilities are Drive's answer, not ours: with them absent the
 	// refusal must still hold.
 	fake.Files[drivetest.RootFolderID].Capabilities = nil
-	if _, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{
+	if _, err := svc.DeleteFile(yes(t), service.DeleteFileInput{
 		File: "root", Confirm: true,
 	}); err == nil {
 		t.Error("with no capabilities from Drive, the root was deletable")
@@ -266,7 +266,7 @@ func TestEmptyTrashCountsOnlyTheTrashItWillEmpty(t *testing.T) {
 	fake.AddFile("id-drive-trash-fixture", "Old brief", "application/pdf", "id-campaigns-fixture",
 		drivetest.InDrive("id-drive-marketing"), drivetest.Trashed())
 
-	got, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{DryRun: true})
+	got, err := svc.EmptyTrash(yes(t), service.EmptyTrashInput{DryRun: true})
 	if err != nil {
 		t.Fatalf("EmptyTrash: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestEmptyTrashCountsOnlyTheTrashItWillEmpty(t *testing.T) {
 	}
 
 	// Named, the shared drive's own trash is what gets counted.
-	inDrive, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{Drive: "Marketing", DryRun: true})
+	inDrive, err := svc.EmptyTrash(yes(t), service.EmptyTrashInput{Drive: "Marketing", DryRun: true})
 	if err != nil {
 		t.Fatalf("EmptyTrash: %v", err)
 	}

@@ -38,7 +38,7 @@ policy refuses, and applying a label. §17a of
 ## Install
 
 ```
-go install github.com/mmedum/google-drive-mcp/cmd/google-drive-mcp@latest
+go install github.com/mmedum/google-drive-mcp/v2/cmd/google-drive-mcp@latest
 ```
 
 That puts the binary in Go's bin directory, which is often not on your
@@ -201,8 +201,15 @@ the server will do at all:
 |---|---|---|
 | `GDRIVE_LOCAL_DIR` | unset | The one directory downloads are written to and uploads are read from. **Unset means no file transfer at all.** |
 | `GDRIVE_READ_ONLY` | `false` | Register only read tools, and ask for read-only scopes at login. |
-| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered. |
+| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, and keeps a shared drive's restrictions, and a file's copy and reshare switches, from being loosened. |
 | `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back. Each still needs `confirm: true` per call. |
+| `GDRIVE_REQUIRE_PROMPT` | `false` | Refuse the writes that ask the person when the client cannot ask them. |
+
+Before a write that cannot be undone, a share to anyone with the link, a
+whole domain, a new owner or someone outside your organization,
+accepting a request for access, or turning a shared drive's restriction
+off, the server asks you through your MCP client when the client
+supports elicitation. Anything but Accept stops the write.
 
 ## Tools
 

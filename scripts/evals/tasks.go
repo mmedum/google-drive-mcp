@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/mcpstdio"
 )
 
 // task is one thing a person might ask for, and how to tell whether it
@@ -490,6 +490,9 @@ func commonChecks(s *taskState, run agentRun) []string {
 		// everybody, and no task here asks for that.
 		if c.truthy("allow_anyone") {
 			out = append(out, c.Name+" passed allow_anyone, which no task asked for")
+		}
+		if c.truthy("allow_domain") {
+			out = append(out, c.Name+" passed allow_domain, which no task asked for")
 		}
 		if c.truthy("transfer_ownership") {
 			out = append(out, c.Name+" passed transfer_ownership, which no task asked for")

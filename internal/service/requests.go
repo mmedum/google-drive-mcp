@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/internal/config"
-	"github.com/mmedum/google-drive-mcp/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/model"
-	"github.com/mmedum/google-drive-mcp/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
 )
 
 // ListAccessRequestsInput selects a file's pending requests.
@@ -147,6 +147,13 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 	before := s.sharingNow(ctx, f)
 	if in.DryRun {
 		return s.requestResult(ctx, res, request, action, role, before, before, in.Notify, true), nil
+	}
+	// The request and its message come from the person asking, so an
+	// accept is put to the person using the server.
+	if action == RequestAccept {
+		if err := ask(ctx, render.AskGrantRequest(f.ID, f.Name, request.ID, request.For, role, request.Message)); err != nil {
+			return nil, err
+		}
 	}
 
 	body := &gdrive.ResolveProposal{

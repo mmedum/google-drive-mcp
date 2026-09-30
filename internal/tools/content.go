@@ -5,7 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 // ReadFileInput selects a window of a file's text.
@@ -55,7 +55,7 @@ func registerContent(s *mcp.Server, d Deps) []string {
 			"whole spreadsheet — and for keeping a copy. A Google Doc, Sheet or Slides deck is converted on the " +
 			"way out, docx, xlsx and pptx by default. The result says where the file landed. " +
 			"This needs the server to have been started with GDRIVE_LOCAL_DIR; get_account says whether it was.",
-		Annotations: readOnly,
+		Annotations: localWrite,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DownloadFileInput) (*mcp.CallToolResult, any, error) {
 		out, err := d.Service.DownloadFile(ctx, service.DownloadFileInput{
 			File: in.File, Format: in.Format, Revision: in.Revision, AcknowledgeAbuse: in.AcknowledgeAbuse,

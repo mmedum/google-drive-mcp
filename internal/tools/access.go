@@ -6,8 +6,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/internal/render"
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 // Every file argument spells out the accepted forms in its own schema
@@ -29,6 +29,7 @@ type ShareInput struct {
 	Expires           string `json:"expires,omitempty" jsonschema:"when the grant should end, as a date like 2026-12-01 or a duration like 30d, or never to remove an expiry a grant already has. People and groups only, and Drive's limit is a year. Leave it out to keep whatever expiry is already there."`
 	Discoverable      *bool  `json:"discoverable,omitempty" jsonschema:"for a domain or anyone grant: whether the file also turns up in their search results rather than only opening by link. Leave it out to keep what the grant already has; a new grant is by link only."`
 	AllowAnyone       bool   `json:"allow_anyone,omitempty" jsonschema:"required to grant access to anyone with the link. Without it that grant is refused, because it puts the file within reach of everybody who has or guesses the link."`
+	AllowDomain       bool   `json:"allow_domain,omitempty" jsonschema:"required to grant access to a whole organization with domain:. Without it that grant is refused, because it reaches everyone there rather than anyone named."`
 	TransferOwnership bool   `json:"transfer_ownership,omitempty" jsonschema:"required for role: owner. It makes them the owner and demotes this account to a writer, and only the new owner can hand it back."`
 	DryRun            bool   `json:"dry_run,omitempty" jsonschema:"report who can see it now and what this would change, and change nothing"`
 }
@@ -75,18 +76,22 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 			"see it before and who can see it after, because that is the part worth checking. " +
 			"Granting to somebody who already has access changes their role rather than adding a second grant. " +
 			"Accepted roles: " + strings.Join(service.Roles(), ", ") + ". " +
-			"A link anyone can open needs allow_anyone: true, and handing over ownership needs " +
+			"A link anyone can open needs allow_anyone: true, a grant to a whole domain needs allow_domain: true, " +
+			"and handing over ownership needs " +
 			"transfer_ownership: true; without those the call is refused. No email is sent unless notify is set. " +
 			"What may actually be shared is decided by the organization's own policy, which Google enforces: a " +
-			"refusal comes back as [blocked] with Google's own words.",
+			"refusal comes back as [blocked] with Google's own words. A link for anyone, a domain-wide grant, a new " +
+			"grant to someone outside this account's organization and an ownership transfer are also put to the " +
+			"person when the client can ask; one they do not confirm is " +
+			"[blocked], and is not made again unless they ask.",
 		Annotations: write,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ShareInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "share_file", func(ctx context.Context, in ShareInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ShareFile(ctx, service.ShareFileInput{
 			File: in.File, Principal: in.Principal, Role: in.Role, Notify: in.Notify,
 			Message: in.Message, Expires: in.Expires, Discoverable: in.Discoverable,
-			AllowAnyone: in.AllowAnyone, TransferOwnership: in.TransferOwnership, DryRun: in.DryRun,
+			AllowAnyone: in.AllowAnyone, AllowDomain: in.AllowDomain, TransferOwnership: in.TransferOwnership, DryRun: in.DryRun,
 		}))
-	})
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "unshare_file",

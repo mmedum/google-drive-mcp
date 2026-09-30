@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/service"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
 
 // A Google Vid has no bytes on the file endpoint and Drive refuses to

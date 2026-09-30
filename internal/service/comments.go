@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/model"
-	"github.com/mmedum/google-drive-mcp/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
 )
 
 // ListCommentsInput selects a file's threads.
@@ -297,6 +297,7 @@ type DeleteCommentInput struct {
 	// Reply removes one reply instead of the whole thread.
 	Reply   string
 	Confirm bool
+	DryRun  bool
 }
 
 // DeleteComment removes a thread or a reply. It is gated twice — the
@@ -316,14 +317,36 @@ func (s *Service) DeleteComment(ctx context.Context, in DeleteCommentInput) (*Re
 	if replyID != "" {
 		what = "reply " + replyID + " on comment " + commentID
 	}
-	if err := s.confirmed(in.Confirm, "delete_comment", what); err != nil {
-		return nil, err
+	if !in.DryRun {
+		if err := s.confirmed(in.Confirm, "delete_comment", "delete "+what+" for good"); err != nil {
+			return nil, err
+		}
 	}
 	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: true})
 	if err != nil {
 		return nil, err
 	}
 	f := res.File
+	// The words are read only where they are shown: in a dry run, and in
+	// the question to the person.
+	if in.DryRun || asks(ctx) {
+		c, err := s.api.GetComment(ctx, f.ID, commentID, false)
+		if err != nil {
+			return nil, s.commentError(err, f, commentID)
+		}
+		author, body, replies, err := commentWords(c, replyID, f)
+		if err != nil {
+			return nil, err
+		}
+		if in.DryRun {
+			return s.report(ctx, res, outcome{Action: render.ActionDeleted, DryRun: true, Note: fmt.Sprintf(
+				"%s on %s would be deleted for good; Drive would keep the thread with its words removed.",
+				what, f.Name)}), nil
+		}
+		if err := ask(ctx, render.AskDeleteComment(f.ID, f.Name, replyID != "", author, body, replies)); err != nil {
+			return nil, err
+		}
+	}
 	if replyID != "" {
 		if err := s.api.DeleteReply(ctx, f.ID, commentID, replyID); err != nil {
 			return nil, s.commentError(err, f, commentID)
@@ -334,6 +357,28 @@ func (s *Service) DeleteComment(ctx context.Context, in DeleteCommentInput) (*Re
 	return s.report(ctx, res, outcome{Action: render.ActionDeleted, Note: fmt.Sprintf(
 		"%s on %s is deleted. Drive keeps the thread with its words removed, which is what list_comments "+
 			"with include_deleted shows; there is no way back.", what, f.Name)}), nil
+}
+
+// commentWords is who wrote the comment or the reply about to be
+// deleted and what it says, in the words list_comments uses, and for a
+// whole thread the texts of the replies that go with it.
+func commentWords(c *gdrive.Comment, replyID string, f *gdrive.File) (author, body string, replies []string, err error) {
+	m := model.NewComment(c)
+	if replyID == "" {
+		for _, r := range m.Replies {
+			if !r.Deleted {
+				replies = append(replies, r.Text)
+			}
+		}
+		return m.By, m.Text, replies, nil
+	}
+	for _, r := range m.Replies {
+		if r.ID == replyID && !r.Deleted {
+			return r.By, r.Text, nil, nil
+		}
+	}
+	return "", "", nil, Errorf(ClassNotFound, "comment %s on %s has no reply %s that this account can see. "+
+		"list_comments shows the reply ids.", c.ID, f.Name, replyID)
 }
 
 // commentable refuses before the call what Drive would refuse after it.

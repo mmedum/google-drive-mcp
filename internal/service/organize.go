@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/model"
-	"github.com/mmedum/google-drive-mcp/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
 )
 
 // CreateFolderInput describes a folder to create.
@@ -101,6 +102,15 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 	meta, changes, err := metaPatch(f, in, color, s.now())
 	if err != nil {
 		return nil, err
+	}
+	// The two sharing switches loosen a file the way a shared drive's
+	// restrictions do, and GDRIVE_SHARING=off refuses them the same way.
+	loosens := meta.CopyRequiresWriterPermission != nil && !*meta.CopyRequiresWriterPermission ||
+		meta.WritersCanShare != nil && *meta.WritersCanShare
+	if loosens && s.opts.Sharing == config.SharingOff {
+		return nil, Errorf(ClassForbidden, "this server was started with GDRIVE_SHARING=off, and letting viewers copy "+
+			"%s or editors reshare it would widen who can reach or pass on what is in it. Nothing was changed. "+
+			"Tightening either is still allowed.", f.Name)
 	}
 
 	if len(changes) == 0 {
@@ -382,6 +392,18 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 	becomes := convert
 	if becomes == "" {
 		becomes = f.MimeType
+	}
+	if in.DryRun {
+		where := parentName
+		if where == "" {
+			where = "the folder it is in now"
+		}
+		note := fmt.Sprintf("Would copy it as %s into %s", name, where)
+		if convert != "" {
+			note += ", imported as " + model.KindName(convert)
+		}
+		return s.report(ctx, res, outcome{Action: render.ActionCopied, DryRun: true,
+			Note: note + ". Nothing was copied."}), nil
 	}
 	if err := s.assignIDFor(ctx, meta, becomes); err != nil {
 		return nil, err

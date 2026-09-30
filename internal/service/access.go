@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/internal/config"
-	"github.com/mmedum/google-drive-mcp/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/internal/model"
-	"github.com/mmedum/google-drive-mcp/internal/render"
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/render"
 )
 
 // Principal types, as Drive names them.
@@ -112,6 +112,9 @@ type ShareFileInput struct {
 	// AllowAnyone is the acknowledgment an anyone-with-the-link grant
 	// needs. Without it the grant is refused however good the role.
 	AllowAnyone bool
+	// AllowDomain is the acknowledgment a domain-wide grant needs: it
+	// reaches everyone in an organization, most of whom nobody named.
+	AllowDomain bool
 	// TransferOwnership is the acknowledgment the owner role needs.
 	TransferOwnership bool
 	DryRun            bool
@@ -134,7 +137,7 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 	if err != nil {
 		return nil, err
 	}
-	if err := principal.allows(role, in.AllowAnyone); err != nil {
+	if err := principal.allows(role, in.AllowAnyone, in.AllowDomain); err != nil {
 		return nil, err
 	}
 	if role == model.RoleOwner && !in.TransferOwnership {
@@ -185,6 +188,16 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 	if in.DryRun {
 		return s.shareResult(ctx, res, before, before, plan, true), nil
 	}
+	// Whether a person or a group is outside the organization costs a
+	// read, paid only for a grant that widens and a question that may go.
+	if principal.notifiable() && role != model.RoleOwner && plan.widens() && asks(ctx) {
+		plan.outside = s.outside(ctx, principal.email)
+	}
+	if q, ok := plan.question(); ok {
+		if err := ask(ctx, q); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := s.applyShare(ctx, f, plan); err != nil {
 		return nil, s.shareError(err, f, principal)
@@ -212,6 +225,9 @@ type sharePlan struct {
 	message      string
 	discoverable *bool
 	file         *gdrive.File
+	// outside is set when the principal is a person or a group outside
+	// the signed-in account's organization.
+	outside bool
 }
 
 // changesAnything reports whether a repeat of an identical grant would
@@ -232,6 +248,52 @@ func (p sharePlan) changesAnything() bool {
 		return p.discoverable != nil && *p.discoverable != p.existing.Discoverable
 	}
 	return false
+}
+
+// widens reports whether the grant reaches more than it did: a new one,
+// a higher role, or turning up in search. A change that only narrows an
+// existing grant reaches nobody new, and asks nothing.
+func (p sharePlan) widens() bool {
+	return p.existing == nil || model.RoleWidens(p.existing.Role, p.role) ||
+		p.findable() && !p.existing.Discoverable
+}
+
+// findable is whether a domain or anyone grant turns up in search once
+// made: what this call asks for, or what the grant already has when the
+// call leaves it out.
+func (p sharePlan) findable() bool {
+	if p.discoverable == nil {
+		return p.existing != nil && p.existing.Discoverable
+	}
+	return *p.discoverable
+}
+
+// question is what the person is asked before a grant that reaches past
+// people somebody named: a link anyone can open, a whole domain, or a
+// new owner. Any other grant asks nothing.
+func (p sharePlan) question() (render.Question, bool) {
+	sh := render.Share{FileID: p.file.ID, File: p.file.Name, Role: p.role, Discoverable: p.findable()}
+	switch {
+	case p.file.DriveID != "" && p.file.ID == p.file.DriveID:
+		sh.Kind = "shared drive"
+	case p.file.IsFolder():
+		sh.Kind = "folder"
+	}
+	switch {
+	case p.role == model.RoleOwner:
+		sh.Reach, sh.Who, sh.Message, sh.Discoverable = render.ShareOwner, p.principal.email, p.message, false
+	case !p.widens():
+		return render.Question{}, false
+	case p.outside:
+		sh.Reach, sh.Who, sh.Group = render.ShareOutside, p.principal.email, p.principal.kind == principalGroup
+	case p.principal.kind == principalAnyone:
+		sh.Reach = render.ShareAnyone
+	case p.principal.kind == principalDomain:
+		sh.Reach, sh.Who = render.ShareDomain, p.principal.domain
+	default:
+		return render.Question{}, false
+	}
+	return render.AskShare(sh), true
 }
 
 // applyShare makes the call: an update when the principal already has a
@@ -340,12 +402,8 @@ func (s *Service) shareNote(p sharePlan, after model.Sharing) string {
 		// What the grant is now, not what this call asked for: leaving
 		// discoverable out keeps whatever the grant already had, and the
 		// exposure a person needs to read is the resulting one.
-		findable := p.discoverable != nil && *p.discoverable
-		if p.discoverable == nil && p.existing != nil {
-			findable = p.existing.Discoverable
-		}
 		what := "anyone with the link can now reach it without signing in"
-		if findable {
+		if p.findable() {
 			what = "anyone on the internet can now reach it AND find it by search"
 		}
 		parts = append(parts, what)
@@ -715,11 +773,16 @@ func (p principal) matches(g model.Grant) bool {
 // allows refuses the role and principal combinations Drive does not
 // have, and the one this server refuses on its own: a public link
 // without the acknowledgment that it is public.
-func (p principal) allows(role string, allowAnyone bool) error {
+func (p principal) allows(role string, allowAnyone, allowDomain bool) error {
 	if p.kind == principalAnyone && !allowAnyone {
 		return Errorf(ClassForbidden, "an anyone-with-the-link grant puts this file within reach of everyone "+
 			"who has or guesses the link, with no sign-in. Pass allow_anyone: true on the same call if that "+
 			"is really what is wanted.")
+	}
+	if p.kind == principalDomain && !allowDomain {
+		return Errorf(ClassForbidden, "a grant to %s reaches the whole organization, not only people "+
+			"somebody named. Pass allow_domain: true on the same call if that is really what is wanted.",
+			p.label())
 	}
 	switch p.kind {
 	case principalAnyone, principalDomain:
@@ -833,4 +896,27 @@ func joinSentences(parts []string) string {
 		return ""
 	}
 	return strings.Join(parts, ". ") + "."
+}
+
+// consumerDomains are the addresses of personal Google accounts. Two of
+// them share a domain and no organization, so an address there is
+// outside whoever holds the other.
+var consumerDomains = map[string]bool{"gmail.com": true, "googlemail.com": true}
+
+// outside reports whether address is outside the signed-in account's
+// organization, taken as its email domain. A secondary domain of the
+// same organization counts as outside, and so does everything when the
+// account cannot be read: both ask a question too many rather than one
+// too few.
+func (s *Service) outside(ctx context.Context, address string) bool {
+	_, theirs, ok := strings.Cut(strings.ToLower(strings.TrimSpace(address)), "@")
+	if !ok || consumerDomains[theirs] {
+		return true
+	}
+	about, err := s.api.About(ctx)
+	if err != nil || about.User == nil {
+		return true
+	}
+	_, mine, _ := strings.Cut(strings.ToLower(about.User.EmailAddress), "@")
+	return mine == "" || mine != theirs
 }
