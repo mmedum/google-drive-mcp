@@ -1,7 +1,8 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 7 complete (2026-09-30), released as v2.0.0. The
-server asks the person before a write it cannot take back or that opens
+**Status:** phase 7 complete (2026-09-30), released as v2.0.1
+(2026-10-01), which reports a write that may have landed as
+`[ambiguous_outcome]` instead of inviting a repeat. The server asks the person before a write it cannot take back or that opens
 a file past people somebody named (§4a), and six defects are fixed, two
 of them found by its live run (§16). The Go module path is now `/v2`. A default
 build registers **31** tools; eight more exist behind a flag — the
