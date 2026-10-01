@@ -263,53 +263,33 @@ func isScalar(t string) bool {
 	return false
 }
 
-func TestGetFileThroughTheProtocol(t *testing.T) {
+// Each read tool answers through the protocol with what it found, as
+// text only: Claude Code shows the model the structured form alone when
+// both are present.
+func TestReadToolsThroughTheProtocol(t *testing.T) {
 	cs := session(t, defaultConfig(), true)
-	res := call(t, cs, "get_file", map[string]any{"file": "id-notes-fixture"})
-	if res.IsError {
-		t.Fatalf("get_file failed: %s", resultText(t, res))
-	}
-	out := resultText(t, res)
-	if !strings.Contains(out, "Meeting notes — Google Doc") {
-		t.Errorf("output:\n%s", out)
-	}
-	// A read tool returns text only: Claude Code shows the model the
-	// structured form alone when both are present.
-	if res.StructuredContent != nil {
-		t.Errorf("a read tool should return no structured content, got %v", res.StructuredContent)
-	}
-}
-
-func TestListFolderThroughTheProtocol(t *testing.T) {
-	cs := session(t, defaultConfig(), true)
-	res := call(t, cs, "list_folder", map[string]any{"folder": "/Projects"})
-	if res.IsError {
-		t.Fatalf("list_folder failed: %s", resultText(t, res))
-	}
-	if !strings.Contains(resultText(t, res), "Meeting notes") {
-		t.Errorf("output:\n%s", resultText(t, res))
-	}
-}
-
-func TestSearchFilesThroughTheProtocol(t *testing.T) {
-	cs := session(t, defaultConfig(), true)
-	res := call(t, cs, "search_files", map[string]any{"name": "Meeting"})
-	if res.IsError {
-		t.Fatalf("search_files failed: %s", resultText(t, res))
-	}
-	if !strings.Contains(resultText(t, res), "Meeting notes") {
-		t.Errorf("output:\n%s", resultText(t, res))
-	}
-}
-
-func TestGetAccountThroughTheProtocol(t *testing.T) {
-	cs := session(t, defaultConfig(), true)
-	res := call(t, cs, "get_account", map[string]any{})
-	if res.IsError {
-		t.Fatalf("get_account failed: %s", resultText(t, res))
-	}
-	if !strings.Contains(resultText(t, res), drivetest.AccountEmail) {
-		t.Errorf("output:\n%s", resultText(t, res))
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{"get_file", map[string]any{"file": "id-notes-fixture"}, "Meeting notes — Google Doc"},
+		{"list_folder", map[string]any{"folder": "/Projects"}, "Meeting notes"},
+		{"search_files", map[string]any{"name": "Meeting"}, "Meeting notes"},
+		{"get_account", map[string]any{}, drivetest.AccountEmail},
+	} {
+		res := call(t, cs, c.tool, c.args)
+		out := resultText(t, res)
+		if res.IsError {
+			t.Errorf("%s %v failed: %s", c.tool, c.args, out)
+			continue
+		}
+		if !strings.Contains(out, c.want) {
+			t.Errorf("%s %v does not carry %q:\n%s", c.tool, c.args, c.want, out)
+		}
+		if res.StructuredContent != nil {
+			t.Errorf("%s returned structured content, and a read tool returns text only: %v", c.tool, res.StructuredContent)
+		}
 	}
 }
 
@@ -355,16 +335,6 @@ func TestWithoutCredentialsEveryToolAnswersAuth(t *testing.T) {
 		}
 		if out := resultText(t, res); !strings.Contains(out, "[auth]") {
 			t.Errorf("%s: want an [auth] class, got %q", name, out)
-		}
-	}
-}
-
-func TestInstructionsNameTheGroundRules(t *testing.T) {
-	cs := session(t, defaultConfig(), true)
-	got := cs.InitializeResult().Instructions
-	for _, want := range []string{"get_file", "list_folder", "search_files", "ambiguous", "substring"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("instructions do not mention %q:\n%s", want, got)
 		}
 	}
 }

@@ -111,6 +111,9 @@ func TestNewFile(t *testing.T) {
 	if m.Owner != "Test Person (you)" {
 		t.Errorf("owner = %q", m.Owner)
 	}
+	if want := time.Date(2026, 3, 4, 9, 0, 0, 0, time.UTC); !m.Modified.Equal(want) {
+		t.Errorf("modified = %v, want %v", m.Modified, want)
+	}
 	if m.ModifiedBy != "Other Person <other@example.com>" {
 		t.Errorf("modified by = %q", m.ModifiedBy)
 	}
@@ -294,15 +297,44 @@ func TestRoleWords(t *testing.T) {
 	}
 }
 
+// Grants sort by role, then by who within a role. The addresses run
+// against the roles, so an order by address alone would show.
 func TestGrantsAreOrderedByAccess(t *testing.T) {
 	s := NewSharing(true, []*gdrive.Permission{
-		{Type: "user", Role: "reader", EmailAddress: "z@example.com"},
-		{Type: "user", Role: "owner", EmailAddress: "a@example.com"},
+		{Type: "user", Role: "reader", EmailAddress: "a@example.com"},
+		{Type: "user", Role: "owner", EmailAddress: "z@example.com"},
+		{Type: "user", Role: "writer", EmailAddress: "n@example.com"},
 		{Type: "user", Role: "writer", EmailAddress: "m@example.com"},
 	}, true)
-	got := []string{s.Grants[0].Role, s.Grants[1].Role, s.Grants[2].Role}
-	if strings.Join(got, ",") != "owner,writer,reader" {
-		t.Errorf("order = %v", got)
+	var got []string
+	for _, g := range s.Grants {
+		got = append(got, g.Role+" "+g.Who)
+	}
+	want := "owner z@example.com,writer m@example.com,writer n@example.com,reader a@example.com"
+	if strings.Join(got, ",") != want {
+		t.Errorf("order = %v, want %s", got, want)
+	}
+}
+
+// The owner comes from the permissions only when the file names none:
+// the file's own owner field says "(you)", which a grant cannot.
+func TestTheOwnerFallsBackToTheOwnerGrant(t *testing.T) {
+	ownerGrant := []*gdrive.Permission{
+		{Type: "user", Role: "owner", DisplayName: "Robin Sample", EmailAddress: "robin.sample@example.com"},
+	}
+	for _, c := range []struct {
+		name   string
+		owners []*gdrive.User
+		want   string
+	}{
+		{"no owner on the file", nil, "Robin Sample <robin.sample@example.com>"},
+		{"the file names its owner", []*gdrive.User{{DisplayName: "Robin Sample", EmailAddress: "robin.sample@example.com", Me: true}}, "Robin Sample (you)"},
+	} {
+		m := New(&gdrive.File{ID: "id-owner-fixture", Name: "x", MimeType: "text/plain", Owners: c.owners},
+			Options{Permissions: ownerGrant, PermissionsKnown: true})
+		if m.Owner != c.want {
+			t.Errorf("%s: owner = %q, want %q", c.name, m.Owner, c.want)
+		}
 	}
 }
 
@@ -317,6 +349,10 @@ func TestHumanSize(t *testing.T) {
 		0: "0 B", 512: "512 B", 1024: "1.0 KiB", 1536: "1.5 KiB",
 		4096: "4.0 KiB", 1 << 20: "1.0 MiB", 1 << 30: "1.0 GiB",
 		1 << 40: "1.0 TiB", 150 * 1024: "150 KiB",
+		// The switch to no decimals happens at exactly 100.
+		100 * 1024: "100 KiB", 99 * 1024: "99.0 KiB",
+		// PiB is the largest unit, and a size past it stays in PiB.
+		1 << 50: "1.0 PiB", 1 << 60: "1024 PiB",
 	}
 	for n, want := range cases {
 		if got := HumanSize(n); got != want {

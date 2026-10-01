@@ -4,7 +4,7 @@ import "testing"
 
 func TestAccountKeepsTheDomainAndDropsTheRest(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
-		{"ann.petersen@example.com", "…@example.com"},
+		{"robin.sample@example.com", "…@example.com"},
 		{"a@b.example.com", "…@b.example.com"},
 		// Already masked: idempotent, which is what lets a redactor
 		// downstream of this one still recognize it.

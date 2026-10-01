@@ -115,14 +115,28 @@ func TestLocalDirMustBeAbsolute(t *testing.T) {
 	}
 }
 
+// The timeout must lie in [1s, 10m]. The floor is real: a sub-second
+// deadline makes every Drive call time out, and the message promises it
+// is refused.
 func TestHTTPTimeoutBounds(t *testing.T) {
-	for _, v := range []string{"0s", "-1s", "11m"} {
-		if _, err := build(t, map[string]string{"GDRIVE_HTTP_TIMEOUT": v}); err == nil {
-			t.Errorf("timeout %q should be rejected", v)
+	for _, c := range []struct {
+		in string
+		ok bool
+	}{
+		{"-1s", false},
+		{"0s", false},
+		{"1ms", false},
+		{"999ms", false},
+		{"1s", true},
+		{"90s", true},
+		{"10m", true},
+		{"10m1s", false},
+		{"11m", false},
+	} {
+		_, err := build(t, map[string]string{"GDRIVE_HTTP_TIMEOUT": c.in})
+		if (err == nil) != c.ok {
+			t.Errorf("GDRIVE_HTTP_TIMEOUT=%q: err = %v, want accepted = %v", c.in, err, c.ok)
 		}
-	}
-	if _, err := build(t, map[string]string{"GDRIVE_HTTP_TIMEOUT": "90s"}); err != nil {
-		t.Errorf("90s should be accepted: %v", err)
 	}
 }
 
@@ -137,6 +151,8 @@ func TestParseBytes(t *testing.T) {
 		"500MB": 500_000_000,
 		"10 MB": 10_000_000,
 		"1TiB":  1 << 40,
+		// The largest size accepted, exactly.
+		"4194304TiB": 1 << 62,
 	}
 	for in, want := range cases {
 		got, err := ParseBytes(in)
@@ -148,7 +164,7 @@ func TestParseBytes(t *testing.T) {
 			t.Errorf("ParseBytes(%q) = %d, want %d", in, got, want)
 		}
 	}
-	for _, in := range []string{"", "big", "1XB", "-5MB", "MB"} {
+	for _, in := range []string{"", "big", "1XB", "-5MB", "MB", "4194305TiB"} {
 		if _, err := ParseBytes(in); err == nil {
 			t.Errorf("ParseBytes(%q) should fail", in)
 		}
@@ -205,19 +221,6 @@ func TestNewLoggerHonorsFormatAndLevel(t *testing.T) {
 func absPath(t *testing.T) string {
 	t.Helper()
 	return t.TempDir()
-}
-
-func TestHTTPTimeoutFloorIsEnforcedNotJustDescribed(t *testing.T) {
-	// A sub-second deadline makes every Drive call time out, and the
-	// error text says it is refused, so it has to be.
-	for _, v := range []string{"1ms", "999ms"} {
-		if _, err := build(t, map[string]string{"GDRIVE_HTTP_TIMEOUT": v}); err == nil {
-			t.Errorf("timeout %q should be rejected, as the message promises", v)
-		}
-	}
-	if _, err := build(t, map[string]string{"GDRIVE_HTTP_TIMEOUT": "1s"}); err != nil {
-		t.Errorf("1s is the documented floor and should be accepted: %v", err)
-	}
 }
 
 // A directory that does not exist used to be accepted, because only a

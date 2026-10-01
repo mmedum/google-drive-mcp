@@ -2,7 +2,11 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -85,15 +89,30 @@ func TestAnEmptyRecordIsRefused(t *testing.T) {
 // this and a bare `go test` may not.
 func TestTheDriverIsMeasuredAgainstTheBinaryItDrives(t *testing.T) {
 	t.Chdir("../..")
-	if _, err := os.Stat("./google-drive-mcp"); err != nil {
-		t.Skip("no built binary to publish a schema; `make build` first")
+	// Built here rather than found: CI runs the tests before anything
+	// writes ./google-drive-mcp, so a test that looked for it skipped on
+	// every runner.
+	bin := filepath.Join(t.TempDir(), "google-drive-mcp")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	if out, err := exec.Command("go", "build", "-o", bin, "./cmd/google-drive-mcp").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
 	}
 	var out bytes.Buffer
-	if err := liveCover(&out, []string{"./google-drive-mcp"}); err != nil {
+	if err := liveCover(&out, []string{bin}); err != nil {
 		t.Fatalf("live cover: %v\n%s", err, out.String())
 	}
-	if !strings.Contains(out.String(), "options driven") {
-		t.Errorf("the gate reports no number: %s", out.String())
+	// Literal floors under today's 179 of 190 driven, 11 recorded as
+	// not, 10 of them undrivable: a gate that counted nothing would pass
+	// without them.
+	var driven, total, excused, undrivable int
+	if _, err := fmt.Sscanf(out.String(), "live cover ok (%d of %d options driven, %d recorded as not: %d undrivable",
+		&driven, &total, &excused, &undrivable); err != nil {
+		t.Fatalf("cannot read the summary %q: %v", out.String(), err)
+	}
+	if total < 150 || driven < 120 || excused < 1 || undrivable < 1 {
+		t.Errorf("summary %q is under its floors: 150 options, 120 driven, 1 excused, 1 undrivable", out.String())
 	}
 }
 

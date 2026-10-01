@@ -15,6 +15,7 @@ func read() {
 	w.call(call{tool: "get_file", args: map[string]any{"file": id, "include_labels": true}})
 	w.needing("copy_file", id, map[string]any{"file": id, "to": folder})
 	w.expecting("share_file", id, map[string]any{"file": id, "role": "owner"}, "no transfer_ownership")
+	got, err := w.fetch(id) // a call returning two values, one right-hand side
 }
 
 func build(parent string) {

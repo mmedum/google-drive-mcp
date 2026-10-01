@@ -139,8 +139,8 @@ func TestANumericPermissionIDIsRedacted(t *testing.T) {
 	// identifies a Google account, which is an id in every sense that
 	// matters here.
 	r := NewRedactor(false)
-	got := r.Do("owns it  Someone  17839208826236824972  inherited from a folder above it")
-	if strings.Contains(got, "17839208826236824972") {
+	got := r.Do("owns it  Someone  12345678901234567890  inherited from a folder above it")
+	if strings.Contains(got, "12345678901234567890") {
 		t.Errorf("a numeric permission id survived redaction:\n%s", got)
 	}
 	if !strings.Contains(got, "<ID_") {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -109,6 +110,22 @@ func TestCoverageFailsBelowTheFloor(t *testing.T) {
 	if !strings.Contains(err.Error(), packages[0]) {
 		t.Errorf("the failure should name the package: %v", err)
 	}
+
+	// Exactly at the floor passes: 8 of 10 statements is 80%.
+	lines[0] = modulePath + "/" + packages[0] + "/a.go:1.1,2.2 8 1"
+	lines[len(lines)-1] = modulePath + "/" + packages[0] + "/b.go:1.1,2.2 2 0"
+	out.Reset()
+	if err := coverage(&out, []string{writeProfile(t, lines...), "80"}); err != nil {
+		t.Errorf("a package at exactly the floor failed: %v\n%s", err, out.String())
+	}
+
+	// A package the profile does not mention at all has nothing covered,
+	// and fails rather than passing for want of a number.
+	out.Reset()
+	err = coverage(&out, []string{writeProfile(t, lines[1:len(lines)-1]...), "80"})
+	if err == nil || !strings.Contains(err.Error(), packages[0]) {
+		t.Errorf("a package missing from the profile: err = %v, want a failure naming %s", err, packages[0])
+	}
 }
 
 func TestEveryPackageUnderInternalIsMeasuredOrExemptOnPurpose(t *testing.T) {
@@ -196,7 +213,13 @@ func TestPinsPassesOnThisRepositoryAndSaysWhatItChecked(t *testing.T) {
 		t.Fatalf("pins: %v\n%s", err, out.String())
 	}
 	// A check that silently examined nothing would report success too.
-	if !strings.Contains(out.String(), "tool versions") || !strings.Contains(out.String(), "workflows") {
-		t.Errorf("the gate does not say how much it checked: %q", out.String())
+	// Literal floors under today's 5, 24, 13 and 4.
+	var versions, actions, installers, workflows int
+	if _, err := fmt.Sscanf(out.String(), "pin check ok (%d tool versions, %d actions by SHA, %d installers naming their tool's version, %d workflows",
+		&versions, &actions, &installers, &workflows); err != nil {
+		t.Fatalf("cannot read the summary %q: %v", out.String(), err)
+	}
+	if versions < 3 || actions < 10 || installers < 3 || workflows < 2 {
+		t.Errorf("summary %q is under its floors of 3 tool versions, 10 actions, 3 installers, 2 workflows", out.String())
 	}
 }

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"io"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,26 +10,21 @@ import (
 
 // The gate itself, over this repository's own snapshot and record. It
 // reads its two files by the paths `make check` uses, so it runs from
-// the root the way the command does.
+// the root the way the command does. It passes, and says it compared
+// something: a gate that read nothing would pass too. The floors are well below
+// today's 82 schemas and 140 properties.
 func TestAPIFieldsGate(t *testing.T) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
+	t.Chdir("../..")
+	var out strings.Builder
+	if err := apiFields(&out, nil); err != nil {
+		t.Fatalf("api fields gate:\n%v", err)
 	}
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
+	var matched, off int
+	if _, err := fmt.Sscanf(out.String(), "api fields ok (%d schemas matched in internal/gdrive, %d properties", &matched, &off); err != nil {
+		t.Fatalf("cannot read the summary %q: %v", out.String(), err)
 	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.Chdir(cwd); err != nil {
-			t.Fatal(err)
-		}
-	}()
-	if err := apiFields(io.Discard, nil); err != nil {
-		t.Errorf("api fields gate:\n%v", err)
+	if matched < 60 || off < 100 {
+		t.Errorf("compared %d schemas with %d properties left out, want at least 60 and 100: %s", matched, off, out.String())
 	}
 }
 
@@ -233,5 +228,22 @@ func TestUnmatchedStructsMustBeAccountedFor(t *testing.T) {
 	}
 	if len(rec.rows) != 0 {
 		t.Errorf("a rejected row must not survive into the decisions: %+v", rec.rows)
+	}
+}
+
+// A row with four columns is a row whose reason is missing, which the
+// gate names as such; three columns is not a row at all.
+func TestTheFieldsRecordReadsAMissingReasonAsARow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "record.tsv")
+	body := "# comment\ndrive\tFile\tname\tout\ndrive\tFile\tsize\tout\twhy not\ndrive\tFile\tbroken\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rows, problems := readFieldsRecord(path)
+	if len(rows) != 2 || rows[0].Reason != "" || rows[1].Reason != "why not" {
+		t.Errorf("rows = %+v, want two, the first with no reason and the second with \"why not\"", rows)
+	}
+	if len(problems) != 1 || !strings.Contains(problems[0], ":4: expected") {
+		t.Errorf("problems = %q, want one about line 4", problems)
 	}
 }

@@ -22,19 +22,33 @@ func TestCatchesWhatALiveRunCanDragIn(t *testing.T) {
 		link    = sample("https://drive.google.com/file/d/", id, "/view")
 		docLink = sample("https://docs.google.com/document/d/", id, "/edit")
 	)
+	const (
+		isAddress = "an address on a real domain"
+		isLink    = "a Drive link carrying an id"
+		isID      = "something shaped like a Drive id"
+	)
 	// Each of these is something a real session actually produced. The
 	// gate exists because a person pasting a transcript into a fixture,
-	// a doc or a commit message will not notice any of them.
-	cases := map[string]string{
-		"a colleague's address":    "modified 2026-09-04 by Someone <" + address + ">",
-		"a file id in a fixture":   `s.AddFile("` + id + `", "x", "text/plain", "")`,
-		"a shared-drive id":        "drive: " + driveID,
-		"a link with an id in it":  "link: " + link,
-		"a docs link in a comment": "// see " + docLink,
+	// a doc or a commit message will not notice any of them. Each names
+	// the rule that must fire, since the id rule alone would catch most.
+	cases := []struct{ name, line, rule string }{
+		{"a colleague's address", "modified 2026-09-04 by Someone <" + address + ">", isAddress},
+		{"a file id in a fixture", `s.AddFile("` + id + `", "x", "text/plain", "")`, isID},
+		{"a shared-drive id", "drive: " + driveID, isID},
+		{"a link with an id in it", "link: " + link, isLink},
+		{"a docs link in a comment", "// see " + docLink, isLink},
+		// The leak is the second match of its kind on the line: a scan
+		// that stopped at the first would pass every one of these.
+		{"a real address after a documented one", "cc: person@example.com, " + address, isAddress},
+		{"a drive link after a harmless url", "see https://example.com/a and " + link, isLink},
+		{"an id after a selector", "x.SomeLongSelectorName2026() " + id, isID},
+		{"a link whose second id is real", sample("https://drive.google.com/file/d/1SyntheticFixtureFileIdAAAAAAAAAAAA",
+			"/view?resourcekey=0-", id), isLink},
 	}
-	for name, line := range cases {
-		if got := scanForLeaks("some/file.go", line); len(got) == 0 {
-			t.Errorf("%s went undetected: %q", name, line)
+	for _, c := range cases {
+		got := scanForLeaks("some/file.go", c.line)
+		if !strings.Contains(strings.Join(got, "\n"), c.rule) {
+			t.Errorf("%s: %q went undetected as %q; findings: %q", c.name, c.line, c.rule, got)
 		}
 	}
 }
@@ -53,11 +67,22 @@ func TestLeavesTheRepositoryAlone(t *testing.T) {
 		"a kebab-case identifier":  "id-projects-fixture and id-drive-marketing",
 		"an md5 in a test":         `drivetest.Size(4096, "d41d8cd98f00b204e9800998ecf8427e")`,
 		"a plain sentence":         "the folder holds Budget.xlsx, Meeting notes, and more",
+		"a link to a synthetic id": "https://drive.google.com/file/d/1SyntheticFixtureFileIdAAAAAAAAAAAA/view",
+		"a field selector":         "timeout := cfg.HTTPTimeoutForEverything2026, nil",
 	}
 	for name, line := range cases {
 		if got := scanForLeaks("some/file.go", line); len(got) != 0 {
 			t.Errorf("%s was flagged: %q -> %v", name, line, got)
 		}
+	}
+}
+
+// A finding names the file and the line it is on.
+func TestAFindingSaysWhereItIs(t *testing.T) {
+	address := sample("someone@", "a-real-", "company.com")
+	got := scanForLeaks("some/file.go", "line one\nline two "+address+"\n")
+	if len(got) != 1 || !strings.HasPrefix(got[0], "some/file.go:2: ") {
+		t.Errorf("findings = %q, want one starting %q", got, "some/file.go:2: ")
 	}
 }
 
@@ -324,5 +349,116 @@ func TestACompiledBinaryIsAFindingAndNotASkip(t *testing.T) {
 	// `git add -A` that would have swept it into a commit.
 	if !strings.Contains(out.String(), "built") {
 		t.Errorf("the report does not name the file:\n%s", out.String())
+	}
+}
+
+// The scan reports how much it read, and refuses to pass having read
+// nothing. The fixture holds exactly one file, one commit and one tag.
+func TestTheLeakScanSaysHowMuchItReadAndRefusesNothing(t *testing.T) {
+	dir := gitRepo(t, sample("a.tester", "@", "example", ".com"), "Add a file\n")
+	t.Chdir(dir)
+	var out strings.Builder
+	if err := leaks(&out, nil); err != nil {
+		t.Fatalf("leaks: %v\n%s", err, out.String())
+	}
+	if got, want := out.String(), "leak check ok (1 files)\n"; got != want {
+		t.Errorf("tree scan said %q, want %q", got, want)
+	}
+	out.Reset()
+	if err := leaksInHistory(&out); err != nil {
+		t.Fatalf("leaksInHistory: %v\n%s", err, out.String())
+	}
+	if got, want := out.String(), "history leak check ok (1 blobs, 2 messages)\n"; got != want {
+		t.Errorf("history scan said %q, want %q", got, want)
+	}
+
+	// Nothing to read: a repository whose only commit is empty.
+	empty := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"-c", "user.name=A Tester", "-c", "user.email=" + sample("a.tester", "@", "example", ".com"),
+			"commit", "-q", "--allow-empty", "-m", "Nothing yet"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = empty
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, b)
+		}
+	}
+	t.Chdir(empty)
+	if err := leaks(&out, nil); err == nil || !strings.Contains(err.Error(), "looked at nothing") {
+		t.Errorf("a tree with no files: err = %v, want the looked-at-nothing refusal", err)
+	}
+	if err := leaksInHistory(&out); err == nil || !strings.Contains(err.Error(), "looked at nothing") {
+		t.Errorf("a history with no blobs: err = %v, want the looked-at-nothing refusal", err)
+	}
+}
+
+// The skip list is keyed by path from the repository root. The same
+// name anywhere else is scanned like any other file.
+func TestOnlyTheListedPathIsSkipped(t *testing.T) {
+	dir := gitRepo(t, sample("a.tester", "@", "example", ".com"), "Add a file\n")
+	address := sample("someone@", "a-real-", "company.com")
+	for _, p := range []string{"testdata/api-fields.json", "elsewhere/api-fields.json"} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(p)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(address+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(dir)
+	var out strings.Builder
+	if err := leaks(&out, nil); err == nil {
+		t.Fatalf("a leak in elsewhere/api-fields.json passed:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "elsewhere/api-fields.json:1") {
+		t.Errorf("the unlisted copy was not reported:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "testdata/api-fields.json") {
+		t.Errorf("the listed path was scanned:\n%s", out.String())
+	}
+}
+
+// What history mode is for: a leak deleted at the tip is still in the
+// log. So is a binary that was committed and then removed.
+func TestHistoryFindsWhatTheTipNoLongerHas(t *testing.T) {
+	dir := gitRepo(t, sample("a.tester", "@", "example", ".com"), "Add a file\n")
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=A Tester",
+			"-c", "user.email=" + sample("a.tester", "@", "example", ".com")}, args...)...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, b)
+		}
+	}
+	id := sample("1QwErTyUiOp2", "AsDfGhJkL3", "ZxCvBnM4", "pLmNbVcXz")
+	if err := os.WriteFile(filepath.Join(dir, "pasted.md"), []byte("an id: "+id+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "built"), append([]byte("\x7fELF\x00"), make([]byte, 64)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "pasted.md", "built")
+	git("commit", "-q", "-m", "Add two things")
+	git("rm", "-q", "pasted.md", "built")
+	git("commit", "-q", "-m", "Remove them")
+	t.Chdir(dir)
+
+	var out strings.Builder
+	if err := leaks(&out, nil); err != nil {
+		t.Fatalf("the tip is clean, and the tree scan failed: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	if err := leaksInHistory(&out); err == nil {
+		t.Fatalf("history passed with a deleted leak in it:\n%s", out.String())
+	}
+	for _, want := range []string{"pasted.md@", "something shaped like a Drive id", "built@", "compiled binary is in the history"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the history report does not carry %q:\n%s", want, out.String())
+		}
 	}
 }
