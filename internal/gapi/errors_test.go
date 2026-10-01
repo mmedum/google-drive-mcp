@@ -1,6 +1,10 @@
 package gapi
 
 import (
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -36,5 +40,38 @@ func TestAPermissionDenialDoesNotRepeatTheAccount(t *testing.T) {
 	}
 	if !strings.Contains(raw.Error(), "…@example.com") {
 		t.Errorf("the domain should survive: %s", raw.Error())
+	}
+}
+
+// A failure is called ambiguous only when the write may have reached
+// Google and is not repeated: a refusal or a failed dial sent nothing
+// that was applied, a read or a repeatable write was retried instead.
+func TestOnlyAWriteThatMayHaveLandedIsAmbiguous(t *testing.T) {
+	server := &transientError{err: ErrServer}
+	refused := &transientError{err: ErrRateLimited, refused: true}
+	reset := fmt.Errorf("%w: %w", ErrNetwork, &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")})
+	dial := fmt.Errorf("%w: %w", ErrNetwork, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
+	create := request{method: http.MethodPost}
+	for _, tc := range []struct {
+		name string
+		r    request
+		err  error
+		want bool
+	}{
+		{"create, 5xx", create, server, true},
+		{"create, reset", create, reset, true},
+		{"patch, reset", request{method: http.MethodPatch}, reset, true},
+		{"create, rate limited", create, refused, false},
+		{"create, failed dial", create, dial, false},
+		{"create with an id, 5xx", request{method: http.MethodPost, idempotent: true}, server, false},
+		{"read, reset", request{method: http.MethodGet}, reset, false},
+		{"create, refused outright", create, ErrForbidden, false},
+	} {
+		if got := errors.Is(ambiguous(tc.r, tc.err), ErrAmbiguous); got != tc.want {
+			t.Errorf("%s: ambiguous = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if got := Class(ambiguous(create, server)); got != ClassAmbiguousIO {
+		t.Errorf("an ambiguous server failure has class %q, want %q", got, ClassAmbiguousIO)
 	}
 }
