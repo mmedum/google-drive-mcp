@@ -169,7 +169,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
     four sibling servers hold that with a gate and this one did not.
   - **An action that installs a tool and names no version at all.** That
     is an absence rather than a value, so a check over written versions
-    is blind to it. The Pipedrive server's release published nothing on
+    is blind to it. A sibling server's release published nothing on
     exactly this shape: `sigstore/cosign-installer` pinned by SHA with
     no `cosign-release`, so the job installed whatever cosign was
     newest, and that cosign had changed its default signing format.

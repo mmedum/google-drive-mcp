@@ -176,7 +176,7 @@ var floatingDownload = regexp.MustCompile(`releases/latest/download|@latest\b`)
 //
 //   - an action that installs a tool and names no version at all. That
 //     is an absence, not a value, so a check over written versions is
-//     blind to it. The Pipedrive server's release published nothing on
+//     blind to it. A sibling server's release published nothing on
 //     exactly this shape: `sigstore/cosign-installer` pinned by SHA with
 //     no `cosign-release`, so the job installed whatever cosign was
 //     newest, and that cosign had changed its default signing format.
