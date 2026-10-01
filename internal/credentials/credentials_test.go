@@ -256,3 +256,59 @@ func TestEnvDefaultsToTheProcessEnvironment(t *testing.T) {
 		t.Fatalf("Resolve = %q/%q/%v", tok, src, err)
 	}
 }
+
+// A token read from the plaintext file is worth a warning only when the
+// keyring could not be used; a file left from before is not news when
+// the keyring simply holds nothing.
+func TestReadingTheTokenFileWarnsOnlyWhenTheKeyringIsBroken(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		broken   bool
+		warnings int
+	}{
+		{"keyring broken", true, 1},
+		{"keyring empty", false, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			kr := newFakeKeyring()
+			if c.broken {
+				kr.failWith = errors.New("no secret service")
+			}
+			s, warnings := newStore(t, kr)
+			if err := os.WriteFile(s.FilePath, []byte(`{"refresh_token":"in-file"}`), 0o600); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			tok, src, err := s.Resolve()
+			if err != nil || tok != "in-file" || src != SourceFile {
+				t.Fatalf("Resolve = %q/%q/%v, want in-file/file/nil", tok, src, err)
+			}
+			if len(*warnings) != c.warnings {
+				t.Errorf("warnings = %q, want %d", *warnings, c.warnings)
+			}
+		})
+	}
+}
+
+func TestSaveWithABrokenKeyringAndNoFileNamesTheKeyringFailure(t *testing.T) {
+	broken := errors.New("no secret service")
+	kr := newFakeKeyring()
+	kr.failWith = broken
+	s := &Store{Profile: "default", Keyring: kr, Env: func(string) string { return "" }}
+	if _, err := s.Save("token"); !errors.Is(err, broken) {
+		t.Fatalf("Save = %v, want it to wrap the keyring failure", err)
+	}
+}
+
+// A token file that cannot be removed is reported, not dropped: logout
+// would otherwise say it was done while the token is still on disk.
+func TestDeleteReportsATokenFileItCouldNotRemove(t *testing.T) {
+	s, _ := newStore(t, newFakeKeyring())
+	// A non-empty directory where the file should be: os.Remove refuses
+	// it on every platform.
+	if err := os.MkdirAll(filepath.Join(s.FilePath, "inside"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete(); err == nil {
+		t.Fatal("Delete succeeded over a token path it could not remove")
+	}
+}

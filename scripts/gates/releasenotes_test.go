@@ -51,6 +51,19 @@ func TestReleaseNotesTakesOnlyItsOwnVersion(t *testing.T) {
 	}
 }
 
+// With no file named, the notes come from CHANGELOG.md where it runs.
+func TestReleaseNotesReadsTheChangelogByDefault(t *testing.T) {
+	t.Chdir(filepath.Dir(relnotesFile(t)))
+	var out bytes.Buffer
+	if err := releaseNotes(&out, []string{"v1.1.2"}); err != nil {
+		t.Fatalf("releaseNotes with only a version: %v", err)
+	}
+	const want = "## Added\n- The thing.\n\n## Changed\n- The other thing.\n"
+	if out.String() != want {
+		t.Errorf("notes =\n%q\nwant\n%q", out.String(), want)
+	}
+}
+
 // The tag carries a leading v and the heading does not.
 func TestReleaseNotesAcceptsEitherSpelling(t *testing.T) {
 	path := relnotesFile(t)

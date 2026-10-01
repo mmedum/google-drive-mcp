@@ -6,12 +6,19 @@ import (
 	"testing"
 )
 
+// A version stamped through ldflags wins, in its canonical spelling:
+// goreleaser stamps it without the leading v.
 func TestStringPrefersLDFlagsVersion(t *testing.T) {
 	old := Version
 	t.Cleanup(func() { Version = old })
-	Version = "v1.2.3"
-	if got := String(); got != "v1.2.3" {
-		t.Fatalf("String() = %q, want v1.2.3", got)
+	for _, tc := range []struct{ stamped, want string }{
+		{"v1.2.3", "v1.2.3"},
+		{"1.2.3", "v1.2.3"},
+	} {
+		Version = tc.stamped
+		if got := String(); got != tc.want {
+			t.Errorf("String() with Version %q = %q, want %q", tc.stamped, got, tc.want)
+		}
 	}
 }
 
@@ -47,6 +54,8 @@ func TestOneSpellingWhicheverWayItWasBuilt(t *testing.T) {
 		{"1.1.0", "v1.1.0"},  // goreleaser's stamping
 		{"v1.1.0", "v1.1.0"}, // the build-info fallback
 		{"1.1.0-rc.1", "v1.1.0-rc.1"},
+		{"0.1.0", "v0.1.0"}, // both ends of the digit range
+		{"9.0.0", "v9.0.0"},
 		{"dev", "dev"}, // an untagged build says so
 		{"", ""},
 	} {

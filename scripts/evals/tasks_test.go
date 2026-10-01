@@ -32,6 +32,17 @@ func TestNestedUnderReadsTheTreesShape(t *testing.T) {
 	if nestedUnder(listing, "No such folder", "Notes.txt") {
 		t.Error("a folder that is not there held something")
 	}
+	// Once the tree backs out of the folder, a file inside a LATER
+	// folder is not inside it either.
+	later := strings.Join([]string{
+		"My Drive/Scratch/",
+		"├── Invoices/  0 items",
+		"└── Archive/  1 item",
+		"    └── Invoice 2026-01.txt  text file  12 B",
+	}, "\n")
+	if nestedUnder(later, "Invoices", "Invoice 2026-01.txt") {
+		t.Error("a file inside a later sibling folder was read as being inside the first")
+	}
 }
 
 func TestLooksLikeIDMatchesDriveIdsAndNotProse(t *testing.T) {
