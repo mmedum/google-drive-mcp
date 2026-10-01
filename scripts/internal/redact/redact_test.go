@@ -42,8 +42,8 @@ func TestRedactsIdsLinksAndAddresses(t *testing.T) {
 
 func TestPeopleBesideAddressesAreRedacted(t *testing.T) {
 	r := NewRedactor(false)
-	got := r.Do("modified 2026-09-04 13:17Z by Åse Fiktivsen <kim@example.com>")
-	for _, secret := range []string{"Kim", "Fiktivsen", "kim@example.com"} {
+	got := r.Do("modified 2026-09-04 13:17Z by Åse Fiktivsen <ase@example.com>")
+	for _, secret := range []string{"Åse", "Fiktivsen", "ase@example.com"} {
 		if strings.Contains(got, secret) {
 			t.Errorf("%q survived:\n%s", secret, got)
 		}
