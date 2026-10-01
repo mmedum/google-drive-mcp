@@ -6,6 +6,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- The transcript redactor's tests and comments use an invented name and address in place of a real person's name and an account address.
+
 ## [2.0.0] - 2026-09-30
 
 ### Added
