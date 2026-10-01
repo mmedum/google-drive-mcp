@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mmedum/google-drive-mcp/v2/internal/redact"
+	"net"
 	"net/url"
 	"strings"
 
@@ -331,14 +332,18 @@ func wrapTransportError(err error) error {
 		}
 		return &AuthError{Code: code, Msg: re.ErrorDescription}
 	}
-	if strings.Contains(err.Error(), "oauth2:") {
-		return &AuthError{Code: "token", Msg: err.Error()}
-	}
 	// *url.Error quotes the whole request URL, and a search's terms or a
-	// path lookup's file name travel in its query.
+	// path lookup's file name travel in its query. Stripped before
+	// anything below copies the text.
 	var ue *url.Error
 	if errors.As(err, &ue) {
 		err = fmt.Errorf("%s request: %w", ue.Op, ue.Err)
+	}
+	// A token refresh that failed on the network is a network failure,
+	// not a refused login.
+	var opErr *net.OpError
+	if strings.Contains(err.Error(), "oauth2:") && !errors.As(err, &opErr) {
+		return &AuthError{Code: "token", Msg: err.Error()}
 	}
 	return fmt.Errorf("%w: %w", ErrNetwork, err)
 }

@@ -1004,8 +1004,8 @@ honest option and the one a model can act on.
   `Retry-After`. Metadata patches, moves and permission updates retry the
   same way: they are idempotent. Creates, uploads and copies retry
   because they carry a pre-generated id; a duplicate-id answer after an
-  ambiguous failure is confirmed with a `files.get` and reported as
-  success. **A create that cannot carry one is not retried at all**:
+  ambiguous failure is reported as `[ambiguous_outcome]`, because the
+  earlier attempt may have made the file, and `get_file` settles it. **A create that cannot carry one is not retried at all**:
   Drive refuses a generated id for the Docs Editors formats, so a 500
   arriving after a new Doc was made would otherwise produce a second
   one. The request carries the exception rather than the rule naming the
@@ -1019,17 +1019,18 @@ honest option and the one a model can act on.
   is `kindRead` and repeating it is safe, because an unused id costs
   nothing and becomes a file only when a create carries it. That is
   written at the call site, because `kindRead` now grants a retry.
-- **Sharing, in phase 2, does not retry at all** (decided here so that
-  phase 2 does not have to rediscover it). `permissions.create` is not
-  idempotent, and the failure that matters is not a duplicate grant —
-  granting the same person the same role twice is the same grant. It is
-  that a share applied after the caller believed the call failed is
-  exposure nobody is watching, which is the one direction §9 exists to
-  prevent. So a sharing write that fails, transiently or otherwise, is
-  reported as `[ambiguous_outcome]` with `list_permissions` named as the
-  way to find out, rather than repeated. `request.unsafeToRepeat` is
-  where that is expressed. `permissions.create` is not idempotent, so after a network
-  failure the server lists permissions and checks before it retries.
+- **Sharing is not repeated after it may have landed.**
+  `permissions.create` is a POST with no id, and the failure that
+  matters is not a duplicate grant — granting the same person the same
+  role twice is the same grant. It is that a share applied after the
+  caller believed the call failed is exposure nobody is watching, which
+  is the one direction §9 exists to prevent. So a 429, which refuses the
+  work before it starts, is retried, and a 5xx or a connection lost
+  after sending is reported as `[ambiguous_outcome]` with
+  `list_permissions` named as the way to find out. `ambiguous` in
+  `internal/gapi/client.go` is where that is expressed, for every write
+  that cannot be repeated. A delete retried after a 5xx that then finds
+  nothing is ambiguous too: the earlier attempt may have deleted it.
   Resumable uploads recover through the protocol itself.
 - **Limiters.** Reads and listings 10/s, burst 20. Writes 5/s, burst 10.
   Sharing 1/s, burst 3 (`sharingRateLimitExceeded` is its own quota).
