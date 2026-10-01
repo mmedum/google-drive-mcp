@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-01
+
 ### Fixed
 
 - The transcript redactor's tests and comments use an invented name and address in place of a real person's name and an account address.
@@ -2043,6 +2045,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[2.0.1]: https://github.com/mmedum/google-drive-mcp/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.2...v1.2.3
