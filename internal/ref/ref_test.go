@@ -61,6 +61,8 @@ func TestParseURLShapes(t *testing.T) {
 		{"https://docs.google.com/forms/d/" + testID + "/edit", "", "form"},
 		{"https://docs.google.com/drawings/d/" + testID + "/edit", "", "drawing"},
 		{"https://docs.google.com/document/u/1/d/" + testID + "/edit", "", "doc with account switcher"},
+		{"https://docs.google.com/document/u/9/d/" + testID + "/edit", "", "doc with an account switcher ending in 9"},
+		{"https://docs.google.com/document/d/" + testID, "", "doc with nothing after the id"},
 		{"https://docs.google.com/spreadsheets/d/" + testID + "/edit?resourcekey=0-q", "0-q", "sheet with key"},
 	}
 	for _, c := range cases {

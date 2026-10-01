@@ -199,6 +199,18 @@ func TestAGateThatIsNamedButNotRunDoesNotCount(t *testing.T) {
 				"          go run ./scripts/gates leaks\n",
 			wantRun: true,
 		},
+		{
+			// The block ends at the next step, which is at the run
+			// step's own indent; that step only names the gate.
+			name: "named by the step after a run block",
+			ci: "jobs:\n  a:\n    steps:\n      - run: |\n          set -e\n" +
+				"      - name: go run ./scripts/gates leaks\n        uses: actions/cache@v1\n",
+		},
+		{
+			name:    "the second of two gates on one run line",
+			ci:      "jobs:\n  a:\n    steps:\n      - run: go run ./scripts/gates pins && go run ./scripts/gates leaks\n",
+			wantRun: true,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -218,10 +230,11 @@ func TestAGateThatIsNamedButNotRunDoesNotCount(t *testing.T) {
 	}
 }
 
-// TestACommentedOutRecipeLineIsNotARecipeLine. Make hands an indented
+// TestTheMakefileReaderFindsWhatARecipeRuns. Make hands an indented
 // `#` to the shell, which does nothing with it; the Makefile side had
-// the same hole as the workflow side and for the same reason.
-func TestACommentedOutRecipeLineIsNotARecipeLine(t *testing.T) {
+// the same hole as the workflow side and for the same reason. A recipe
+// line can run two gates, and a recipe ends at the next target.
+func TestTheMakefileReaderFindsWhatARecipeRuns(t *testing.T) {
 	const makefile = `GO ?= go
 
 .PHONY: leaks
@@ -232,7 +245,13 @@ leaks:
 pins:
 #	$(GO) run ./scripts/gates pins
 
-check: leaks pins
+.PHONY: both
+both:
+	$(GO) run ./scripts/gates classes && $(GO) run ./scripts/gates outcomes
+api-diff:
+	$(GO) run ./scripts/gates api-diff
+
+check: leaks pins both
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Makefile")
@@ -248,5 +267,12 @@ check: leaks pins
 	}
 	if !slices.Contains(gates, "leaks") {
 		t.Errorf("the recipe line that is not commented out was missed: %v", gates)
+	}
+	if !slices.Contains(gates, "outcomes") {
+		t.Errorf("the second gate on one recipe line was missed: %v", gates)
+	}
+	// A recipe ends at the next target even with no blank line between.
+	if slices.Contains(gates, "api-diff") {
+		t.Errorf("the next target's recipe was read as part of the one before it: %v", gates)
 	}
 }

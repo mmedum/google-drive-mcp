@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -108,5 +109,27 @@ func TestAScopeMissingFromTheReadmeIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(problems, "\n"), "drive.invented") {
 		t.Errorf("the report does not name the scope:\n%s", strings.Join(problems, "\n"))
+	}
+}
+
+// The full surface turns on every setting that gates a tool, and each
+// one it names is a setting config.go really defines; read-only, which
+// removes tools, is never among them.
+func TestTheFullSurfaceTurnsOnEveryGatingSetting(t *testing.T) {
+	t.Chdir("../..")
+	env, err := fullSurfaceEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(env) != len(gatesATool) {
+		t.Errorf("fullSurfaceEnv() = %v, want one entry for each of the %d gating settings", env, len(gatesATool))
+	}
+	for name := range gatesATool {
+		if !slices.Contains(env, "GDRIVE_"+name+"=true") {
+			t.Errorf("GDRIVE_%s=true is missing from %v: config.go does not define it", name, env)
+		}
+	}
+	if slices.Contains(env, "GDRIVE_READ_ONLY=true") {
+		t.Errorf("the full surface turns on read-only, which removes tools: %v", env)
 	}
 }

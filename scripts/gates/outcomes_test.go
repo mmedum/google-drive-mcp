@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -72,6 +73,33 @@ func TestTheGateCatchesTheMistakeItWasWrittenFor(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "an outcome appended to a list of notes",
+			body: `	if in.LockFile {
+		notes = append(notes, "The file is LOCKED while the approval is open.")
+	}`,
+			want: true,
+		},
+		{
+			name: "a sentence written and then refused with an error, so it never reaches the caller",
+			body: `	if in.LockFile {
+		note += "The file is LOCKED while the approval is open."
+		return nil, Errorf(ClassInvalid, "refused")
+	}`,
+		},
+		{
+			name: "the same, from a function that returns only the error",
+			body: `	if in.LockFile {
+		note += "The file is LOCKED while the approval is open."
+		return Errorf(ClassInvalid, "refused")
+	}`,
+		},
+		{
+			name: "a note taken from a call with two results",
+			body: `	if in.LockFile {
+		_, note := describe()
+	}`,
+		},
+		{
 			name: "a refusal, which says what this server did",
 			body: `	if !in.Confirm {
 		return nil, s.confirmed(false, "empty_trash", "destroy everything in the trash, with no way back")
@@ -126,40 +154,88 @@ func TestEveryBooleanInputIsInScope(t *testing.T) {
 	}
 }
 
-// TestAnExemptionThatNoLongerMatchesFails, so an excuse cannot outlive
-// the code it excused and read as a decision about today's code.
-func TestAnExemptionThatNoLongerMatchesFails(t *testing.T) {
-	t.Chdir("../..")
-	exempt, err := readOutcomeExemptions()
-	if err != nil {
+// outcomeTree writes a service package of exactly the gate's floors —
+// ten files and twenty boolean inputs — with the given branch code in
+// one of them, and the given exemption record, and runs the gate.
+func outcomeTree(t *testing.T, branches, record string) (string, error) {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	pkg := filepath.Join("internal", "service")
+	if err := os.MkdirAll(pkg, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if len(exempt) == 0 {
-		t.Skip("nothing is excused, so there is nothing to go stale")
-	}
-	fset := token.NewFileSet()
-	files, err := parseService(fset)
-	if err != nil {
+	if err := os.MkdirAll("testdata", 0o700); err != nil {
 		t.Fatal(err)
 	}
-	claims := outcomeClaims(files, boolInputFields(files), fset)
-	matched := map[string]bool{}
-	for _, c := range claims {
-		matched[outcomeKey(c.file, c.field)] = true
+	var fields strings.Builder
+	fields.WriteString("package service\n\ntype ThingInput struct {\n\tLockFile bool\n\tNotify bool\n")
+	for i := range 18 {
+		fmt.Fprintf(&fields, "\tOption%d bool\n", i)
 	}
-	for key := range exempt {
-		if !matched[key] {
-			t.Errorf("%s is excused and nothing there states an outcome from the request", key)
+	fields.WriteString("}\n")
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
 		}
+	}
+	write(filepath.Join(pkg, "input.go"), fields.String())
+	write(filepath.Join(pkg, "thing.go"), "package service\n\nfunc (s *Service) Do(in ThingInput) {\n"+branches+"\n}\n")
+	for i := range 8 {
+		write(filepath.Join(pkg, fmt.Sprintf("other%d.go", i)), "package service\n")
+	}
+	write(outcomeFile, record)
+	var out strings.Builder
+	err := outcomes(&out, nil)
+	return out.String(), err
+}
+
+// The exemption record against the gate, both ways: an excused branch
+// passes, a row that excuses nothing fails, and a row cannot excuse two
+// branches. The tree sits exactly on the floors, so it also holds that
+// ten files and twenty inputs are enough to read.
+func TestTheExemptionRecordIsHeldToTheBranches(t *testing.T) {
+	const claim = "\tif in.LockFile {\n\t\tnote += \"The file is LOCKED.\"\n\t}\n"
+	const row = "internal/service/thing.go:LockFile\tthe sentence is this server's own doing\n"
+
+	out, err := outcomeTree(t, claim, row)
+	if err != nil {
+		t.Fatalf("an excused branch failed: %v\n%s", err, out)
+	}
+	if want := "outcome check ok (20 boolean inputs across 10 files, 1 branch(es) excused)\n"; out != want {
+		t.Errorf("summary = %q, want %q", out, want)
+	}
+
+	out, err = outcomeTree(t, claim, row+"internal/service/thing.go:Notify\tnothing tests Notify\n")
+	if err == nil || !strings.Contains(out, "thing.go:Notify and nothing there states an outcome") {
+		t.Errorf("a stale row: err = %v, report:\n%s", err, out)
+	}
+
+	out, err = outcomeTree(t, claim+claim, row)
+	if err == nil || !strings.Contains(out, "excuses internal/service/thing.go:LockFile once and 2 branches") {
+		t.Errorf("one row for two branches: err = %v, report:\n%s", err, out)
+	}
+
+	out, err = outcomeTree(t, claim, "")
+	if err == nil || !strings.Contains(out, "tests the request field LockFile") {
+		t.Errorf("an unexcused branch: err = %v, report:\n%s", err, out)
 	}
 }
 
-// TestTheRealServiceIsChecked runs the gate over this repository.
+// TestTheRealServiceIsChecked runs the gate over this repository, and
+// holds it to having read something: today 24 inputs across 23 files.
 func TestTheRealServiceIsChecked(t *testing.T) {
 	t.Chdir("../..")
 	var out strings.Builder
 	if err := outcomes(&out, nil); err != nil {
 		t.Fatalf("outcomes: %v\n%s", err, out.String())
+	}
+	var inputs, files int
+	if _, err := fmt.Sscanf(out.String(), "outcome check ok (%d boolean inputs across %d files", &inputs, &files); err != nil {
+		t.Fatalf("cannot read the summary %q: %v", out.String(), err)
+	}
+	if inputs < 20 || files < 15 {
+		t.Errorf("summary %q is under its floors of 20 inputs and 15 files", out.String())
 	}
 }
 

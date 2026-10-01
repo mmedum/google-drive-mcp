@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,6 +129,16 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			want: "which user_config does not declare",
 		},
 		{
+			// Composed, with the undeclared key second: every reference
+			// in a value is spent, not only the first.
+			name: "an undeclared key after a declared one",
+			break_: func(m map[string]any) {
+				cfg := m["server"].(map[string]any)["mcp_config"].(map[string]any)
+				cfg["env"].(map[string]any)["GDRIVE_CLIENT_SECRET"] = "${user_config.client_secret}/${user_config.oauth_json}"
+			},
+			want: "spends ${user_config.oauth_json}",
+		},
+		{
 			name: "an override for a platform the bundle does not claim",
 			break_: func(m map[string]any) {
 				m["compatibility"] = map[string]any{"platforms": []any{"darwin", "win32"}}
@@ -224,6 +235,14 @@ func TestTheCommittedManifestNamesFilesThePackerStages(t *testing.T) {
 	var out bytes.Buffer
 	if err := mcpbCheck(&out, nil); err != nil {
 		t.Fatalf("the committed manifest does not match what the packer stages: %v\n%s", err, out.String())
+	}
+	// And it read something: today's 8 staged files and 3 platforms.
+	var files, platforms int
+	if _, err := fmt.Sscanf(out.String(), "mcpb manifest ok (%d files staged, %d platforms)", &files, &platforms); err != nil {
+		t.Fatalf("cannot read the summary %q: %v", out.String(), err)
+	}
+	if files < 4 || platforms < 3 {
+		t.Errorf("summary %q is under its floors of 4 files and 3 platforms", out.String())
 	}
 }
 

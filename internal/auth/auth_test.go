@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -422,5 +424,117 @@ func TestATokenRefreshCannotHangForever(t *testing.T) {
 	case <-accepted:
 	default:
 		t.Error("the refresh never reached the endpoint, so the test proved nothing")
+	}
+}
+
+func TestLoadClientSecretReadsTheFileItIsGiven(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client_secret.json")
+	if err := os.WriteFile(path, []byte(desktopClientJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadClientSecret(path, Scopes(Access{}))
+	if err != nil {
+		t.Fatalf("LoadClientSecret(%s): %v", path, err)
+	}
+	if cfg.ClientID != "test-client-id" {
+		t.Errorf("ClientID = %q, want %q", cfg.ClientID, "test-client-id")
+	}
+}
+
+// Without a listener, Login opens its own on the loopback interface,
+// which is what `login` does: only tests hand one in.
+func TestLoginOpensItsOwnLoopbackListener(t *testing.T) {
+	ts := tokenServer(t, "refresh-value")
+	defer ts.Close()
+	cfg := &oauth2.Config{ClientID: "id", ClientSecret: "secret",
+		Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.example/auth", TokenURL: ts.URL, AuthStyle: oauth2.AuthStyleInParams}}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	tok, err := Login(ctx, cfg, LoginOptions{Timeout: 5 * time.Second, OpenBrowser: func(authURL string) error {
+		u, err := url.Parse(authURL)
+		if err != nil {
+			return err
+		}
+		q := u.Query()
+		redirect := q.Get("redirect_uri")
+		if !strings.HasPrefix(redirect, "http://127.0.0.1:") {
+			t.Errorf("redirect_uri = %q, want a 127.0.0.1 loopback address", redirect)
+		}
+		go func() {
+			resp, err := http.Get(redirect + "?state=" + url.QueryEscape(q.Get("state")) + "&code=the-code") //nolint:noctx // test callback
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+		}()
+		return nil
+	}})
+	if err != nil {
+		t.Fatalf("Login with no listener: %v", err)
+	}
+	if tok.RefreshToken != "refresh-value" {
+		t.Errorf("RefreshToken = %q, want %q", tok.RefreshToken, "refresh-value")
+	}
+}
+
+// A zero timeout means the default wait, not an instant failure: the
+// login is canceled from outside well before five minutes, and must not
+// have timed out on its own first.
+func TestLoginTreatsAZeroTimeoutAsTheDefault(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	cfg := &oauth2.Config{ClientID: "id", Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.example/auth"}}
+	_, err = Login(ctx, cfg, LoginOptions{Listener: ln, Timeout: 0,
+		OpenBrowser: func(string) error { return nil }})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Login with Timeout 0: err = %v, want the caller's context.DeadlineExceeded", err)
+	}
+}
+
+// The person is told when the browser could not be opened, since the
+// printed URL is then the only way on, and is not told so when it was.
+func TestLoginSaysWhenItCouldNotOpenABrowser(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		openErr error
+		want    bool
+	}{
+		{"the browser failed", errors.New("no browser here"), true},
+		{"the browser opened", nil, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("listen: %v", err)
+			}
+			var out strings.Builder
+			cfg := &oauth2.Config{ClientID: "id", Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.example/auth"}}
+			_, _ = Login(t.Context(), cfg, LoginOptions{Out: &out, Listener: ln, Timeout: 20 * time.Millisecond,
+				OpenBrowser: func(string) error { return c.openErr }})
+			if got := strings.Contains(out.String(), "could not open a browser"); got != c.want {
+				t.Errorf("output mentions a failed browser = %v, want %v:\n%s", got, c.want, out.String())
+			}
+		})
+	}
+}
+
+func TestWithHTTPTimeoutFallsBackToTheDefaultForZero(t *testing.T) {
+	for _, c := range []struct {
+		in, want time.Duration
+	}{
+		{0, 30 * time.Second},
+		{-time.Second, 30 * time.Second},
+		{time.Second, time.Second},
+	} {
+		hc, ok := WithHTTPTimeout(t.Context(), c.in).Value(oauth2.HTTPClient).(*http.Client)
+		if !ok {
+			t.Fatalf("WithHTTPTimeout(%v) put no *http.Client on the context", c.in)
+		}
+		if hc.Timeout != c.want {
+			t.Errorf("WithHTTPTimeout(%v): client timeout = %v, want %v", c.in, hc.Timeout, c.want)
+		}
 	}
 }
