@@ -70,25 +70,13 @@ func TestMarkingAFileViewedStampsTheTimeAndReportsIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateFile: %v", err)
 	}
-	if got := fake.Files["id-budget-fixture"].ViewedByMeTime; got == "" {
-		t.Error("viewedByMeTime was not set, so the file will not appear in Recent")
+	// The writable field, set from the server's own clock: without it
+	// the file does not appear in Recent.
+	if got := fake.Files["id-budget-fixture"].ViewedByMeTime; !strings.HasPrefix(got, "2026-") {
+		t.Errorf("viewedByMeTime = %q, want the server's own clock in RFC 3339", got)
 	}
 	if !strings.Contains(res.Text, "last opened by you") {
 		t.Errorf("the result does not report the change:\n%s", res.Text)
-	}
-}
-
-// The field a caller can write is viewedByMeTime; viewedByMe beside it is
-// output only. Sending the wrong one is a patch Drive accepts and ignores.
-func TestViewedSendsTheWritableFieldNotTheReadOnlyOne(t *testing.T) {
-	svc, fake := setup(t, service.Options{})
-	if _, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{
-		File: "id-budget-fixture", Viewed: true,
-	}); err != nil {
-		t.Fatalf("UpdateFile: %v", err)
-	}
-	if got := fake.Files["id-budget-fixture"].ViewedByMeTime; !strings.HasPrefix(got, "2026-") {
-		t.Errorf("viewedByMeTime = %q, want the server's own clock in RFC 3339", got)
 	}
 }
 
