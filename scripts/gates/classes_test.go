@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,5 +169,50 @@ func Classes() []string {
 				t.Errorf("the report does not say %q:\n%s", c.want, joined)
 			}
 		})
+	}
+}
+
+// A class declared and listed that no code emits is reported. The tree
+// holds exactly the floor of ten Go files, so this also holds that ten
+// is enough to read.
+func TestAClassNothingEmitsIsReported(t *testing.T) {
+	const declarations = `package gapi
+
+const (
+	ClassAuth     = "auth"
+	ClassNotFound = "not_found"
+	ClassServer   = "server"
+)
+
+func Classes() []string {
+	return []string{ClassAuth, ClassNotFound, ClassServer}
+}
+`
+	t.Chdir(t.TempDir())
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join("internal", "gapi", "errors.go"), declarations)
+	for i := range 9 {
+		write(filepath.Join("internal", "use", fmt.Sprintf("f%d.go", i)),
+			"package use\n\nfunc classes() []string { return []string{gapi.ClassAuth, gapi.ClassNotFound} }\n")
+	}
+	var out strings.Builder
+	err := classes(&out, nil)
+	if err == nil {
+		t.Fatalf("a class nothing emits passed:\n%s", out.String())
+	}
+	report := out.String()
+	if want := `gapi.Classes() lists "server" and nothing emits it`; !strings.Contains(report, want) {
+		t.Errorf("report = %q, want it to say %q", report, want)
+	}
+	if strings.Contains(report, `"auth"`) || strings.Contains(report, `"not_found"`) {
+		t.Errorf("an emitted class was reported:\n%s", report)
 	}
 }

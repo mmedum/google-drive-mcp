@@ -29,6 +29,12 @@ func TestFirstRevisionReadsTheIDOutOfAListing(t *testing.T) {
 	if got != "id-revision-b" {
 		t.Errorf("first revision = %q, want the newest row's id", got)
 	}
+	// Both ends of the digit range.
+	for _, date := range []string{"2000-01-01", "2019-09-29"} {
+		if !looksLikeDate(date) {
+			t.Errorf("looksLikeDate(%q) = false", date)
+		}
+	}
 	for _, not := range []string{"rows.csv", "2026-3-4", "09:00Z", ""} {
 		if looksLikeDate(not) {
 			t.Errorf("looksLikeDate(%q) = true", not)

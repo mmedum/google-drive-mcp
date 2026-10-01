@@ -78,3 +78,31 @@ func keysOf(m map[string]bool) []string {
 	}
 	return out
 }
+
+// What an activity says happened, decoded from the detail Google sends.
+func TestActivityWordsForDeletesAndSharing(t *testing.T) {
+	for _, c := range []struct {
+		wire         string
+		what, detail string
+	}{
+		{`{"delete":{"type":"PERMANENT_DELETE"}}`, "deleted permanently", ""},
+		{`{"delete":{"type":"TRASH"}}`, "trashed", ""},
+		{`{"permissionChange":{"addedPermissions":[{},{}],"removedPermissions":[{}]}}`, "changed who can see it", "2 grants added, 1 grant removed"},
+		{`{"permissionChange":{"addedPermissions":[{}]}}`, "changed who can see it", "1 grant added"},
+		{`{"permissionChange":{"removedPermissions":[{}]}}`, "changed who can see it", "1 grant removed"},
+		{`{"permissionChange":{}}`, "changed who can see it", ""},
+	} {
+		var d gdrive.ActionDetail
+		if err := json.Unmarshal([]byte(c.wire), &d); err != nil {
+			t.Fatalf("decode %s: %v", c.wire, err)
+		}
+		a, _ := NewActivity(&gdrive.DriveActivity{PrimaryActionDetail: &d})
+		if a == nil {
+			t.Errorf("%s: no activity", c.wire)
+			continue
+		}
+		if a.What != c.what || a.Detail != c.detail {
+			t.Errorf("%s: got %q / %q, want %q / %q", c.wire, a.What, a.Detail, c.what, c.detail)
+		}
+	}
+}

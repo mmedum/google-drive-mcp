@@ -125,6 +125,11 @@ func TestActionPins(t *testing.T) {
 			"jobs:\n  a:\n    steps:\n      - uses: sigstore/cosign-installer@" + sha + "\n\n      - uses: anchore/sbom-action/download-syft@" + sha + "\n        with:\n          syft-version: v1.51.1\n",
 			true,
 		},
+		{
+			"the next step's pin of the same tool, with no blank line between",
+			"jobs:\n  a:\n    steps:\n      - uses: sigstore/cosign-installer@" + sha + "\n      - uses: sigstore/cosign-installer@" + sha + "\n        with:\n          cosign-release: v3.1.3\n",
+			true,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -6,8 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mmedum/google-drive-mcp/v2/internal/userconfig"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
@@ -92,13 +96,28 @@ func TestDocumentedInvocationsStillReachTheirCommand(t *testing.T) {
 	}
 }
 
-// No arguments at all is the server, not an unknown command.
-func TestNoArgumentsIsNotRejected(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{"--version"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("sanity: --version exited %d", code)
+// A profile file that cannot be read stops the command. Carrying on
+// would report the profile as unconfigured, or let login overwrite a
+// file the person may still want.
+func TestACorruptProfileFileStopsTheCommand(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(userconfig.EnvDir, dir)
+	t.Setenv("GDRIVE_PROFILE", "corrupt-profile-gate")
+	path, err := userconfig.Path("corrupt-profile-gate")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(stderr.String(), "unknown command") {
-		t.Error("an empty argument list was treated as a command")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"status"}, &stdout, &stderr); code != 1 {
+		t.Errorf("status over a corrupt profile exited %d, want 1; stdout: %s", code, stdout.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("status printed a report over a profile it could not read:\n%s", stdout.String())
 	}
 }

@@ -127,23 +127,30 @@ func TestAHollowExemptionIsRefused(t *testing.T) {
 // TestTheGateReportsAHollowExemption. exemptionRedacts is tested on its
 // own above; this is the branch that acts on it.
 func TestTheGateReportsAHollowExemption(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	writeDriver(t, "scripts/livedrive")
-	writePackage(t, "scripts/internal/transcript",
-		"package transcript\n\nimport (\n\t\"fmt\"\n\t\"io\"\n)\n\n"+
-			"func write(w io.Writer, text string) {\n\t_, _ = fmt.Fprintln(w, text)\n}\n")
+	for name, body := range map[string]string{
+		"a write straight through":                        "_, _ = fmt.Fprintln(w, text)",
+		"a write through a call that is not the redactor": "_, _ = fmt.Fprintln(w, strings.TrimSpace(text))",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+			writeDriver(t, "scripts/livedrive")
+			writePackage(t, "scripts/internal/transcript",
+				"package transcript\n\nimport (\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n)\n\n"+
+					"var _ = strings.TrimSpace\n\nfunc write(w io.Writer, text string) {\n\t"+body+"\n}\n")
 
-	defer restore(transcriptPackages, transcriptPackage)
-	transcriptPackages = []string{filepath.Join("scripts", "livedrive")}
-	transcriptPackage = filepath.Join("scripts", "internal", "transcript")
+			defer restore(transcriptPackages, transcriptPackage)
+			transcriptPackages = []string{filepath.Join("scripts", "livedrive")}
+			transcriptPackage = filepath.Join("scripts", "internal", "transcript")
 
-	var out bytes.Buffer
-	if err := transcript(&out, nil); err == nil {
-		t.Fatalf("a transcript package that redacts nothing was accepted:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), "hollow") {
-		t.Errorf("the report does not name the problem:\n%s", out.String())
+			var out bytes.Buffer
+			if err := transcript(&out, nil); err == nil {
+				t.Fatalf("a transcript package that redacts nothing was accepted:\n%s", out.String())
+			}
+			if !strings.Contains(out.String(), "hollow") {
+				t.Errorf("the report does not name the problem:\n%s", out.String())
+			}
+		})
 	}
 }
 

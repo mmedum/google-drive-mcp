@@ -17,6 +17,9 @@ func TestTheCommittedEntryObeysTheRegistrysOwnRules(t *testing.T) {
 	if err := registry(&out, nil); err != nil {
 		t.Fatalf("%s: %v\n%s", registryFile, err, out.String())
 	}
+	if want := "registry entry ok (io.github.mmedum/google-drive-mcp, 1 package(s)"; !strings.HasPrefix(out.String(), want) {
+		t.Errorf("summary = %q, want it to start %q", out.String(), want)
+	}
 }
 
 // TestEveryRuleTheRegistryEnforcesInCodeIsRefusedHere.

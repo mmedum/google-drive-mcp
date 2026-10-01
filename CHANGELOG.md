@@ -9,6 +9,9 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - The transcript redactor's tests and comments use an invented name and address in place of a real person's name and an account address.
+- A write that may have reached Google and is not repeated, such as `share_file` or `add_comment` after a 5xx or a connection cut, is now reported as `[ambiguous_outcome]`: Google did not confirm it, so read it back before repeating it. It was reported as `[server]` or `[network]`, which invited a second copy. The ambiguous message no longer assumes the connection dropped.
+- A delete retried after a 5xx that then finds nothing is reported as `[ambiguous_outcome]` rather than `[not_found]`: the first attempt may have deleted it.
+- A network failure no longer quotes the request URL, so a search's terms or a looked-up file name stay out of the error.
 
 ## [2.0.0] - 2026-09-30
 
@@ -166,7 +169,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
     four sibling servers hold that with a gate and this one did not.
   - **An action that installs a tool and names no version at all.** That
     is an absence rather than a value, so a check over written versions
-    is blind to it. The Pipedrive server's release published nothing on
+    is blind to it. A sibling server's release published nothing on
     exactly this shape: `sigstore/cosign-installer` pinned by SHA with
     no `cosign-release`, so the job installed whatever cosign was
     newest, and that cosign had changed its default signing format.

@@ -75,3 +75,18 @@ func TestAToolNeverCalledIsReportedOnce(t *testing.T) {
 			strings.Count(report, "empty_trash"), report)
 	}
 }
+
+// A run that sent everything its source promised, to every tool, adds no
+// warning: an empty warning reads as a defect to whoever runs it.
+func TestACompleteRunAddsNoWarning(t *testing.T) {
+	rec := NewRecorder()
+	rec.Sent("get_file", map[string]any{"file": "id"})
+
+	report := rec.Report(map[string][]string{"get_file": {"file"}},
+		map[string]map[string]bool{"get_file": {"file": true}})
+	for _, warning := range []string{"!!", "were not called"} {
+		if strings.Contains(report, warning) {
+			t.Errorf("a complete run carries %q:\n%s", warning, report)
+		}
+	}
+}
