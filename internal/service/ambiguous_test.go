@@ -126,3 +126,51 @@ func TestARetriedDeleteThatFindsNothingIsAmbiguous(t *testing.T) {
 		t.Errorf("the delete was sent %d times, want 2: a DELETE is repeatable", got)
 	}
 }
+
+// A create carrying its own id that got a 5xx may have made the file;
+// a repeat that then finds the id taken is ambiguous, not [exists].
+func TestACreateWhoseRepeatFindsItsOwnIDIsAmbiguous(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	var creates atomic.Int32
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method != http.MethodPost || r.URL.Path != "/drive/v3/files" {
+			return nil
+		}
+		if creates.Add(1) == 1 {
+			return &drivetest.Failure{Status: http.StatusServiceUnavailable, Reason: "backendError", Message: "Backend Error"}
+		}
+		return &drivetest.Failure{Status: http.StatusConflict, Reason: "duplicate", Message: "A file with that id already exists"}
+	}
+	_, err := svc.CreateFolder(yes(t), service.CreateFolderInput{Name: "Reports", AllowDuplicate: true})
+	var se *service.Error
+	if !errors.As(err, &se) || se.Class != service.ClassAmbiguousIO {
+		t.Fatalf("err = %v, want [%s]", err, service.ClassAmbiguousIO)
+	}
+	if got := creates.Load(); got != 2 {
+		t.Errorf("the create was sent %d times, want 2: it carries its own id", got)
+	}
+}
+
+// A 429 refuses the work before it starts, so a delete that was refused
+// and then finds nothing really found nothing.
+func TestARefusedThenMissingDeleteIsNotFound(t *testing.T) {
+	svc, fake := setup(t, service.Options{Destructive: true})
+	fake.AddComment("id-budget-fixture", "id-comment-1", "hello")
+	var deletes atomic.Int32
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method != http.MethodDelete {
+			return nil
+		}
+		if deletes.Add(1) == 1 {
+			return &drivetest.Failure{Status: http.StatusTooManyRequests, Reason: "rateLimitExceeded", Message: "Rate Limit Exceeded"}
+		}
+		return &drivetest.Failure{Status: http.StatusNotFound, Reason: "notFound", Message: "Comment not found"}
+	}
+	_, err := svc.DeleteComment(yes(t), service.DeleteCommentInput{
+		File: "id-budget-fixture", Comment: "id-comment-1", Confirm: true,
+	})
+	var se *service.Error
+	if !errors.As(err, &se) || se.Class != service.ClassNotFound {
+		t.Fatalf("err = %v, want [%s]", err, service.ClassNotFound)
+	}
+}

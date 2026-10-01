@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,31 @@ func TestOnlyAWriteThatMayHaveLandedIsAmbiguous(t *testing.T) {
 	}
 	if got := Class(ambiguous(create, server)); got != ClassAmbiguousIO {
 		t.Errorf("an ambiguous server failure has class %q, want %q", got, ClassAmbiguousIO)
+	}
+}
+
+// A failed token refresh mid-request must not quote the request URL,
+// whose query holds the caller's search terms; and a refresh that failed
+// on the network is a network failure, not a refused login.
+func TestATokenFailureCarriesNoQuery(t *testing.T) {
+	const u = "https://www.googleapis.com/drive/v3/files?q=fullText+contains+'canaryterm'"
+	refused := &url.Error{Op: "Get", URL: u, Err: errors.New("oauth2: cannot fetch token: 400 Bad Request")}
+	offline := &url.Error{Op: "Get", URL: u, Err: fmt.Errorf("oauth2: cannot fetch token: %w",
+		&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("no route to host")})}
+	for _, tc := range []struct {
+		name  string
+		err   error
+		class string
+	}{
+		{"token refused", refused, ClassAuth},
+		{"token endpoint unreachable", offline, ClassNetwork},
+	} {
+		got := wrapTransportError(tc.err)
+		if c := Class(got); c != tc.class {
+			t.Errorf("%s: class %q, want %q", tc.name, c, tc.class)
+		}
+		if strings.Contains(got.Error(), "canaryterm") || strings.Contains(Message(got), "canaryterm") {
+			t.Errorf("%s: the search term reached the error: %v / %s", tc.name, got, Message(got))
+		}
 	}
 }

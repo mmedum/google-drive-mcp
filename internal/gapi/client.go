@@ -391,6 +391,11 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 			// The earlier attempt may have deleted it.
 			return zero, fmt.Errorf("%w: %w", ErrAmbiguous, err)
 		}
+		if unconfirmed && r.idempotent && errors.Is(err, ErrExists) {
+			// A create carrying its own id: the earlier attempt may have
+			// made it, and the repeat found its own file.
+			return zero, fmt.Errorf("%w: %w", ErrAmbiguous, err)
+		}
 		var te *transientError
 		if errors.As(err, &te) && !te.refused {
 			unconfirmed = true
