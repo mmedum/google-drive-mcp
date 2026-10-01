@@ -98,3 +98,31 @@ func TestATransportErrorDoesNotCarryTheSearchTerms(t *testing.T) {
 		}
 	}
 }
+
+// A delete retried after a 5xx can find the thing gone because the
+// first attempt removed it. That 404 is not "nothing was there": the
+// outcome is reported as ambiguous, for a read to settle.
+func TestARetriedDeleteThatFindsNothingIsAmbiguous(t *testing.T) {
+	svc, fake := setup(t, service.Options{Destructive: true})
+	fake.AddComment("id-budget-fixture", "id-comment-1", "hello")
+	var deletes atomic.Int32
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method != http.MethodDelete {
+			return nil
+		}
+		if deletes.Add(1) == 1 {
+			return &drivetest.Failure{Status: http.StatusServiceUnavailable, Reason: "backendError", Message: "Backend Error"}
+		}
+		return &drivetest.Failure{Status: http.StatusNotFound, Reason: "notFound", Message: "Comment not found"}
+	}
+	_, err := svc.DeleteComment(yes(t), service.DeleteCommentInput{
+		File: "id-budget-fixture", Comment: "id-comment-1", Confirm: true,
+	})
+	var se *service.Error
+	if !errors.As(err, &se) || se.Class != service.ClassAmbiguousIO {
+		t.Fatalf("err = %v, want [%s]", err, service.ClassAmbiguousIO)
+	}
+	if got := deletes.Load(); got != 2 {
+		t.Errorf("the delete was sent %d times, want 2: a DELETE is repeatable", got)
+	}
+}

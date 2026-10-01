@@ -370,6 +370,9 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 	limiter := c.limiter(r)
 	path := redactPath(r.url)
 	var lastErr error
+	// unconfirmed records a failure that may have followed a commit, so
+	// a repeated DELETE answered 404 is not read as "nothing was there".
+	unconfirmed := false
 	for attempt := 1; attempt <= c.retry.MaxAttempts; attempt++ {
 		// Every attempt takes a token, retries included: a retry is
 		// triggered by exactly the rate limiting the limiter is there to
@@ -383,6 +386,14 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 			c.log.DebugContext(ctx, event, append([]any{"method", r.method, "path", path,
 				"attempt", attempt}, fields(res)...)...)
 			return res, nil
+		}
+		if unconfirmed && r.method == http.MethodDelete && errors.Is(err, ErrNotFound) {
+			// The earlier attempt may have deleted it.
+			return zero, fmt.Errorf("%w: %w", ErrAmbiguous, err)
+		}
+		var te *transientError
+		if errors.As(err, &te) && !te.refused {
+			unconfirmed = true
 		}
 		lastErr = err
 		retry, after := retryable(r, err)
