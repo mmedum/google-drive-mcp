@@ -138,6 +138,15 @@ func TestChangesWithNoTokenHandsBackAStartingPoint(t *testing.T) {
 	if !strings.Contains(out, "no beginning of its own") {
 		t.Errorf("the result does not explain the feed:\n%s", out)
 	}
+	// It names no token, so it has no page of changes to be empty.
+	// "nothing has changed since that token" reads as a completed poll,
+	// which is the one thing this answer is not.
+	if strings.Contains(out, "nothing has changed since that token") {
+		t.Errorf("the starting point reads as a completed poll:\n%s", out)
+	}
+	if !strings.Contains(out, "starting point") {
+		t.Errorf("the starting point does not say what it is:\n%s", out)
+	}
 }
 
 func TestChangesSinceATokenListWhatHappened(t *testing.T) {
@@ -263,23 +272,6 @@ func TestANullEntryInTheFeedDoesNotTakeTheServerDown(t *testing.T) {
 	// malformed entry costs one row, not the page.
 	if !strings.Contains(out, "Reports") {
 		t.Errorf("the null swallowed the change beside it:\n%s", out)
-	}
-}
-
-func TestTheStartingPointDoesNotClaimNothingHasChanged(t *testing.T) {
-	// The first call names no token, so it has no page of changes to be
-	// empty. "nothing has changed since that token" reads as a completed
-	// poll, which is the one thing this answer is not.
-	svc, _ := setup(t, service.Options{})
-	out, err := svc.ListChanges(t.Context(), service.ListChangesInput{})
-	if err != nil {
-		t.Fatalf("ListChanges: %v", err)
-	}
-	if strings.Contains(out, "nothing has changed since that token") {
-		t.Errorf("the starting point reads as a completed poll:\n%s", out)
-	}
-	if !strings.Contains(out, "starting point") {
-		t.Errorf("the starting point does not say what it is:\n%s", out)
 	}
 }
 
