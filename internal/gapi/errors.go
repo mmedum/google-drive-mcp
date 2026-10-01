@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mmedum/google-drive-mcp/v2/internal/redact"
+	"net/url"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -333,6 +334,12 @@ func wrapTransportError(err error) error {
 	if strings.Contains(err.Error(), "oauth2:") {
 		return &AuthError{Code: "token", Msg: err.Error()}
 	}
+	// *url.Error quotes the whole request URL, and a search's terms or a
+	// path lookup's file name travel in its query.
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = fmt.Errorf("%s request: %w", ue.Op, ue.Err)
+	}
 	return fmt.Errorf("%w: %w", ErrNetwork, err)
 }
 
@@ -377,6 +384,10 @@ func Classes() []string {
 // message, as `[class] message`.
 func Class(err error) string {
 	switch {
+	case errors.Is(err, ErrAmbiguous):
+		// Checked first: it wraps the server or network error that made
+		// the outcome unknown, and that one must not decide the class.
+		return ClassAmbiguousIO
 	case errors.Is(err, ErrMissingScope):
 		return ClassForbidden
 	case errors.Is(err, ErrUnauthorized):
@@ -397,8 +408,6 @@ func Class(err error) string {
 		return ClassUnsupported
 	case errors.Is(err, ErrInvalid):
 		return ClassInvalid
-	case errors.Is(err, ErrAmbiguous):
-		return ClassAmbiguousIO
 	case errors.Is(err, ErrNetwork):
 		return ClassNetwork
 	}

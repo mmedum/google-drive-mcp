@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -394,7 +395,29 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 			return zero, err
 		}
 	}
-	return zero, lastErr
+	return zero, ambiguous(r, lastErr)
+}
+
+// ambiguous marks the failure of a write that may have reached Google
+// and is not repeated: a 5xx that did not refuse the work, on a request
+// that cannot be repeated, or a transport failure on any write once the
+// connection was open. A failed dial sent nothing.
+func ambiguous(r request, err error) error {
+	var te *transientError
+	var opErr *net.OpError
+	switch {
+	case errors.As(err, &te):
+		if te.refused || r.repeatable() {
+			return err
+		}
+	case errors.Is(err, ErrNetwork):
+		if r.reading() || (errors.As(err, &opErr) && opErr.Op == "dial") {
+			return err
+		}
+	default:
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrAmbiguous, err)
 }
 
 // classify turns a non-2xx response into the error the caller sees, and

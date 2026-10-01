@@ -353,7 +353,8 @@ func wrap(err error, what string) error {
 	case ClassNetwork:
 		return &Error{Class: ClassNetwork, Message: "could not reach Google while " + what + ": " + msg, Err: err}
 	case ClassAmbiguousIO:
-		return &Error{Class: ClassAmbiguousIO, Message: "the connection dropped while " + what + ", so it may or may not have happened. Check with get_file before trying again. " + msg, Err: err}
+		return &Error{Class: ClassAmbiguousIO, Message: "Google did not confirm " + what + ", so it may or may not have happened. " +
+			"Read it back with get_file, or list_permissions for a share, before repeating it: a repeat could do it twice. " + msg, Err: err}
 	}
 	return &Error{Class: class, Message: what + " failed: " + msg, Err: err}
 }
