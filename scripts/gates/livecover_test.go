@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -92,6 +93,9 @@ func TestTheDriverIsMeasuredAgainstTheBinaryItDrives(t *testing.T) {
 	// writes ./google-drive-mcp, so a test that looked for it skipped on
 	// every runner.
 	bin := filepath.Join(t.TempDir(), "google-drive-mcp")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	if out, err := exec.Command("go", "build", "-o", bin, "./cmd/google-drive-mcp").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
