@@ -2,10 +2,10 @@
 
 ## Prerequisites
 
-- Go 1.27.1 or newer, and nothing else. `go.mod` names the exact point
+- Go 1.27.2 or newer, and nothing else. `go.mod` names the exact point
   release, so `GOTOOLCHAIN=auto` (the default) fetches it if your
   installed Go is older.
-- Optional, matching what CI pins: golangci-lint v2.13.2, govulncheck
+- Optional, matching what CI pins: golangci-lint v2.14.0, govulncheck
   v1.7.0, go-licenses v1.6.0, gitleaks v8.30.1, GoReleaser v2.18.
 
 Everything this repository runs on itself is Go, including the gates and
@@ -18,7 +18,7 @@ Install the Go-based tools with the current toolchain, so they can read
 the language version `go.mod` targets:
 
 ```
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 ```
 

@@ -10,6 +10,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 - A delete asks once in Claude Code, not twice. In a client that can ask the person, `delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and `delete_comment` no longer carry the `requiresUserInteraction` mark; the server's own question, which shows what the delete destroys, is the confirmation. To see only that question, add the five tools to Claude Code's allow list.
 
+### Security
+
+- Built with Go 1.27.2, which fixes nine advisories in `net/http`, its HTTP/2 code, `crypto/tls` and `net/textproto` that `govulncheck` found reachable from this server.
+
 ## [2.0.1] - 2026-10-01
 
 ### Fixed

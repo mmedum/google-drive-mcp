@@ -436,8 +436,8 @@ every later commit passes through the same gates (§12, §13). The
 repository is self-contained: it imports no code from any other project
 and refers to none.
 
-Toolchain, newest as of 2026-09-05: Go 1.27.1 (`go 1.27.1` in go.mod,
-see §17), go-sdk v1.8.0 (since 2026-09, through Dependabot), golangci-lint v2.13.2, govulncheck v1.7.0, go-licenses
+Toolchain, newest as of 2026-09-05: Go 1.27.2 (since 2026-10-09, for
+advisories govulncheck found reachable; `go 1.27.2` in go.mod, see §17), go-sdk v1.8.0 (since 2026-09, through Dependabot), golangci-lint v2.14.0 (since 2026-10-09: v2.13.2 cannot read the export data Go 1.27.2 writes), govulncheck v1.7.0, go-licenses
 v1.6.0, gitleaks v8.30.1, GoReleaser v2.18.
 
 ## 6. Addressing: file references and paths (`internal/ref`)
@@ -1550,7 +1550,7 @@ here so they are not reopened.
 4. **Sheets in `read_file`.** The first sheet as csv, and the output says
    so. Per-sheet and per-range reads are a Sheets API feature and belong
    to a server built on that API; this one does not add the scope.
-5. **Go directive.** `go 1.27.1`, the current point release.
+5. **Go directive.** `go 1.27.2`, the current point release.
    `GOTOOLCHAIN=auto` fetches it where an older 1.27 is installed.
 
 ## 17b. Deviations from the shared Go MCP server standard
