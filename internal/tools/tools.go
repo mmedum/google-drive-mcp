@@ -68,7 +68,7 @@ func Register(s *mcp.Server, d Deps) []string {
 		d.Logger = slog.New(slog.DiscardHandler)
 	}
 	d.asking = newAsking(d.Logger)
-	s.AddReceivingMiddleware(askFailures(d.asking))
+	s.AddReceivingMiddleware(askFailures(d.asking), interactionHint(d.asking))
 	names := registerRead(s, d)
 	names = append(names, registerContent(s, d)...)
 	if !d.Config.ReadOnly {

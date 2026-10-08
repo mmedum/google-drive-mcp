@@ -156,7 +156,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 			"reply_comment is what closes a conversation; this removes it. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, asked(d, "delete_comment", func(ctx context.Context, in DeleteCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, askedEveryCall(d, "delete_comment", func(ctx context.Context, in DeleteCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteComment(ctx, service.DeleteCommentInput{
 			File: in.File, Comment: in.Comment, Reply: in.Reply, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))

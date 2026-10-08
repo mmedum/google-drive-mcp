@@ -799,7 +799,10 @@ nothing, and what happened inside it — so the head says which was asked.
 
 snake_case verb_noun, no dots. Claude Code prefixes `mcp__<server>__`.
 "Gated" means registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`;
-gated tools also set `_meta["anthropic/requiresUserInteraction"]`.
+gated tools also set `_meta["anthropic/requiresUserInteraction"]`, but
+only for a client that cannot ask the person itself: each of them asks
+before every write, and `tools/list` drops the mark when the request
+declares form elicitation, so the person answers once.
 `GDRIVE_READ_ONLY=true` registers only the readOnly rows, and
 `download_file`, which writes only a new local file, and requests
 `drive.readonly`. Every write states `destructiveHint`: the
@@ -2261,4 +2264,4 @@ live run of it found.
 | An `accept` comes from a person | **Refuted.** Claude Code's MCP documentation (<https://code.claude.com/docs/en/mcp>), read 2026-09-28: an `Elicitation` hook can answer without a dialog. Codex (`codex-rs/codex-mcp/src/elicitation.rs`, read 2026-09-29) accepts a form with no properties itself under approval policy `never` with full access, and a VS Code question the person skips resolves as `accept` | Recorded as a limit of the empty form. A required choice would stop both, and was found slower and less clear than Accept in the maintainer's check in Claude Code, 2026-09-29 |
 | A client draws a question as plain text | **Refuted.** VS Code's `mcpElicitationService.ts`, read 2026-09-29, builds a form question as an untrusted `MarkdownString` | Every value from Drive or the call stands in a code span with its backticks and quote marks folded, and links broken |
 | `\b` in a Go regular expression is a word boundary in any script | **Refuted.** `go doc regexp/syntax`, Go 1.27.1: `\b` is "at ASCII word boundary" | The link shapes in a question are unanchored, so a link after an underscore or in a non-Latin domain is broken too; a test holds both |
-
+| A destructive tool should carry both `requiresUserInteraction` and the server's own question | **Refuted** 2026-10-09, after the owner was asked twice for one delete in google-docs-mcp. No source recommends two hard gates for one call: the spec puts confirmation on the client, GitHub's `delete_repository` and Supabase confirm with `destructiveHint` plus a form elicitation and set no mark, and Claude Code's documentation scopes the mark to "tools whose permission prompt is itself the point" | The mark is sent per client, present only when the request declares no form elicitation, on the five tools that ask before every write (`askedEveryCall`). A typed confirmation, which would stop Codex accepting an empty form unseen, was offered and not chosen |
