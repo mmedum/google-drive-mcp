@@ -179,6 +179,13 @@ func rendered() map[string]string {
 				Gained: movedTo()}, {ID: "id-other", Name: "Reports", Kind: "folder", Unread: "it"}}).Text,
 		render.AskOpenFolder(fixtureID, "Board", movedTo(), "").Text,
 		render.AskOpenFolder(fixtureID, "Board", nil, "the folder above it").Text,
+		render.AskCopy(render.MoveTarget{ID: fixtureID, Name: "Team", Kind: "folder"},
+			render.MoveItem{ID: fixtureID, Name: "Budget.xlsx", Kind: "file"},
+			[]render.MoveItem{{ID: fixtureID, Name: "Budget.xlsx", Kind: "file", Gained: movedTo()}}).Text,
+		render.AskCopy(render.MoveTarget{ID: fixtureDriveID, Name: "Marketing", Kind: "shared drive"},
+			render.MoveItem{ID: fixtureID, Name: "Reports", Kind: "folder"},
+			[]render.MoveItem{{ID: fixtureID, Name: "Reports", Kind: "folder", Gained: movedTo()},
+				{ID: "id-other", Name: "Board", Kind: "folder", Unread: "it"}}).Text,
 	}, "\n")
 	// A move of several prints each item's sharing, and a summary names
 	// whoever an ownership transfer waits on.
@@ -412,6 +419,7 @@ var renderedKey = map[string]string{
 	"AskGrantRequest":   "questions",
 	"AskMove":           "questions",
 	"AskOpenFolder":     "questions",
+	"AskCopy":           "questions",
 	"MoveMany":          "move several",
 }
 

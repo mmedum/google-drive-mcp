@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/mmedum/google-drive-mcp/v2/internal/config"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
@@ -397,6 +399,12 @@ type CopyFileInput struct {
 
 // CopyFile copies one file, optionally converting it as Google imports
 // it, or — with recursive — a folder and everything inside it.
+//
+// A copy takes on who can reach the folder it lands in, and none of the
+// grants made on the original, so it can reach people the original does
+// not. The rule is the move's (§4a): the result shows who reaches the
+// original and who reaches the copy, a copy that reaches more people is
+// put to the person first, and with GDRIVE_SHARING=off it is refused.
 func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, error) {
 	if err := s.writable("copy_file"); err != nil {
 		return nil, err
@@ -438,18 +446,11 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 		// in the web interface.
 		name = "Copy of " + f.Name
 	}
-	parentID := f.Parent()
-	parentName := ""
-	if strings.TrimSpace(in.To) != "" {
-		parent, err := s.parentFolder(ctx, in.To)
-		if err != nil {
-			return nil, err
-		}
-		parentID, parentName = parent.ID, parent.Name
-		if err := s.refuseDuplicate(ctx, parent, name, in.AllowDuplicate); err != nil {
-			return nil, err
-		}
+	place, err := s.copyPlace(ctx, f, in.To, name, in.AllowDuplicate)
+	if err != nil {
+		return nil, err
 	}
+	parentID, parentName, target := place.id, place.name, place.target
 
 	meta := &gdrive.FileMeta{Name: name, MimeType: convert}
 	if parentID != "" {
@@ -465,6 +466,10 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 	if becomes == "" {
 		becomes = f.MimeType
 	}
+	parts := s.predictCopy(ctx, res, nil, target)
+	if err := s.copyRefused(parts); err != nil {
+		return nil, err
+	}
 	if in.DryRun {
 		where := parentName
 		if where == "" {
@@ -474,8 +479,12 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 		if convert != "" {
 			note += ", imported as " + model.KindName(convert)
 		}
-		return s.report(ctx, res, outcome{Action: render.ActionCopied, DryRun: true,
-			Note: note + ". Nothing was copied."}), nil
+		note = strings.TrimSpace(note + ". " + sentence(s.moveNote(ctx, parts[0], parts[0].after, true)))
+		return s.copyResult(ctx, res, parts[0].before, parts[0].after, outcome{Action: render.ActionCopied,
+			DryRun: true, Note: note + " Nothing was copied."}), nil
+	}
+	if err := s.askCopy(ctx, target, parts); err != nil {
+		return nil, err
 	}
 	if err := s.assignIDFor(ctx, meta, becomes); err != nil {
 		return nil, err
@@ -487,7 +496,12 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 	if err != nil {
 		return nil, wrap(err, fmt.Sprintf("copying %s%s", f.Name, listOrNothing([]string{parentName}, " into ", "")))
 	}
+	s.forget(copied, false)
+	after := s.sharingNow(ctx, copied)
 	notes := []string{}
+	if note := s.moveNote(ctx, parts[0], after, false); note != "" {
+		notes = append(notes, sentence(note))
+	}
 	if convert != "" {
 		notes = append(notes, fmt.Sprintf("Google imported the copy as %s. The original %s is untouched.",
 			model.KindName(convert), f.Name))
@@ -509,7 +523,139 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 			"it can lag a copy by a moment. Anything that did is what other people wrote, now "+
 			"readable by everybody who can see the copy.")
 	}
-	return s.write(ctx, copied, outcome{Action: render.ActionCopied, Note: strings.Join(notes, " ")})
+	return s.copyResult(ctx, &Resolved{File: copied}, parts[0].before, after, outcome{Action: render.ActionCopied,
+		Note: strings.Join(notes, " ")}), nil
+}
+
+// copyPlace is where a copy goes. id and name are what the write is
+// given, both empty when the copy goes beside an original that is in no
+// folder this account can see; target is the folder the copy's reach is
+// worked out from.
+type copyPlace struct {
+	id, name string
+	target   *gdrive.File
+}
+
+// copyPlace resolves where a copy goes: the folder named, once a copy
+// of that name already there is refused, or the folder the original is
+// in. Beside an original in no folder this account can see, the copy
+// goes to My Drive's root, which is where Drive puts a copy given no
+// folder. A folder that cannot be read stands in by its id, which leaves
+// who the copy would reach unknown.
+func (s *Service) copyPlace(ctx context.Context, f *gdrive.File, to, name string, allowDuplicate bool) (copyPlace, error) {
+	if strings.TrimSpace(to) != "" {
+		parent, err := s.parentFolder(ctx, to)
+		if err != nil {
+			return copyPlace{}, err
+		}
+		if err := s.refuseDuplicate(ctx, parent, name, allowDuplicate); err != nil {
+			return copyPlace{}, err
+		}
+		return copyPlace{id: parent.ID, name: parent.Name, target: parent}, nil
+	}
+	ref := f.Parent()
+	if ref == "" {
+		ref = RootAlias
+	}
+	target := &gdrive.File{ID: ref, Name: "the folder it is in", MimeType: gdrive.MimeFolder}
+	if res, err := s.Resolve(ctx, ref, ResolveOptions{FollowShortcut: false}); err == nil {
+		target = res.File
+	}
+	return copyPlace{id: f.Parent(), target: target}, nil
+}
+
+// predictCopy works out who a copy would reach that cannot reach the
+// original, for each part of the original a copy can reach further
+// than: the original itself, and among inside, the items of a folder
+// being copied, each folder with limited access, which does not take on
+// the reach of the folder around it and so may reach fewer people. Every
+// other item reaches at least who the folder around it does, so a copy
+// that widens nothing for those parts widens nothing anywhere.
+func (s *Service) predictCopy(ctx context.Context, res *Resolved, inside []*gdrive.File, target *gdrive.File) []*movePlan {
+	parts := []*movePlan{{res: res, target: target, copy: true}}
+	for _, f := range inside {
+		if f.IsFolder() && f.InheritedPermissionsDisabled {
+			parts = append(parts, &movePlan{res: &Resolved{File: f}, target: target, copy: true})
+		}
+	}
+	dest := s.reachOf(ctx, target)
+	for _, p := range parts {
+		s.predictMove(ctx, p, dest)
+	}
+	return parts
+}
+
+// copyRefused is GDRIVE_SHARING=off's refusal of a copy any part of
+// which would reach more people than the original does, or nil.
+func (s *Service) copyRefused(parts []*movePlan) error {
+	var why []string
+	for i, p := range parts {
+		w := s.sharingOffRefuses(p)
+		switch {
+		case w == "":
+		case i == 0:
+			why = append(why, w)
+		default:
+			why = append(why, fmt.Sprintf("Inside it, %s has limited access, and the copy of it would reach "+
+				"more people than it does: %s.", p.res.File.Name, copyReach(p)))
+		}
+	}
+	if len(why) == 0 {
+		return nil
+	}
+	if !strings.HasPrefix(why[0], "this server") {
+		why[0] = "this server was started with GDRIVE_SHARING=off. " + why[0]
+	}
+	return Errorf(ClassForbidden, "%s Nothing was copied. A copy into a folder that nobody new can reach is "+
+		"still allowed.", strings.Join(why, " "))
+}
+
+// sentence starts s with a capital letter, for a note that follows
+// another sentence.
+func sentence(s string) string {
+	if s == "" {
+		return ""
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToUpper(r)) + s[n:]
+}
+
+// copyReach is who one part of a copy would newly reach.
+func copyReach(p *movePlan) string {
+	if p.unread != "" {
+		return "who can reach " + p.unread + " could not be read"
+	}
+	return render.Reach(p.gained)
+}
+
+// askCopy puts a copy that would reach more people than the original
+// to the person, once, naming each part that would.
+func (s *Service) askCopy(ctx context.Context, target *gdrive.File, parts []*movePlan) error {
+	var widening []render.MoveItem
+	for _, p := range parts {
+		if p.widens() {
+			widening = append(widening, p.question())
+		}
+	}
+	if len(widening) == 0 {
+		return nil
+	}
+	return ask(ctx, render.AskCopy(s.moveTarget(ctx, target), parts[0].question(), widening))
+}
+
+// copyResult reports a copy, or what one would do, with who can reach
+// the original and who can reach the copy: as Drive reports it once the
+// copy is made, or as worked out beforehand on a dry run.
+func (s *Service) copyResult(ctx context.Context, res *Resolved, before, after model.Sharing, out outcome) *Result {
+	reach := fmt.Sprintf("Who can reach the original: %s. Who can reach the copy: %s.", before.Summary(), after.Summary())
+	if out.DryRun {
+		reach = fmt.Sprintf("Who can reach the original: %s. Who would reach the copy: %s.", before.Summary(), after.Summary())
+	}
+	out.Note = strings.TrimSpace(out.Note + " " + reach)
+	result := s.report(ctx, res, out)
+	result.JSON.SharingBefore = before.Summary()
+	result.JSON.SharingAfter = after.Summary()
+	return result
 }
 
 // CreateShortcutInput describes a shortcut to create.

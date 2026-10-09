@@ -281,6 +281,40 @@ func AskMove(to MoveTarget, moving []string, widening []MoveItem) Question {
 	return ask(lines, append([]string{to.ID}, moving...)...)
 }
 
+// AskCopy asks before copy_file puts a copy where more people can reach
+// it than reach the original. original is what is copied; widening is
+// each part of it the copy would reach further than: the original
+// itself, and for a folder any folder inside it with limited access,
+// which reaches fewer people than the folder around it. The answer is
+// bound to the destination, the original and every part named.
+func AskCopy(to MoveTarget, original MoveItem, widening []MoveItem) Question {
+	what := fmt.Sprintf("the %s %s", original.Kind, quoted(original.Name, quotedLen))
+	if original.Kind == "folder" {
+		what += ", with everything inside it,"
+	}
+	lines := []string{fmt.Sprintf("copy_file: copy %s into %s?", what, moveWhere(to))}
+	bind := []string{to.ID, original.ID}
+	if len(widening) == 1 && widening[0].ID == original.ID {
+		it := widening[0]
+		line := "The copy would reach more people than the original does, or give them more access: " + moveReach(it)
+		if it.Unread != "" {
+			line = "Who can reach " + it.Unread + " could not be read, so whether the copy would reach more " +
+				"people than the original does is unknown."
+		}
+		return ask(append(lines, line), bind...)
+	}
+	lines = append(lines, "The copy would reach more people than these parts of the original do, or give them more access:")
+	for _, it := range widening {
+		part := "the " + it.Kind + " " + quoted(it.Name, quotedLen)
+		if it.ID != original.ID {
+			part += ", inside it, which has limited access"
+		}
+		lines = append(lines, part+": "+moveReach(it))
+		bind = append(bind, it.ID)
+	}
+	return ask(lines, bind...)
+}
+
 // moveWhere names a move's destination in a question.
 func moveWhere(to MoveTarget) string {
 	switch to.Kind {

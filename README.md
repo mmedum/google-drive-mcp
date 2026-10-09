@@ -201,16 +201,16 @@ the server will do at all:
 |---|---|---|
 | `GDRIVE_LOCAL_DIR` | unset | The one directory downloads are written to and uploads are read from. **Unset means no file transfer at all.** |
 | `GDRIVE_READ_ONLY` | `false` | Register only read tools, and ask for read-only scopes at login. |
-| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, keeps a shared drive's restrictions, a file's download and reshare switches and a folder's limited access from being loosened, and refuses a move that would let more people reach an item. |
+| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, keeps a shared drive's restrictions, a file's download and reshare switches and a folder's limited access from being loosened, and refuses a move that would let more people reach an item, or a copy that more people could reach than the original. |
 | `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back. Each still needs `confirm: true` per call. |
 | `GDRIVE_REQUIRE_PROMPT` | `false` | Refuse the writes that ask the person when the client cannot ask them. |
 
 Before a write that cannot be undone, a share to anyone with the link, a
 whole domain, a new owner or someone outside your organization,
 accepting a request for access, turning a shared drive's restriction
-off, or a move into a folder or shared drive that more people can
-reach, the server asks you through your MCP client when the client
-supports elicitation. Anything but Accept stops the write.
+off, turning a folder's limited access off, or a move or a copy into a
+folder or shared drive that more people can reach, the server asks you
+through your MCP client when the client supports elicitation. Anything but Accept stops the write.
 
 ## Tools
 
@@ -229,7 +229,7 @@ supports elicitation. Anything but Accept stops the write.
 | `create_folder` | A new folder, refusing a duplicate name unless you allow it |
 | `update_file` | Rename, describe, star, color, set properties, restrict downloads and re-sharing, or give a folder limited access |
 | `move_file` | Move an item, or up to 50, to another folder or shared drive, with who can reach each before and after, and a dry run |
-| `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder |
+| `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder; with who can reach the original and the copy |
 | `create_shortcut` | A pointer to one item from another folder |
 | `trash_file` | Move an item to the trash, which is reversible |
 | `restore_file` | Take an item out of the trash, and say where it went |

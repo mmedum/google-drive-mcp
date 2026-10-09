@@ -1045,7 +1045,38 @@ func (w *writeRun) moveExposure() {
 			"narrows who can reach it", errors.New("a question on a narrowing move"))
 	}
 	w.moveSeveral(open, file)
+	w.copyExposure(open, file)
 	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
+}
+
+// copyExposure is the copy's side of the same belief, which no page of
+// Google's states (§18): a copy takes on who can reach the folder it
+// lands in, and none of the grants made on the original. A copy into
+// the open folder is put to the person, and anyone with the link can
+// view it; a copy of a file shared by link on its own, into the scratch
+// folder, is private.
+func (w *writeRun) copyExposure(open, file string) {
+	in := map[string]any{"file": file, "to": open, "name": "copied into the open folder.txt"}
+	w.unpredicted(w.call(call{tool: "copy_file", args: map[string]any{
+		"file": file, "to": open, "name": in["name"], "dry_run": true}}))
+	w.declining("copy_file", in)
+	copied := w.call(call{tool: "copy_file", args: in})
+	w.unpredicted(copied)
+	if !strings.Contains(copied, "Who can reach the copy: anyone with the link can view.") {
+		w.problem("a copy into a folder anyone with the link can open does not say anyone with the link "+
+			"can view it", errors.New("no link in the result"))
+	}
+	w.needing("share_file", file, map[string]any{
+		"file": file, "principal": "anyone", "role": "reader", "allow_anyone": true,
+	})
+	private := w.call(call{tool: "copy_file", args: map[string]any{
+		"file": file, "to": w.scratchID, "name": "copy of a file shared by link.txt"}})
+	w.unpredicted(private)
+	if !strings.Contains(private, "Who can reach the copy: private to you.") {
+		w.problem("a copy took the link granted on the original, which the server says it does not",
+			errors.New("the copy is not private"))
+	}
+	w.needing("unshare_file", file, map[string]any{"file": file, "remove_link": true})
 }
 
 // downloads sets a file's download restriction each way and reads it
@@ -1241,8 +1272,8 @@ func (w *writeRun) moveSeveral(open, file string) {
 // other than the server worked out before the move.
 func (w *writeRun) unpredicted(out string) {
 	if strings.Contains(out, "that is not who this server worked out") {
-		w.problem("after the move Drive reports other access than the server predicted; the beliefs "+
-			"about what a move does to sharing (§18) are wrong somewhere", errors.New("prediction missed"))
+		w.problem("after the move or copy Drive reports other access than the server predicted; the "+
+			"beliefs about what a move or a copy does to sharing (§18) are wrong somewhere", errors.New("prediction missed"))
 	}
 }
 

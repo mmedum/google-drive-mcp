@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
 // Text from Drive reaches a question in one code span that it cannot
@@ -143,5 +145,29 @@ func TestAQuestionBindsWhatTheWriteDependsOn(t *testing.T) {
 	}
 	if a.Text == b.Text || !strings.Contains(a.Text, "3 items") {
 		t.Errorf("the trash count is not shown:\n%s", a.Text)
+	}
+}
+
+// A folder's copy names each part it would reach further: the folder,
+// and a folder inside it with limited access. The answer is bound to
+// every part named.
+func TestAskCopyNamesEachPartTheCopyReachesFurther(t *testing.T) {
+	link := []model.Grant{{Type: "anyone", Role: "reader"}}
+	to := MoveTarget{ID: "id-to", Name: "Open", Kind: "folder"}
+	root := MoveItem{ID: "id-root", Name: "Reports", Kind: "folder"}
+	parts := func(inner string) []MoveItem {
+		return []MoveItem{{ID: "id-root", Name: "Reports", Kind: "folder", Gained: link},
+			{ID: inner, Name: "Board", Kind: "folder", Gained: link}}
+	}
+	q := AskCopy(to, root, parts("id-board"))
+	want := "copy_file: copy the folder `Reports`, with everything inside it, into the folder `Open`?\n\n" +
+		"The copy would reach more people than these parts of the original do, or give them more access:\n\n" +
+		"the folder `Reports`: anyone with the link can view\n\n" +
+		"the folder `Board`, inside it, which has limited access: anyone with the link can view\n\n"
+	if !strings.HasPrefix(q.Text, want) {
+		t.Errorf("question =\n%q\nwant it to start\n%q", q.Text, want)
+	}
+	if q.Bind == AskCopy(to, root, parts("id-other")).Bind {
+		t.Error("two inner folders of one name bind the same answer")
 	}
 }

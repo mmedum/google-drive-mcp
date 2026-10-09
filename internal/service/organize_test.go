@@ -1,9 +1,12 @@
 package service_test
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 )
@@ -117,6 +120,136 @@ func TestCopyFile(t *testing.T) {
 	}
 	if !strings.Contains(converted.Text, "The original Budget.xlsx is untouched") {
 		t.Errorf("a conversion did not say the original was left alone:\n%s", converted.Text)
+	}
+}
+
+func TestCopyFileAsksBeforeTheCopyReachesMorePeople(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	linkShared(fake)
+	fake.SetContent("id-budget-fixture", "a,b\n")
+	in := service.CopyFileInput{File: "id-budget-fixture", To: "id-archive-fixture"}
+
+	no := declines()
+	if _, err := svc.CopyFile(service.WithAsker(t.Context(), no), in); err == nil || !strings.Contains(err.Error(), "[blocked]") {
+		t.Fatalf("err = %v, want the refusal the person gave", err)
+	}
+	want := "copy_file: copy the file `Budget.xlsx` into the folder `Archive`?\n\nThe copy would reach more people " +
+		"than the original does, or give them more access: anyone with the link can view\n"
+	if len(no.asked) != 1 || !strings.HasPrefix(no.asked[0].Text, want) {
+		t.Fatalf("questions = %+v, want one starting %q", no.asked, want)
+	}
+	if fake.Count(http.MethodPost) != 0 {
+		t.Fatal("a copy the person declined was made")
+	}
+
+	got, err := svc.CopyFile(yes(t), in)
+	if err != nil {
+		t.Fatalf("CopyFile: %v", err)
+	}
+	if got.JSON.SharingBefore != "private to you" || got.JSON.SharingAfter != "anyone with the link can view" {
+		t.Errorf("sharing %q → %q, want private to you → anyone with the link can view", got.JSON.SharingBefore, got.JSON.SharingAfter)
+	}
+	if !strings.Contains(got.Text, "Who can reach the original: private to you. Who can reach the copy: anyone with the link can view.") {
+		t.Errorf("the result does not say who reaches each:\n%s", got.Text)
+	}
+}
+
+func TestCopyFileDryRunShowsWhoWouldReachTheCopyAndAsksNothing(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	linkShared(fake)
+	p := &person{}
+	got, err := svc.CopyFile(service.WithAsker(t.Context(), p), service.CopyFileInput{
+		File: "id-budget-fixture", To: "id-archive-fixture", DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("CopyFile: %v", err)
+	}
+	if len(p.asked) != 0 || fake.Count(http.MethodPost) != 0 {
+		t.Fatal("a dry run asked the person or copied")
+	}
+	want := "Would copy it as Copy of Budget.xlsx into Archive. The copy would reach more people than the original " +
+		"does, or give them more access: anyone with the link can view. A real copy puts that to the person first " +
+		"when the client can ask. Nothing was copied. Who can reach the original: private to you. Who would reach " +
+		"the copy: anyone with the link can view."
+	if got.JSON.Note != want {
+		t.Errorf("note = %q\nwant   %q", got.JSON.Note, want)
+	}
+}
+
+// A copy takes on its destination's sharing and none of the original's.
+func TestACopyCarriesNoneOfTheOriginalsSharing(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Grant("id-budget-fixture", &gdrive.Permission{Type: "user", Role: "writer", EmailAddress: "carol@example.com"})
+	got, err := svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-budget-fixture", To: "root", DryRun: true})
+	if err != nil {
+		t.Fatalf("CopyFile: %v", err)
+	}
+	if got.JSON.SharingBefore != "shared with 1 person: 1 can edit" || got.JSON.SharingAfter != "private to you" {
+		t.Errorf("sharing %q → %q, want the original shared with carol and the copy private",
+			got.JSON.SharingBefore, got.JSON.SharingAfter)
+	}
+}
+
+// A copy with no destination lands beside the original and takes on that
+// folder's sharing, which a folder with limited access does not have.
+func TestACopyBesideTheOriginalTakesOnItsFolder(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Grant("id-projects-fixture", &gdrive.Permission{Type: "domain", Role: "reader", Domain: "example.com"})
+	fake.Files["id-archive-fixture"].InheritedPermissionsDisabled = true
+	no := declines()
+	_, err := svc.CopyFile(service.WithAsker(t.Context(), no), service.CopyFileInput{File: "id-archive-fixture", Recursive: true})
+	if err == nil || len(no.asked) != 1 || !strings.Contains(no.asked[0].Text, "into the folder `Projects`?") ||
+		!strings.Contains(no.asked[0].Text, "everyone at `example.com` can view") {
+		t.Errorf("err = %v, questions %+v; want one naming Projects and its domain", err, no.asked)
+	}
+}
+
+func TestSharingOffRefusesACopyThatWidens(t *testing.T) {
+	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
+	linkShared(fake)
+	p := &person{}
+	ctx := service.WithAsker(t.Context(), p)
+	for _, dry := range []bool{true, false} {
+		_, err := svc.CopyFile(ctx, service.CopyFileInput{File: "id-budget-fixture", To: "id-archive-fixture", DryRun: dry})
+		want := "[forbidden] this server was started with GDRIVE_SHARING=off, and the copy would reach more people " +
+			"than the original does, or give them more access: anyone with the link can view. Nothing was copied."
+		if err == nil || !strings.HasPrefix(err.Error(), want) {
+			t.Errorf("dry run %v: err = %v, want it to start %q", dry, err, want)
+		}
+	}
+	if len(p.asked) != 0 || fake.Count(http.MethodPost) != 0 {
+		t.Fatal("a refused copy asked the person or copied")
+	}
+	if _, err := svc.CopyFile(ctx, service.CopyFileInput{File: "id-budget-fixture", To: "root"}); err != nil {
+		t.Errorf("a copy that reaches nobody new was refused: %v", err)
+	}
+}
+
+func TestACopyOnlyThisAccountReachesAsksNothingWhoeverReachesTheOriginal(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	linkShared(fake)
+	// Who reaches the original cannot be read, as for a file this
+	// account may only view.
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.HasSuffix(r.URL.Path, "/files/id-budget-fixture/permissions") {
+			return &drivetest.Failure{Status: http.StatusForbidden, Reason: "insufficientFilePermissions", Message: "no"}
+		}
+		return nil
+	}
+	p := &person{err: service.Errorf(service.ClassBlocked, "not confirmed")}
+	ctx := service.WithAsker(t.Context(), p)
+	if _, err := svc.CopyFile(ctx, service.CopyFileInput{File: "id-budget-fixture", To: "root"}); err != nil {
+		t.Fatalf("a copy into My Drive's root: %v", err)
+	}
+	if len(p.asked) != 0 {
+		t.Fatalf("a copy only this account reaches asked: %s", p.asked[0].Text)
+	}
+	if _, err := svc.CopyFile(ctx, service.CopyFileInput{File: "id-budget-fixture", To: "id-archive-fixture"}); err == nil {
+		t.Fatal("a copy into a link-shared folder went ahead unasked")
+	}
+	want := "Who can reach it could not be read, so whether the copy would reach more people than the original does is unknown."
+	if len(p.asked) != 1 || !strings.Contains(p.asked[0].Text, want) {
+		t.Errorf("questions = %+v, want one saying %q", p.asked, want)
 	}
 }
 

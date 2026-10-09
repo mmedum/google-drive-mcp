@@ -268,10 +268,14 @@ func (s *Service) manyResult(ctx context.Context, target *gdrive.File, items []*
 }
 
 // movePlan is one move as it will be made: where the item goes, and who
-// could reach it before and would after.
+// could reach it before and would after. A copy is planned the same way,
+// with before the original's reach and after the copy's.
 type movePlan struct {
 	res    *Resolved
 	target *gdrive.File
+	// copy marks a copy: the grants made on the original stay with the
+	// original, so the copy reaches only who reaches the destination.
+	copy bool
 	// from is the folder it leaves. here says it is already in target,
 	// and nothing else is filled in.
 	from string
@@ -295,21 +299,39 @@ type movePlan struct {
 // or cannot tell: a question too many rather than one too few.
 func (p *movePlan) widens() bool { return p.unread != "" || len(p.gained) > 0 }
 
-// sharingOffRefuses says why GDRIVE_SHARING=off refuses the move, or
-// is empty when it does not. That setting keeps access from being
-// widened, and a move that lets more people reach an item widens it as
-// surely as a share does. A move whose reach could not be read is
-// refused too: nothing shows it does not widen.
+// sharingOffRefuses says why GDRIVE_SHARING=off refuses the move or the
+// copy, or is empty when it does not. That setting keeps access from
+// being widened, and a move that lets more people reach an item widens
+// it as surely as a share does; so does a copy that more people can
+// reach than the original. One whose reach could not be read is refused
+// too: nothing shows it does not widen.
 func (s *Service) sharingOffRefuses(p *movePlan) string {
 	if s.opts.Sharing != config.SharingOff || !p.widens() {
 		return ""
 	}
 	if p.unread != "" {
 		return "this server was started with GDRIVE_SHARING=off, and who can reach " + p.unread +
-			" could not be read, so the move may let more people reach it."
+			" could not be read, so " + p.may() + "."
 	}
-	return "this server was started with GDRIVE_SHARING=off, and the move would let more people reach it, " +
-		"or give them more access: " + render.Reach(p.gained) + "."
+	return "this server was started with GDRIVE_SHARING=off, and " + p.would() + ", or give them more access: " +
+		render.Reach(p.gained) + "."
+}
+
+// would says what the move or the copy would do to who can reach the
+// content.
+func (p *movePlan) would() string {
+	if p.copy {
+		return "the copy would reach more people than the original does"
+	}
+	return "the move would let more people reach it"
+}
+
+// may is would, when whether it would is unknown.
+func (p *movePlan) may() string {
+	if p.copy {
+		return "the copy may reach more people than the original does"
+	}
+	return "the move may let more people reach it"
 }
 
 // question is the item as a question names it.
@@ -377,8 +399,15 @@ func (s *Service) predictMove(ctx context.Context, p *movePlan, dest reach) {
 	if item.known {
 		p.before = s.sharingFrom(ctx, f, item.perms, p.res.DriveName)
 	}
+	// A move keeps the grants made on the item; a copy does not, so a
+	// copy's reach is the destination's alone and can be worked out
+	// without the original's.
+	carried := item.perms
+	if p.copy {
+		carried = nil
+	}
 	switch {
-	case !item.known:
+	case !item.known && !p.copy:
 		p.unread = "it"
 	case !dest.known:
 		p.unread = "the destination"
@@ -387,7 +416,7 @@ func (s *Service) predictMove(ctx context.Context, p *movePlan, dest reach) {
 		p.after = model.NewSharing(false, nil, false)
 		return
 	}
-	grants := movedGrants(f, p.target, item.perms, dest.perms)
+	grants := movedGrants(f, p.target, carried, dest.perms)
 	shared := false
 	for _, g := range grants {
 		shared = shared || g.Role != model.RoleOwner
@@ -397,6 +426,13 @@ func (s *Service) predictMove(ctx context.Context, p *movePlan, dest reach) {
 		p.after.SharedDrive = s.Location(ctx, p.target).Drive
 	}
 	p.gained = s.gained(ctx, p, p.before, p.after)
+	if !item.known && len(p.gained) > 0 {
+		// A copy of an original whose reach is unknown, which reaches
+		// someone besides this account: whether that is more is unknown.
+		// One only this account reaches widens nothing whatever the
+		// original's reach.
+		p.unread, p.gained = "it", nil
+	}
 }
 
 // gained is what after reaches that before does not, leaving out the
@@ -539,17 +575,25 @@ func (s *Service) moveResult(ctx context.Context, res *Resolved, p *movePlan, af
 // beforehand.
 func (s *Service) moveNote(ctx context.Context, p *movePlan, after model.Sharing, dryRun bool) string {
 	var parts []string
+	act := "move"
+	if p.copy {
+		act = "copy"
+	}
 	switch {
 	case dryRun && p.unread != "":
-		parts = append(parts, "who can reach "+p.unread+" could not be read, so whether the move would let more "+
-			"people reach it is unknown. A real move puts it to the person first when the client can ask")
+		parts = append(parts, "who can reach "+p.unread+" could not be read, so whether "+p.would()+
+			" is unknown. A real "+act+" puts it to the person first when the client can ask")
 	case dryRun && len(p.gained) > 0:
-		parts = append(parts, "the move would let more people reach it, or give them more access: "+
-			render.Reach(p.gained)+". A real move puts that to the person first when the client can ask")
+		parts = append(parts, p.would()+", or give them more access: "+render.Reach(p.gained)+". A real "+act+
+			" puts that to the person first when the client can ask")
 	case dryRun, p.before.Unknown, after.Unknown:
 	default:
 		if gained := s.gained(ctx, p, p.before, after); len(gained) > 0 {
-			parts = append(parts, "more people can reach it now, or have more access: "+render.Reach(gained))
+			who := "more people can reach it now, or have more access: "
+			if p.copy {
+				who = "more people can reach the copy than reach the original, or have more access: "
+			}
+			parts = append(parts, who+render.Reach(gained))
 		}
 		if !p.after.Unknown && s.differs(ctx, p, after) {
 			parts = append(parts, "that is not who this server worked out would reach it, which was: "+

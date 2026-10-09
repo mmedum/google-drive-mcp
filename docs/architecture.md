@@ -276,15 +276,16 @@ undo a permanent delete.
 `confirm: true`, `allow_anyone`, `allow_domain` and
 `transfer_ownership` are arguments the model writes, and a persuaded
 model writes them too. So when the client can ask, the server asks the
-person itself, through MCP form elicitation, before ten writes:
+person itself, through MCP form elicitation, before eleven writes:
 `delete_file`, `empty_trash`, `delete_drive`, `delete_revision`,
 `delete_comment`; `share_file` when it grants `anyone`, a whole
 `domain:` or ownership, or widens a grant to a person or group outside
 the account's organization; `resolve_access_request` when it accepts;
 `manage_drive` when it turns a restriction off; `move_file` when the
 destination would let more people reach the item, or give them more
-access (§7.3); and `update_file` when it turns a folder's limited access
-off and that lets someone new open it.
+access (§7.3); `copy_file` when more people could reach the copy than
+reach the original, or with more access; and `update_file` when it
+turns a folder's limited access off and that lets someone new open it.
 
 `extract_text` asks nothing. What it deletes for good is the temporary
 copy it made in the same call, which nobody else has seen; the person's
@@ -292,9 +293,19 @@ own files are not touched.
 
 A move asks on any widening, inside the organization too, where a share
 asks only past people somebody named. With `GDRIVE_SHARING=off` such a
-move is refused rather than asked, as a loosened restriction is. A share names its grantee in the
-call, so the model wrote down who it reaches; a move names a folder,
-and who that folder reaches is nowhere in the call.
+move is refused rather than asked, as a loosened restriction is. A
+share names its grantee in the call, so the model wrote down who it
+reaches; a move names a folder, and who that folder reaches is nowhere
+in the call. A copy is the same case: it takes on who reaches the
+folder it lands in, so a copy of a private file into a folder anyone
+with the link can open, followed by trashing the original, would
+publish it with no share made. So `copy_file` follows the move's rule,
+for each part of a folder it copies.
+
+`create_file` and `upload_file` ask nothing, decided 2026-10-09. They
+put new content, written by the caller, into the folder the caller
+named; nothing that fewer people could reach before becomes reachable
+by more.
 
 Outside means an address whose domain is not the signed-in account's.
 A personal Google address is always outside, since two of them share a
@@ -376,7 +387,7 @@ asking for access, which under injection is the attacker.
     the only thing that installs an asker; a service write that asks,
     reached without one, is `[unexpected]` rather than made unasked.
     `TestEveryToolThatTakesConfirmAsks` reads the published schemas and
-    requires every tool that takes `confirm`, and the two that widen
+    requires every tool that takes `confirm`, and the ones that widen
     access, to ask, and `TestEveryAskingWriteWaitsForThePerson` holds
     each on every protocol: declined, nothing written; accepted, one
     write.
@@ -808,7 +819,21 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   budget, refused before any write when the source or a folder inside it
   cannot be listed. `copy_comments`, off by default, asks Drive to bring the
   threads along; Drive's own formats carry them and uploaded bytes do
-  not (§18).
+  not (§18). A copy takes on who can reach the folder it lands in, and
+  none of the grants made on the original (§18). So before it copies,
+  the server reads who reaches the original and who reaches the
+  destination, as a move does; the result says who reaches each, read
+  back from Drive after the copy. A copy that more people could reach,
+  or with more access, is put to the person (§4a), and with
+  `GDRIVE_SHARING=off` refused; a copy only this account would reach
+  asks nothing, even when who reaches the original cannot be read. A
+  folder's copy is checked part by part: the folder itself, and each
+  folder inside it with limited access, which reaches fewer people
+  than the folder around it. Every other item reaches at least who its
+  folder does, so they need no read of their own. The question names
+  each part the copy would reach further, once for the call, and under
+  `GDRIVE_SHARING=off` such a tree is refused before anything is
+  written.
 - `create_shortcut`: `target`, `parent`, `name` (default the target's).
 - `trash_file` and `restore_file`: the result names the item, says
   "folder with its contents" when it is one, reminds that the trash
@@ -828,7 +853,7 @@ did not ask for. The deployer sets `GDRIVE_SHARING`:
 | Value | Meaning |
 |---|---|
 | `all` (default) | Every principal type the account may share with. `anyone` still needs `allow_anyone: true` on the call, and `domain:` needs `allow_domain: true`. |
-| `off` | `share_file`, `unshare_file` and shared-drive membership changes are not registered. `list_permissions` stays. Loosening a shared drive's restrictions or a file's own switches is refused (§7.5), and so is a move that lets more people reach an item (§7.3). |
+| `off` | `share_file`, `unshare_file` and shared-drive membership changes are not registered. `list_permissions` stays. Loosening a shared drive's restrictions or a file's own switches is refused (§7.5), and so is a move that lets more people reach an item, or a copy that more people could reach than the original (§7.3). |
 
 Before any sharing call the server reads `capabilities.canShare` on the
 file and refuses with `[forbidden] you cannot change sharing on this
@@ -1135,7 +1160,7 @@ whose result is a file's text, returned as a text block alone (§4).
 | Risk | What limits it |
 |---|---|
 | Acting on the wrong file | Ids are the contract; a name or path that matches more than one item is refused; every result shows the location. |
-| Exposing a file to the world or to the wrong domain | The organization's own sharing policy, enforced by Google on every call; `allow_anyone` per call; before-and-after exposure in every sharing result and every move; a move that widens access asks the person; `dry_run`; `GDRIVE_SHARING=off`; no publish-to-web at all. |
+| Exposing a file to the world or to the wrong domain | The organization's own sharing policy, enforced by Google on every call; `allow_anyone` per call; before-and-after exposure in every sharing result, move and copy; a move or a copy that widens access asks the person; `dry_run`; `GDRIVE_SHARING=off`; no publish-to-web at all. |
 | Unwanted email to people | `notify` is off unless asked; the result says when Google forced it on. |
 | Mass deletion | Trash is the only default removal and it is reversible; permanent deletion and emptying the trash are gated; no bulk tool. The one ungated permanent delete is `extract_text` removing the copy it made in the same call, and only the file Drive's answer to that copy named. |
 | Copying private files onto disk | Downloads only under `GDRIVE_LOCAL_DIR`, size-capped, named in the result. |
@@ -2535,6 +2560,8 @@ live run of it found.
 | Moves into, out of and between shared drives follow the same rule (the API guides say nothing) | **Confirmed in part** against the Workspace help, <https://support.google.com/a/users/answer/12380484>, read 2026-10-09: an item moved in "keeps its sharing permissions", "file permissions inherited from the folder the file was in aren't copied", and its creator is "no longer the owner"; moved out, access is "reassessed" and "the file's original sharing settings take effect". It also says access "may change if sharing settings for the shared drive are more restrictive", without saying how | The prediction drops the owner on a move into a shared drive and otherwise applies the same rule. A drive's restriction dropping a direct grant would make the prediction overstate, which asks a question too many; the read-back reports what Drive did. Shared drive to shared drive is not driven live: the driver takes one `-drive` |
 | What the owner of a My Drive destination folder gets on an item moved into it (undocumented) | **Unverified.** No reference or help page read 2026-10-09 says | Counted as an editor, which errs toward showing more exposure. Settling it needs a folder another account owns, which a one-account run cannot make; the read-back reports what Drive did on any real move |
 | `permissionDetails` marks inherited grants on a My Drive item (unstated for My Drive) | **Unverified.** The `permissions` reference, read 2026-10-09, says `inherited` "is always populated" and `inheritedFrom` "is only populated for items in shared drives", which implies My Drive items carry details without a source. If they carry none, every grant reads as direct, the prediction keeps grants the move takes away, and the read-back says the two differ | The live driver moves a file into a link-shared folder and back out, and fails the step when the result says Drive answered other than predicted |
+| A copy takes on its new folder's grants and none of the original's (unstated) | **Unverified.** The `files.copy` reference (updated 2026-09-04) says only, of `ignoreDefaultVisibility`, "Permissions are still inherited from parent folders"; the sharing guide (updated 2026-09-14), read 2026-10-09, speaks of moves and not copies | `copy_file` works out the copy's reach from the destination's grants alone, and reads the copy's back from Drive after it is made, saying when the two differ. The live driver copies a private file into a folder open by link, and a file shared by link on its own into a private one, and fails a step when either copy is reached otherwise |
+| `copy_file` asks like a move, and `create_file` and `upload_file` do not (decided 2026-10-09) | **Decided.** A review found that with `GDRIVE_SHARING=off` a move into a link-shared folder was refused while a copy into it succeeded, and trashing the original then finished the same exposure | A copy that more people could reach than the original is put to the person and, with `GDRIVE_SHARING=off`, refused, part by part for a folder (§4a, §7.3). `create_file` and `upload_file` put new content the caller wrote into the folder the caller named, so they are unchanged |
 | A move's new sharing is in place when `files.update` answers (unstated) | **Unverified** | The read-back is one permission list right after the move. A late answer shows as "that is not who this server worked out would reach it", which points at `list_permissions`; the live driver's two moves fail on it |
 | A moved folder with limited access keeps out the destination's grants (unstated for a move) | **Unverified.** The sharing guide, read 2026-10-09, says of an inherited grant: "Changes must be made on the originating parent, or the folder must use the limited access setting." It says nothing about a move | The card reads `inheritedPermissionsDisabled`, and the move prediction does not use it: it counts the destination's grants on such a folder and may ask a question too many. A destination's own `view: metadata` grants are left out, since they do not reach what is inside it |
 | A bulk move needs one approval per item, as removal and sharing do (the "Bulk operations belong in the tool surface" row did not cover moves) | **Rejected for moves, decided 2026-10-09.** That row rejected bulk work because "one item per call keeps every removal and every share a visible approval". A move removes nothing and grants nothing by name: it is undone by moving the item back. What it can do that is not undone is let more people reach the item, and since 2026-10-09 that is put to the person before any item moves, once for the batch, naming every item that would reach further. Forty moves into a folder nobody else can reach is forty approvals of nothing | `move_file` takes `files`, at most 50, to one destination. Each item gets its own outcome, and a failure leaves the moves before it in place. Removal and sharing stay one item per call, and there is no bulk rename |

@@ -170,6 +170,11 @@ var askCases = map[string]askCase{
 		method: http.MethodPatch, path: "/files/id-budget-fixture",
 		shows: []string{"move the file `Budget.xlsx` into the folder `Archive`", "anyone with the link can view"},
 	},
+	"copy_file": {
+		args:   map[string]any{"file": "id-budget-fixture", "to": "id-archive-fixture"},
+		method: http.MethodPost, path: "/files/id-budget-fixture/copy",
+		shows: []string{"copy the file `Budget.xlsx` into the folder `Archive`", "anyone with the link can view"},
+	},
 	"update_file": {
 		args:   map[string]any{"file": "id-limited-fixture", "limited_access": false},
 		method: http.MethodPatch, path: "/files/id-limited-fixture",
@@ -252,7 +257,7 @@ func TestEveryAskingWriteWaitsForThePerson(t *testing.T) {
 	}
 }
 
-// Every tool that takes confirm asks, as do the five that can widen
+// Every tool that takes confirm asks, as do the six that can widen
 // access; the list is read from the published schemas, not typed out.
 func TestEveryToolThatTakesConfirmAsks(t *testing.T) {
 	cs, _ := connect(t, everything(), "", nil)
@@ -261,7 +266,7 @@ func TestEveryToolThatTakesConfirmAsks(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{"share_file": true, "manage_drive": true, "resolve_access_request": true, "move_file": true,
-		"update_file": true}
+		"copy_file": true, "update_file": true}
 	registered := map[string]bool{}
 	for _, tool := range res.Tools {
 		registered[tool.Name] = true

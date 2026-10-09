@@ -223,9 +223,14 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			"A folder needs recursive: true, because Drive has no call that copies one — it is a listing per " +
 			"folder and a write per item, so a large tree takes a while. A tree over max_items is refused " +
 			"before anything is written rather than copied halfway; dry_run says how big it is first. " +
-			"Shortcuts inside a tree are made again pointing where they point now, not at the copies.",
+			"Shortcuts inside a tree are made again pointing where they point now, not at the copies. A copy " +
+			"takes on who can reach the folder it lands in, and none of the sharing of the original; the " +
+			"result shows who can reach each. A copy that more people can reach than the original, or with more " +
+			"access, is also put to the person when the client can ask; a call they do not confirm is [blocked], " +
+			"nothing is copied, and it is not made again unless they ask. A server started with " +
+			"GDRIVE_SHARING=off refuses such a copy instead.",
 		Annotations: write,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CopyFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "copy_file", func(ctx context.Context, in CopyFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.CopyFile(ctx, service.CopyFileInput{
 			File: in.File, Name: in.Name, To: in.To, ConvertTo: in.ConvertTo,
 			OCRLanguage: in.OCRLanguage, KeepRevisionForever: in.KeepRevisionForever,
@@ -233,7 +238,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			AllowDuplicate: in.AllowDuplicate, Recursive: in.Recursive, MaxItems: in.MaxItems,
 			DryRun: in.DryRun,
 		}))
-	})
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "create_shortcut",

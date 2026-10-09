@@ -266,7 +266,8 @@ func (s *Service) tree(ctx context.Context, folder *gdrive.File, loc model.Locat
 // childFields is a listing's usual fields and, for each item, whether
 // this account can list what is inside it, which a walk reads before it
 // trusts a folder's contents. That is the only capability read here.
-const childFields = "nextPageToken,incompleteSearch,files(" + gapi.ListFileFields + ",capabilities(canListChildren))"
+const childFields = "nextPageToken,incompleteSearch,files(" + gapi.ListFileFields +
+	",capabilities(canListChildren),inheritedPermissionsDisabled)"
 
 // childrenOf pages through one folder, stopping at the remaining item
 // budget.
