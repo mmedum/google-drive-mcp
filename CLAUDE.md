@@ -49,7 +49,9 @@ Google Doc, Sheet or Slides deck is out of scope.
 5. **Never destroy without a way back by default.** Trash and restore
    are the default surface. Permanent delete, empty trash, delete
    revision, delete shared drive and delete comment are unregistered
-   unless `GDRIVE_ENABLE_DESTRUCTIVE=true`. No bulk removal tool.
+   unless `GDRIVE_ENABLE_DESTRUCTIVE=true`. No bulk removal tool. The one
+   exception: `extract_text` deletes, for good, the temporary Google Doc
+   it made itself, and nothing else.
 6. **Files only through `GDRIVE_LOCAL_DIR`.** Downloads land there and
    uploads read from there; unset means no file transfer. Stream in
    chunks; never hold a whole file in memory.
@@ -72,6 +74,9 @@ Google Doc, Sheet or Slides deck is out of scope.
   `internal/auth/` loopback OAuth.
 - `internal/gdrive/` wire types; `internal/gapi/` raw REST client, with
   `drivetest/` the in-memory fake Drive for tests.
+- `internal/office/` Office and OpenDocument text, parsed locally;
+  `internal/mediatype/` what each file type is called, filtered and
+  exported as.
 - `internal/ref/` file references and paths (no network);
   `internal/model/` the server's view of a file; `internal/render/` text
   output; `internal/service/` orchestration and policy;
