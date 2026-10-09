@@ -306,6 +306,31 @@ func TestMoveFileSaysWhenDriveAnswersOtherThanPredicted(t *testing.T) {
 	}
 }
 
+// The account counts when Drive's answer is checked against what was
+// shown before: an answer that differs only in the account's own access
+// still differs from the summary the person saw.
+func TestMoveFileSaysWhenDriveAnswersOtherThanPredictedAboutTheAccount(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Files["id-budget-fixture"].Owners = []*gdrive.User{{DisplayName: "Jane", EmailAddress: "jane@example.com"}}
+	fake.Grant("id-budget-fixture", &gdrive.Permission{Type: "user", Role: "reader", EmailAddress: drivetest.AccountEmail})
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/files/id-budget-fixture") {
+			fake.Grant("id-budget-fixture", &gdrive.Permission{Type: "user", Role: "writer", EmailAddress: drivetest.AccountEmail})
+		}
+		return nil
+	}
+
+	got, err := svc.MoveFile(yes(t), service.MoveFileInput{File: "id-budget-fixture", To: "id-archive-fixture"})
+	if err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	want := "that is not who this server worked out would reach it, which was: shared with 1 person: 1 can view."
+	if got.JSON.SharingAfter != "shared with 1 person: 1 can edit" || !strings.Contains(got.JSON.Note, want) {
+		t.Errorf("sharing after = %q, note %q; want Drive's answer and a note containing %q",
+			got.JSON.SharingAfter, got.JSON.Note, want)
+	}
+}
+
 // TestSharingOffRefusesAMoveThatWidens holds GDRIVE_SHARING=off to its
 // word for moves: a move that lets more people reach an item is refused,
 // not asked, dry run included, and one that reaches nobody new goes.

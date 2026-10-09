@@ -176,6 +176,58 @@ func TestCopyFileDryRunShowsWhoWouldReachTheCopyAndAsksNothing(t *testing.T) {
 	}
 }
 
+// ownedByTheAccount lists the account as the owner of Projects and of
+// Archive inside it, the shape Drive gives a My Drive folder: an owner
+// grant made on the folder, and the same one again from the folder
+// above.
+func ownedByTheAccount(fake *drivetest.Server) {
+	for _, id := range []string{"id-projects-fixture", "id-archive-fixture"} {
+		fake.Grant(id, &gdrive.Permission{Type: "user", Role: "owner", EmailAddress: drivetest.AccountEmail})
+	}
+}
+
+// A copy is the account's own, so the destination's owner, which is
+// the same account, is not one more person who can edit it. Both
+// shapes are the ones a live run got wrong: a file into a folder open by
+// link, and a folder into a private one.
+func TestACopyIsOwnedByTheAccountAndCountsNobodyElse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   service.CopyFileInput
+		link bool
+		want string
+	}{
+		{"a file into a folder open by link", service.CopyFileInput{File: "id-budget-fixture", To: "id-archive-fixture"},
+			true, "anyone with the link can view"},
+		{"a folder into a private folder", service.CopyFileInput{File: "id-2026-fixture", To: "id-archive-fixture",
+			Recursive: true}, false, "private to you"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, fake := setup(t, service.Options{})
+			ownedByTheAccount(fake)
+			if tc.link {
+				linkShared(fake)
+			}
+			dry := tc.in
+			dry.DryRun = true
+			got, err := svc.CopyFile(t.Context(), dry)
+			if err != nil {
+				t.Fatalf("CopyFile dry run: %v", err)
+			}
+			if got.JSON.SharingAfter != tc.want {
+				t.Errorf("dry run: sharing after = %q, want %q", got.JSON.SharingAfter, tc.want)
+			}
+			got, err = svc.CopyFile(yes(t), tc.in)
+			if err != nil {
+				t.Fatalf("CopyFile: %v", err)
+			}
+			if got.JSON.SharingAfter != tc.want || strings.Contains(got.JSON.Note, "not who this server worked out") {
+				t.Errorf("sharing after = %q, note %q; want %q and no mismatch", got.JSON.SharingAfter, got.JSON.Note, tc.want)
+			}
+		})
+	}
+}
+
 // A copy takes on its destination's sharing and none of the original's.
 func TestACopyCarriesNoneOfTheOriginalsSharing(t *testing.T) {
 	svc, fake := setup(t, service.Options{})

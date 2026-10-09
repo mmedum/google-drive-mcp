@@ -417,7 +417,7 @@ func (s *Service) predictMove(ctx context.Context, p *movePlan, dest reach) {
 	// without the original's.
 	carried := item.perms
 	if p.copy {
-		carried = nil
+		carried = s.copyOwner(ctx, p.target)
 	}
 	switch {
 	case !item.known && !p.copy:
@@ -459,11 +459,21 @@ func (s *Service) gained(ctx context.Context, before, after model.Sharing) []mod
 	return out
 }
 
-// sameReach reports whether two summaries reach the same people, groups,
-// domains and links with the same access, leaving out the signed-in
-// account.
-func (s *Service) sameReach(ctx context.Context, a, b model.Sharing) bool {
-	return model.SameReach(a, b, "") || model.SameReach(a, b, s.account(ctx))
+// copyOwner is the grant a copy starts with. Outside a shared drive the
+// account that makes a copy owns it; inside one the drive does, and no
+// person is its owner. Without it, the destination's owner, often this
+// same account, would be counted as one more person who can edit.
+// Empty when the account's address cannot be read, which leaves the
+// destination's owner counted as an editor.
+func (s *Service) copyOwner(ctx context.Context, target *gdrive.File) []*gdrive.Permission {
+	if target.DriveID != "" {
+		return nil
+	}
+	addr := s.account(ctx)
+	if addr == "" {
+		return nil
+	}
+	return []*gdrive.Permission{{Type: principalUser, Role: model.RoleOwner, EmailAddress: addr}}
 }
 
 // account is the signed-in account's address, read from Drive once and
@@ -490,11 +500,12 @@ func (s *Service) account(ctx context.Context) string {
 // movedGrants works out who can reach an item once it sits in target,
 // from what Google documents about a move: grants made on the item
 // directly stay, what it inherited where it was goes, and it inherits
-// everything the destination has. A My Drive item moved into a shared
-// drive loses its owner, because the drive owns it. An owner of the
-// destination who does not own the item is counted as an editor: what
-// Drive gives them is not documented (§18), and counting them at all
-// errs toward showing more exposure, not less.
+// everything the destination has. For a copy, item is the copy's owner
+// alone. A My Drive item moved into a shared drive loses its owner,
+// because the drive owns it. An owner of the destination who does not
+// own the item is counted as an editor: what Drive gives them is not
+// documented (§18), and counting them at all errs toward showing more
+// exposure, not less.
 func movedGrants(f, target *gdrive.File, item, dest []*gdrive.Permission) []model.Grant {
 	intoDrive := f.DriveID == "" && target.DriveID != ""
 	var grants []model.Grant
@@ -580,7 +591,10 @@ func (s *Service) moveNote(ctx context.Context, p *movePlan, after model.Sharing
 			}
 			parts = append(parts, who+render.Reach(gained))
 		}
-		if !p.after.Unknown && !s.sameReach(ctx, p.after, after) {
+		// The account counts here: the summary shown before counted it,
+		// and an answer that differs only in the account's own access
+		// still differs from what the person was shown.
+		if !p.after.Unknown && !model.SameReach(p.after, after) {
 			parts = append(parts, "that is not who this server worked out would reach it, which was: "+
 				p.after.Summary()+". Drive can take a moment to apply a move's sharing; list_permissions "+
 				"shows where it stands")

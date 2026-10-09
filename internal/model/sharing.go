@@ -128,7 +128,9 @@ type Sharing struct {
 	// PendingOwner is set while a consumer-account transfer waits for the
 	// new owner to accept.
 	PendingOwner string
-	// Inherited counts grants that come from a shared-drive ancestor.
+	// Inherited counts the People whose access comes from a folder above
+	// or the shared drive. A link or a domain grant from above is not one
+	// of them: the summary says "N of them" of the people.
 	Inherited int
 	// Unknown is true when permissions were not readable, so a summary
 	// must say so rather than claim the file is private.
@@ -189,9 +191,6 @@ func GrantOf(p *gdrive.Permission) Grant {
 func SharingOf(shared bool, grants []Grant) Sharing {
 	s := Sharing{Shared: shared, Grants: slices.Clone(grants)}
 	for _, g := range grants {
-		if g.Inherited() {
-			s.Inherited++
-		}
 		switch g.Type {
 		case "anyone":
 			link := g
@@ -203,6 +202,9 @@ func SharingOf(shared bool, grants []Grant) Sharing {
 				s.Owner = g.Label()
 			} else {
 				s.People++
+				if g.Inherited() {
+					s.Inherited++
+				}
 				switch {
 				case g.NameOnly:
 					s.NameOnly++
@@ -417,11 +419,12 @@ func MergeGrants(grants ...Grant) []Grant {
 }
 
 // SameReach reports whether two summaries reach the same people, groups,
-// domains and links with the same access, wherever it comes from. self
-// is left out of both, as Gained leaves it out. It compares the grants
-// each holds, so it means something only when both lists were read.
-func SameReach(a, b Sharing, self string) bool {
-	return len(Gained(a, b, self)) == 0 && len(Gained(b, a, self)) == 0
+// domains and links with the same access, wherever it comes from. The
+// signed-in account counts like anyone else, as it does in a summary. It
+// compares the grants each holds, so it means something only when both
+// lists were read.
+func SameReach(a, b Sharing) bool {
+	return len(Gained(a, b, "")) == 0 && len(Gained(b, a, "")) == 0
 }
 
 // Plural renders a count with its noun. It lives here because model owns

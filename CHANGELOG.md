@@ -41,6 +41,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `read_file`'s line saying how to read the next window names `format` when it was given. Without it the next window of a tsv read was cut from the csv text.
 - `move_file` says who could reach the item before the move and who can after, in `sharing_before` and `sharing_after`. A moved item takes on the destination's sharing and loses what it had through its old folder, and the result used to report only the new location. `dry_run` shows the same without moving. After the move the result reads who can reach the item from Drive, and says so when that differs from what was worked out beforehand.
 - A sharing summary for a My Drive item that people reach through a folder above it says "through a folder above it". It said "inherited from the shared drive".
+- A sharing summary's "N of them through a folder above it" counts only the people. It counted a link, a domain or the owner that came from above too, and could say "2 of them" of one person.
 - A search hit or listed file that someone shared with you, in a folder you cannot see, is placed under "Shared with me". It read as having no folder this account can see.
 - `manage_approval` said an approved file is locked either way. An approval started with `no_action` is not.
 - A file card said only "viewers and commenters cannot copy, print or download" when downloads were restricted, even when editors were restricted too. It now reads the restriction in effect.

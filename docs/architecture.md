@@ -806,9 +806,10 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   it does not widen. With `files`, each such item is refused with the
   reason and the rest move. After the move the server reads the item's permissions again
   and reports those, and says so when they differ from what it worked
-  out. The signed-in account's own access is left out of who a move
-  adds. An owner of the destination who does not own the item counts as
-  an editor, since what Drive gives them is not documented. Children of
+  out, the account's own access included, since the summary counts it.
+  The signed-in account's own access is left out of who a move adds.
+  An owner of the destination who does not own the item counts as an
+  editor, since what Drive gives them is not documented. Children of
   a moved folder are not read one by one: the question says they are
   reached the same way.
 
@@ -834,11 +835,13 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   cannot be listed. `copy_comments`, off by default, asks Drive to bring the
   threads along; Drive's own formats carry them and uploaded bytes do
   not (§18). A copy takes on who can reach the folder it lands in, and
-  none of the grants made on the original (§18). So before it copies,
-  the server reads who reaches the original and who reaches the
-  destination, as a move does; the result says who reaches each, read
-  back from Drive after the copy. A copy that more people could reach,
-  or with more access, is put to the person (§4a), and with
+  none of the grants made on the original (§18). Outside a shared drive
+  the copy is the signed-in account's, so the destination's owner, who
+  is usually that same account, is not counted as an editor of it. So
+  before it copies, the server reads who reaches the original and who
+  reaches the destination, as a move does; the result says who reaches
+  each, read back from Drive after the copy. A copy that more people
+  could reach, or with more access, is put to the person (§4a), and with
   `GDRIVE_SHARING=off` refused; a copy only this account would reach
   asks nothing, even when who reaches the original cannot be read. A
   folder's copy is checked part by part: the folder itself, and each

@@ -253,6 +253,34 @@ func TestSharingPublicAndInherited(t *testing.T) {
 	}
 }
 
+// "N of them" counts people. A link, a domain and the owner can all
+// come from a folder above, and none of them is one of the people.
+func TestSharingCountsOnlyPeopleAsInheritedOnes(t *testing.T) {
+	above := []*gdrive.PermissionDetails{{Inherited: true}}
+	s := NewSharing(true, []*gdrive.Permission{
+		{Type: "user", Role: "owner", EmailAddress: "me@example.com",
+			Details: []*gdrive.PermissionDetails{{Role: "owner"}, {Role: "owner", Inherited: true}}},
+		{Type: "user", Role: "reader", EmailAddress: "a@example.com", Details: above},
+		{Type: "anyone", Role: "reader", Details: above},
+		{Type: "domain", Role: "reader", Domain: "example.com", Details: above},
+	}, true)
+	want := "shared with 1 person: 1 can view (1 of them through a folder above it); " +
+		"everyone at example.com can view with the link; anyone with the link can view"
+	if got := s.Summary(); got != want {
+		t.Errorf("summary = %q\nwant      %q", got, want)
+	}
+	// In a shared drive, a domain grant from above names the drive once,
+	// in its own clause, rather than as "that drive" with no drive named.
+	inDrive := NewSharing(true, []*gdrive.Permission{
+		{Type: "domain", Role: "reader", Domain: "example.com", Details: above},
+	}, true)
+	inDrive.SharedDrive = "Marketing"
+	want = "everyone at example.com can view with the link; plus everyone with access to the shared drive Marketing"
+	if got := inDrive.Summary(); got != want {
+		t.Errorf("summary = %q\nwant      %q", got, want)
+	}
+}
+
 func TestSharingPendingOwner(t *testing.T) {
 	s := NewSharing(true, []*gdrive.Permission{
 		{Type: "user", Role: "writer", EmailAddress: "new@example.com", PendingOwner: true},
@@ -632,8 +660,15 @@ func TestGainedIsWhoAChangeReachesThatItDidNot(t *testing.T) {
 	if strings.Join(got, "|") != want {
 		t.Errorf("Gained = %q, want %q", strings.Join(got, "|"), want)
 	}
-	if !SameReach(after, after, "") || SameReach(before, after, "me@example.com") {
+	if !SameReach(after, after) || SameReach(before, after) {
 		t.Error("SameReach does not tell a list from a wider one")
+	}
+	// The account counts: a summary that showed it as an editor is not
+	// the one that shows it as the owner.
+	owns := SharingOf(false, []Grant{{Type: "user", Role: "owner", Who: "me@example.com"}})
+	edits := SharingOf(true, []Grant{{Type: "user", Role: "writer", Who: "me@example.com"}})
+	if SameReach(owns, edits) {
+		t.Error("SameReach leaves out the account's own access")
 	}
 	// The account is itself however Drive spells its address, even where
 	// it reached nothing before.
