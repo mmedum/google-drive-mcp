@@ -109,6 +109,7 @@ func runDestructive(w *writeRun, name string) {
 	d.deleteARevision()
 	d.deleteAComment()
 	d.approvalLock()
+	d.approvalNoAction()
 	d.emptyTheDriveTrash()
 }
 
@@ -358,6 +359,41 @@ func (d *destroyRun) approvalLock() {
 	// The reference says a content restriction stops content, comments
 	// and renames, and says nothing about removal. If that is wrong this
 	// is where the run finds out, and the drive would not delete below.
+	d.destroyFile(id, false)
+}
+
+// approvalNoAction starts an approval with on_content_change no_action,
+// approves it, and changes the content after. The approvals guide says
+// such an approval does not lock the file once approved; this is where
+// a run finds out if Drive disagrees. It runs in the scratch drive all
+// the same, so a lock it did not expect is deleted with the drive.
+func (d *destroyRun) approvalNoAction() {
+	me := d.accountAddress()
+	id := d.makeFile("approved and still open.txt", "before the approval\n")
+	if me == "" || id == "" {
+		d.out.Say("\n=== approval without a lock: skipped, the address or the file it needs is missing ===")
+		return
+	}
+	started := d.call(call{tool: "manage_approval", args: map[string]any{
+		"file": id, "action": "start", "reviewers": []string{me}, "on_content_change": "no_action",
+		"message": "a scratch approval that should not lock the file",
+	}})
+	if !strings.Contains(started, "approving does not lock the file") {
+		d.problem("the start of an approval with on_content_change no_action does not say approving leaves "+
+			"the file unlocked", errors.New("no NO_APPROVAL_ACTION in the answer"))
+	}
+	approval := approvalFromResult(started)
+	if approval == "" {
+		d.out.Say("\n=== approval without a lock: the approval id was not readable, so it cannot be approved ===")
+		d.destroyFile(id, false)
+		return
+	}
+	d.call(call{tool: "manage_approval", args: map[string]any{"file": id, "action": "approve", "approval": approval}})
+	if card := d.call(call{tool: "get_file", args: map[string]any{"file": id}}); strings.Contains(card, "content locked") {
+		d.problem("an approval started with no_action locked the file once approved", errors.New("locked"))
+	}
+	d.out.Say("\n(this content change is expected to SUCCEED: the approval did not lock the file)")
+	d.call(call{tool: "update_content", args: map[string]any{"file": id, "content": "changed after approval\n"}})
 	d.destroyFile(id, false)
 }
 

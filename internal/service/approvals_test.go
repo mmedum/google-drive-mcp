@@ -366,3 +366,115 @@ func TestARefusedListingDoesNotBlameAFinishedApproval(t *testing.T) {
 		t.Errorf("a failed listing was told to call list_approvals:\n%s", msg)
 	}
 }
+
+// startOn starts an approval on a file with this account and another
+// person as reviewers, and returns its id.
+func startOn(t *testing.T, svc *service.Service, fake *drivetest.Server, file, onChange string) (*service.Result, string) {
+	t.Helper()
+	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: file, Action: "start", OnContentChange: onChange,
+		Reviewers: []string{drivetest.AccountEmail, "other@example.com"},
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	all := fake.Approvals[file]
+	return res, all[len(all)-1].ApprovalID
+}
+
+// on_content_change is sent on start, the default included, and the
+// result says what Drive answered it will do.
+func TestStartingAnApprovalSaysWhatAContentChangeDoes(t *testing.T) {
+	for _, tc := range []struct {
+		onChange, sent, says string
+	}{
+		{"", "RESET_APPROVAL", "If the content changes while it is open, the answers already given are cleared; " +
+			"once it is approved, the file is LOCKED."},
+		{"no_action", "NO_APPROVAL_ACTION", "A content change leaves the answers already given as they are, and " +
+			"approving does not lock the file."},
+	} {
+		svc, fake := setup(t, service.Options{})
+		res, _ := startOn(t, svc, fake, "id-notes-fixture", tc.onChange)
+		if got := fake.Approvals["id-notes-fixture"][0].FileContentChangeBehavior; got != tc.sent {
+			t.Errorf("on_content_change %q: Drive holds %q, want %q", tc.onChange, got, tc.sent)
+		}
+		if !strings.Contains(res.JSON.Note, tc.says) {
+			t.Errorf("on_content_change %q: the note does not say %q:\n%s", tc.onChange, tc.says, res.JSON.Note)
+		}
+	}
+}
+
+// Under no_action a content change leaves an answer given; under the
+// default it clears it.
+func TestNoActionLeavesAnswersWhenTheContentChanges(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	_, reset := startOn(t, svc, fake, "id-notes-fixture", "reset_approval")
+	_, kept := startOn(t, svc, fake, "id-budget-fixture", "no_action")
+	for file, id := range map[string]string{"id-notes-fixture": reset, "id-budget-fixture": kept} {
+		if _, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+			File: file, Action: "approve", Approval: id,
+		}); err != nil {
+			t.Fatalf("approve: %v", err)
+		}
+		fake.SetContent(file, "changed")
+	}
+	answer := func(file string) string { return fake.Approvals[file][0].ReviewerResponses[0].Response }
+	if got := answer("id-notes-fixture"); got != "NO_RESPONSE" {
+		t.Errorf("under reset_approval a content change left the answer %s", got)
+	}
+	if got := answer("id-budget-fixture"); got != "APPROVED" {
+		t.Errorf("under no_action a content change made the answer %s", got)
+	}
+
+	out, err := svc.ListApprovals(t.Context(), service.ListApprovalsInput{File: "id-budget-fixture"})
+	if err != nil {
+		t.Fatalf("ListApprovals: %v", err)
+	}
+	if !strings.Contains(out, "\nChanging the content leaves the answers already given as they are, and approving "+
+		"does not lock the file.\n") {
+		t.Errorf("the listing does not say what a content change does:\n%s", out)
+	}
+
+}
+
+func TestAnApprovalStartedWithNoActionIsNotLockedOnceApproved(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	if _, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-budget-fixture", Action: "start", OnContentChange: "no_action",
+		Reviewers: []string{drivetest.AccountEmail},
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	id := fake.Approvals["id-budget-fixture"][0].ApprovalID
+	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-budget-fixture", Action: "approve", Approval: id,
+	})
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if !strings.Contains(res.Text, "complete: approved") || strings.Contains(res.Text, "content locked") ||
+		len(fake.Files["id-budget-fixture"].ContentRestrictions) != 0 {
+		t.Errorf("an approval started with no_action locked the file once approved:\n%s", res.Text)
+	}
+}
+
+func TestOnContentChangeIsAStartsAndTakesTwoValues(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddApproval("id-notes-fixture", "id-approval-1", drivetest.AccountEmail)
+	for _, tc := range []struct {
+		in   service.ManageApprovalInput
+		want string
+	}{
+		{service.ManageApprovalInput{File: "id-notes-fixture", Action: "start", Reviewers: []string{"one@example.com"},
+			OnContentChange: "lock"}, `[invalid] on_content_change "lock" is not one of reset_approval, no_action`},
+		{service.ManageApprovalInput{File: "id-notes-fixture", Action: "approve", Approval: "id-approval-1",
+			OnContentChange: "no_action"}, "[invalid] on_content_change is set when an approval starts, not with approve"},
+	} {
+		if _, err := svc.ManageApproval(t.Context(), tc.in); err == nil || !strings.HasPrefix(err.Error(), tc.want) {
+			t.Errorf("%+v: err = %v, want it to start %q", tc.in, err, tc.want)
+		}
+	}
+	if fake.Count(http.MethodPost) != 0 {
+		t.Error("a refused call reached Drive")
+	}
+}

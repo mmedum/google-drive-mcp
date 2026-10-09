@@ -25,8 +25,9 @@ type ManageApprovalInput struct {
 	Reviewers        []string `json:"reviewers,omitempty" jsonschema:"email addresses. With start, the people being asked to approve — at least one is required. With reassign, the people to ADD to the reviewers."`
 	ReplaceReviewers []string `json:"replace_reviewers,omitempty" jsonschema:"with reassign, swaps as \"going@example.com=arriving@example.com\". Drive will not simply remove a reviewer: a replacement, which names who takes their place, is the only way somebody leaves an approval."`
 	Message          string   `json:"message,omitempty" jsonschema:"a message that goes into the notification and into the approval's log. Required for comment, optional elsewhere."`
-	LockFile         bool     `json:"lock_file,omitempty" jsonschema:"with start, ask Drive to lock the file's content while the approval is open. Drive does not always apply it — the result says whether it did — but an APPROVED file is locked either way"`
+	LockFile         bool     `json:"lock_file,omitempty" jsonschema:"with start, ask Drive to lock the file's content while the approval is open. Drive does not always apply it, and the result says whether it did. Separately, an approval started with on_content_change reset_approval locks the file once it is APPROVED"`
 	Due              string   `json:"due,omitempty" jsonschema:"with start, when the approval is wanted by, as a date like 2026-01-31 or a full RFC 3339 timestamp"`
+	OnContentChange  string   `json:"on_content_change,omitempty" jsonschema:"with start, what a change to the file's content does to the approval: reset_approval (the default) clears answers already given while it is open and LOCKS the file once it is approved; no_action leaves the answers as they are and does not lock the file"`
 }
 
 // registerApprovals adds the approval pair. list_approvals is a read and
@@ -70,9 +71,10 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 			strings.Join(service.ApprovalActions(), ", ") + ". " +
 			"EVERY ACTION MAILS SOMEBODY — the reviewers, or the person who asked — and there is no way to " +
 			"turn that off, unlike sharing. An approval grants nobody access; what it can do is LOCK the " +
-			"file: certainly once it is APPROVED, and lock_file asks for it at the start although Drive " +
-			"does not always apply that — the result says which. A locked file cannot be edited by anyone, " +
-			"and the lock an approval leaves does not come off. Declining completes the approval on its own, " +
+			"file: once it is APPROVED, unless it was started with on_content_change no_action, and lock_file " +
+			"asks for it at the start although Drive does not always apply that — the result says which. A " +
+			"locked file cannot be edited by anyone, and the lock an approval leaves does not come off. " +
+			"Declining completes the approval on its own, " +
 			"where approving waits for every reviewer. A reviewer can be added, or replaced by somebody " +
 			"else, but never simply removed.",
 		Annotations: write,
@@ -80,7 +82,7 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 		return result(d.Service.ManageApproval(ctx, service.ManageApprovalInput{
 			File: in.File, Approval: in.Approval, Action: in.Action,
 			Reviewers: in.Reviewers, ReplaceReviewers: in.ReplaceReviewers,
-			Message: in.Message, LockFile: in.LockFile, Due: in.Due,
+			Message: in.Message, LockFile: in.LockFile, Due: in.Due, OnContentChange: in.OnContentChange,
 		}))
 	})
 	return []string{"list_approvals", "manage_approval"}

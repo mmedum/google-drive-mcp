@@ -246,7 +246,7 @@ supports elicitation. Anything but Accept stops the write.
 | `list_access_requests` | Who has asked to be let into a file, and what they asked for |
 | `resolve_access_request` | Accept or deny one, with who could see the file before and after |
 | `list_approvals` | The reviews on a file: who asked, who has to answer, and whether it is waiting on you |
-| `manage_approval` | Ask people to review a file, answer one, withdraw it, comment on it, or change who is asked |
+| `manage_approval` | Ask people to review a file, answer one, withdraw it, comment on it, or change who is asked, and choose whether a content change resets it |
 
 Three more are registered only when the deployer turns their feature on,
 because each needs a scope the consent screen would otherwise not carry:

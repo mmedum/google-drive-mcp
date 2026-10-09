@@ -917,9 +917,9 @@ type Approval struct {
 	ModifyTime        string              `json:"modifyTime,omitempty"`
 	CompleteTime      string              `json:"completeTime,omitempty"`
 	// FileContentChangeBehavior is RESET_APPROVAL or NO_APPROVAL_ACTION.
-	// RESET_APPROVAL means a content change while the approval is in
-	// progress clears the approvals given — and that once approved, the
-	// file is LOCKED.
+	// RESET_APPROVAL, the default, means a content change while the
+	// approval is in progress clears the approvals given, and that once
+	// approved the file is LOCKED. NO_APPROVAL_ACTION does neither.
 	FileContentChangeBehavior string `json:"fileContentChangeBehavior,omitempty"`
 }
 
@@ -948,9 +948,15 @@ type StartApproval struct {
 	LockFile bool   `json:"lockFile,omitempty"`
 	DueTime  string `json:"dueTime,omitempty"`
 	// FileContentChangeBehavior decides what a content change does to
-	// answers already given.
+	// answers already given, and whether approving locks the file.
 	FileContentChangeBehavior string `json:"fileContentChangeBehavior,omitempty"`
 }
+
+// What a content change does to an approval, as Drive spells it.
+const (
+	ContentChangeReset    = "RESET_APPROVAL"
+	ContentChangeNoAction = "NO_APPROVAL_ACTION"
+)
 
 // ApprovalMessage is the body every other approval verb takes: approve,
 // decline, cancel and comment differ in their endpoint and in nothing

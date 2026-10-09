@@ -143,6 +143,7 @@ func (s *Server) createFile(meta *gdrive.FileMeta, contentType string, content [
 // from them. The caller holds the lock.
 func (s *Server) setContentLocked(f *gdrive.File, content []byte) {
 	s.Content[f.ID] = string(content)
+	s.resetApprovalsLocked(f.ID)
 	if f.IsWorkspaceDoc() {
 		// A converted file has no size and no checksum of its own, which
 		// is exactly the case an upload result has to describe honestly.
