@@ -4,7 +4,10 @@
 (2026-10-09): the 2026-10-08 gap analysis, built, reviewed and run live —
 Office and OCR text, download restrictions and limited access, search
 under a folder, and a move or copy that asks before it widens who can
-reach a file (§16). The server asks the person before a write it cannot take back or that opens
+reach a file (§16). v2.1.0 is verified from outside: checksums, the
+cosign signature and the provenance attestation, each also against a
+tampered copy, the version in the binary, the registry publish, and
+`go install …/cmd/google-drive-mcp@latest` resolving v2.1.0. The server asks the person before a write it cannot take back or that opens
 a file past people somebody named (§4a), and six defects are fixed, two
 of them found by its live run (§16). The Go module path is now `/v2`. A default
 build registers **32** tools; eight more exist behind a flag — the
@@ -1855,8 +1858,10 @@ when. `move_file` and `copy_file` show who can reach an item before and
 after, ask before a destination widens that, and refuse it under
 `GDRIVE_SHARING=off`; `move_file` moves up to 50 items at once.
 `manage_approval` chooses what a content change does to an approval.
-Two reviews (correctness and quality) and two live runs found what the
-unit suite could not; their verdicts are in §18.
+Two reviews (correctness and quality) and three live runs, the last on
+the code released as v2.1.0, found and settled what the unit suite
+could not.
+Their verdicts are in §18, with what the next run still owes.
 
 ## 17. Open decisions
 
@@ -2609,24 +2614,30 @@ live run of it found.
 | `\b` in a Go regular expression is a word boundary in any script | **Refuted.** `go doc regexp/syntax`, Go 1.27.1: `\b` is "at ASCII word boundary" | The link shapes in a question are unanchored, so a link after an underscore or in a non-Latin domain is broken too; a test holds both |
 | A destructive tool should carry both `requiresUserInteraction` and the server's own question | **Refuted** 2026-10-09, after the owner was asked twice for one delete in another server built the same way. No source recommends two hard gates for one call: the spec puts confirmation on the client, GitHub's `delete_repository` and Supabase confirm with `destructiveHint` plus a form elicitation and set no mark, and Claude Code's documentation scopes the mark to "tools whose permission prompt is itself the point" | The mark is sent per client, present only when the request declares no form elicitation, on the five tools that ask before every write (`askedEveryCall`). A Claude Code `Elicitation` hook that accepts now confirms these deletes alone, where the mark used to stop the call before it reached the server. A typed confirmation, which would stop Codex accepting an empty form unseen, was offered and not chosen |
 
-**Gap-analysis additions (2026-10-09).** Two `-write` live runs the
+**Gap-analysis additions (2026-10-09).** Three `-write` live runs the
 same day settled the rows marked "live 2026-10-09". The second made the
 checks the first could not: the visibility and property searches under
 the scratch folder on every page, `extract_text`'s temporary copies read
 by id, ranged reads of a workbook and a deck, `restrict_download:
 viewers`, a copy without `copy_comments` beside each one that carried
-its threads, and the status of the query Drive refused. What is still
-owed, for the next run:
+its threads, and the status of the query Drive refused. The third ran on
+the code released as v2.1.0. It saw the same again and settled three
+more rows: the indexable-text flag, the checksum of a download by the
+current revision's id, and the flag the coverage report names for each
+option a run did not send (the last three rows). What is still owed,
+for the next run:
 
-- The options neither run passed: `-file`, `-unlistable`, `-share`,
-  `-drive`, `-destructive`, `-labels` and `-activity`. `list_drives` and
+- The modes none of the three passed: `-share`, `-drive`, `-destructive`,
+  `-unlistable`, `-labels` and `-activity`. `list_drives` and
   `manage_drive` were not called. The `readers` search waits for
   `-share`.
-- The `use_content_as_indexable_text` search, written after the second
-  run (the last row).
-- Two checks nobody has written: moving a folder with limited access
-  (the row on it below), and what a Form's card says about its
-  responders (the Form row), seen twice now.
+- One check by hand: what a Form's card says about its responders,
+  against `files.get` with `includePermissionsForView=published` (the
+  Form row). In all three runs a Form's card read "private to you"
+  while the link searches returned it.
+- Moving a folder that has limited access: the move prediction ignores
+  the folder's own setting, a belief its row records as unverified, and
+  no live step makes that move yet.
 - Cleanup by hand: each run leaves its scratch folder in the trash,
   which held nearly all of the account's Drive usage from earlier runs,
   and approvals mail the account.
@@ -2675,6 +2686,8 @@ owed, for the next run:
 | `appProperties has { key=… and value=… }` finds a file by its app property (convention) | **Confirmed** against the search-terms guide, read 2026-10-09, which lists `appProperties` with the `has` operator. That the key alone is refused is confirmed live for both (phase 4, the row on the search guide above). That the key and value together find a file by its app property is confirmed live for `properties` and **unverified** for `appProperties`; the reference says app properties are "private to the requesting app" | The marker query names both. The fake accepts the query on `appProperties` and requires both halves, as it does for `properties` |
 | A write returns text and JSON with everything the text says (§4, rule 9) | **Not for `extract_text`, decided 2026-10-09.** Its result is a file's text, up to 400 000 characters a window; a JSON copy doubles it, and Claude Code shows the model only the structured half when there is one (the row on Claude Code 2.1 above). `read_file` returns text only for the same reason | `extract_text` returns a text block alone, whose header names the kept or leftover copy's id and link. A protocol test holds that it returns no structured content |
 | A permanent delete needs `GDRIVE_ENABLE_DESTRUCTIVE` (hard rule 5) | **Kept, with one exception decided 2026-10-09:** the temporary copy `extract_text` makes and deletes in the same call. It was never the person's, nobody has seen it, and putting it in the trash would leave a copy of their file there for 30 days | The delete reaches only the Google Doc Drive's answer to the copy named, never the source, and runs under its own deadline even when the call was canceled |
-| A file card shows everyone who can reach a Google Form (unstated) | **Unverified, and probably not.** The Forms guide, <https://developers.google.com/workspace/forms/api/guides/publish-form>, updated 2026-09-03: "A responder is a permission with view='published' and role='reader'", anyone with the link as a responder is "a permission with type 'anyone', view 'published', and role 'reader'", and listing them needs "the query parameter `includePermissionsForView=published`". The `files.get` reference, updated 2026-03-20, says that parameter "Specifies which additional view's permissions to include in the response. Only `published` is supported." This server never sends it. A live run on 2026-10-09 found a Form whose card said "private to you" among the files a search for `visibility: link` and `anyone` returned. A second run the same day saw it again: the Form it created read "private to you" on its card, and both searches returned it. Still unverified: neither run looked at the published view | Nothing changed yet. A check by hand settles it: `get_file` on a Form published to anyone with the link, against `files.get` with `includePermissionsForView=published`. If the card under-reports, a Form's reads should ask for the published view and count its responders apart from its editors |
+| A file card shows everyone who can reach a Google Form (unstated) | **Unverified, and probably not.** The Forms guide, <https://developers.google.com/workspace/forms/api/guides/publish-form>, updated 2026-09-03: "A responder is a permission with view='published' and role='reader'", anyone with the link as a responder is "a permission with type 'anyone', view 'published', and role 'reader'", and listing them needs "the query parameter `includePermissionsForView=published`". The `files.get` reference, updated 2026-03-20, says that parameter "Specifies which additional view's permissions to include in the response. Only `published` is supported." This server never sends it. A live run on 2026-10-09 found a Form whose card said "private to you" among the files a search for `visibility: link` and `anyone` returned. A second run the same day saw it again: the Form it created read "private to you" on its card, and both searches returned it. A third saw the same. Still unverified: no run looked at the published view | Nothing changed yet. A check by hand settles it: `get_file` on a Form published to anyone with the link, against `files.get` with `includePermissionsForView=published`. If the card under-reports, a Form's reads should ask for the published view and count its responders apart from its editors |
 | Pinning a comment belongs to the Docs API, for every Google document (what `list_comments` said of every kind until 2026-10-09) | **Refuted for Sheets and Slides** against the discovery documents, fetched 2026-10-09: Sheets v4, Docs v1 and Slides v1 each publish an `InsertCommentRequest`, tied to a `GridCoordinate` in a sheet, a `Range` in a document, and a page or a page element in a presentation | `list_comments` names the kind, the place a comment pins to there and the API that pins it. Another Google kind gets the sentence without an API. `add_comment`'s description names all three |
-| `use_content_as_indexable_text` makes an upload of a type Drive does not read searchable by its words, and does nothing for a type it reads (what the tool's description says) | **Unverified.** The `files.create` and `files.update` parameters in the discovery document fetched 2026-10-09 (revision 20261005) say only "Whether to use the uploaded content as indexable text." The runs of 2026-10-09 sent it on a text file, which Drive reads anyway, and checked nothing | The live driver uploads the same bytes as `application/octet-stream` with and without it, searches for a word only those bytes hold, and says whether the copy without it is found too. An empty search after 30 s is reported as unverified, as the other searches are |
+| `use_content_as_indexable_text` makes an upload of a type Drive does not read searchable by its words, and does nothing for a type it reads (what the tool's description says) | **Confirmed live 2026-10-09 for a type Drive does not read**, on the third run. The same 51 bytes went up twice as `application/octet-stream`, once with the flag. A search for a word only those bytes hold found the flagged copy on the first try, and the other copy on neither of two searches. The `files.create` and `files.update` parameters in the discovery document fetched 2026-10-09 (revision 20261005) say only "Whether to use the uploaded content as indexable text." **Unverified** for a type Drive reads: the first two runs sent the flag on a text file and checked nothing | The description stands. The live driver keeps the step: it uploads the same bytes with and without the flag, searches for the word, and says so when the copy without the flag is found too. An empty search after 30 s is reported as unverified, as the other searches are |
+| A download by the current revision's id can be checked against the file's `md5Checksum` (what `download_file` assumes since 2026-10-09; before, a download with any `revision` went unchecked) | **Confirmed live 2026-10-09** on the third run. A CSV downloaded by its head revision's id read "verified against Drive's md5", as did plain downloads of a CSV and of a 6 MiB binary. The same file's older revision read "not compared". The discovery document (revision 20261005) calls `md5Checksum` "The MD5 checksum for the content of the file" and `headRevisionId` "The ID of the file's head revision"; it does not say the two describe the same bytes | `download_file` compares the bytes when `revision` is empty or is the head revision's id. An older revision is not compared, and the result says so |
+| The live driver can read from its own source which flag each option it did not send waits for (what its end-of-run report assumes since 2026-10-09; before, it said every such option sat behind `-file`, `-share` or `-drive`) | **Confirmed live 2026-10-09** on the third run, the first with the new report. It passed `-write` alone and sent 147 of 170 options in 267 calls. It named the eight options its source sends and the run did not, each with the flag it lacked: `-labels` for one, `-destructive` for four, `-share` for two, and "`-blocked` or `-share`" for `unshare_file.principal`. None fell to the warning kept for an option no missing flag explains | The report names each unsent option with the flag the run lacked, so the owed list at the head of this block names modes rather than options. A tool the run never called, here `list_drives` and `manage_drive`, is named once rather than by option |
