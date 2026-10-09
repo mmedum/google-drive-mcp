@@ -11,7 +11,7 @@ import (
 // ReadFileInput selects a window of a file's text.
 type ReadFileInput struct {
 	File     string `json:"file" jsonschema:"a file id, any Drive or Docs URL, the word root for My Drive, a path from My Drive like /Projects/2026/notes.txt, or a shared-drive path like drive:Marketing/Campaigns. A name or path matching more than one item is refused with the candidates listed, so pass an id when you have one. A shortcut is followed to what it points at."`
-	Format   string `json:"format,omitempty" jsonschema:"for a spreadsheet only: csv (the default) or tsv"`
+	Format   string `json:"format,omitempty" jsonschema:"for a spreadsheet only, a Google Sheet or an Excel or OpenDocument workbook: csv (the default) or tsv"`
 	Offset   int64  `json:"offset,omitempty" jsonschema:"where to start reading. Pass 0 for the beginning, or the continue_from value a previous read of the same file reported."`
 	MaxChars int    `json:"max_chars,omitempty" jsonschema:"how much text to return, default 20000, maximum 400000"`
 }
@@ -32,10 +32,12 @@ func registerContent(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "read_file",
 		Description: "The text of one file, straight back to you: a Google Doc as markdown, a Sheet as csv, " +
-			"Slides as plain text, and a text file, log, CSV, JSON or source file as itself. Only the part you " +
-			"ask for is fetched, so the head of a 200 MB log costs one small request; the header says which part " +
-			"you got and how to ask for the next. " +
-			"PDFs, Office files and images are refused with the two ways forward, because they are not text. " +
+			"Slides as plain text, and a text file, log, CSV, JSON or source file as itself. A Word document, " +
+			"an Excel workbook or a PowerPoint deck, or its OpenDocument counterpart, is read here as text: a " +
+			"document in order, a workbook's first sheet as csv, a deck slide by slide. The old .doc, .xls and " +
+			".ppt formats are not. Only the part you ask for is fetched, so the head of a 200 MB log costs one " +
+			"small request; the header says which part you got and how to ask for the next. " +
+			"PDFs and images are refused with the ways forward, because they are not text. " +
 			"Nothing is written to disk: download_file does that.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ReadFileInput) (*mcp.CallToolResult, any, error) {

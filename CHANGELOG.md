@@ -20,6 +20,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - A file card says who cannot download, print or copy the file, counting the shared drive's restriction and the organization's rules, and when that is more than the file's own setting. It says when a folder has limited access.
 - `list_permissions` marks a grant a limited-access folder keeps out as one that "can see it but not open it", and the sharing summary counts those people apart from the ones who can view.
 - `search_files` with no filter at all returns everything you can see, in the order `order_by` names. It used to be refused.
+- `read_file` reads Word, Excel and PowerPoint files, and their OpenDocument counterparts (`.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`), as text. A document reads in order, with headings, list items and table rows marked. A workbook's first sheet reads as csv, or tsv with `format: tsv`: numbers as stored, dates and times as ISO 8601, a formula as its last value. A deck reads slide by slide, under a line naming each slide. The file is read here, through byte ranges, so only its text parts are fetched; nothing is converted, copied or written to disk, and it works in read-only mode. The `gdrive://` resource returns the same text. The old `.doc`, `.xls` and `.ppt` formats are refused with the ways forward. A file over the limits that guard against a file built to exhaust a reader is refused, and text past 10 MB is cut short with a note.
 
 ### Changed
 

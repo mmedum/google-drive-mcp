@@ -220,7 +220,7 @@ supports elicitation. Anything but Accept stops the write.
 | `get_file` | Everything about one file: kind, location, link, size, owner, who can see it, who cannot download it, and what you may do with it |
 | `list_folder` | One page of a folder's contents, or a budgeted tree of everything below it |
 | `search_files` | Find files across My Drive, files shared with you, and every shared drive, or under one folder at any depth |
-| `read_file` | The text of a file: a Doc as markdown, a Sheet as csv, a log or source file as itself, windowed with a continuation |
+| `read_file` | The text of a file: a Doc as markdown, a Sheet as csv, a Word, Excel or PowerPoint file (or its OpenDocument counterpart) read here as text, a log or source file as itself, windowed with a continuation |
 | `download_file` | Write a file to the local directory, converting a Google document on the way out, checksum-verified |
 | `create_file` | A new empty Google file, or one written from text you have here, with optional conversion |
 | `upload_file` | Send a local file, in one request or in chunks that survive a dropped connection |

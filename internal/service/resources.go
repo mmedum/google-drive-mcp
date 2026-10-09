@@ -48,12 +48,16 @@ func (s *Service) ResourceText(ctx context.Context, reference string) (*Resource
 }
 
 // textMimeOf is the media type the text a read produced is in. For a
-// Google-native document it is the export format; for a blob it is the
-// file's own type, which is already a text type or read_file would have
-// refused it.
+// Google-native document it is the export format; for an Office file it
+// is the text read out of it, csv for a spreadsheet; for any other blob
+// it is the file's own type, which is already a text type or read_file
+// would have refused it.
 func textMimeOf(f *gdrive.File, plan readPlan) string {
 	if plan.exportMime != "" {
 		return plan.exportMime
+	}
+	if plan.textMime != "" {
+		return plan.textMime
 	}
 	if mime := gdrive.MimeOnly(f.MimeType); mime != "" {
 		return mime

@@ -400,6 +400,10 @@ internal/ref/             file references: ids, every Google URL shape (with res
                           syntax; parsing only, no network
 internal/model/           the server's view of a file: kind names, location path, sharing summary,
                           capability words, sizes and times as people read them
+internal/office/          the text of Word, Excel and PowerPoint files and their OpenDocument
+                          counterparts, read with archive/zip and encoding/xml through an
+                          io.ReaderAt over byte ranges, every read bounded; no network, no imports
+                          from this repository; officetest/ builds small such files
 internal/render/          text renderers: file card, listing, tree, permissions, revisions, changes,
                           comments; budgets and continuation
 internal/service/         orchestration: resolve refs and paths (short cache), search, listing and
@@ -578,11 +582,44 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   characters, maximum 400 000), so the head of a 200 MB log is one small
   request. There is deliberately **no size limit** on this path: the
   range bounds the transfer, and a limit here would refuse a file the
-  tool can in fact read (§18). PDFs, Office files and images are `[unsupported]` with the two
+  tool can in fact read (§18). PDFs and images are `[unsupported]` with the two
   ways forward: `download_file`, or `copy_file` with `convert_to: doc`
   (Google's import, which OCRs PDFs and images) and then `read_file` on
   the copy. The header comment carries name, kind, size, head revision,
   the range shown and `continue_from`.
+
+  An Office file — `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp` —
+  is read here, out of its own bytes (`internal/office`). Google's own
+  Drive MCP reads these server-side; Drive's API offers no text of a
+  blob, and converting one means creating a file. The parser takes an
+  `io.ReaderAt` over `alt=media` byte ranges with a small block cache,
+  so `archive/zip` fetches the zip's directory and the parts that carry
+  text, never the images beside them, and nothing goes to disk. Blocks
+  are 64 KiB, at most 48 are kept, and reads that run on from the last
+  fetch fetch further ahead each time, up to 2 MiB a request; one read
+  fetches at most 64 MiB. A document reads in order, with headings
+  marked `#`, list items `-` and table rows with `|` between the cells;
+  tracked deletions, field codes, comments, footnotes and the second
+  copy of a text box kept for older readers are left out. A workbook's
+  first visible sheet reads as csv or tsv, each row ending at its last
+  value: a number as stored, without its display format; a date or a
+  time, decided by the cell's number format, as ISO 8601 in the
+  workbook's 1900 or 1904 date system; a formula as its last value. A
+  deck reads slide by slide in the order it shows them, under
+  `--- slide N ---`, a hidden one marked; speaker notes are left out.
+  The whole text is kept like an export, under the same 10 MB cap, so
+  paging costs nothing after the first window. The cap and the parser's
+  other limits are the zip-bomb bound: at most 10 000 entries and an 8
+  MiB directory, checked from the end record before `archive/zip` reads
+  the directory; no part that expands more than 100 times past 1 MiB,
+  the ratio Apache POI refuses; at most 256 MiB of XML parsed; nesting
+  at most 256 deep. A file past one of these is `[unsupported]`, or its
+  text stops short with a note saying so. `encoding/xml` expands no
+  entity it was not given, so a part cannot define one that expands
+  without end. The old binary `.doc`, `.xls` and `.ppt` are refused with
+  `download_file` and `copy_file` with `convert_to` as the ways forward;
+  a password-protected file, which Office keeps in the same binary
+  container, is named as such.
 - `download_file` writes to `GDRIVE_LOCAL_DIR/<safe name>-<short
   id>.<ext>`: a blob through `alt=media`, streamed to disk in chunks, md5
   checked against the metadata, refused above `GDRIVE_MAX_DOWNLOAD`; a
@@ -975,8 +1012,9 @@ move can be moved back, and the part of it that cannot be taken back,
 who saw the item meanwhile, is put to the person for the whole batch.
 
 **Resources** (built in phase 3). `gdrive://{file}` is the text
-`read_file` gives (markdown for a Doc, csv for a Sheet, the file's own
-type otherwise) under one 400 000-character budget, and the media type
+`read_file` gives (markdown for a Doc, csv for a Sheet or a workbook,
+plain text for an Office document or deck, the file's own type
+otherwise) under one 400 000-character budget, and the media type
 of the answer says which; `gdrive://{file}/meta` is the file card and
 `gdrive://{folder}/children` is the first page of a listing, both as
 `text/plain` — the renderer lays out columns, not markdown, and saying
@@ -1165,8 +1203,9 @@ honest option and the one a model can act on.
   under the same deadline (a wrapped token source), so a stalled refresh
   cannot hang later calls.
 - **Memory.** Streaming in both directions; `read_file` fetches only the
-  window it shows; a listing holds one page; a tree walk holds its
-  budget.
+  window it shows of a text file, and of an Office file its directory
+  and text parts through a 3 MiB block cache, holding at most the 10 MB
+  of text; a listing holds one page; a tree walk holds its budget.
 - **Caching.** Reference and path cache 60 s; file metadata coalesced
   for 5 s keyed by id; writes invalidate. Never for correctness.
 - **Targets, checked by benchmarks against the fake in Phase 3.**
@@ -1238,6 +1277,12 @@ honest option and the one a model can act on.
   output field could be dropped unseen, and a deliberate break had no
   way through before its tag existed. The baseline was recorded from
   the v2.0.1 tag, whose dump already carried output schemas.
+- **Fuzzing.** `internal/office` parses bytes from any file in anyone's
+  Drive, so it has two fuzz targets: `FuzzExtract` over whole files and
+  `FuzzPartXML` over the XML of the part that carries the text, in a
+  well-formed container. Each must never panic or return more text than
+  its cap. Their seeds run in `make check`; `go test -fuzz` runs them
+  for longer.
 - **Stdio smoke** without credentials: initialize with the newest
   protocol version the SDK offers and with `2025-11-25`, list tools and
   resource templates, call `get_file` and expect an `[auth]` tool error.
@@ -2434,3 +2479,12 @@ live run of it found.
 | Limited access is a folder's, set by its owner or organizer (convention) | **Confirmed** against <https://developers.google.com/workspace/drive/api/guides/limited-expansive-access>, read 2026-10-09: "limited access isn't available for files"; "only the `owner` role in My Drive and the `organizer` role in shared drives can enable or disable limited access", and a writer in My Drive when `writersCanShare` is true; `canDisableInheritedPermissions` and `canEnableInheritedPermissions` say whether the account may | `limited_access` on a file is refused before Drive is asked, and so is a change the capabilities do not allow. What Drive answers for a file is not documented; the fake answers 400 `invalid` |
 | A grant a limited-access folder keeps out is listed as `view: metadata` (convention) | **Confirmed for people** against the same guide: such permissions carry "`inheritedPermissionsDisabled=true` and `view=metadata`", "The role is always set to `reader`", and every `permissionDetails` entry is inherited. The `Permission.view` reference says the metadata view "is only supported on folders". **Unverified** for a link or domain grant from above, which the guide does not show | `list_permissions` says such a grant "can see it but not open it" and the summary counts it apart; a destination's metadata grants are left out of a move's prediction. The fake lists every grant from above that way, owners and organizers excepted, and passes none of them below the folder. The live driver gives a folder inside a link-shared one limited access and says how Drive lists the link |
 | An approved file is locked either way (what `manage_approval`'s descriptions said until 2026-10-09) | **Refuted** against the approvals guide, <https://developers.google.com/workspace/drive/api/guides/approvals> (updated 2026-09-03), read 2026-10-09, and the release notes for 2026-07-15, which made `fileContentChangeBehavior` generally available on `start`. `RESET_APPROVAL`, the default, clears answers on a content change and locks the file once approved; under `NO_APPROVAL_ACTION` "the file isn't locked on final approval" and answers stay. The discovery document (revision 20261005) marks the field output only on `Approval` and optional on `StartApprovalRequest` | `on_content_change` takes `reset_approval` (default) or `no_action`, is sent on every start, and the result reports what Drive answered. The descriptions no longer promise a lock. The fake honors both, and resets an approved answer to `NO_RESPONSE` on a content change under the default, since the enum has no `NO_DECISION`. The live driver's destructive run starts one with `no_action` in its scratch shared drive, approves it, and fails the step when the file comes back locked |
+| `archive/zip` reads no more of a part than its declared sizes (convention) | **Confirmed** in the Go 1.27.2 source, `archive/zip/reader.go`, read 2026-10-09: `File.Open` reads the compressed bytes through a section of `CompressedSize64`, and `checksumReader.Read` returns `ErrFormat` once it has produced more than `UncompressedSize64` | The ratio of a part's two declared sizes is the ratio a reader can meet, so `internal/office` checks it before opening the part rather than counting as it inflates |
+| `archive/zip` can be handed any file and bounds itself (assumed) | **Refuted** in the same source: `Reader.init` reads the whole central directory into memory before returning, sized by the end record | `internal/office` reads the end record, zip64 included, and refuses more than 10 000 entries or an 8 MiB directory before `zip.NewReader` runs. A test holds that such a file is refused after fetching only its tail |
+| A part that inflates more than 100 times over is a zip bomb (convention) | **Confirmed as a convention** against Apache POI's `ZipSecureFile.setMinInflateRatio`, <https://poi.apache.org/apidocs/dev/org/apache/poi/openxml4j/util/ZipSecureFile.html>, read 2026-10-09: "It defaults to 1% (= 0.01d), i.e. when the compression is better than 1% for any given read package part, the parsing will fail indicating a Zip-Bomb" | Adopted, with a 1 MiB grace below which a part is not checked: a small part costs little however well it compresses, and a real style sheet can |
+| An XML parser needs guarding against entity expansion (convention) | **Not needed for `encoding/xml`.** `go doc encoding/xml Decoder`, Go 1.27.2: `Entity` "can be used to map non-standard entity names to string replacements", and in strict mode, the default, an unknown entity is a syntax error | No entity map is given, so a part cannot define the entity that expands into a billion copies of itself; a test holds that one is refused. Nesting is bounded at 256 by the walker, since the decoder does not bound it |
+| Number formats 14 to 22 and 45 to 47 are dates and times (convention) | **Confirmed** against ECMA-376 Part 1's list of built-in number formats (§18.8.30, `numFmt`), read through mirrors of the standard 2026-10-09, and Apache POI's `DateUtil.isInternalDateFormat`, which names the same set | A cell in one of those, or in a custom format whose first section is only date and time letters once quoted text and bracketed codes are gone, shows as ISO 8601. Every other number shows as stored |
+| Serial 60 in the 1900 date system is 29 February 1900 (convention) | **Confirmed** against ECMA-376 Part 1 §18.17.4.1 through mirrors, 2026-10-09: the 1900 base runs from serial 1 to 2 958 465 and gives the day that never was serial 60, for compatibility with Lotus 1-2-3; the 1904 base runs from 0 to 2 957 003. Microsoft's article on the two systems gives the 1 462 days between them | Serial 60, day zero and anything out of range show as the number they are rather than a wrong date; `date1904` of `1`, `true` or `on` switches the base |
+| Word stores a built-in style under its English name in every language (assumed) | **Unverified.** A localized Word can translate the style id; the parser trusts the style's name, `heading N` or `Title`, and its outline level, never the id | A heading in a file saved by a localized Word that does not keep the English name reads as body text. The live driver's files are built here, so a live run cannot settle it either |
+| Google's csv export of a Sheet pads every row to the widest (unstated) | **Unverified** | An Office workbook's rows end at their last value instead, which loses nothing and cannot turn formatting that runs to row 1 048 576 into a million blank lines |
+| Drive answers a byte range of a blob with that range (convention, §2) | **Confirmed** by the reference's partial-download section and in use since phase 1 for text windows. **Unverified** for many small ranges of one file in quick succession, which an Office read makes | A response that is not a 206 for a range past the start is refused as `[unexpected]` rather than parsed. The live driver reads three uploaded Office files back |

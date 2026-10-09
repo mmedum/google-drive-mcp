@@ -149,6 +149,11 @@ type Server struct {
 	// progress sends the same chunk for ever.
 	StallUploads bool
 
+	// IgnoreRange makes a media download answer a byte range with the
+	// whole file and a 200, as a proxy that strips the Range header
+	// does. Drive itself honors it.
+	IgnoreRange bool
+
 	// PendingDownloads is how many times a new download operation answers
 	// as unfinished before it completes. Zero finishes at once; a Vid in
 	// production is usually pending at least once.

@@ -102,6 +102,7 @@ func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o opti
 func (w *writeRun) exercise() {
 	ids := w.create()
 	w.readBack(ids)
+	w.officeFiles()
 	w.organize(ids)
 	w.underFolder()
 	w.downloads(ids)
