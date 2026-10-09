@@ -175,3 +175,20 @@ func TestEmptyQueryMatchesEverything(t *testing.T) {
 		t.Error("an empty query should match")
 	}
 }
+
+// The fake refuses an orderBy key the reference does not call valid,
+// rather than sorting as if it were not there.
+func TestUnknownOrderKey(t *testing.T) {
+	for orderBy, want := range map[string]string{
+		"":                                 "",
+		"folder,name_natural":              "",
+		"sharedWithMeTime desc":            "",
+		"modifiedTime desc,relevance":      "relevance",
+		"viewedByMeTime desc,sharedWithMe": "sharedWithMe",
+	} {
+		key, ok := unknownOrderKey(orderBy)
+		if key != want || ok != (want == "") {
+			t.Errorf("unknownOrderKey(%q) = %q, %t; want %q", orderBy, key, ok, want)
+		}
+	}
+}

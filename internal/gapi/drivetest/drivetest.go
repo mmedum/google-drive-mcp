@@ -274,6 +274,15 @@ func Owner(name, email string) FileOpt {
 	}
 }
 
+// SharedWithMe makes the file one another person shared with this
+// account, at ts and by the named person.
+func SharedWithMe(ts, name, email string) FileOpt {
+	return func(f *gdrive.File) {
+		f.SharedWithMeTime = ts
+		f.SharingUser = &gdrive.User{DisplayName: name, EmailAddress: email}
+	}
+}
+
 // Described sets the description.
 func Described(d string) FileOpt { return func(f *gdrive.File) { f.Description = d } }
 

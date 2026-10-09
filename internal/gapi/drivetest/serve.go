@@ -464,6 +464,10 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid Value: "+err.Error())
 		return
 	}
+	if key, ok := unknownOrderKey(q.Get("orderBy")); !ok {
+		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid Value: orderBy key "+key)
+		return
+	}
 	corpora := q.Get("corpora")
 	driveID := q.Get("driveId")
 	includeAll := q.Get("includeItemsFromAllDrives") == "true"
@@ -541,6 +545,30 @@ func (s *Server) pageWindow(w http.ResponseWriter, q url.Values, total, size, ma
 	return start, min(start+size, total), true
 }
 
+// orderKeys are the keys the files.list reference calls valid for
+// orderBy. The fake refuses any other rather than sorting as if it were
+// not there, so a misspelled key fails here and not in production.
+var orderKeys = map[string]bool{
+	"createdTime": true, "folder": true, "modifiedByMeTime": true, "modifiedTime": true, "name": true,
+	"name_natural": true, "quotaBytesUsed": true, "recency": true, "sharedWithMeTime": true, "starred": true,
+	"viewedByMeTime": true,
+}
+
+// unknownOrderKey returns the first orderBy key Drive does not document,
+// and false, or "" and true when every key is one it does.
+func unknownOrderKey(orderBy string) (string, bool) {
+	if strings.TrimSpace(orderBy) == "" {
+		return "", true
+	}
+	for _, key := range strings.Split(orderBy, ",") {
+		key = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(key), " desc"), " asc")
+		if !orderKeys[key] {
+			return key, false
+		}
+	}
+	return "", true
+}
+
 // sortFiles applies the orderBy keys Drive supports, so a listing's
 // order is deterministic here for the same reason it must be in
 // production: an unordered listing cannot be paged honestly.
@@ -563,6 +591,12 @@ func sortFiles(files []*gdrive.File, orderBy string) {
 				less, equal = a.ModifiedTime < b.ModifiedTime, a.ModifiedTime == b.ModifiedTime
 			case "createdTime":
 				less, equal = a.CreatedTime < b.CreatedTime, a.CreatedTime == b.CreatedTime
+			case "sharedWithMeTime":
+				less, equal = a.SharedWithMeTime < b.SharedWithMeTime, a.SharedWithMeTime == b.SharedWithMeTime
+			case "viewedByMeTime":
+				less, equal = a.ViewedByMeTime < b.ViewedByMeTime, a.ViewedByMeTime == b.ViewedByMeTime
+			case "modifiedByMeTime":
+				less, equal = a.ModifiedByMeTime < b.ModifiedByMeTime, a.ModifiedByMeTime == b.ModifiedByMeTime
 			case "starred":
 				less, equal = a.Starred && !b.Starred, a.Starred == b.Starred
 			case "quotaBytesUsed":

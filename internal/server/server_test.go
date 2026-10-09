@@ -302,7 +302,7 @@ func TestToolErrorsCarryAClass(t *testing.T) {
 	}{
 		{"get_file", map[string]any{"file": "1NoSuchFileIdFixtureAAAAAAAAAAAAAAA"}, "[not_found]"},
 		{"get_file", map[string]any{"file": "https://example.com/x"}, "[invalid]"},
-		{"search_files", map[string]any{}, "[invalid]"},
+		{"search_files", map[string]any{"order_by": "relevance"}, "[invalid]"},
 		{"list_folder", map[string]any{"folder": "id-notes-fixture"}, "[invalid]"},
 	}
 	for _, c := range cases {
@@ -422,9 +422,21 @@ func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	schemas := map[string]string{}
+	var orderBy string
 	for _, tool := range res.Tools {
 		raw, _ := json.Marshal(tool.InputSchema)
 		schemas[tool.Name] = string(raw)
+		if tool.Name == "search_files" {
+			var schema struct {
+				Properties map[string]struct {
+					Description string `json:"description"`
+				} `json:"properties"`
+			}
+			if err := json.Unmarshal(raw, &schema); err != nil {
+				t.Fatalf("search_files schema does not decode: %v", err)
+			}
+			orderBy = schema.Properties["order_by"].Description
+		}
 	}
 	for _, tool := range []string{"search_files", "list_folder"} {
 		for _, kind := range service.Kinds() {
@@ -433,9 +445,11 @@ func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
 			}
 		}
 	}
+	// Read from order_by's own description: "shared" is in the schema
+	// already, in scope's, so the whole schema would pass without it.
 	for _, order := range service.OrderBys() {
-		if !strings.Contains(schemas["search_files"], order) {
-			t.Errorf("search_files does not offer the order %q that the service accepts", order)
+		if !regexp.MustCompile(`\b` + order + `\b`).MatchString(orderBy) {
+			t.Errorf("order_by does not offer the order %q that the service accepts: %q", order, orderBy)
 		}
 	}
 	// The download formats are the same shape of promise: a list typed

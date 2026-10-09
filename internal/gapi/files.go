@@ -25,9 +25,11 @@ const FileFields = "id,name,mimeType,description,parents,starred,trashed,explici
 
 // ListFileFields is the leaner per-file list for search and folder
 // listings: a page of 100 files carries no capabilities or permissions,
-// because a listing shows kind, name, id, location and modification.
+// because a listing shows kind, name, id, location, modification and,
+// for a file someone shared with this account, when and by whom.
 const ListFileFields = "id,name,mimeType,parents,starred,trashed,createdTime,modifiedTime," +
 	"owners(displayName,emailAddress,me),lastModifyingUser(displayName,emailAddress,me),shared," +
+	"sharedWithMeTime,sharingUser(displayName,emailAddress)," +
 	"size,driveId,resourceKey,shortcutDetails,webViewLink"
 
 // MaxPageSize is Drive's hard limit for a listing page.

@@ -6,6 +6,12 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `search_files` takes `order_by: shared`, which puts the files most recently shared with you first. With no `scope` it searches only the files shared with you, and the title says so.
+- A file card, and a row in a search or a listing, says when a file was shared with you and by whom.
+- `search_files` with no filter at all returns everything you can see, in the order `order_by` names. It used to be refused.
+
 ### Changed
 
 - A delete asks once in Claude Code, not twice. In a client that can ask the person, `delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and `delete_comment` no longer carry the `requiresUserInteraction` mark; the server's own question, which shows what the delete destroys, is the confirmation. To see only that question, add the five tools to Claude Code's allow list. A Claude Code `Elicitation` hook that accepts now confirms these deletes alone, where the mark used to stop the call before it reached the server.
@@ -13,6 +19,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A search hit or listed file that someone shared with you, in a folder you cannot see, is placed under "Shared with me". It read as having no folder this account can see.
 - `list_folder` says when this account can see a folder but cannot list what is in it. Such a folder used to list as empty. A recursive walk marks such folders and names them at the end. A recursive `copy_file` refuses a folder holding one, before it copies anything, where it used to copy that folder empty.
 
 ### Security

@@ -208,8 +208,11 @@ func run(o options, t *transcript.Transcript) error {
 		{tool: "search_files", args: map[string]any{"kind": "folder", "limit": 5, "order_by": "modified"}},
 		{tool: "get_file", args: map[string]any{"file": "https://example.com/not-a-drive-link"},
 			expectError: true, why: "a link that is not Drive's"},
-		{tool: "search_files", args: map[string]any{},
-			expectError: true, why: "a search with no criteria"},
+		{tool: "search_files", args: map[string]any{"limit": 3}},
+		// The newest shares first, and who shared each one and when.
+		{tool: "search_files", args: map[string]any{"order_by": "shared", "limit": 5}},
+		{tool: "search_files", args: map[string]any{"order_by": "shared", "scope": "my_drive"},
+			expectError: true, why: "order_by shared with a scope other than shared_with_me"},
 		{tool: "get_file", args: map[string]any{"file": "1SyntheticFixtureFileIdAAAAAAAAAAAA"},
 			expectError: true, why: "an id that names nothing"},
 	}

@@ -104,6 +104,10 @@ type File struct {
 	ModifiedBy string
 	Owner      string
 	OwnedByMe  bool
+	// SharedWithMeAt and SharedBy are when and by whom someone shared
+	// the file with this account; both are empty for any other file.
+	SharedWithMeAt time.Time
+	SharedBy       string
 
 	Starred bool
 	Trashed bool
@@ -214,6 +218,8 @@ func New(f *gdrive.File, o Options) *File {
 	m.TrashedAt = parseTime(f.TrashedTime)
 	m.ModifiedBy = userWords(f.LastModifyingUser)
 	m.TrashedBy = userWords(f.TrashingUser)
+	m.SharedWithMeAt = parseTime(f.SharedWithMeTime)
+	m.SharedBy = userWords(f.SharingUser)
 	if len(f.Owners) > 0 {
 		m.Owner = userWords(f.Owners[0])
 	}

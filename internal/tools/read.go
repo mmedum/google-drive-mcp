@@ -37,7 +37,7 @@ type SearchInput struct {
 	ModifiedAfter  string `json:"modified_after,omitempty" jsonschema:"only items modified after this date, as 2026-03-04 or 2026-03-04T09:00:00Z"`
 	ModifiedBefore string `json:"modified_before,omitempty" jsonschema:"only items modified before this date"`
 	CreatedAfter   string `json:"created_after,omitempty" jsonschema:"only items created after this date"`
-	OrderBy        string `json:"order_by,omitempty" jsonschema:"modified (the default), created, name, recency, viewed or size"`
+	OrderBy        string `json:"order_by,omitempty" jsonschema:"modified (the default), created, name, recency, viewed, size, or shared for the files most recently shared with you first. shared with no scope searches only the files shared with you."`
 	Limit          int    `json:"limit,omitempty" jsonschema:"how many hits to return, default 25, maximum 200"`
 	PageToken      string `json:"page_token,omitempty" jsonschema:"the page_token from a previous result, to see the next page"`
 	Property       string `json:"property,omitempty" jsonschema:"match a custom file property, as \"key=value\". These are the pairs update_file sets: one app tags files this way for another to find. Both halves are required — Drive cannot search for a key whatever its value, whatever its documentation says."`
@@ -97,7 +97,8 @@ func registerRead(s *mcp.Server, d Deps) []string {
 			"kind, folder, owner, star or date. Each hit shows its kind, name, id, folder and last change. " +
 			"IMPORTANT: Drive does not do substring search. `name` matches the beginnings of words and `text` matches " +
 			"whole words, so \"udget\" will never find \"Budget\". Use list_folder when you know where something is: " +
-			"a search costs twenty times what a read does. `in_folder` reaches direct children only.",
+			"a search costs twenty times what a read does. `in_folder` reaches direct children only. " +
+			"With no filter at all it returns everything you can see, in the order order_by names.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, any, error) {
 		out, err := d.Service.Search(ctx, service.SearchInput{

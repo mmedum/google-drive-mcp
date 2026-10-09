@@ -486,7 +486,9 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
 ### 7.1 Read path
 
 - `get_file` returns a **file card**: name, kind, id, link, location
-  path, size, created and modified (by whom), owner, sharing summary
+  path, size, created and modified (by whom), owner, for a file shared
+  with this account when and by whom (`sharedWithMeTime`,
+  `sharingUser`), sharing summary
   ("shared with 3 people: 2 can edit, 1 can view; anyone with the link
   can view"), what the signed-in person can do (from `capabilities`, in
   words), starred, trashed (with who and when in shared drives),
@@ -506,9 +508,15 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   `scope` (`all`, `my_drive`, `shared_with_me`), `owner` (`me` or an
   email), `starred`, `trashed`, `modified_after`, `modified_before`,
   `created_after`, `order_by` (`modified`, `name`, `created`, `recency`,
-  `viewed`, `size`), `limit` (default 25, max 200), `page_token`, and
+  `viewed`, `size`, `shared`), `limit` (default 25, max 200), `page_token`, and
   `raw_query` for the rest of the syntax, ANDed in. Each hit shows kind,
-  name, id, location, modified time and who. Locations need the parents'
+  name, id, location, modified time and who, and for a file shared with
+  this account when and by whom. `shared` orders by `sharedWithMeTime
+  desc`; only a file shared with this account has that time, so with no
+  `scope` it implies `shared_with_me` and the title says so, and with
+  another scope it is refused. A search with no filter at all is allowed:
+  every live file this account can see, titled "everything you can see,
+  by <order>". Locations need the parents'
   names, which the listing does not carry: up to 20 distinct parents per
   page are looked up (cached), the rest show ids. `incomplete_search`
   from Google is passed on as a line the model can act on.
@@ -2297,3 +2305,4 @@ live run of it found.
 |---|---|---|
 | CI's checkout has no tags, so a schema diff against the last tag compares against nothing there | **Refuted for this repository.** The `smoke` job checks out with `fetch-depth: 0`, which `actions/checkout`'s `action.yml` at the pinned v7.0.1 SHA describes as "all history for all branches and tags". The tag was there, and the diff built it | The diff still moved to a committed baseline, for what the tag could not do: it compared top-level inputs only, so a lost output field or a field deep in an object passed; it rebuilt old source on every run; and a deliberate break could not pass before its own tag existed |
 | `capabilities.canListChildren` false means a listing of the folder is refused (unstated) | **Unverified.** The `files` reference, read 2026-10-09, says only "Whether the current user can list the children of this folder." Whether `'id' in parents` then answers with nothing, with the items shared with the account directly, or with an error is not documented | `list_folder` lists anyway and says the folder cannot be listed, so either answer reads correctly; a recursive copy refuses. The live driver's `-unlistable REF` step settles which answer Drive gives |
+| `sharedWithMeTime` orders the files shared with this account (convention) | **Confirmed** against the `files.list` reference, read 2026-10-09: `orderBy` lists `sharedWithMeTime`, "When the file was shared with the user, if applicable". The `files` reference says the same of the field and calls `sharingUser` "The user who shared the file with the requesting user, if applicable". Where a file without the time sorts is not documented | `order_by: shared` sends `sharedWithMeTime desc` only beside `sharedWithMe = true`, so every hit has the time. Both fields are in the list mask, so a row says who shared a file and when, and a shared file whose folder is out of reach reads as "Shared with me" in a search, not as having no folder |

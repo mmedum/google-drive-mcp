@@ -97,7 +97,17 @@ var orderByKeys = map[string]string{
 	"recency":  "recency desc",
 	"viewed":   "viewedByMeTime desc",
 	"size":     "quotaBytesUsed desc",
+	// Only a file shared with this account has the time, so this order
+	// limits a search to those files.
+	OrderShared: "sharedWithMeTime desc",
 }
+
+// OrderShared is the order that puts the files most recently shared
+// with this account first.
+const OrderShared = "shared"
+
+// defaultOrder is the order a search takes when none is named.
+const defaultOrder = "modified"
 
 // OrderBys lists the accepted order names.
 func OrderBys() []string {
@@ -112,7 +122,15 @@ const (
 
 // Search runs a typed search and renders one page of hits.
 func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
-	query, describe, err := s.buildQuery(ctx, &in)
+	orderName := strings.ToLower(strings.TrimSpace(in.OrderBy))
+	if orderName == "" {
+		orderName = defaultOrder
+	}
+	order, ok := orderByKeys[orderName]
+	if !ok {
+		return "", Errorf(ClassInvalid, "order_by %q is not one of %s", in.OrderBy, strings.Join(OrderBys(), ", "))
+	}
+	query, describe, err := s.buildQuery(ctx, &in, orderName)
 	if err != nil {
 		return "", err
 	}
@@ -122,13 +140,6 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 		limit = DefaultSearchLimit
 	case limit > MaxSearchLimit:
 		limit = MaxSearchLimit
-	}
-	order, ok := orderByKeys[strings.ToLower(strings.TrimSpace(in.OrderBy))]
-	if !ok {
-		if in.OrderBy != "" {
-			return "", Errorf(ClassInvalid, "order_by %q is not one of %s", in.OrderBy, strings.Join(OrderBys(), ", "))
-		}
-		order = orderByKeys["modified"]
 	}
 
 	lq := gapi.ListQuery{Q: query, PageSize: limit, PageToken: in.PageToken, OrderBy: order}
@@ -162,8 +173,9 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 
 // buildQuery turns the typed fields into a Drive query and a description
 // of what was actually asked, so an empty result can be read against the
-// question rather than guessed at.
-func (s *Service) buildQuery(ctx context.Context, in *SearchInput) (query, describe string, err error) {
+// question rather than guessed at. orderName is the order the search
+// uses, which the description names when nothing else narrows it.
+func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName string) (query, describe string, err error) {
 	var clauses, described []string
 
 	if name := strings.TrimSpace(in.Name); name != "" {
@@ -213,13 +225,15 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput) (query, descr
 	} else {
 		clauses = append(clauses, "trashed = false")
 	}
-	switch scope := strings.ToLower(strings.TrimSpace(in.Scope)); scope {
-	case "", ScopeAll, ScopeMyDrive:
-	case ScopeSharedWithMe:
-		clauses = append(clauses, "sharedWithMe = true")
-		described = append(described, "shared with me")
-	default:
-		return "", "", Errorf(ClassInvalid, "scope %q is not one of %s, %s, %s", in.Scope, ScopeAll, ScopeMyDrive, ScopeSharedWithMe)
+	scopeQuery, scopeWords, err := scopeClause(in.Scope, orderName)
+	if err != nil {
+		return "", "", err
+	}
+	if scopeQuery != "" {
+		clauses = append(clauses, scopeQuery)
+	}
+	if scopeWords != "" {
+		described = append(described, scopeWords)
 	}
 	for _, t := range []struct {
 		value, field, op, words string
@@ -255,11 +269,38 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput) (query, descr
 	}
 
 	if len(described) == 0 {
-		return "", "", Errorf(ClassInvalid, "a search needs at least one of name, text, kind, mime_type, in_folder, "+
-			"owner, starred, trashed, modified_after, modified_before, created_after, property or raw_query. "+
-			"list_folder lists a folder without a search.")
+		// Nothing narrows it, so it is every live file this account can
+		// see, and the order is all that decides which come first.
+		described = append(described, "everything you can see, by "+orderName)
 	}
 	return strings.Join(clauses, " and "), "search: " + strings.Join(described, ", "), nil
+}
+
+// scopeClause is the query clause a scope adds and the words that
+// describe it. order_by shared means something only for the files shared
+// with this account, so with no scope it implies that one and says so.
+func scopeClause(scope, orderName string) (clause, words string, err error) {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	sharedWords := "shared with me"
+	if orderName == OrderShared {
+		switch scope {
+		case "":
+			scope, sharedWords = ScopeSharedWithMe, "shared with me (order_by shared implies it)"
+		case ScopeSharedWithMe:
+		default:
+			return "", "", Errorf(ClassInvalid, "order_by shared orders the files shared with you by when they were "+
+				"shared, so it takes scope shared_with_me or no scope, not %q", scope)
+		}
+	}
+	switch scope {
+	case "", ScopeAll:
+		return "", "", nil
+	case ScopeMyDrive:
+		return "", "scope my_drive", nil
+	case ScopeSharedWithMe:
+		return "sharedWithMe = true", sharedWords, nil
+	}
+	return "", "", Errorf(ClassInvalid, "scope %q is not one of %s, %s, %s", scope, ScopeAll, ScopeMyDrive, ScopeSharedWithMe)
 }
 
 // parseSearchDate accepts an RFC 3339 timestamp or a plain date and

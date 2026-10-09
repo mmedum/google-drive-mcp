@@ -162,6 +162,7 @@ func FileCard(f *model.File, o FileCardOptions) string {
 	}
 	b.field("modified", modified)
 	b.field("owner", f.Owner)
+	b.field("shared with you", sharedWithYou(f, o.Now))
 	b.field("sharing", f.Sharing.Summary())
 	b.field("you can", joinOr(f.Can, ""))
 	cardState(&b, f, o.Now)
@@ -190,4 +191,17 @@ func FileCard(f *model.File, o FileCardOptions) string {
 		b.line("note: " + o.Note)
 	}
 	return b.String()
+}
+
+// sharedWithYou says when and by whom someone shared a file with this
+// account, or nothing for a file nobody shared with it.
+func sharedWithYou(f *model.File, now time.Time) string {
+	var parts []string
+	if !f.SharedWithMeAt.IsZero() {
+		parts = append(parts, model.HumanTime(f.SharedWithMeAt, now))
+	}
+	if f.SharedBy != "" {
+		parts = append(parts, "by "+f.SharedBy)
+	}
+	return strings.Join(parts, " ")
 }

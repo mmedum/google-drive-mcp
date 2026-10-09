@@ -682,14 +682,84 @@ func TestSearchExcludesTrashByDefault(t *testing.T) {
 	}
 }
 
-func TestSearchNeedsAtLeastOneField(t *testing.T) {
+// A search with nothing to narrow it is every live file this account
+// can see, in the order asked for, and its title says so.
+func TestASearchWithNoFilterIsEverythingYouCanSee(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
-	_, err := svc.Search(context.Background(), service.SearchInput{})
-	if err == nil || !strings.HasPrefix(err.Error(), "[invalid]") {
-		t.Fatalf("err = %v, want invalid", err)
+	out, err := svc.Search(t.Context(), service.SearchInput{OrderBy: "name"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
 	}
-	if !strings.Contains(err.Error(), "list_folder") {
-		t.Errorf("the error should point at the alternative: %v", err)
+	if !strings.HasPrefix(out, "search: everything you can see, by name — ") {
+		t.Errorf("the title does not say what was searched:\n%s", out)
+	}
+	for _, want := range []string{"Budget.xlsx", "Meeting notes", "Q3 plan"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%s is missing:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Old plan") {
+		t.Errorf("a trashed file is in a search that did not ask for the trash:\n%s", out)
+	}
+	if out, _ := svc.Search(t.Context(), service.SearchInput{}); !strings.HasPrefix(out, "search: everything you can see, by modified — ") {
+		t.Errorf("the default order is not named:\n%s", out)
+	}
+}
+
+// order_by shared puts the files most recently shared with this account
+// first, and with no scope it is a search of those files alone.
+func TestOrderBySharedImpliesSharedWithMe(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-first-share-fixture", "Older share", gdrive.MimeDocument, "",
+		drivetest.Owner("Jane Doe", "jane@example.com"), drivetest.SharedWithMe("2026-02-01T09:00:00Z", "Jane Doe", "jane@example.com"))
+	fake.AddFile("id-second-share-fixture", "Newer share", gdrive.MimeDocument, "",
+		drivetest.Owner("John Doe", "john@example.com"), drivetest.SharedWithMe("2026-03-01T09:00:00Z", "John Doe", "john@example.com"))
+	out, err := svc.Search(t.Context(), service.SearchInput{OrderBy: "shared"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	lines := strings.Split(out, "\n")
+	if lines[0] != "search: shared with me (order_by shared implies it) — 2 hits" {
+		t.Errorf("title = %q", lines[0])
+	}
+	if len(lines) < 3 || !strings.Contains(lines[1], "Newer share") || !strings.Contains(lines[2], "Older share") {
+		t.Fatalf("the newest share is not first:\n%s", out)
+	}
+	if !strings.HasSuffix(lines[1], "; shared with you 2026-03-01 09:00Z (5 days ago) by John Doe <john@example.com>") {
+		t.Errorf("the row does not say who shared it and when: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "Shared with me") {
+		t.Errorf("a file shared with this account is not placed under Shared with me: %q", lines[1])
+	}
+}
+
+func TestOrderBySharedRefusesAnotherScope(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	_, err := svc.Search(t.Context(), service.SearchInput{OrderBy: "shared", Scope: "my_drive"})
+	want := `[invalid] order_by shared orders the files shared with you by when they were shared, so it takes ` +
+		`scope shared_with_me or no scope, not "my_drive"`
+	if err == nil || err.Error() != want {
+		t.Errorf("err = %v\nwant %s", err, want)
+	}
+}
+
+func TestFileCardSaysWhoSharedItWithYou(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-theirs-fixture", "Their plan", gdrive.MimeDocument, "",
+		drivetest.Owner("Jane Doe", "jane@example.com"), drivetest.SharedWithMe("2026-03-01T09:00:00Z", "Jane Doe", "jane@example.com"))
+	out, err := svc.GetFile(t.Context(), service.GetFileInput{File: "id-theirs-fixture"})
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if !strings.Contains(out, "\nshared with you: 2026-03-01 09:00Z (5 days ago) by Jane Doe <jane@example.com>\n") {
+		t.Errorf("the card does not say who shared it and when:\n%s", out)
+	}
+	own, err := svc.GetFile(t.Context(), service.GetFileInput{File: "id-budget-fixture"})
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if strings.Contains(own, "shared with you") {
+		t.Errorf("a file nobody shared with this account says it was:\n%s", own)
 	}
 }
 
