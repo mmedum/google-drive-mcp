@@ -63,6 +63,7 @@ func main() {
 	labels := flag.Bool("labels", false, "exercise the label tools, which need GDRIVE_LABELS and the Drive Labels API enabled with its scopes granted at login")
 	activity := flag.Bool("activity", false, "exercise list_activity, which needs GDRIVE_ACTIVITY and the Drive Activity API enabled with its scope granted at login")
 	destructive := flag.Bool("destructive", false, "also exercise the five tools that remove something for good, in a shared drive this run creates and destroys again; needs an account that may create shared drives")
+	unlistable := flag.String("unlistable", "", "a folder this account can see but not list, such as the parent of a file shared with it alone; shows what Drive answers when such a folder is listed (§18); empty skips it")
 	blocked := flag.String("blocked", "", "an address the organization's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
 	flag.Parse()
 
@@ -73,7 +74,7 @@ func main() {
 	// never went through the redactor.
 	t := transcript.New(redact.NewRedactor(*raw))
 	if err := run(options{binary: *binary, file: *file, write: *write,
-		parent: *parent, drive: *drive, share: *share, blocked: *blocked,
+		parent: *parent, drive: *drive, share: *share, blocked: *blocked, unlistable: *unlistable,
 		labels: *labels, activity: *activity, destructive: *destructive}, t); err != nil {
 		t.Fail("livedrive: %v", err)
 		os.Exit(1)
@@ -123,6 +124,8 @@ type options struct {
 	// starts: the server does not register them without the variable
 	// below, and this driver does not set it without being asked.
 	destructive bool
+	// unlistable is a folder whose canListChildren is false.
+	unlistable string
 	// person answers the server's questions.
 	person *person
 }
@@ -217,6 +220,16 @@ func run(o options, t *transcript.Transcript) error {
 		)
 	}
 
+	if o.unlistable != "" {
+		// The card should not list "list items"; the listing shows
+		// whether Drive answers with nothing or with the items shared
+		// with this account directly, and must say it cannot list.
+		calls = append(calls,
+			call{tool: "get_file", args: map[string]any{"file": o.unlistable}},
+			call{tool: "list_folder", args: map[string]any{"folder": o.unlistable}},
+		)
+	}
+
 	unexpected := 0
 	for _, c := range calls { //nolint:dupl // the read loop and the write loop print differently on purpose
 		t.Sayf("\n=== %s %s ===", c.tool, mcpstdio.Encode(c.args))
@@ -243,6 +256,9 @@ func run(o options, t *transcript.Transcript) error {
 
 	if file == "" {
 		t.Say("\n(pass -file REF to also exercise get_file and a recursive listing)")
+	}
+	if o.unlistable == "" {
+		t.Say("(pass -unlistable REF to see what Drive answers for a folder this account cannot list)")
 	}
 	if o.write {
 		failures, err := runWrites(sess, t, dir, o)

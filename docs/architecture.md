@@ -518,7 +518,10 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   (default 3, max 10) and `max_items` (default 200, max 2 000) and
   renders a tree with per-folder counts; when a budget stops it, the
   output names the folders it did not enter. The description states the
-  cost.
+  cost. A folder whose `capabilities.canListChildren` is false is still
+  listed, and the page or tree says this account cannot list it, so an
+  empty answer is not read as an empty folder. A walk asks for that one
+  capability on every item it lists.
 - `read_file` returns text: a Google Doc as Google's markdown export
   (base64 images stripped), a Sheet as csv of the first sheet (the
   header says which sheet, that `format: tsv` and `download_file` exist,
@@ -597,7 +600,8 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   conversion, OCR for PDFs and images, `ocr_language`),
   `keep_revision_forever`. Uses a pre-generated id. Folders are refused
   in Phase 1 with the reason; Phase 3 adds `recursive: true` with an item
-  budget. `copy_comments`, off by default, asks Drive to bring the
+  budget, refused before any write when the source or a folder inside it
+  cannot be listed. `copy_comments`, off by default, asks Drive to bring the
   threads along; Drive's own formats carry them and uploaded bytes do
   not (§18).
 - `create_shortcut`: `target`, `parent`, `name` (default the target's).
@@ -2292,3 +2296,4 @@ live run of it found.
 | Convention | Verdict | Effect |
 |---|---|---|
 | CI's checkout has no tags, so a schema diff against the last tag compares against nothing there | **Refuted for this repository.** The `smoke` job checks out with `fetch-depth: 0`, which `actions/checkout`'s `action.yml` at the pinned v7.0.1 SHA describes as "all history for all branches and tags". The tag was there, and the diff built it | The diff still moved to a committed baseline, for what the tag could not do: it compared top-level inputs only, so a lost output field or a field deep in an object passed; it rebuilt old source on every run; and a deliberate break could not pass before its own tag existed |
+| `capabilities.canListChildren` false means a listing of the folder is refused (unstated) | **Unverified.** The `files` reference, read 2026-10-09, says only "Whether the current user can list the children of this folder." Whether `'id' in parents` then answers with nothing, with the items shared with the account directly, or with an error is not documented | `list_folder` lists anyway and says the folder cannot be listed, so either answer reads correctly; a recursive copy refuses. The live driver's `-unlistable REF` step settles which answer Drive gives |

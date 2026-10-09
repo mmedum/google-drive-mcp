@@ -32,7 +32,7 @@ const (
 // same listing per folder the copy needs anyway.
 func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput) (*Result, error) {
 	source := res.File
-	if source.Capabilities != nil && !source.Capabilities.CanListChildren {
+	if cannotList(source) {
 		return nil, Errorf(ClassForbidden, "this account cannot list what is inside %s, so it cannot copy it.",
 			source.Name)
 	}
@@ -154,6 +154,10 @@ func (s *Service) planCopy(ctx context.Context, root *gdrive.File, maxItems int)
 				root.Name, maxItems, MaxCopyItems)
 		}
 		for _, c := range children {
+			if c.IsFolder() && cannotList(c) {
+				return nil, Errorf(ClassForbidden, "this account cannot list what is inside %s, in %s, so it "+
+					"cannot copy %s whole; nothing has been copied.", c.Name, root.Name, root.Name)
+			}
 			plan.items = append(plan.items, c)
 			switch {
 			case c.IsFolder():

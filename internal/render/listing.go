@@ -127,6 +127,9 @@ type TreeNode struct {
 	// Truncated explains that the folder's own listing was cut short, so
 	// the children shown are fewer than it holds.
 	Truncated string
+	// CannotList marks a folder Drive says this account cannot list, so
+	// its children may not be all it holds.
+	CannotList bool
 }
 
 // TreeOptions tune a tree.
@@ -207,6 +210,9 @@ func treeLabel(n *TreeNode, root bool) string {
 	}
 	if n.Truncated != "" {
 		extras = append(extras, "listing cut short: "+n.Truncated)
+	}
+	if n.CannotList {
+		extras = append(extras, "this account cannot list it")
 	}
 	return fmt.Sprintf("%s  [%s]  (%s)", name, f.ID, strings.Join(extras, ", "))
 }

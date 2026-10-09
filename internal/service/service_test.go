@@ -495,6 +495,59 @@ func TestListFolderPaging(t *testing.T) {
 	}
 }
 
+// A folder this account can see but not list still answers a listing,
+// so an empty page must not read as an empty folder.
+func TestListFolderSaysWhenItCannotListAnEmptyPage(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-closed-fixture", "Closed", fake.RootID, drivetest.WithCapabilities(gdrive.Capabilities{}))
+	out, err := svc.ListFolder(t.Context(), service.ListFolderInput{Folder: "id-closed-fixture"})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	want := "My Drive/Closed — 0 items, folders first\n" +
+		"this account can see this folder but cannot list what is in it, so it may not be empty. " +
+		"Ask its owner for access.\n"
+	if out != want {
+		t.Errorf("got\n%s\nwant\n%s", out, want)
+	}
+}
+
+func TestListFolderSaysWhenItCannotListTheItemsShown(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-closed-fixture", "Closed", fake.RootID, drivetest.WithCapabilities(gdrive.Capabilities{}))
+	fake.AddFile("id-shown-fixture", "Shown", gdrive.MimeDocument, "id-closed-fixture")
+	out, err := svc.ListFolder(t.Context(), service.ListFolderInput{Folder: "id-closed-fixture"})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	if !strings.Contains(out, "Shown") ||
+		!strings.HasSuffix(out, "\nthis account cannot list this folder, so these may not be all of its items.\n") {
+		t.Errorf("the page does not say its items may not be all:\n%s", out)
+	}
+}
+
+// A walk reads the capability of every folder it enters, and names the
+// ones it could not list.
+func TestTreeNamesTheFoldersItCannotList(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-closed-fixture", "Closed", "id-projects-fixture", drivetest.WithCapabilities(gdrive.Capabilities{}))
+	out, err := svc.ListFolder(t.Context(), service.ListFolderInput{Folder: "/Projects", Recursive: true})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	for _, want := range []string{
+		"Closed/  [id-closed-fixture]  (0 items, this account cannot list it)",
+		"\nthis account cannot list 1 folder: Closed. They may hold more than is shown.\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the tree does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "2026/  [id-2026-fixture]  (2 items, this account cannot list it)") {
+		t.Errorf("a folder this account can list is marked:\n%s", out)
+	}
+}
+
 func TestListFolderTree(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 	out, err := svc.ListFolder(context.Background(), service.ListFolderInput{Folder: "/Projects", Recursive: true})

@@ -120,7 +120,8 @@ func registerRead(s *mcp.Server, d Deps) []string {
 			"recursive: true a tree of the folders below it. Prefer this over search_files when you know where to " +
 			"look. Items in the trash are left out unless you ask for them. A recursive walk is bounded by max_depth " +
 			"and max_items and names the folders it did not enter, so a tree that stops early says so rather than " +
-			"looking complete.",
+			"looking complete. A folder this account can see but cannot list is marked, since it may hold more " +
+			"than is shown.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in FolderInput) (*mcp.CallToolResult, any, error) {
 		out, err := d.Service.ListFolder(ctx, service.ListFolderInput{

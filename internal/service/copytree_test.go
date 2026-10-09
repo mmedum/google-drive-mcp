@@ -33,6 +33,27 @@ func childrenNamed(fake *drivetest.Server, parent string) []string {
 	return out
 }
 
+// A subfolder this account cannot list would copy as an empty folder,
+// and the copy would look whole, so the walk refuses it before writing.
+func TestRecursiveCopyRefusesASubfolderItCannotList(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	copyTree(fake)
+	fake.Files["id-source-sub-fixture"].Capabilities = &gdrive.Capabilities{}
+	before := len(fake.Files)
+
+	_, err := svc.CopyFile(t.Context(), service.CopyFileInput{
+		File: "id-source-folder-fixture", To: "id-destination-fixture", Recursive: true,
+	})
+	want := "[forbidden] this account cannot list what is inside Detail, in Source, so it cannot copy Source whole; " +
+		"nothing has been copied."
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v\nwant %s", err, want)
+	}
+	if len(fake.Files) != before {
+		t.Errorf("the refused copy wrote %d files", len(fake.Files)-before)
+	}
+}
+
 func TestRecursiveCopyRebuildsTheWholeTree(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	copyTree(fake)

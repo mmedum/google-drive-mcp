@@ -139,13 +139,31 @@ func (s *Service) page(ctx context.Context, folder *gdrive.File, loc model.Locat
 	for _, f := range list.Files {
 		files = append(files, model.New(f, model.Options{Location: childLoc, SharedDriveName: loc.Drive}))
 	}
+	empty, note := "this folder is empty.", ""
+	if cannotList(folder) {
+		// Drive answers the listing anyway, so an empty page here does
+		// not mean an empty folder.
+		empty = "this account can see this folder but cannot list what is in it, so it may not be empty. " +
+			"Ask its owner for access."
+		if len(files) > 0 {
+			note = "this account cannot list this folder, so these may not be all of its items."
+		}
+	}
 	return render.Listing(files, render.ListingOptions{
 		Title:            fmt.Sprintf("%s — %s, folders first", childLoc.String(), model.Plural(len(files), "item", "items")),
 		Now:              s.now(),
 		NextPageToken:    list.NextPageToken,
 		IncompleteSearch: list.IncompleteSearch,
-		Empty:            "this folder is empty.",
+		Empty:            empty,
+		Note:             note,
 	}), nil
+}
+
+// cannotList reports whether Drive says this account may not list what
+// is inside a folder. A capability that was not read is no answer, so
+// it is not a refusal.
+func cannotList(f *gdrive.File) bool {
+	return f.Capabilities != nil && !f.Capabilities.CanListChildren
 }
 
 // tree walks breadth-first under a depth and item budget, and names the
@@ -178,7 +196,7 @@ func (s *Service) tree(ctx context.Context, folder *gdrive.File, loc model.Locat
 	}
 	queue := []queued{{node: root, file: folder, level: 0}}
 	shown := 0
-	var skipped []string
+	var skipped, unlistable []string
 
 	for len(queue) > 0 {
 		cur := queue[0]
@@ -198,6 +216,10 @@ func (s *Service) tree(ctx context.Context, folder *gdrive.File, loc model.Locat
 			return "", err
 		}
 		cur.node.Items = len(children)
+		if cannotList(cur.file) {
+			cur.node.CannotList = true
+			unlistable = append(unlistable, cur.file.Name)
+		}
 		if more {
 			// The budget cut this folder's own listing, so the count above
 			// is what was shown, not what the folder holds.
@@ -221,11 +243,15 @@ func (s *Service) tree(ctx context.Context, folder *gdrive.File, loc model.Locat
 		}
 	}
 
-	note := ""
+	var notes []string
 	if len(skipped) > 0 {
-		note = fmt.Sprintf("this walk stopped short in %s: %s. "+
+		notes = append(notes, fmt.Sprintf("this walk stopped short in %s: %s. "+
 			"List one of them directly, or raise max_depth or max_items.",
-			model.Plural(len(skipped), "folder", "folders"), strings.Join(uniqueStrings(skipped), ", "))
+			model.Plural(len(skipped), "folder", "folders"), strings.Join(uniqueStrings(skipped), ", ")))
+	}
+	if len(unlistable) > 0 {
+		notes = append(notes, fmt.Sprintf("this account cannot list %s: %s. They may hold more than is shown.",
+			model.Plural(len(unlistable), "folder", "folders"), strings.Join(unlistable, ", ")))
 	}
 	return render.Tree(root, render.TreeOptions{
 		// The folder being listed, not the folder it sits in: a tree
@@ -233,9 +259,14 @@ func (s *Service) tree(ctx context.Context, folder *gdrive.File, loc model.Locat
 		// it shows.
 		Title: fmt.Sprintf("%s — tree, depth %d, %s shown",
 			s.folderLocation(ctx, folder, loc).String(), depth, model.Plural(shown, "item", "items")),
-		Note: note,
+		Note: strings.Join(notes, "\n"),
 	}), nil
 }
+
+// childFields is a listing's usual fields and, for each item, whether
+// this account can list what is inside it, which a walk reads before it
+// trusts a folder's contents. That is the only capability read here.
+const childFields = "nextPageToken,incompleteSearch,files(" + gapi.ListFileFields + ",capabilities(canListChildren))"
 
 // childrenOf pages through one folder, stopping at the remaining item
 // budget.
@@ -250,6 +281,7 @@ func (s *Service) childrenOf(ctx context.Context, folder *gdrive.File, kindClaus
 		list, err := s.api.ListFiles(ctx, gapi.ListQuery{
 			Q: childQuery(folder.ID, kindClause, includeTrashed), PageSize: size, PageToken: token,
 			OrderBy: "folder,name_natural", DriveID: folder.DriveID, ResourceIDs: []string{folder.ID},
+			Fields: childFields,
 		})
 		if err != nil {
 			return nil, false, wrap(err, "listing "+folder.Name)
