@@ -1039,7 +1039,45 @@ func (w *writeRun) moveExposure() {
 		w.problem("moving the file back out of the open folder asked the person, and that move only "+
 			"narrows who can reach it", errors.New("a question on a narrowing move"))
 	}
+	w.moveSeveral(open, file)
 	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
+}
+
+// moveSeveral moves two files into the open folder in one call, with the
+// folder itself listed as a third item, which is refused because nothing
+// moves into itself. The person is asked once for the two that widen;
+// moving them back out asks nothing.
+func (w *writeRun) moveSeveral(open, file string) {
+	other := w.createAndKeepID("create_file", map[string]any{
+		"name": "moves with the other one.txt", "parent": w.scratchID,
+		"content": "moved in the same call\n", "mime_type": "text/plain",
+	})
+	if other == "" {
+		w.out.Say("\n=== move of several: skipped, the second file was never created ===")
+		return
+	}
+	in := map[string]any{"files": []any{file, other, open}, "to": open}
+	dry := w.call(call{tool: "move_file", args: map[string]any{"files": in["files"], "to": open, "dry_run": true}})
+	if !strings.Contains(dry, "would move 2 of 3 items") {
+		w.problem("the dry run of a move of several does not say two of three would move",
+			errors.New("unexpected dry run"))
+	}
+	asked := w.person.asked
+	moved := w.call(call{tool: "move_file", args: in})
+	w.unpredicted(moved)
+	switch {
+	case w.person.asked != asked+1:
+		w.problem(fmt.Sprintf("a move of several asked the person %d times, not once", w.person.asked-asked),
+			errors.New("one question per call"))
+	case !strings.Contains(moved, "moved 2 of 3 items"):
+		w.problem("the move of several does not say two of three moved", errors.New("unexpected result"))
+	}
+	asked = w.person.asked
+	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"files": []any{file, other}, "to": w.scratchID}}))
+	if w.person.asked != asked {
+		w.problem("moving the two files back out asked the person, and that only narrows who can reach them",
+			errors.New("a question on a narrowing move"))
+	}
 }
 
 // unpredicted fails the step when a move's result says Drive answered

@@ -612,7 +612,8 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   `properties` (a map; an empty value deletes a key),
   `copy_requires_writer_permission`, `writers_can_share`. Patch semantics:
   only the fields passed change. Returns before and after per field.
-- `move_file`: `file`, `to` (a folder, `root`, or a shared drive). Checks
+- `move_file`: `file`, or `files` for up to 50 items, `to` (a folder,
+  `root`, or a shared drive). Checks
   the single-parent rule, refuses a My Drive folder bound for a shared
   drive with the API's reason and the alternative ("create the folder in
   the shared drive, then move the files"), supports `dry_run`. Returns
@@ -635,6 +636,18 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   an editor, since what Drive gives them is not documented. Children of
   a moved folder are not read one by one: the question says they are
   reached the same way.
+
+  With `files`, every item is read and checked before anything moves,
+  and each gets its own outcome in `items`: `moved`, `unchanged` when it
+  is already there, `refused` with the reason when a check stops it (a
+  reference that does not resolve, an item listed twice, one Drive
+  would refuse), or `failed` with Drive's answer. A dry run reports
+  `would_move`. The person is asked once, before anything moves, naming
+  every item that would reach more people; declining moves nothing.
+  Items move one call each, in order, and a failure does not undo the
+  moves before it or stop the ones after. A failed item is read back:
+  one Drive moved anyway is reported as moved, and one it did not says
+  where it is.
 - `copy_file`: `file`, `name` (default "Copy of …", as Drive does), `to`
   (default the source's folder, as Drive does), `convert_to` (import
   conversion, OCR for PDFs and images, `ocr_language`),
@@ -867,7 +880,7 @@ grants a permission.
 | `update_content` | Replace a blob's content; the old one stays a revision for about 30 days unless pinned | destructive | 1 |
 | `create_folder` | New folder; refuses a duplicate name unless allowed | — | 1 |
 | `update_file` | Rename, describe, star, color, properties, sharing switches | idempotent | 1 |
-| `move_file` | Move to a folder or shared drive; single parent; who can reach it before and after, asking when that widens; dry run | idempotent | 1 |
+| `move_file` | Move one item, or up to 50, to a folder or shared drive; single parent; who can reach each before and after, asking once when that widens; dry run | idempotent | 1 |
 | `copy_file` | Copy, optionally converting (OCR); `recursive` walks a folder, refusing a tree over budget rather than copying half of it | — | 1, 3 |
 | `create_shortcut` | Shortcut to a file or folder | — | 1 |
 | `trash_file`, `restore_file` | Reversible removal and its undo | idempotent | 1 |
@@ -896,6 +909,9 @@ grants a permission.
 There is deliberately no bulk delete and no bulk share: one item per
 call, so "remove these forty files" is forty approvals in the client. A
 folder is the unit for bulk operations, and trashing one is reversible.
+`move_file` is the exception, with up to 50 items in `files` (§18): a
+move can be moved back, and the part of it that cannot be taken back,
+who saw the item meanwhile, is put to the person for the whole batch.
 
 **Resources** (built in phase 3). `gdrive://{file}` is the text
 `read_file` gives (markdown for a Doc, csv for a Sheet, the file's own
@@ -2346,3 +2362,4 @@ live run of it found.
 | `permissionDetails` marks inherited grants on a My Drive item (unstated for My Drive) | **Unverified.** The `permissions` reference, read 2026-10-09, says `inherited` "is always populated" and `inheritedFrom` "is only populated for items in shared drives", which implies My Drive items carry details without a source. If they carry none, every grant reads as direct, the prediction keeps grants the move takes away, and the read-back says the two differ | The live driver moves a file into a link-shared folder and back out, and fails the step when the result says Drive answered other than predicted |
 | A move's new sharing is in place when `files.update` answers (unstated) | **Unverified** | The read-back is one permission list right after the move. A late answer shows as "that is not who this server worked out would reach it", which points at `list_permissions`; the live driver's two moves fail on it |
 | A moved folder with limited access keeps out the destination's grants (unstated for a move) | **Unverified.** The sharing guide, read 2026-10-09, says of an inherited grant: "Changes must be made on the originating parent, or the folder must use the limited access setting." It says nothing about a move | The server does not read `inheritedPermissionsDisabled`, so it counts the destination's grants on such a folder and may ask a question too many |
+| A bulk move needs one approval per item, as removal and sharing do (the "Bulk operations belong in the tool surface" row did not cover moves) | **Rejected for moves, decided 2026-10-09.** That row rejected bulk work because "one item per call keeps every removal and every share a visible approval". A move removes nothing and grants nothing by name: it is undone by moving the item back. What it can do that is not undone is let more people reach the item, and since 2026-10-09 that is put to the person before any item moves, once for the batch, naming every item that would reach further. Forty moves into a folder nobody else can reach is forty approvals of nothing | `move_file` takes `files`, at most 50, to one destination. Each item gets its own outcome, and a failure leaves the moves before it in place. Removal and sharing stay one item per call, and there is no bulk rename |

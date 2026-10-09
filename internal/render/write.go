@@ -1,6 +1,8 @@
 package render
 
 import (
+	"strings"
+
 	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
@@ -37,6 +39,80 @@ type WriteJSON struct {
 	SharingAfter  string `json:"sharing_after,omitempty" jsonschema:"who can see it after this call"`
 	// Drive is the shared drive a manage_drive call acted on.
 	Drive *DriveJSON `json:"drive,omitempty" jsonschema:"the shared drive as it is now"`
+	// Items are the items of a move_file call that moved several, each
+	// with its own outcome, so a call that moved some and not others
+	// says exactly which.
+	Items []MovedJSON `json:"items,omitempty" jsonschema:"for a move of several items: each one and what came of it, in the order passed"`
+}
+
+// What came of one item in a move of several.
+const (
+	MovedMoved     = "moved"
+	MovedWouldMove = "would_move"
+	MovedUnchanged = "unchanged"
+	MovedRefused   = "refused"
+	MovedFailed    = "failed"
+)
+
+// MovedJSON is one item of a move of several, and what came of it.
+type MovedJSON struct {
+	File    string `json:"file" jsonschema:"the item as it was passed"`
+	ID      string `json:"id,omitempty" jsonschema:"its id, when the reference resolved"`
+	Name    string `json:"name,omitempty"`
+	Outcome string `json:"outcome" jsonschema:"moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error"`
+	Reason  string `json:"reason,omitempty" jsonschema:"why it was refused or failed, or what else to know about it, such as who the move lets reach it"`
+	From    string `json:"from,omitempty" jsonschema:"where it was"`
+	To      string `json:"to,omitempty" jsonschema:"where it is after the move, or would be"`
+	// SharingBefore and SharingAfter are what WriteJSON's fields of the
+	// same names are for a single move.
+	SharingBefore string `json:"sharing_before,omitempty" jsonschema:"who could reach it before"`
+	SharingAfter  string `json:"sharing_after,omitempty" jsonschema:"who can reach it after, as Drive reports it; on a dry run, as worked out beforehand"`
+	Widens        bool   `json:"widens,omitempty" jsonschema:"true when the move lets more people reach it, gives them more access, or who it reaches could not be read"`
+}
+
+// MoveMany renders a move of several items: a line saying how many
+// moved, then each item with what came of it, so a call that moved some
+// and not others says exactly which.
+func MoveMany(to string, items []MovedJSON, dryRun bool, note string) string {
+	var b buf
+	done, word := 0, MovedMoved
+	if dryRun {
+		word = MovedWouldMove
+	}
+	for _, it := range items {
+		if it.Outcome == word {
+			done++
+		}
+	}
+	if dryRun {
+		b.linef("would move %d of %s into %s", done, model.Plural(len(items), "item", "items"), to)
+		b.line("NOTHING WAS CHANGED: this was a dry run. Call it again without dry_run to do it.")
+	} else {
+		b.linef("moved %d of %s into %s", done, model.Plural(len(items), "item", "items"), to)
+	}
+	for _, it := range items {
+		name := it.Name
+		if name == "" {
+			name = it.File
+		}
+		if it.ID != "" {
+			name += " (" + it.ID + ")"
+		}
+		b.linef("%s: %s", strings.ReplaceAll(it.Outcome, "_", " "), name)
+		if it.From != "" && (it.Outcome == MovedMoved || it.Outcome == MovedWouldMove) {
+			b.linef("  from: %s", it.From)
+		}
+		if it.SharingBefore != it.SharingAfter && it.SharingAfter != "" {
+			b.linef("  who can see it: %s → %s", it.SharingBefore, it.SharingAfter)
+		}
+		if it.Reason != "" {
+			b.line("  " + strings.ReplaceAll(it.Reason, "\n", "\n    "))
+		}
+	}
+	if note != "" {
+		b.line("note: " + note)
+	}
+	return b.String()
 }
 
 // DriveJSON is a shared drive in structured form.

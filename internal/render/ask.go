@@ -231,20 +231,38 @@ type MoveItem struct {
 	Unread string
 }
 
-// AskMove asks before move_file puts an item where more people can
-// reach it. The answer is bound to the item and the destination.
-func AskMove(to MoveTarget, it MoveItem) Question {
+// AskMove asks before move_file puts items where more people can reach
+// them: once for the whole call, naming every item that would reach
+// further. moving is every item the call moves, in order, which the
+// answer is bound to with the destination, so an item added to the call
+// asks again.
+func AskMove(to MoveTarget, moving []string, widening []MoveItem) Question {
+	if len(moving) == 1 && len(widening) == 1 {
+		it := widening[0]
+		lines := []string{
+			fmt.Sprintf("move_file: move the %s %s into %s?", it.Kind, quoted(it.Name, quotedLen), moveWhere(to)),
+			"It would reach more people there, or give them more access: " + moveReach(it),
+		}
+		if it.Unread != "" {
+			lines[1] = "Who can reach " + it.Unread + " could not be read, so whether more people would reach it there is unknown."
+		}
+		if it.Kind == "folder" {
+			lines = append(lines, "Everything inside it moves too, and is reached the same way.")
+		}
+		return ask(lines, to.ID, it.ID)
+	}
 	lines := []string{
-		fmt.Sprintf("move_file: move the %s %s into %s?", it.Kind, quoted(it.Name, quotedLen), moveWhere(to)),
-		"It would reach more people there, or give them more access: " + moveReach(it),
+		fmt.Sprintf("move_file: move %s into %s?", model.Plural(len(moving), "item", "items"), moveWhere(to)),
+		fmt.Sprintf("%d of them would reach more people there, or give them more access:", len(widening)),
 	}
-	if it.Unread != "" {
-		lines[1] = "Who can reach " + it.Unread + " could not be read, so whether more people would reach it there is unknown."
+	for _, it := range widening {
+		what := fmt.Sprintf("the %s %s", it.Kind, quoted(it.Name, quotedLen))
+		if it.Kind == "folder" {
+			what += ", with everything inside it"
+		}
+		lines = append(lines, what+": "+moveReach(it))
 	}
-	if it.Kind == "folder" {
-		lines = append(lines, "Everything inside it moves too, and is reached the same way.")
-	}
-	return ask(lines, to.ID, it.ID)
+	return ask(lines, append([]string{to.ID}, moving...)...)
 }
 
 // moveWhere names a move's destination in a question.

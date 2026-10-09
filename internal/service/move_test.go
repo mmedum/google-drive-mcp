@@ -303,3 +303,182 @@ func TestMoveFileSaysWhenDriveAnswersOtherThanPredicted(t *testing.T) {
 		t.Errorf("note = %q, want it to start %q", got.JSON.Note, want)
 	}
 }
+
+// outcomes is each item's outcome in a move of several, in order.
+func outcomes(r *service.Result) string {
+	var out []string
+	for _, it := range r.JSON.Items {
+		out = append(out, it.Outcome)
+	}
+	return strings.Join(out, " ")
+}
+
+func TestMoveSeveralGivesEachItemItsOwnOutcome(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-ledger-fixture", "Ledger", "text/csv", "id-archive-fixture")
+
+	got, err := svc.MoveFile(yes(t), service.MoveFileInput{To: "id-archive-fixture", Files: []string{
+		"id-budget-fixture", "id-notes-fixture", "id-archive-fixture", "id-budget-fixture",
+		"id-ledger-fixture", "id-nope",
+	}})
+	if err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	if got := outcomes(got); got != "moved moved refused refused unchanged refused" {
+		t.Errorf("outcomes = %q", got)
+	}
+	for i, want := range []string{"", "", "Archive cannot be moved into itself", "listed more than once",
+		"already in Archive", "[not_found]"} {
+		if !strings.Contains(got.JSON.Items[i].Reason, want) {
+			t.Errorf("item %d: reason %q does not say %q", i, got.JSON.Items[i].Reason, want)
+		}
+	}
+	for _, id := range []string{"id-budget-fixture", "id-notes-fixture"} {
+		if fake.Files[id].Parent() != "id-archive-fixture" {
+			t.Errorf("%s was not moved", id)
+		}
+	}
+	if !strings.HasPrefix(got.Text, "moved 2 of 6 items into My Drive/Projects/Archive\n") || got.JSON.Action != "moved" {
+		t.Errorf("the result does not lead with how many moved:\n%s", got.Text)
+	}
+}
+
+func TestMoveSeveralAsksOnceNamingTheItemsThatWiden(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	linkShared(fake)
+	// The notes already open to anyone with the link, so the folder adds
+	// nobody to them.
+	fake.Grant("id-notes-fixture", &gdrive.Permission{Type: "anyone", Role: "reader"})
+	in := service.MoveFileInput{To: "id-archive-fixture", Files: []string{"id-budget-fixture", "id-notes-fixture"}}
+
+	no := declines()
+	if _, err := svc.MoveFile(service.WithAsker(t.Context(), no), in); err == nil {
+		t.Fatal("a move the person declined went ahead")
+	}
+	if len(no.asked) != 1 {
+		t.Fatalf("asked %d questions, want 1 for the whole call", len(no.asked))
+	}
+	want := "move_file: move 2 items into the folder `Archive`?\n\n1 of them would reach more people there, " +
+		"or give them more access:\n\nthe file `Budget.xlsx`: anyone with the link can view\n"
+	if !strings.HasPrefix(no.asked[0].Text, want) {
+		t.Errorf("question = %q, want it to start %q", no.asked[0].Text, want)
+	}
+	if fake.Count(http.MethodPatch) != 0 {
+		t.Fatal("something moved before the person answered")
+	}
+
+	ok := &person{}
+	got, err := svc.MoveFile(service.WithAsker(t.Context(), ok), in)
+	if err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	if len(ok.asked) != 1 {
+		t.Errorf("asked %d questions on the accepted call, want 1", len(ok.asked))
+	}
+	if got := outcomes(got); got != "moved moved" {
+		t.Errorf("outcomes = %q", got)
+	}
+	if !got.JSON.Items[0].Widens || got.JSON.Items[1].Widens {
+		t.Errorf("widens = %v, %v; want only the first", got.JSON.Items[0].Widens, got.JSON.Items[1].Widens)
+	}
+}
+
+func TestMoveSeveralKeepsWhatMovedWhenOneFails(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/files/id-budget-fixture") {
+			return &drivetest.Failure{Status: http.StatusForbidden, Reason: "insufficientFilePermissions", Message: "no"}
+		}
+		return nil
+	}
+
+	got, err := svc.MoveFile(yes(t), service.MoveFileInput{To: "id-archive-fixture",
+		Files: []string{"id-budget-fixture", "id-notes-fixture"}})
+	if err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	if got := outcomes(got); got != "failed moved" {
+		t.Errorf("outcomes = %q", got)
+	}
+	if fake.Files["id-notes-fixture"].Parent() != "id-archive-fixture" {
+		t.Error("a failure stopped the moves after it")
+	}
+	if reason := got.JSON.Items[0].Reason; !strings.HasPrefix(reason, "[forbidden]") ||
+		!strings.HasSuffix(reason, "It is in My Drive/Projects/2026.") {
+		t.Errorf("the failure does not give Drive's answer and where the item is: %q", reason)
+	}
+	if got.JSON.Items[0].To != "" || got.JSON.Items[0].SharingAfter != "" {
+		t.Errorf("a failed item claims where it went: %+v", got.JSON.Items[0])
+	}
+	if got.JSON.Note != "each item moved or failed on its own: the ones that moved stay moved." {
+		t.Errorf("note = %q", got.JSON.Note)
+	}
+}
+
+func TestMoveSeveralReportsAnItemThatMovedDespiteAnError(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/files/id-budget-fixture") {
+			// Drive made the move and lost the answer.
+			fake.AddFile("id-budget-fixture", "Budget.xlsx", "text/csv", "id-archive-fixture")
+			return &drivetest.Failure{Status: http.StatusForbidden, Reason: "insufficientFilePermissions", Message: "no"}
+		}
+		return nil
+	}
+
+	got, err := svc.MoveFile(yes(t), service.MoveFileInput{To: "id-archive-fixture", Files: []string{"id-budget-fixture"}})
+	if err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	if outcomes(got) != "moved" || !strings.HasPrefix(got.JSON.Items[0].Reason,
+		"Drive answered with an error, and it is in the destination all the same. The error: [forbidden]") {
+		t.Errorf("item = %+v", got.JSON.Items[0])
+	}
+}
+
+func TestMoveSeveralDryRunListsEachOutcomeAndMovesNothing(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	linkShared(fake)
+	p := &person{}
+
+	got, err := svc.MoveFile(service.WithAsker(t.Context(), p), service.MoveFileInput{To: "id-archive-fixture",
+		Files: []string{"id-budget-fixture", "id-archive-fixture"}, DryRun: true})
+	if err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	if got := outcomes(got); got != "would_move refused" {
+		t.Errorf("outcomes = %q", got)
+	}
+	first := got.JSON.Items[0]
+	if !first.Widens || first.SharingBefore != "private to you" || first.SharingAfter != "anyone with the link can view" ||
+		first.From != "My Drive/Projects/2026" || first.To != "My Drive/Projects/Archive" {
+		t.Errorf("first item = %+v", first)
+	}
+	if !got.JSON.DryRun || !strings.HasPrefix(got.Text, "would move 1 of 2 items into My Drive/Projects/Archive\n") {
+		t.Errorf("the dry run does not say what it would do:\n%s", got.Text)
+	}
+	if len(p.asked) != 0 || fake.Count(http.MethodPatch) != 0 {
+		t.Error("a dry run asked or moved")
+	}
+}
+
+func TestMoveSeveralRefusesAMalformedList(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	many := make([]string, service.MaxMoveFiles+1)
+	for i := range many {
+		many[i] = "id-budget-fixture"
+	}
+	for _, tc := range []struct {
+		in   service.MoveFileInput
+		want string
+	}{
+		{service.MoveFileInput{To: "root", Files: many}, "files holds 51 items, and one call moves at most 50"},
+		{service.MoveFileInput{To: "root", File: "id-budget-fixture", Files: []string{"id-notes-fixture"}}, "not both"},
+		{service.MoveFileInput{To: "root", Files: []string{"id-notes-fixture", " "}}, "files[1] is empty"},
+		{service.MoveFileInput{To: "root"}, "file is required"},
+	} {
+		if _, err := svc.MoveFile(t.Context(), tc.in); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("err = %v, want %q", err, tc.want)
+		}
+	}
+}

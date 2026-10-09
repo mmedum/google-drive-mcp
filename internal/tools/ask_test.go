@@ -278,6 +278,20 @@ func TestEveryToolThatTakesConfirmAsks(t *testing.T) {
 	}
 }
 
+// A move of several asks once for the whole call, on every protocol, and
+// moves each item once it is accepted.
+func TestAMoveOfSeveralAsksOnce(t *testing.T) {
+	for _, protocol := range protocols {
+		p := &person{action: "accept"}
+		cs, fake := connect(t, everything(), protocol, p)
+		res := callTool(t, cs, &mcp.CallToolParams{Name: "move_file", Arguments: map[string]any{
+			"files": []any{"id-budget-fixture", "id-notes-fixture"}, "to": "id-archive-fixture"}})
+		if res.IsError || len(p.asked()) != 1 || fake.Count(http.MethodPatch) != 2 {
+			t.Errorf("%s: asked %d times, %d writes: %s", protocol, len(p.asked()), fake.Count(http.MethodPatch), text(res))
+		}
+	}
+}
+
 // A client that cannot ask gets no question, and the arguments are the
 // guard; GDRIVE_REQUIRE_PROMPT refuses the write instead.
 func TestAClientThatCannotAsk(t *testing.T) {

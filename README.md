@@ -227,7 +227,7 @@ supports elicitation. Anything but Accept stops the write.
 | `update_content` | Replace what is inside a file, keeping its id, its place and everything that points at it |
 | `create_folder` | A new folder, refusing a duplicate name unless you allow it |
 | `update_file` | Rename, describe, star, color, set properties, or turn off copying and re-sharing |
-| `move_file` | Move an item to another folder or shared drive, with who can reach it before and after, and a dry run |
+| `move_file` | Move an item, or up to 50, to another folder or shared drive, with who can reach each before and after, and a dry run |
 | `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder |
 | `create_shortcut` | A pointer to one item from another folder |
 | `trash_file` | Move an item to the trash, which is reversible |

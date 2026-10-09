@@ -8,6 +8,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `move_file` takes `files`, up to 50 items, moved to one destination. Each item gets its own outcome in `items`: moved, unchanged, refused with the reason, or failed with Drive's answer, and a failure does not undo the moves before it. `dry_run` lists what would happen to each. The person is asked once for the whole call, naming every item that would reach more people.
 - `search_files` takes `order_by: shared`, which puts the files most recently shared with you first. With no `scope` it searches only the files shared with you, and the title says so.
 - A file card, and a row in a search or a listing, says when a file was shared with you and by whom.
 - `search_files` takes `visibility`: `anyone` (anyone on the internet, by link or by search), `link` (anyone with the link), `domain` (everyone in the organization) or `limited` (only the people and groups it is shared with).

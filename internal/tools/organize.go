@@ -71,11 +71,12 @@ type UpdateFileMetaInput struct {
 	Viewed                       bool              `json:"viewed,omitempty" jsonschema:"mark the file as opened by you just now, which is what puts it at the top of Drive's Recent view. Only true does anything: Drive stores a timestamp and offers no way to say a file was never opened."`
 }
 
-// MoveFileInput moves one item somewhere else.
+// MoveFileInput moves one item, or several, somewhere else.
 type MoveFileInput struct {
-	File   string `json:"file" jsonschema:"the item to move: an id, a Drive URL, a path from My Drive, or a shared-drive path. A shortcut is moved itself, not what it points at."`
-	To     string `json:"to" jsonschema:"where it goes: a folder id, a Drive URL, the word root for My Drive, a path from My Drive like /Projects/2026, or a shared drive as drive:Marketing"`
-	DryRun bool   `json:"dry_run,omitempty" jsonschema:"report what would happen and change nothing"`
+	File   string   `json:"file,omitempty" jsonschema:"the item to move: an id, a Drive URL, a path from My Drive, or a shared-drive path. A shortcut is moved itself, not what it points at. Pass this or files."`
+	Files  []string `json:"files,omitempty" jsonschema:"several items to move to the one destination, at most 50, each as file takes it. Pass this or file, not both. Each item gets its own outcome: moved, unchanged, refused with the reason, or failed with Drive's error. A failure does not undo the moves before it."`
+	To     string   `json:"to" jsonschema:"where it goes: a folder id, a Drive URL, the word root for My Drive, a path from My Drive like /Projects/2026, or a shared drive as drive:Marketing"`
+	DryRun bool     `json:"dry_run,omitempty" jsonschema:"report what would happen to each item, who could reach it before and after included, and change nothing"`
 }
 
 // CopyFileInput describes a copy.
@@ -190,18 +191,21 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "move_file",
-		Description: "Move one item into another folder or into a shared drive. A file in Drive has exactly one " +
-			"parent, so this takes it out of where it was. A move also changes who can reach it: it keeps the " +
-			"access granted on it directly, loses what it had through the old folder, and gains everyone who " +
-			"can reach the new folder or shared drive. The result shows who could reach it before and who can " +
-			"after. A folder in My Drive cannot move into a shared drive at all: make one there with " +
-			"create_folder and move the files into it. dry_run reports the old and new locations and who would " +
-			"reach it, and changes nothing. A move that lets more people reach it, or gives them more access, " +
-			"is also put to the person when the client can ask; a call they do not confirm is [blocked], and is " +
-			"not made again unless they ask.",
+		Description: "Move an item into another folder or into a shared drive, or up to 50 items with files. A " +
+			"file in Drive has exactly one parent, so this takes it out of where it was. A move also changes who " +
+			"can reach it: it keeps the access granted on it directly, loses what it had through the old " +
+			"folder, and gains everyone who can reach the new folder or shared drive. The result shows who " +
+			"could reach it before and who can after. A folder in My Drive cannot move into a shared drive at " +
+			"all: make one there with create_folder and move the files into it. dry_run reports the old and new " +
+			"locations and who would reach each item, and changes nothing. A move that lets more people reach " +
+			"an item, or gives them more access, is also put to the person when the client can ask, once for " +
+			"the whole call; a call they do not confirm is [blocked], nothing in it moves, and it is not made " +
+			"again unless they ask.",
 		Annotations: idempotentWrite,
 	}, asked(d, "move_file", func(ctx context.Context, in MoveFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.MoveFile(ctx, service.MoveFileInput{File: in.File, To: in.To, DryRun: in.DryRun}))
+		return result(d.Service.MoveFile(ctx, service.MoveFileInput{
+			File: in.File, Files: in.Files, To: in.To, DryRun: in.DryRun,
+		}))
 	}))
 
 	mcp.AddTool(s, &mcp.Tool{

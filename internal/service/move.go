@@ -11,11 +11,20 @@ import (
 	"github.com/mmedum/google-drive-mcp/v2/internal/render"
 )
 
-// MoveFileInput moves one item to another folder or shared drive.
+// MaxMoveFiles is how many items one move_file call takes. Every one is
+// read before anything moves, and a question naming the ones that
+// widen access has to stay readable.
+const MaxMoveFiles = 50
+
+// MoveFileInput moves one item, or several, to another folder or shared
+// drive.
 type MoveFileInput struct {
 	File string
-	To   string
-	// DryRun reports what would happen, who could reach the item before
+	// Files moves several items to the one destination: at most
+	// MaxMoveFiles, and not together with File.
+	Files []string
+	To    string
+	// DryRun reports what would happen, who could reach each item before
 	// and after included, and changes nothing.
 	DryRun bool
 }
@@ -36,6 +45,14 @@ func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, erro
 	}
 	if strings.TrimSpace(in.To) == "" {
 		return nil, Errorf(ClassInvalid, "to is required: name the folder, root, or a shared drive to move into")
+	}
+	switch {
+	case len(in.Files) > 0 && strings.TrimSpace(in.File) != "":
+		return nil, Errorf(ClassInvalid, "pass file for one item or files for several, not both")
+	case len(in.Files) > 0:
+		return s.moveMany(ctx, in)
+	case strings.TrimSpace(in.File) == "":
+		return nil, Errorf(ClassInvalid, "file is required: name the item to move, or pass files for several")
 	}
 	// A shortcut is the thing sitting in the folder, so a move acts on
 	// it rather than on what it points at.
@@ -60,7 +77,8 @@ func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, erro
 		return s.moveResult(ctx, res, p, p.after, true), nil
 	}
 	if p.widens() {
-		if err := ask(ctx, render.AskMove(s.moveTarget(ctx, target), p.question())); err != nil {
+		if err := ask(ctx, render.AskMove(s.moveTarget(ctx, target), []string{p.res.File.ID},
+			[]render.MoveItem{p.question()})); err != nil {
 			return nil, err
 		}
 	}
@@ -76,6 +94,167 @@ func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, erro
 	}
 	s.forget(moved, true)
 	return s.moveResult(ctx, &Resolved{File: moved}, p, s.sharingNow(ctx, moved), false), nil
+}
+
+// moveMany moves several items to one destination. Each is read and
+// checked first, and gets its own outcome: refused, with the reason,
+// when a check stops it, and failed, with Drive's answer, when the move
+// does. A failure does not undo the moves before it. The person is asked
+// once, before anything moves, about every item that would reach more
+// people. §18 has why a move may be bulk when removal and sharing are
+// not.
+func (s *Service) moveMany(ctx context.Context, in MoveFileInput) (*Result, error) {
+	if len(in.Files) > MaxMoveFiles {
+		return nil, Errorf(ClassInvalid, "files holds %d items, and one call moves at most %d. Split them, or "+
+			"move the folder they are in.", len(in.Files), MaxMoveFiles)
+	}
+	for i, ref := range in.Files {
+		if strings.TrimSpace(ref) == "" {
+			return nil, Errorf(ClassInvalid, "files[%d] is empty: every entry names an item to move", i)
+		}
+	}
+	target, err := s.parentFolder(ctx, in.To)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]*movedItem, len(in.Files))
+	seen := map[string]bool{}
+	var dest *reach
+	for i, ref := range in.Files {
+		it := &movedItem{json: render.MovedJSON{File: ref}}
+		items[i] = it
+		res, err := s.Resolve(ctx, ref, ResolveOptions{FollowShortcut: false, Fresh: true})
+		if err != nil {
+			it.set(render.MovedRefused, err.Error())
+			continue
+		}
+		it.json.ID, it.json.Name = res.File.ID, res.File.Name
+		if seen[res.File.ID] {
+			it.set(render.MovedRefused, "it is listed more than once, and moves once, as the first")
+			continue
+		}
+		seen[res.File.ID] = true
+		p, err := s.planMove(ctx, res, target)
+		if err != nil {
+			it.set(render.MovedRefused, err.Error())
+			continue
+		}
+		if p.here {
+			it.set(render.MovedUnchanged, "it is already in "+target.Name+".")
+			continue
+		}
+		if dest == nil {
+			r := s.reachOf(ctx, target)
+			dest = &r
+		}
+		s.predictMove(ctx, p, *dest)
+		it.plan = p
+		it.json.From, it.json.To, it.json.Widens = p.oldPath, p.newPath, p.widens()
+		it.json.SharingBefore, it.json.SharingAfter = p.before.Summary(), p.after.Summary()
+	}
+
+	if in.DryRun {
+		for _, it := range items {
+			if it.plan != nil {
+				it.set(render.MovedWouldMove, s.moveNote(ctx, it.plan, it.plan.after, true))
+			}
+		}
+		return s.manyResult(ctx, target, items, true), nil
+	}
+	var moving []string
+	var widening []render.MoveItem
+	for _, it := range items {
+		if it.plan == nil {
+			continue
+		}
+		moving = append(moving, it.plan.res.File.ID)
+		if it.plan.widens() {
+			widening = append(widening, it.plan.question())
+		}
+	}
+	if len(widening) > 0 {
+		if err := ask(ctx, render.AskMove(s.moveTarget(ctx, target), moving, widening)); err != nil {
+			return nil, err
+		}
+	}
+	for _, it := range items {
+		if it.plan != nil {
+			s.moveOne(ctx, it)
+		}
+	}
+	return s.manyResult(ctx, target, items, false), nil
+}
+
+// movedItem is one item of a move of several: its plan, when it got
+// that far, and what came of it.
+type movedItem struct {
+	plan *movePlan
+	json render.MovedJSON
+}
+
+func (it *movedItem) set(outcome, reason string) {
+	it.json.Outcome, it.json.Reason = outcome, reason
+}
+
+// moveOne makes one move of several. A failure is read back, because
+// an error does not always mean nothing happened: an item found in the
+// destination is reported as moved, and one that is not says where it
+// is.
+func (s *Service) moveOne(ctx context.Context, it *movedItem) {
+	p := it.plan
+	f, target := p.res.File, p.target
+	moved, err := s.api.UpdateFile(ctx, f.ID, &gdrive.FileMeta{}, gapi.UpdateOptions{
+		WriteOptions:  gapi.WriteOptions{ResourceIDs: []string{target.ID}},
+		AddParents:    target.ID,
+		RemoveParents: p.from,
+	})
+	late := ""
+	if err != nil {
+		failed := wrap(err, fmt.Sprintf("moving %s to %s", f.Name, target.Name)).Error()
+		// Until the read-back says otherwise, it is not where it was going.
+		it.json.To, it.json.SharingAfter = "", ""
+		now, rerr := s.Resolve(ctx, f.ID, ResolveOptions{FollowShortcut: false, Fresh: true})
+		switch {
+		case rerr != nil:
+			it.set(render.MovedFailed, failed+" Where it is now could not be read back.")
+			return
+		case now.File.Parent() != target.ID:
+			it.set(render.MovedFailed, failed+" It is in "+s.Location(ctx, now.File).String()+".")
+			return
+		}
+		moved, it.json.To = now.File, p.newPath
+		late = "Drive answered with an error, and it is in the destination all the same. The error: " + failed
+	}
+	s.forget(moved, true)
+	after := s.sharingNow(ctx, moved)
+	it.json.SharingAfter = after.Summary()
+	it.set(render.MovedMoved, strings.TrimSpace(late+" "+s.moveNote(ctx, p, after, false)))
+}
+
+// manyResult reports a move of several items.
+func (s *Service) manyResult(ctx context.Context, target *gdrive.File, items []*movedItem, dryRun bool) *Result {
+	out := make([]render.MovedJSON, 0, len(items))
+	moved, failed := 0, 0
+	for _, it := range items {
+		out = append(out, it.json)
+		switch it.json.Outcome {
+		case render.MovedMoved, render.MovedWouldMove:
+			moved++
+		case render.MovedFailed:
+			failed++
+		}
+	}
+	note := ""
+	if failed > 0 && moved > 0 {
+		note = "each item moved or failed on its own: the ones that moved stay moved."
+	}
+	action := render.ActionMoved
+	if moved == 0 {
+		action = render.ActionUnchanged
+	}
+	text := render.MoveMany(s.locationOf(ctx, target), out, dryRun, note)
+	return &Result{Text: text, JSON: &render.WriteJSON{Summary: text, Action: string(action), Note: note,
+		DryRun: dryRun, Items: out}}
 }
 
 // movePlan is one move as it will be made: where the item goes, and who

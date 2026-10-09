@@ -172,9 +172,21 @@ func rendered() map[string]string {
 		render.AskLoosenDrive(fixtureDriveID, "Marketing", []string{"domain_users_only"}).Text,
 		render.AskGrantRequest(fixtureID, "Budget.xlsx", "id-request-1", their, "writer", "please let me in").Text,
 		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOutside, Who: their, Role: "writer"}).Text,
-		render.AskMove(render.MoveTarget{ID: fixtureID, Name: "Team", Kind: "folder"},
-			render.MoveItem{ID: fixtureID, Name: "Budget.xlsx", Kind: "file", Gained: movedTo()}).Text,
+		render.AskMove(render.MoveTarget{ID: fixtureID, Name: "Team", Kind: "folder"}, []string{fixtureID},
+			[]render.MoveItem{{ID: fixtureID, Name: "Budget.xlsx", Kind: "file", Gained: movedTo()}}).Text,
+		render.AskMove(render.MoveTarget{ID: fixtureDriveID, Name: "Marketing", Kind: "shared drive"},
+			[]string{fixtureID, "id-other"}, []render.MoveItem{{ID: fixtureID, Name: "Budget.xlsx", Kind: "file",
+				Gained: movedTo()}, {ID: "id-other", Name: "Reports", Kind: "folder", Unread: "it"}}).Text,
 	}, "\n")
+	// A move of several prints each item's sharing, and a summary names
+	// whoever an ownership transfer waits on.
+	pending := model.SharingOf(true, []model.Grant{{Type: "user", Role: "writer", Who: their, Name: other,
+		PendingOwner: true}}).Summary()
+	out["move several"] = render.MoveMany("My Drive/Team", []render.MovedJSON{
+		{File: fixtureID, ID: fixtureID, Name: "Budget.xlsx", Outcome: render.MovedMoved, From: "My Drive",
+			SharingBefore: pending, SharingAfter: pending + "; anyone with the link can view"},
+		{File: "/Team/Notes", Outcome: render.MovedRefused, Reason: "[not_found] nothing called Notes in Team"},
+	}, false, "")
 	return out
 }
 
@@ -397,6 +409,7 @@ var renderedKey = map[string]string{
 	"AskLoosenDrive":    "questions",
 	"AskGrantRequest":   "questions",
 	"AskMove":           "questions",
+	"MoveMany":          "move several",
 }
 
 // notRenderers are the exported string functions in internal/render that
