@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -118,10 +119,13 @@ func readReleaseState() (changelog string, baseline []byte, err error) {
 	return string(raw), baseline, nil
 }
 
-// diffSurface fails on a change from the baseline that breaks a caller:
-// a tool or resource removed, an input or output field removed or
-// retyped at any depth, or an input newly required. Anything else that
-// changed is printed for a person to read.
+// diffSurface fails on a change from the baseline that breaks a caller,
+// at any depth: a tool or resource removed; a field removed; an input
+// that takes fewer types or loses a listed value; an output that may
+// return another type, or may be missing where it was required; or an
+// input newly required. Anything else that changed is printed for a
+// person to read, an output that may carry a value it did not list
+// among it.
 //
 // It also fails when the baseline is not the newest release's. An older
 // baseline protects an older surface, so whatever shipped since could be
@@ -295,11 +299,11 @@ func readSurface(data []byte) (surface, error) {
 	s := surface{version: dump.Version, entries: map[string]string{}, fields: map[string]toolFields{}}
 	for _, t := range dump.Tools {
 		s.entries[t.Name] = strings.Join([]string{t.Description, canonical(t.InputSchema), canonical(t.OutputSchema), canonical(t.Annotations)}, "\x00")
-		f := toolFields{inputs: map[string]string{}, outputs: map[string]string{}, required: map[string]bool{}}
-		if err := walkSchema(t.InputSchema, f.inputs, f.required); err != nil {
+		f := toolFields{inputs: newFieldSet(), outputs: newFieldSet()}
+		if err := walkSchema(t.InputSchema, f.inputs); err != nil {
 			return surface{}, fmt.Errorf("%s input: %w", t.Name, err)
 		}
-		if err := walkSchema(t.OutputSchema, f.outputs, map[string]bool{}); err != nil {
+		if err := walkSchema(t.OutputSchema, f.outputs); err != nil {
 			return surface{}, fmt.Errorf("%s output: %w", t.Name, err)
 		}
 		s.fields[t.Name] = f
@@ -362,6 +366,9 @@ func compareSurfaces(out io.Writer, base, cur surface) []string {
 	for _, n := range removed {
 		_, _ = fmt.Fprintf(out, "  - %s  BREAKING\n", n)
 	}
+	for _, n := range valueNotes(base.fields, cur.fields) {
+		_, _ = fmt.Fprintf(out, "  ~ %s\n", n)
+	}
 	fields := brokenFields(base.fields, cur.fields)
 	for _, b := range fields {
 		_, _ = fmt.Fprintf(out, "  ! %s  BREAKING\n", b)
@@ -385,23 +392,40 @@ func sameSurface(a, b []byte) bool {
 }
 
 // toolFields is what a caller relies on in one tool, at any depth: the
-// fields it may send and their types, the ones it must send, and the
-// ones it reads back and their types.
+// fields it may send, and the ones it reads back.
 //
 // A path names a field the way a caller reaches it: `exposure.before`,
 // `files[].id` for a field of each element of a list, and
 // `restrictions{}` for the values of a map.
 type toolFields struct {
-	inputs, outputs map[string]string
-	required        map[string]bool
+	inputs, outputs fieldSet
+}
+
+// fieldSet is one side of a tool: every field by its path, and which of
+// them are required.
+type fieldSet struct {
+	fields   map[string]field
+	required map[string]bool
+}
+
+func newFieldSet() fieldSet {
+	return fieldSet{fields: map[string]field{}, required: map[string]bool{}}
+}
+
+// field is one field's type as the schema spells it, "" for no type,
+// and the values it is limited to, nil when it is not.
+type field struct {
+	typ  string
+	enum []string
 }
 
 // schemaNode is the part of a JSON Schema the diff walks.
 type schemaNode struct {
 	Type                 json.RawMessage        `json:"type"`
+	Enum                 []json.RawMessage      `json:"enum"`
 	Properties           map[string]*schemaNode `json:"properties"`
 	Items                *schemaNode            `json:"items"`
-	AdditionalProperties json.RawMessage        `json:"additionalProperties"`
+	AdditionalProperties *schemaNode            `json:"additionalProperties"`
 	Required             []string               `json:"required"`
 	// The walk cannot see through these, so a schema that uses one is
 	// refused rather than compared as if it had no fields.
@@ -411,9 +435,22 @@ type schemaNode struct {
 	AllOf []json.RawMessage `json:"allOf"`
 }
 
-// walkSchema records the type of every field in a raw schema, and which
-// are required. A tool with no output schema has no output fields.
-func walkSchema(raw json.RawMessage, types map[string]string, required map[string]bool) error {
+// UnmarshalJSON takes a boolean schema too: `true`, which a list or a
+// map of any values has for its items, is any value and has no fields to
+// walk. Its type reads as the boolean, which typesCover reads as any
+// type for `true` and as none for `false`.
+func (n *schemaNode) UnmarshalJSON(data []byte) error {
+	if b := bytes.TrimSpace(data); string(b) == "true" || string(b) == "false" {
+		n.Type = json.RawMessage(b)
+		return nil
+	}
+	type plain schemaNode
+	return json.Unmarshal(data, (*plain)(n))
+}
+
+// walkSchema records every field in a raw schema, and which are
+// required. A tool with no output schema has no output fields.
+func walkSchema(raw json.RawMessage, into fieldSet) error {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
@@ -421,10 +458,10 @@ func walkSchema(raw json.RawMessage, types map[string]string, required map[strin
 	if err := json.Unmarshal(raw, &n); err != nil {
 		return err
 	}
-	return n.walk("", types, required)
+	return n.walk("", into)
 }
 
-func (n *schemaNode) walk(prefix string, types map[string]string, required map[string]bool) error {
+func (n *schemaNode) walk(prefix string, into fieldSet) error {
 	if n.Ref != "" || n.AnyOf != nil || n.OneOf != nil || n.AllOf != nil {
 		where := prefix
 		if where == "" {
@@ -433,43 +470,47 @@ func (n *schemaNode) walk(prefix string, types map[string]string, required map[s
 		return fmt.Errorf("%s uses $ref, anyOf, oneOf or allOf, which this diff cannot compare", where)
 	}
 	for _, r := range n.Required {
-		required[fieldPath(prefix, r)] = true
+		into.required[fieldPath(prefix, r)] = true
 	}
 	for name, child := range n.Properties {
 		path := fieldPath(prefix, name)
-		types[path] = child.typeName()
-		if err := child.walk(path, types, required); err != nil {
+		into.fields[path] = child.field()
+		if err := child.walk(path, into); err != nil {
 			return err
 		}
 	}
 	if n.Items != nil {
-		types[prefix+"[]"] = n.Items.typeName()
-		if err := n.Items.walk(prefix+"[]", types, required); err != nil {
+		into.fields[prefix+"[]"] = n.Items.field()
+		if err := n.Items.walk(prefix+"[]", into); err != nil {
 			return err
 		}
 	}
-	// additionalProperties is false on a closed object, and a schema on
-	// a map, where it types every value.
-	if bytes.HasPrefix(bytes.TrimSpace(n.AdditionalProperties), []byte("{")) {
-		var values schemaNode
-		if err := json.Unmarshal(n.AdditionalProperties, &values); err != nil {
-			return err
-		}
-		types[prefix+"{}"] = values.typeName()
-		if err := values.walk(prefix+"{}", types, required); err != nil {
+	// additionalProperties is false on a closed object, and on a map it
+	// types every value. A closed object has no values to name.
+	if v := n.AdditionalProperties; v != nil && string(v.Type) != "false" {
+		into.fields[prefix+"{}"] = v.field()
+		if err := v.walk(prefix+"{}", into); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// typeName is the type as the schema spells it, so `"string"` and
-// `["null","string"]` differ: a field that may now be null breaks a
-// caller that read it as always there.
-func (n *schemaNode) typeName() string {
+// field is what the schema says of the field n describes.
+func (n *schemaNode) field() field {
+	f := field{typ: compactJSON(n.Type)}
+	for _, v := range n.Enum {
+		f.enum = append(f.enum, compactJSON(v))
+	}
+	return f
+}
+
+// compactJSON is a schema value as the schema spells it, so `"string"`
+// and `["null","string"]` differ.
+func compactJSON(v json.RawMessage) string {
 	var buf bytes.Buffer
-	if json.Compact(&buf, n.Type) != nil {
-		return string(n.Type)
+	if json.Compact(&buf, v) != nil {
+		return string(v)
 	}
 	return buf.String()
 }
@@ -494,9 +535,10 @@ func parentPath(path string) string {
 	return ""
 }
 
-// brokenFields lists what a tool kept by name lost: an input or output
-// field removed or retyped, or an input newly required. A field inside
-// one that was removed is not listed again. A removed tool is the
+// brokenFields lists what a tool kept by name breaks: a field removed,
+// an input that takes fewer types or values, an output that may return
+// more types or may now be missing, or an input newly required. A field
+// inside one that was removed is not listed again. A removed tool is the
 // caller's to report.
 func brokenFields(prev, cur map[string]toolFields) []string {
 	var out []string
@@ -508,32 +550,154 @@ func brokenFields(prev, cur map[string]toolFields) []string {
 		was := prev[name]
 		for _, side := range []struct {
 			what     string
-			was, now map[string]string
-		}{{"input", was.inputs, now.inputs}, {"output", was.outputs, now.outputs}} {
-			for _, f := range sortedKeys(side.was) {
-				t, still := side.now[f]
-				parent := parentPath(f)
-				_, parentKept := side.now[parent]
-				switch {
-				case !still && (parent == "" || parentKept):
-					out = append(out, fmt.Sprintf("%s: %s field %s removed", name, side.what, f))
-				case still && t != side.was[f]:
-					out = append(out, fmt.Sprintf("%s: %s field %s changed type from %s to %s", name, side.what, f, side.was[f], t))
+			input    bool
+			was, now fieldSet
+		}{{"input", true, was.inputs, now.inputs}, {"output", false, was.outputs, now.outputs}} {
+			for _, f := range sortedKeys(side.was.fields) {
+				w := side.was.fields[f]
+				n, still := side.now.fields[f]
+				if !still {
+					if _, parentKept := side.now.fields[parentPath(f)]; parentPath(f) == "" || parentKept {
+						out = append(out, fmt.Sprintf("%s: %s field %s removed", name, side.what, f))
+					}
+					continue
+				}
+				if typeBreaks(w.typ, n.typ, side.input) {
+					out = append(out, fmt.Sprintf("%s: %s field %s changed type from %s to %s",
+						name, side.what, f, typeWord(w.typ), typeWord(n.typ)))
+				}
+				// A caller sent this value, and it is refused now.
+				if side.input && n.enum != nil {
+					for _, v := range w.enum {
+						if !slices.Contains(n.enum, v) {
+							out = append(out, fmt.Sprintf("%s: input field %s no longer takes %s", name, f, v))
+						}
+					}
+				}
+				// A caller read this field as always there.
+				if !side.input && side.was.required[f] && !side.now.required[f] {
+					out = append(out, fmt.Sprintf("%s: output field %s no longer required", name, f))
 				}
 			}
 		}
 		// A required field is new to a caller only where its parent was
 		// already there: inside an object that is itself new and
 		// optional, a caller who does not send the object is unaffected.
-		for _, f := range sortedKeys(now.required) {
+		for _, f := range sortedKeys(now.inputs.required) {
 			parent := parentPath(f)
-			_, parentWas := was.inputs[parent]
-			if !was.required[f] && (parent == "" || parentWas) {
+			_, parentWas := was.inputs.fields[parent]
+			if !was.inputs.required[f] && (parent == "" || parentWas) {
 				out = append(out, fmt.Sprintf("%s: input field %s newly required", name, f))
 			}
 		}
 	}
 	return out
+}
+
+// valueNotes lists what a person should look at in the values a kept
+// field lists, where a caller may or may not be broken: an output that
+// may carry a value it did not, which a caller may not handle, and an
+// input newly limited to a list, which breaks a caller only if the
+// server took other values before.
+func valueNotes(prev, cur map[string]toolFields) []string {
+	var out []string
+	for _, name := range sortedKeys(prev) {
+		now, kept := cur[name]
+		if !kept {
+			continue
+		}
+		was := prev[name]
+		for _, f := range sortedKeys(was.outputs.fields) {
+			w := was.outputs.fields[f]
+			n, still := now.outputs.fields[f]
+			switch {
+			case !still || w.enum == nil:
+			case n.enum == nil:
+				out = append(out, fmt.Sprintf("%s: output field %s may now be any value", name, f))
+			default:
+				for _, v := range n.enum {
+					if !slices.Contains(w.enum, v) {
+						out = append(out, fmt.Sprintf("%s: output field %s may now be %s", name, f, v))
+					}
+				}
+			}
+		}
+		for _, f := range sortedKeys(was.inputs.fields) {
+			if n, still := now.inputs.fields[f]; still && was.inputs.fields[f].enum == nil && n.enum != nil {
+				out = append(out, fmt.Sprintf("%s: input field %s now takes only %s", name, f, strings.Join(n.enum, ", ")))
+			}
+		}
+	}
+	return out
+}
+
+// typeBreaks reports whether a field's type change breaks a caller. An
+// input may take more types than it did, and an output may return fewer;
+// the other way round, a caller that sent or read the old type is
+// broken. So `"string"` to `["null","string"]` breaks an output, where a
+// caller read the field as always there, and not an input, which is what
+// a bool becoming a *bool produces.
+func typeBreaks(was, now string, input bool) bool {
+	if was == now {
+		return false
+	}
+	wide, narrow := now, was
+	if !input {
+		wide, narrow = was, now
+	}
+	return !typesCover(wide, narrow)
+}
+
+// typesCover reports whether every value narrow allows, wide allows too,
+// as JSON Schema 2020-12 reads a type: a list allows any type in it, and
+// an integer is a number. No type, or the schema `true`, is any value;
+// the schema `false` lists no type, so it allows none.
+func typesCover(wide, narrow string) bool {
+	if anyType(wide) {
+		return true
+	}
+	if anyType(narrow) {
+		return false
+	}
+	allowed := map[string]bool{}
+	for _, t := range typeList(wide) {
+		allowed[t] = true
+	}
+	if allowed["number"] {
+		allowed["integer"] = true
+	}
+	for _, t := range typeList(narrow) {
+		if !allowed[t] {
+			return false
+		}
+	}
+	return true
+}
+
+// anyType reports whether a field takes any value: it has no type, or it
+// is the boolean schema `true`.
+func anyType(typ string) bool {
+	return typ == "" || typ == "true"
+}
+
+// typeList is a schema's type as a list, whether it was written as one
+// name or several. The schema `false` reads as no type.
+func typeList(typ string) []string {
+	var one string
+	if json.Unmarshal([]byte(typ), &one) == nil {
+		return []string{one}
+	}
+	var many []string
+	_ = json.Unmarshal([]byte(typ), &many)
+	return many
+}
+
+// typeWord is a type for a message: as the schema spells it, or any.
+func typeWord(typ string) string {
+	if anyType(typ) {
+		return "any"
+	}
+	return typ
 }
 
 func sortedKeys[V any](m map[string]V) []string {

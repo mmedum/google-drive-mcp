@@ -63,9 +63,11 @@ Also:
   when behavior or the tool surface changes.
 - Read what `make schema-diff` prints. It compares the tool surface with
   the newest release's, recorded in `testdata/schema-baseline.json`, and
-  fails on a removed tool or resource, an input or output field removed
-  or retyped at any depth, or a newly required input. Such a break ships
-  only as a new major version.
+  fails on a removed tool or resource, a field removed at any depth, an
+  input that takes fewer types or loses a listed value, an output that
+  may return another type or may now be missing, or a newly required
+  input. An input that takes more and an output that returns less pass.
+  Such a break ships only as a new major version.
 
 ## Layout
 

@@ -305,6 +305,8 @@ public the moment the repository is.
    `docs/configuration.md`, and add a `CHANGELOG.md` entry. `make
    staleness` fails until you do, in both directions: it also catches a
    documented tool that no longer exists.
-6. Run `make schema-diff`. A removed tool, a removed or retyped field at
-   any depth, or a newly required input is a breaking change, and fails
-   it.
+6. Run `make schema-diff`. A removed tool, a removed field at any
+   depth, an input that takes fewer types or loses a listed value, an
+   output that may return another type or may now be missing, or a newly
+   required input is a breaking change, and fails it. A type change the
+   other way, such as an input that may now be null, passes.

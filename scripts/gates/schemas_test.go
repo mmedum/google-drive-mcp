@@ -239,3 +239,105 @@ func TestTheDumpIsTheWholeSurface(t *testing.T) {
 			"list can only hold booleans, so it cannot express Sharing at all")
 	}
 }
+
+// fieldsOf is the fields of a dump of one tool, get_file, with the
+// input and output schemas given.
+func fieldsOf(t *testing.T, input, output string) map[string]toolFields {
+	t.Helper()
+	s, err := readSurface([]byte(`{"tools":[{"name":"get_file","inputSchema":` + input + `,"outputSchema":` + output + `}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.fields
+}
+
+// A type change breaks a caller in one direction only: an input that
+// takes fewer types, or an output that may return more. An input that
+// takes more, or an output that returns fewer, breaks nobody. No type
+// and the schema `true` are any type, and the schema `false` is none.
+func TestATypeChangeBreaksOneWay(t *testing.T) {
+	const empty = `{"type":"object"}`
+	field := func(typ string) string {
+		switch typ {
+		case "":
+			return `{"type":"object","properties":{"x":{}}}`
+		case "true", "false":
+			return `{"type":"object","properties":{"x":` + typ + `}}`
+		}
+		return `{"type":"object","properties":{"x":{"type":` + typ + `}}}`
+	}
+	for _, c := range []struct {
+		side, was, now, want string
+	}{
+		{"input", `"boolean"`, `["null","boolean"]`, ""},
+		{"input", `"integer"`, `"number"`, ""},
+		{"input", `"string"`, ``, ""},
+		{"input", `"string"`, `true`, ""},
+		{"input", `false`, `"string"`, ""},
+		{"input", `"number"`, `"integer"`, `get_file: input field x changed type from "number" to "integer"`},
+		{"input", `["null","boolean"]`, `"boolean"`, `get_file: input field x changed type from ["null","boolean"] to "boolean"`},
+		{"input", `true`, `"string"`, `get_file: input field x changed type from any to "string"`},
+		{"input", `"string"`, `false`, `get_file: input field x changed type from "string" to false`},
+		{"output", `["null","string"]`, `"string"`, ""},
+		{"output", `"number"`, `"integer"`, ""},
+		{"output", ``, `"string"`, ""},
+		{"output", `true`, `"string"`, ""},
+		{"output", `"string"`, `false`, ""},
+		{"output", `"string"`, `["null","string"]`, `get_file: output field x changed type from "string" to ["null","string"]`},
+		{"output", `"integer"`, `"number"`, `get_file: output field x changed type from "integer" to "number"`},
+		{"output", `"string"`, `true`, `get_file: output field x changed type from "string" to any`},
+		{"output", `false`, `"string"`, `get_file: output field x changed type from false to "string"`},
+	} {
+		was, now := fieldsOf(t, field(c.was), empty), fieldsOf(t, field(c.now), empty)
+		if c.side == "output" {
+			was, now = fieldsOf(t, empty, field(c.was)), fieldsOf(t, empty, field(c.now))
+		}
+		got := strings.Join(brokenFields(was, now), "; ")
+		if got != c.want {
+			t.Errorf("%s %s → %s: got %q, want %q", c.side, c.was, c.now, got, c.want)
+		}
+	}
+}
+
+// A list or a map whose items are the schema `true` takes any value,
+// and has no fields of its own to walk.
+func TestABooleanItemsSchemaIsAnyValue(t *testing.T) {
+	list := func(items string) string {
+		return `{"type":"object","properties":{"rows":{"type":"array","items":` + items + `},` +
+			`"extra":{"type":"object","additionalProperties":` + items + `}}}`
+	}
+	if got := brokenFields(fieldsOf(t, list(`{"type":"string"}`), `{}`), fieldsOf(t, list(`true`), `{}`)); len(got) != 0 {
+		t.Errorf("an input list and map that take any value now: %q", got)
+	}
+	want := []string{`get_file: output field extra{} changed type from "string" to any`,
+		`get_file: output field rows[] changed type from "string" to any`}
+	if got := brokenFields(fieldsOf(t, `{}`, list(`{"type":"string"}`)), fieldsOf(t, `{}`, list(`true`))); !slices.Equal(got, want) {
+		t.Errorf("an output list and map that may return any value: got %q, want %q", got, want)
+	}
+}
+
+// An output a caller read as always there breaks it when it may be
+// missing; an input that stops taking a value breaks a caller that sent
+// it. An output that may carry a new value, and an input newly limited
+// to a list, are named for a person to read.
+func TestRequiredOutputsAndListedValues(t *testing.T) {
+	was := fieldsOf(t,
+		`{"type":"object","properties":{"mode":{"type":"string","enum":["a","b"]},"free":{"type":"string"}}}`,
+		`{"type":"object","properties":{"id":{"type":"string"},"state":{"type":"string","enum":["x"]}},"required":["id"]}`)
+	now := fieldsOf(t,
+		`{"type":"object","properties":{"mode":{"type":"string","enum":["a","c"]},"free":{"type":"string","enum":["z"]}}}`,
+		`{"type":"object","properties":{"id":{"type":"string"},"state":{"type":"string","enum":["x","y"]}}}`)
+	want := []string{`get_file: input field mode no longer takes "b"`, `get_file: output field id no longer required`}
+	if got := brokenFields(was, now); !slices.Equal(got, want) {
+		t.Errorf("breaking = %q, want %q", got, want)
+	}
+	notes := []string{`get_file: output field state may now be "y"`, `get_file: input field free now takes only "z"`}
+	if got := valueNotes(was, now); !slices.Equal(got, notes) {
+		t.Errorf("notes = %q, want %q", got, notes)
+	}
+	// The other way round, an output newly required and an input that
+	// takes any value where it took a list break nobody; mode loses c.
+	if got, want := brokenFields(now, was), []string{`get_file: input field mode no longer takes "c"`}; !slices.Equal(got, want) {
+		t.Errorf("the reverse = %q, want %q", got, want)
+	}
+}

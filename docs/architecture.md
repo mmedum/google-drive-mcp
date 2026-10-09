@@ -1343,8 +1343,10 @@ honest option and the one a model can act on.
   why configuration is env-first.
 - **Setup guide** in the README, in the order `doctor` checks it (§10).
 - **Versioning.** Semantic versions; Keep a Changelog; the schema diff in
-  CI fails on a removed or renamed tool or resource, a field removed or
-  retyped at any depth, and a newly required input.
+  CI fails on a removed or renamed tool or resource, a field removed at
+  any depth, a type change a caller would notice, an output newly
+  optional, an input that loses a listed value, and a newly required
+  input.
 - **Documentation set.** README, this file, `docs/configuration.md`,
   `docs/security.md`, `docs/development.md`, `CONTRIBUTING.md`,
   `SECURITY.md`, `CHANGELOG.md`. Apache-2.0.
@@ -1372,7 +1374,15 @@ honest option and the one a model can act on.
 - **Schema dump and diff** in CI against `testdata/schema-baseline.json`,
   the surface of the CHANGELOG's newest release, recorded in that
   release's commit by `make schema-baseline VERSION=vX.Y.Z`. The diff
-  compares input and output fields at any depth with their types. It
+  compares input and output fields at any depth with their types, one
+  way, as JSON Schema 2020-12 reads a type: an input may take more types
+  than it did and an output return fewer, so a `bool` becoming a `*bool`
+  input, which may now be null, passes, while an output that may now be
+  null fails. An integer is a number; no type, or the schema `true`, is
+  any value, and the schema `false` none. An output a caller read as
+  required that may now be missing fails, and so does an input that
+  stops taking a listed value; an output that may carry a new listed
+  value is printed for a person to read. It
   also fails when the baseline is not the newest release's, and, with
   nothing under `[Unreleased]`, when the build differs from it at all.
   It used to build the last tag and compare top-level inputs only: an
