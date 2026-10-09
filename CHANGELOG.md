@@ -48,6 +48,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - A file card marks the account as "(you)" when it trashed the item in a shared drive. It showed the account's name and address as anyone else's.
 - An error Google answers with an HTML page, or anything else that is not its error envelope, is no longer quoted. The message gives the HTTP status and what it means. A search Google refuses as too long says so, with the query's length; it read "searching Drive failed: <!DOCTYPE html>…". A 413 or 414 is `[invalid]`, where it was `[unexpected]`.
 - `copy_file` with `copy_comments` no longer says `list_comments` can lag the copy. Live runs found an uploaded file's threads missing, not late.
+- The live driver's transcript hides comment and reply ids, a display name beside an address whatever its case, and the names of files, folders and shared drives outside its scratch folder where the server lists them. The signed-in account is one placeholder however an answer spells its name, and a file name after "shared by" is no longer taken for a person.
 - A sharing summary's "N of them through a folder above it" counts only the people. It counted a link, a domain or the owner that came from above too, and could say "2 of them" of one person.
 - A search hit or listed file that someone shared with you, in a folder you cannot see, is placed under "Shared with me". It read as having no folder this account can see.
 - `manage_approval` said an approved file is locked either way. An approval started with `no_action` is not.

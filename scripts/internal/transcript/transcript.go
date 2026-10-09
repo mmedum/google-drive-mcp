@@ -24,9 +24,9 @@
 // comes back. A rule that covered one of them would be a rule waiting to
 // be drifted around.
 //
-// What this still cannot do is hide the names of files, folders and
-// shared drives: nothing distinguishes one from prose. Summary says so
-// at the end of every run.
+// What this still cannot do is hide every name of a file, folder or
+// shared drive: outside the positions the redactor knows, nothing
+// distinguishes one from prose. Summary says so at the end of every run.
 package transcript
 
 import (

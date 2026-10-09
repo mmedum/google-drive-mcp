@@ -72,7 +72,13 @@ func main() {
 	// everything leading up to it: an error carrying a file name or an
 	// address is the last line of a session and was the one line that
 	// never went through the redactor.
-	t := transcript.New(redact.NewRedactor(*raw))
+	//
+	// Names of files, folders and drives that are not the run's own are
+	// hidden too: the read steps look at the account's whole Drive, whose
+	// names say more about an organization than its ids do.
+	red := redact.NewRedactor(*raw)
+	red.KeepNamesUnder(scratchPrefix)
+	t := transcript.New(red)
 	if err := run(options{binary: *binary, file: *file, write: *write,
 		parent: *parent, drive: *drive, share: *share, blocked: *blocked, unlistable: *unlistable,
 		labels: *labels, activity: *activity, destructive: *destructive}, t); err != nil {
