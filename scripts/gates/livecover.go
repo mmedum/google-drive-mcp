@@ -14,7 +14,8 @@ import (
 // and nobody knew what fraction of the tool surface one run exercises.
 // §17a raised it after phase 5 grew the driver a great deal, including a
 // whole destructive mode, and the honest version of the entry was that a
-// number nobody has is not evidence of a good one. It reads 122 of 188.
+// number nobody has is not evidence of a good one. It first read 122 of
+// 188, and prints the count on every run.
 //
 // testdata/live-cover.tsv is the record, in the shape
 // testdata/api-coverage.tsv already uses here: every option the driver
@@ -148,7 +149,7 @@ func verdictCounts(recorded map[string]liveCoverEntry) (undrivable, undriven int
 //
 // Without it the record is a place to park work rather than a budget: a
 // new tool option is always cheaper to excuse than to drive, so the file
-// grows and 122 of 188 moves the wrong way by default. This is the
+// grows and the count moves the wrong way by default. This is the
 // coverage floor in `make check` applied to a different measurement, and
 // it has the same rule — lower it when a run closes some, never raise
 // it to make a build pass.

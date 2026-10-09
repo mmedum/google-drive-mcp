@@ -610,10 +610,12 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   characters, maximum 400 000), so the head of a 200 MB log is one small
   request. There is deliberately **no size limit** on this path: the
   range bounds the transfer, and a limit here would refuse a file the
-  tool can in fact read (§18). PDFs and images are `[unsupported]` with the two
-  ways forward: `download_file`, or `copy_file` with `convert_to: doc`
-  (Google's import, which OCRs PDFs and images) and then `read_file` on
-  the copy. The header comment carries name, kind, size, head revision,
+  tool can in fact read (§18). PDFs and images are `[unsupported]` with
+  three ways forward: `extract_text`, which reads the text with Google's
+  OCR through a copy it deletes again; `download_file`; or `copy_file`
+  with `convert_to: doc`, which keeps that copy as a Google Doc for
+  `read_file`. A read-only server, which registers neither copying tool,
+  names `download_file` alone. The header comment carries name, kind, size, head revision,
   the range shown and `continue_from`.
 
   An Office file — `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp` —
@@ -2612,6 +2614,6 @@ live run of it found.
 | Google's OCR reads every page of a PDF (unstated) | **Unverified.** Third-party guides, none of them Google's and none dated, say only the first ten pages are read; Google's current pages say nothing about pages | Nothing in the code depends on it. A result shorter than the file is not explained by the server, because it cannot know |
 | A copy converted to a Doc can be exported as soon as `files.copy` answers (unstated) | **Unverified** | `extract_text` exports at once. A failure there deletes the copy and reports Google's answer |
 | A Doc's plain-text export starts with a byte-order mark (unstated) | **Unverified** | `extract_text` drops one when it is there |
-| `appProperties has { key=… and value=… }` finds a file by its app property (convention) | **Confirmed** against the search-terms guide, read 2026-10-09, which lists `appProperties` with the `has` operator. That both halves are required is confirmed live for `properties` only (phase 4) and **unverified** for `appProperties`; the reference says app properties are "private to the requesting app" | The marker query names both. The fake accepts the query on `appProperties` and requires both halves, as it does for `properties` |
+| `appProperties has { key=… and value=… }` finds a file by its app property (convention) | **Confirmed** against the search-terms guide, read 2026-10-09, which lists `appProperties` with the `has` operator. That the key alone is refused is confirmed live for both (phase 4, the row on the search guide above). That the key and value together find a file by its app property is confirmed live for `properties` and **unverified** for `appProperties`; the reference says app properties are "private to the requesting app" | The marker query names both. The fake accepts the query on `appProperties` and requires both halves, as it does for `properties` |
 | A write returns text and JSON with everything the text says (§4, rule 9) | **Not for `extract_text`, decided 2026-10-09.** Its result is a file's text, up to 400 000 characters a window; a JSON copy doubles it, and Claude Code shows the model only the structured half when there is one (the row on Claude Code 2.1 above). `read_file` returns text only for the same reason | `extract_text` returns a text block alone, whose header names the kept or leftover copy's id and link. A protocol test holds that it returns no structured content |
 | A permanent delete needs `GDRIVE_ENABLE_DESTRUCTIVE` (hard rule 5) | **Kept, with one exception decided 2026-10-09:** the temporary copy `extract_text` makes and deletes in the same call. It was never the person's, nobody has seen it, and putting it in the trash would leave a copy of their file there for 30 days | The delete reaches only the Google Doc Drive's answer to the copy named, never the source, and runs under its own deadline even when the call was canceled |

@@ -168,9 +168,7 @@ func GrantOf(p *gdrive.Permission) Grant {
 		if g.InheritedFrom == "" {
 			// The reference says inheritedFrom "is only populated for
 			// items in shared drives", so an empty one is a My Drive
-			// item inheriting from a folder above it. Calling that
-			// "the shared drive" was wrong on every My Drive file
-			// that had an inherited grant, which is most of them.
+			// item inheriting from a folder above it, never a drive.
 			g.InheritedFrom = "a folder above it"
 		}
 	}
@@ -286,11 +284,10 @@ func (s Sharing) Summary() string {
 	if s.People > 0 {
 		line := fmt.Sprintf("shared with %s: %s", Plural(s.People, "person", "people"), strings.Join(s.Roles(), ", "))
 		// Where the grants come from decides what can be done about
-		// them: an inherited one is removed at the drive, not here. Said
-		// as a separate count it read as a second set of people — a file
-		// in a shared drive with four inherited editors reported "shared
-		// with 4 people ... 4 inherited from the shared drive", which
-		// invites the arithmetic 4 + 4.
+		// them: an inherited one is removed at the drive or the folder,
+		// not here. It is said as part of the one count, "4 people, all
+		// of them through the shared drive", never as a second count
+		// beside it, which reads as more people.
 		switch {
 		case s.Inherited >= s.People && s.SharedDrive != "":
 			line += ", all of them through the shared drive " + s.SharedDrive
@@ -298,8 +295,7 @@ func (s Sharing) Summary() string {
 			line += fmt.Sprintf(" (%d of them through the shared drive %s)", s.Inherited, s.SharedDrive)
 		case s.Inherited > 0:
 			// Without a shared drive's name this is a My Drive item, whose
-			// inherited grants come from its folders. Saying "the shared
-			// drive" here named a drive the file had never been in.
+			// inherited grants come from its folders.
 			line += fmt.Sprintf(" (%d of them through a folder above it)", s.Inherited)
 		}
 		parts = append(parts, line)

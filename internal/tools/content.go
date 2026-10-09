@@ -62,8 +62,8 @@ func registerContent(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "download_file",
 		Description: "Write a file to the server's local directory, streamed and checked against Drive's own " +
-			"checksum. Use it for what read_file cannot return — a PDF, an image, a video, an Office file, a " +
-			"whole spreadsheet — and for keeping a copy. A Google Doc, Sheet or Slides deck is converted on the " +
+			"checksum. Use it for what read_file cannot return — a PDF, an image, a video, an Office file in the " +
+			"binary format from before 2007, every sheet of a spreadsheet — and for keeping a copy. A Google Doc, Sheet or Slides deck is converted on the " +
 			"way out, docx, xlsx and pptx by default. The result says where the file landed. " +
 			"This needs the server to have been started with GDRIVE_LOCAL_DIR; get_account says whether it was.",
 		Annotations: localWrite,

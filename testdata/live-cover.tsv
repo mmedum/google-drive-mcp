@@ -2,7 +2,8 @@
 #
 # A live run is the only check that Drive agrees with this server, and
 # until this file existed nobody knew what fraction of the tool surface
-# one exercises. It reads 122 of 188 options. The shared standard names
+# one exercises. It first read 122 of 188 options; the gate prints the
+# count on every run. The shared standard names
 # this gate for every repository with a live driver; the one other place
 # it has been measured started at 14 of 28.
 #
