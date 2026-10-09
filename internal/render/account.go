@@ -64,7 +64,7 @@ func Account(about *gdrive.About, o AccountOptions) string {
 
 	switch o.Sharing {
 	case "off":
-		b.field("sharing", "GDRIVE_SHARING=off: no tool here can change who can see a file.")
+		b.field("sharing", "GDRIVE_SHARING=off: no tool here can widen who can see a file.")
 	default:
 		b.field("sharing", "an anyone-with-the-link grant needs allow_anyone: true on the call, and a domain-wide one allow_domain: true. "+
 			"What may actually be shared is decided by your organization's own policy, which Google enforces on every call.")

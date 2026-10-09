@@ -78,7 +78,8 @@ func (s *Service) ListPermissions(ctx context.Context, in ListPermissionsInput) 
 		o.Location = s.Location(ctx, f).String()
 	}
 	if s.opts.Sharing == config.SharingOff {
-		o.Note = "this server was started with GDRIVE_SHARING=off, so nothing here can change any of it."
+		o.Note = "this server was started with GDRIVE_SHARING=off, so nothing here can grant access, loosen a " +
+			"restriction, or move an item where more people can reach it."
 	}
 	return render.Permissions(sharing.Grants, o), nil
 }
@@ -677,7 +678,7 @@ func (s *Service) sharable(tool string) error {
 	}
 	if s.opts.Sharing == config.SharingOff {
 		return Errorf(ClassForbidden, "this server was started with GDRIVE_SHARING=off, so %s is not "+
-			"available and nothing here can change who can see a file. list_permissions still shows who can.", tool)
+			"available and nothing here can widen who can see a file. list_permissions still shows who can.", tool)
 	}
 	return nil
 }

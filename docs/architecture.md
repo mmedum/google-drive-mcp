@@ -283,7 +283,8 @@ destination would let more people reach the item, or give them more
 access (§7.3).
 
 A move asks on any widening, inside the organization too, where a share
-asks only past people somebody named. A share names its grantee in the
+asks only past people somebody named. With `GDRIVE_SHARING=off` such a
+move is refused rather than asked, as a loosened restriction is. A share names its grantee in the
 call, so the model wrote down who it reaches; a move names a folder,
 and who that folder reaches is nowhere in the call.
 
@@ -629,7 +630,10 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   or reaches them with more access, or either list cannot be read, the
   move is put to the person (§4a); the question names who it adds, in
   the sharing summary's terms. A dry run shows the same and asks
-  nothing. After the move the server reads the item's permissions again
+  nothing. With `GDRIVE_SHARING=off` that move is refused instead, dry
+  run included, and a list it cannot read is refused too: nothing shows
+  it does not widen. With `files`, each such item is refused with the
+  reason and the rest move. After the move the server reads the item's permissions again
   and reports those, and says so when they differ from what it worked
   out. The signed-in account's own access is left out of who a move
   adds. An owner of the destination who does not own the item counts as
@@ -676,7 +680,7 @@ did not ask for. The deployer sets `GDRIVE_SHARING`:
 | Value | Meaning |
 |---|---|
 | `all` (default) | Every principal type the account may share with. `anyone` still needs `allow_anyone: true` on the call, and `domain:` needs `allow_domain: true`. |
-| `off` | `share_file`, `unshare_file` and shared-drive membership changes are not registered. `list_permissions` stays. |
+| `off` | `share_file`, `unshare_file` and shared-drive membership changes are not registered. `list_permissions` stays. Loosening a shared drive's restrictions or a file's own switches is refused (§7.5), and so is a move that lets more people reach an item (§7.3). |
 
 Before any sharing call the server reads `capabilities.canShare` on the
 file and refuses with `[forbidden] you cannot change sharing on this

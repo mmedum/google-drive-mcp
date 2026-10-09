@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v2/internal/model"
@@ -38,7 +39,8 @@ type MoveFileInput struct {
 // and its children", and the Workspace help that what it inherited from
 // the old folder goes while grants made on it directly stay. So the
 // result shows who could reach it before and who can after, and a move
-// that would reach more people is put to the person first (§4a).
+// that would reach more people is put to the person first (§4a). With
+// GDRIVE_SHARING=off it is refused instead, dry run included.
 func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, error) {
 	if err := s.writable("move_file"); err != nil {
 		return nil, err
@@ -73,6 +75,10 @@ func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, erro
 			Note: "it is already in " + target.Name + "."}), nil
 	}
 	s.predictMove(ctx, p, s.reachOf(ctx, target))
+	if why := s.sharingOffRefuses(p); why != "" {
+		return nil, Errorf(ClassForbidden, "%s Nothing was moved. Moving %s where nobody new can reach it "+
+			"is still allowed.", why, res.File.Name)
+	}
 	if in.DryRun {
 		return s.moveResult(ctx, res, p, p.after, true), nil
 	}
@@ -148,9 +154,13 @@ func (s *Service) moveMany(ctx context.Context, in MoveFileInput) (*Result, erro
 			dest = &r
 		}
 		s.predictMove(ctx, p, *dest)
+		it.json.From, it.json.Widens, it.json.SharingBefore = p.oldPath, p.widens(), p.before.Summary()
+		if why := s.sharingOffRefuses(p); why != "" {
+			it.set(render.MovedRefused, why)
+			continue
+		}
 		it.plan = p
-		it.json.From, it.json.To, it.json.Widens = p.oldPath, p.newPath, p.widens()
-		it.json.SharingBefore, it.json.SharingAfter = p.before.Summary(), p.after.Summary()
+		it.json.To, it.json.SharingAfter = p.newPath, p.after.Summary()
 	}
 
 	if in.DryRun {
@@ -284,6 +294,23 @@ type movePlan struct {
 // widens reports whether the move would let more people reach the item,
 // or cannot tell: a question too many rather than one too few.
 func (p *movePlan) widens() bool { return p.unread != "" || len(p.gained) > 0 }
+
+// sharingOffRefuses says why GDRIVE_SHARING=off refuses the move, or
+// is empty when it does not. That setting keeps access from being
+// widened, and a move that lets more people reach an item widens it as
+// surely as a share does. A move whose reach could not be read is
+// refused too: nothing shows it does not widen.
+func (s *Service) sharingOffRefuses(p *movePlan) string {
+	if s.opts.Sharing != config.SharingOff || !p.widens() {
+		return ""
+	}
+	if p.unread != "" {
+		return "this server was started with GDRIVE_SHARING=off, and who can reach " + p.unread +
+			" could not be read, so the move may let more people reach it."
+	}
+	return "this server was started with GDRIVE_SHARING=off, and the move would let more people reach it, " +
+		"or give them more access: " + render.Reach(p.gained) + "."
+}
 
 // question is the item as a question names it.
 func (p *movePlan) question() render.MoveItem {

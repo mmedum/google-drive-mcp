@@ -200,7 +200,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			"locations and who would reach each item, and changes nothing. A move that lets more people reach " +
 			"an item, or gives them more access, is also put to the person when the client can ask, once for " +
 			"the whole call; a call they do not confirm is [blocked], nothing in it moves, and it is not made " +
-			"again unless they ask.",
+			"again unless they ask. A server started with GDRIVE_SHARING=off refuses such a move instead.",
 		Annotations: idempotentWrite,
 	}, asked(d, "move_file", func(ctx context.Context, in MoveFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.MoveFile(ctx, service.MoveFileInput{

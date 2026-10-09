@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v2/internal/render"
@@ -301,6 +302,76 @@ func TestMoveFileSaysWhenDriveAnswersOtherThanPredicted(t *testing.T) {
 		"that is not who this server worked out would reach it, which was: private to you."
 	if !strings.HasPrefix(got.JSON.Note, want) {
 		t.Errorf("note = %q, want it to start %q", got.JSON.Note, want)
+	}
+}
+
+// TestSharingOffRefusesAMoveThatWidens holds GDRIVE_SHARING=off to its
+// word for moves: a move that lets more people reach an item is refused,
+// not asked, dry run included, and one that reaches nobody new goes.
+func TestSharingOffRefusesAMoveThatWidens(t *testing.T) {
+	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
+	linkShared(fake)
+	p := &person{}
+	ctx := service.WithAsker(t.Context(), p)
+
+	for _, dry := range []bool{true, false} {
+		_, err := svc.MoveFile(ctx, service.MoveFileInput{File: "id-budget-fixture", To: "id-archive-fixture", DryRun: dry})
+		want := "[forbidden] this server was started with GDRIVE_SHARING=off, and the move would let more people " +
+			"reach it, or give them more access: anyone with the link can view. Nothing was moved."
+		if err == nil || !strings.HasPrefix(err.Error(), want) {
+			t.Errorf("dry run %v: err = %v, want it to start %q", dry, err, want)
+		}
+	}
+	if len(p.asked) != 0 || fake.Count(http.MethodPatch) != 0 {
+		t.Fatal("a refused move asked the person or moved")
+	}
+	if _, err := svc.MoveFile(ctx, service.MoveFileInput{File: "id-budget-fixture", To: "root"}); err != nil {
+		t.Errorf("a move that reaches nobody new was refused: %v", err)
+	}
+}
+
+func TestSharingOffRefusesAMoveWhoseReachCannotBeRead(t *testing.T) {
+	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
+	fake.Fail = drivetest.FailTimes(1, "/files/id-archive-fixture/permissions", drivetest.Failure{
+		Status: http.StatusForbidden, Reason: "insufficientFilePermissions", Message: "no",
+	})
+
+	_, err := svc.MoveFile(yes(t), service.MoveFileInput{File: "id-budget-fixture", To: "id-archive-fixture"})
+	if err == nil || !strings.Contains(err.Error(), "who can reach the destination could not be read, so the move "+
+		"may let more people reach it.") {
+		t.Fatalf("err = %v, want a refusal saying the destination could not be read", err)
+	}
+	if fake.Count(http.MethodPatch) != 0 {
+		t.Error("the refused move was made")
+	}
+}
+
+func TestSharingOffRefusesEachItemThatWidensAndMovesTheRest(t *testing.T) {
+	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
+	linkShared(fake)
+	// The notes are already open to anyone with the link, so the folder
+	// adds nobody to them.
+	fake.Grant("id-notes-fixture", &gdrive.Permission{Type: "anyone", Role: "reader"})
+	p := &person{}
+
+	got, err := svc.MoveFile(service.WithAsker(t.Context(), p), service.MoveFileInput{To: "id-archive-fixture",
+		Files: []string{"id-budget-fixture", "id-notes-fixture"}})
+	if err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	if got := outcomes(got); got != "refused moved" {
+		t.Errorf("outcomes = %q", got)
+	}
+	refused := got.JSON.Items[0]
+	if refused.Reason != "this server was started with GDRIVE_SHARING=off, and the move would let more people "+
+		"reach it, or give them more access: anyone with the link can view." || !refused.Widens || refused.To != "" {
+		t.Errorf("refused item = %+v", refused)
+	}
+	if len(p.asked) != 0 {
+		t.Errorf("asked the person: %s", p.asked[0].Text)
+	}
+	if fake.Files["id-budget-fixture"].Parent() != "id-2026-fixture" || fake.Files["id-notes-fixture"].Parent() != "id-archive-fixture" {
+		t.Error("the widening item moved, or the other did not")
 	}
 }
 
