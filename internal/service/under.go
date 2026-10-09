@@ -3,9 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -31,10 +29,6 @@ const MaxUnderFolders = 100
 // continuation that misses it walks again and is refused if the set
 // changed, so the time only decides what a second page costs.
 const folderSetTTL = 5 * time.Minute
-
-// underPagePrefix marks a page_token this server wrapped round Drive's,
-// for a search with under_folder.
-const underPagePrefix = "under."
 
 // folderSet is a folder and every folder below it, as a search covers
 // them.
@@ -74,78 +68,50 @@ func (f *folderSet) note() string {
 		model.Plural(len(f.unlistable), "folder", "folders"), f.root.Name, strings.Join(f.unlistable, ", "))
 }
 
-// underPage is what a search with under_folder carries from one page to
-// the next: which folder it searched, which set of folders, and Drive's
-// own token.
-type underPage struct {
-	Folder string `json:"f"`
-	Digest string `json:"s"`
-	Token  string `json:"t"`
-}
-
-// wrap turns Drive's next-page token into one that carries the folder
-// set it belongs to. Empty stays empty: there is no next page.
-func (f *folderSet) wrap(token string) string {
-	if token == "" {
-		return ""
-	}
-	raw, _ := json.Marshal(underPage{Folder: f.root.ID, Digest: f.digest, Token: token})
-	return underPagePrefix + base64.RawURLEncoding.EncodeToString(raw)
-}
-
-// underFolder resolves under_folder and the folders below it, and works
-// out Drive's page token for this page. A page_token must come from a
-// search under the same folder, over the same folders: Drive's token
-// belongs to its query, and the query holds the set.
-func (s *Service) underFolder(ctx context.Context, in *SearchInput) (*folderSet, string, error) {
+// underFolder resolves under_folder and the folders below it. A
+// page_token must come from a search under the same folder, over the
+// same folders: Drive's token belongs to its query, and the query holds
+// the set.
+func (s *Service) underFolder(ctx context.Context, in *SearchInput, page searchPage) (*folderSet, error) {
 	ref := strings.TrimSpace(in.UnderFolder)
-	wrapped := strings.HasPrefix(in.PageToken, underPagePrefix)
 	switch {
-	case ref == "" && wrapped:
-		return nil, "", Errorf(ClassInvalid, "this page_token came from a search with under_folder: pass the "+
+	case ref == "" && page.Folder != "":
+		return nil, Errorf(ClassInvalid, "this page_token came from a search with under_folder: pass the "+
 			"same under_folder with it, or search again without page_token")
 	case ref == "":
-		return nil, in.PageToken, nil
+		return nil, nil
 	case strings.TrimSpace(in.InFolder) != "":
-		return nil, "", Errorf(ClassInvalid, "pass in_folder for one folder's direct contents or under_folder "+
+		return nil, Errorf(ClassInvalid, "pass in_folder for one folder's direct contents or under_folder "+
 			"for everything below a folder, not both")
-	case in.PageToken != "" && !wrapped:
-		return nil, "", Errorf(ClassInvalid, "this page_token did not come from a search with under_folder, so "+
+	case in.PageToken != "" && page.Folder == "":
+		return nil, Errorf(ClassInvalid, "this page_token did not come from a search with under_folder, so "+
 			"it cannot continue one. Search again without page_token")
-	}
-	var page underPage
-	if wrapped {
-		raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(in.PageToken, underPagePrefix))
-		if err != nil || json.Unmarshal(raw, &page) != nil || page.Token == "" {
-			return nil, "", Errorf(ClassInvalid, "this page_token is not one this server gave out. Search again "+
-				"without page_token")
-		}
 	}
 	res, err := s.Resolve(ctx, ref, ResolveOptions{FollowShortcut: true})
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	root := res.File
 	if !root.IsFolder() {
-		return nil, "", Errorf(ClassInvalid, "under_folder must name a folder; %q is %s", ref, model.KindWithArticle(root))
+		return nil, Errorf(ClassInvalid, "under_folder must name a folder; %q is %s", ref, model.KindWithArticle(root))
 	}
-	if wrapped && page.Folder != root.ID {
-		return nil, "", Errorf(ClassInvalid, "this page_token came from a search under another folder. Pass "+
+	if page.Folder != "" && page.Folder != root.ID {
+		return nil, Errorf(ClassInvalid, "this page_token came from a search under another folder. Pass "+
 			"the under_folder it came with, or search again without page_token")
 	}
-	if set, ok := s.cachedFolderSet(root.ID, page.Digest, in.Trashed); ok {
-		return set, page.Token, nil
+	if set, ok := s.cachedFolderSet(root.ID, page.Set); ok {
+		return set, nil
 	}
 	set, err := s.walkFolders(ctx, root, in.Trashed)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	if wrapped && set.digest != page.Digest {
-		return nil, "", Errorf(ClassInvalid, "the folders under %s changed since the first page, so this "+
+	if page.Set != "" && set.digest != page.Set {
+		return nil, Errorf(ClassInvalid, "the folders under %s changed since the first page, so this "+
 			"page would not continue it. Search again without page_token", root.Name)
 	}
-	s.keepFolderSet(set, in.Trashed)
-	return set, page.Token, nil
+	s.keepFolderSet(set)
+	return set, nil
 }
 
 // walkFolders finds every folder below root, one level at a time: one
@@ -199,9 +165,12 @@ func (s *Service) walkFolders(ctx context.Context, root *gdrive.File, trashed bo
 	return set, nil
 }
 
-// folderLevelFields is what a level of the walk reads: a folder's id and
-// name, and whether this account can list it.
-const folderLevelFields = "nextPageToken,files(id,name,capabilities(canListChildren))"
+// folderLevelFields is what a level of the walk reads: a folder's id,
+// name and resource key, and whether this account can list it. The
+// client remembers the key, and sends it when the folder is named in the
+// next level's query and in the search: a folder shared by a link from
+// before 2021 is not searched without it.
+const folderLevelFields = "nextPageToken,files(id,name,resourceKey,capabilities(canListChildren))"
 
 // folderLevelQuery asks for the folders directly inside any of the
 // given ones. A search of the trash walks trashed folders too, since
@@ -219,16 +188,18 @@ func folderLevelQuery(parents []string, trashed bool) string {
 }
 
 // cachedFolderSet returns the set a first page searched, when it is
-// still kept and is the one the continuation names.
-func (s *Service) cachedFolderSet(root, digest string, trashed bool) (*folderSet, bool) {
+// still kept and is the one the continuation names. The digest names
+// the folders exactly, so a set walked with the trash or without it is
+// the right one whenever its digest matches; whether the trash is
+// searched is in the query, which the page token binds.
+func (s *Service) cachedFolderSet(root, digest string) (*folderSet, bool) {
 	if digest == "" {
 		return nil, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e := s.folders
-	if e.value == nil || e.trashed != trashed || e.value.root.ID != root || e.value.digest != digest ||
-		s.now().Sub(e.at) > folderSetTTL {
+	if e.value == nil || e.value.root.ID != root || e.value.digest != digest || s.now().Sub(e.at) > folderSetTTL {
 		return nil, false
 	}
 	return e.value, true
@@ -236,16 +207,8 @@ func (s *Service) cachedFolderSet(root, digest string, trashed bool) (*folderSet
 
 // keepFolderSet keeps one set for the next page. One is enough, because
 // paging through a search is sequential.
-func (s *Service) keepFolderSet(set *folderSet, trashed bool) {
+func (s *Service) keepFolderSet(set *folderSet) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.folders = keptFolders{value: set, trashed: trashed, at: s.now()}
-}
-
-// keptFolders is the folder set the last search with under_folder
-// walked, and whether it walked the trash.
-type keptFolders struct {
-	value   *folderSet
-	trashed bool
-	at      time.Time
+	s.folders = cached[*folderSet]{value: set, at: s.now()}
 }

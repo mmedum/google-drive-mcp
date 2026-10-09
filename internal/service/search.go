@@ -2,6 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -159,11 +163,15 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 	if !ok {
 		return "", Errorf(ClassInvalid, "order_by %q is not one of %s", in.OrderBy, strings.Join(OrderBys(), ", "))
 	}
-	under, pageToken, err := s.underFolder(ctx, &in)
+	page, err := readSearchPage(in.PageToken)
 	if err != nil {
 		return "", err
 	}
-	query, describe, err := s.buildQuery(ctx, &in, orderName, under)
+	under, err := s.underFolder(ctx, &in, page)
+	if err != nil {
+		return "", err
+	}
+	query, describe, parents, err := s.buildQuery(ctx, &in, orderName, under)
 	if err != nil {
 		return "", err
 	}
@@ -175,7 +183,9 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 		limit = MaxSearchLimit
 	}
 
-	lq := gapi.ListQuery{Q: query, PageSize: limit, PageToken: pageToken, OrderBy: order}
+	// The folders named in the query carry their resource keys, which
+	// the client sends for those it has learned.
+	lq := gapi.ListQuery{Q: query, PageSize: limit, OrderBy: order, ResourceIDs: parents}
 	switch {
 	case in.Drive != "":
 		d, err := s.findDrive(ctx, in.Drive)
@@ -188,18 +198,39 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 		// so only that drive is searched.
 		lq.DriveID = under.root.DriveID
 	}
-	if strings.EqualFold(in.Scope, ScopeMyDrive) {
+	if strings.EqualFold(strings.TrimSpace(in.Scope), ScopeMyDrive) {
+		if lq.DriveID != "" {
+			where := "the shared drive " + in.Drive
+			if in.Drive == "" {
+				where = under.root.Name + ", which is in a shared drive,"
+			}
+			return "", Errorf(ClassInvalid, "scope my_drive searches My Drive and what is shared with you, and %s "+
+				"is not in it. Leave scope out to search there.", where)
+		}
 		lq.Corpora = gapi.CorporaUser
 	}
+	request := requestDigest(lq)
+	if in.PageToken != "" && page.Request != request {
+		return "", Errorf(ClassInvalid, "this page_token came from a search with other filters, another order or "+
+			"another scope. Pass the same ones with it, or search again without page_token")
+	}
+	lq.PageToken = page.Token
 	list, err := s.api.ListFiles(ctx, lq)
 	if err != nil {
 		return "", wrap(err, "searching Drive")
 	}
 
 	files := s.decorate(ctx, list.Files)
-	next, note := list.NextPageToken, ""
+	next, note := "", ""
+	if list.NextPageToken != "" {
+		p := searchPage{Request: request, Token: list.NextPageToken}
+		if under != nil {
+			p.Folder, p.Set = under.root.ID, under.digest
+		}
+		next = p.String()
+	}
 	if under != nil {
-		next, note = under.wrap(next), under.note()
+		note = under.note()
 	}
 	empty := "no file matched. Note that `name` matches the beginnings of words, not any substring: " +
 		"\"udget\" will not find \"Budget\". `text` matches whole words in the content. Widen the search or try search_files with fewer fields."
@@ -214,12 +245,60 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 	}), nil
 }
 
+// searchPagePrefix marks a page_token this server made round Drive's.
+const searchPagePrefix = "page."
+
+// searchPage is what a search carries from one page to the next: a
+// digest of everything that decided its results — the query, the order,
+// the drive and the corpus — and Drive's own token; with under_folder,
+// the folder searched under and the digest of the folders below it.
+// Drive's token belongs to the request that made it, and a continuation
+// whose filters differ is refused here rather than sent beside another
+// query, where Drive's answer is not documented.
+type searchPage struct {
+	Request string `json:"r"`
+	Folder  string `json:"f,omitempty"`
+	Set     string `json:"s,omitempty"`
+	Token   string `json:"t"`
+}
+
+func (p searchPage) String() string {
+	raw, _ := json.Marshal(p)
+	return searchPagePrefix + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// readSearchPage reads a page_token this server gave out. Empty is the
+// first page.
+func readSearchPage(token string) (searchPage, error) {
+	var p searchPage
+	if token == "" {
+		return p, nil
+	}
+	rest, ok := strings.CutPrefix(token, searchPagePrefix)
+	raw, err := base64.RawURLEncoding.DecodeString(rest)
+	if !ok || err != nil || json.Unmarshal(raw, &p) != nil || p.Token == "" || p.Request == "" {
+		return searchPage{}, Errorf(ClassInvalid, "this page_token is not one this server gave out. Search again "+
+			"without page_token")
+	}
+	return p, nil
+}
+
+// requestDigest names a search request by everything that decides which
+// files it returns and in what order. The page size is left out: it
+// cuts the same list into other pages.
+func requestDigest(lq gapi.ListQuery) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{lq.Q, lq.OrderBy, lq.DriveID, lq.Corpora}, "\x00")))
+	return hex.EncodeToString(sum[:8])
+}
+
 // buildQuery turns the typed fields into a Drive query and a description
 // of what was actually asked, so an empty result can be read against the
 // question rather than guessed at. orderName is the order the search
 // uses, which the description names when nothing else narrows it. under
-// is the folder set under_folder walked, or nil.
-func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName string, under *folderSet) (query, describe string, err error) {
+// is the folder set under_folder walked, or nil. parents are the folders
+// the query names.
+func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName string, under *folderSet,
+) (query, describe string, parents []string, err error) {
 	var clauses, described []string
 
 	if name := strings.TrimSpace(in.Name); name != "" {
@@ -232,7 +311,7 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 	}
 	clause, err := kindClause(in.Kind)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	if clause != "" {
 		clauses = append(clauses, clause)
@@ -245,21 +324,23 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 	if folder := strings.TrimSpace(in.InFolder); folder != "" {
 		res, err := s.Resolve(ctx, folder, ResolveOptions{FollowShortcut: true})
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 		if !res.File.IsFolder() {
-			return "", "", Errorf(ClassInvalid, "in_folder must name a folder; %q is %s", folder, model.KindWithArticle(res.File))
+			return "", "", nil, Errorf(ClassInvalid, "in_folder must name a folder; %q is %s", folder, model.KindWithArticle(res.File))
 		}
 		clauses = append(clauses, quote(res.File.ID)+" in parents")
 		described = append(described, "directly inside "+res.File.Name)
+		parents = append(parents, res.File.ID)
 	}
 	if under != nil {
 		clauses = append(clauses, under.clause())
 		described = append(described, under.words())
+		parents = append(parents, under.ids...)
 	}
 	access, accessWords, err := accessClauses(in)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	clauses = append(clauses, access...)
 	described = append(described, accessWords...)
@@ -277,7 +358,7 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 	}
 	scopeQuery, scopeWords, err := scopeClause(in.Scope, orderName)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	if scopeQuery != "" {
 		clauses = append(clauses, scopeQuery)
@@ -297,7 +378,7 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 		}
 		stamp, err := parseSearchDate(t.value)
 		if err != nil {
-			return "", "", Errorf(ClassInvalid, "%s: %v", t.words, err)
+			return "", "", nil, Errorf(ClassInvalid, "%s: %v", t.words, err)
 		}
 		clauses = append(clauses, fmt.Sprintf("%s %s %s", t.field, t.op, quote(stamp)))
 		described = append(described, t.words+" "+stamp)
@@ -305,7 +386,7 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 	if property := strings.TrimSpace(in.Property); property != "" {
 		clause, words, err := propertyClause(property)
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 		clauses = append(clauses, clause)
 		described = append(described, words)
@@ -323,7 +404,7 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 		// see, and the order is all that decides which come first.
 		described = append(described, "everything you can see, by "+orderName)
 	}
-	return strings.Join(clauses, " and "), "search: " + strings.Join(described, ", "), nil
+	return strings.Join(clauses, " and "), "search: " + strings.Join(described, ", "), parents, nil
 }
 
 // accessClauses are the clauses about who can reach a file: its owner,

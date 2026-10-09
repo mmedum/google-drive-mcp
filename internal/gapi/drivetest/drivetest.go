@@ -154,6 +154,13 @@ type Server struct {
 	// progress sends the same chunk for ever.
 	StallUploads bool
 
+	// FilePageCap, when set, is the most files one page of files.list
+	// holds, whatever pageSize asked: the reference says "partial or empty
+	// result pages are possible even before the end of the files list has
+	// been reached", and a client that stops at a short page misses the
+	// rest.
+	FilePageCap int
+
 	// IgnoreRange makes a media download answer a byte range with the
 	// whole file and a 200, as a proxy that strips the Range header
 	// does. Drive itself honors it.

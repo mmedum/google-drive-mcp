@@ -31,7 +31,7 @@ type SearchInput struct {
 	InFolder       string `json:"in_folder,omitempty" jsonschema:"only items DIRECTLY inside this folder; this does not reach subfolders, under_folder does. Takes the same forms as file."`
 	UnderFolder    string `json:"under_folder,omitempty" jsonschema:"only items in this folder or in any folder below it, at any depth. Takes the same forms as file. It costs one listing per level of folders before the search, covers at most 100 folders and refuses a larger tree, and does not follow shortcuts. A page_token from such a search continues only a search under the same folder. Pass this or in_folder, not both."`
 	Drive          string `json:"drive,omitempty" jsonschema:"search one shared drive, by name or id. Without it the search covers My Drive, files shared with you, and every shared drive."`
-	Scope          string `json:"scope,omitempty" jsonschema:"all (the default), my_drive, or shared_with_me"`
+	Scope          string `json:"scope,omitempty" jsonschema:"all (the default), my_drive, or shared_with_me. my_drive is refused with drive, or with an under_folder in a shared drive."`
 	Owner          string `json:"owner,omitempty" jsonschema:"me, or an email address"`
 	Starred        bool   `json:"starred,omitempty" jsonschema:"only starred items"`
 	Trashed        bool   `json:"trashed,omitempty" jsonschema:"search the trash instead of live files"`
@@ -40,7 +40,7 @@ type SearchInput struct {
 	CreatedAfter   string `json:"created_after,omitempty" jsonschema:"only items created after this date"`
 	OrderBy        string `json:"order_by,omitempty" jsonschema:"modified (the default), created, name, recency, viewed, size, or shared for the files most recently shared with you first. shared with no scope searches only the files shared with you."`
 	Limit          int    `json:"limit,omitempty" jsonschema:"how many hits to return, default 25, maximum 200"`
-	PageToken      string `json:"page_token,omitempty" jsonschema:"the page_token from a previous result, to see the next page"`
+	PageToken      string `json:"page_token,omitempty" jsonschema:"the page_token from a previous result, to see the next page. It continues only that search: pass the same filters, order, scope and drive with it."`
 	Property       string `json:"property,omitempty" jsonschema:"match a custom file property, as \"key=value\". These are the pairs update_file sets: one app tags files this way for another to find. Both halves are required — Drive cannot search for a key whatever its value, whatever its documentation says."`
 	Visibility     string `json:"visibility,omitempty" jsonschema:"who can open the file without being named on it: anyone (anyone on the internet, by link or by search), link (anyone with the link), domain (everyone in the organization, by link or by search), or limited (only the people and groups it is shared with)"`
 	SharedWith     string `json:"shared_with,omitempty" jsonschema:"one address of a person or group: only files shared with it as viewer, commenter or editor"`

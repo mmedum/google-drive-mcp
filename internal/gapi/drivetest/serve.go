@@ -489,6 +489,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	includeAll := q.Get("includeItemsFromAllDrives") == "true"
 
 	s.mu.Lock()
+	pageCap := s.FilePageCap
 	var matched []*gdrive.File
 	for _, f := range s.Files {
 		if f.ID == s.RootID {
@@ -517,6 +518,9 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	start, end, ok := s.pageWindow(w, q, len(matched), 100, MaxPageSize)
 	if !ok {
 		return
+	}
+	if pageCap > 0 {
+		end = min(end, start+pageCap)
 	}
 	page := gdrive.FileList{Files: []*gdrive.File{}}
 	for _, f := range matched[start:end] {

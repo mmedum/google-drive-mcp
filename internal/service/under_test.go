@@ -150,6 +150,10 @@ func TestSearchUnderFolderPagesOverTheSameFolders(t *testing.T) {
 		t.Errorf("the next page cost %d listings, want 1: the folder set is kept", got)
 	}
 
+	plain, err := svc.Search(t.Context(), service.SearchInput{Kind: "doc", OrderBy: "name", Limit: 1})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
 	for _, tc := range []struct {
 		in   service.SearchInput
 		want string
@@ -158,7 +162,7 @@ func TestSearchUnderFolderPagesOverTheSameFolders(t *testing.T) {
 			"this page_token came from a search under another folder"},
 		{service.SearchInput{Kind: "doc", PageToken: in.PageToken},
 			"this page_token came from a search with under_folder"},
-		{service.SearchInput{Kind: "doc", UnderFolder: "/Projects", PageToken: "offset-1"},
+		{service.SearchInput{Kind: "doc", UnderFolder: "/Projects", PageToken: nextToken(t, plain)},
 			"this page_token did not come from a search with under_folder"},
 		{service.SearchInput{Kind: "doc", UnderFolder: "/Projects", PageToken: "under.not-base64!"},
 			"this page_token is not one this server gave out"},
@@ -192,5 +196,125 @@ func TestSearchUnderFolderRefusesAPageWhoseFoldersChanged(t *testing.T) {
 	_, err = again.Search(t.Context(), in)
 	if err == nil || !strings.Contains(err.Error(), "the folders under Projects changed since the first page") {
 		t.Errorf("err = %v, want a refusal saying the folders changed", err)
+	}
+}
+
+// A folder shared by a link from before 2021 is searched only with its
+// resource key. The walk learns a key from its listing, and sends it in
+// the next level's query and in the search, as in_folder does.
+func TestSearchUnderFolderCarriesResourceKeys(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-quarter-fixture", "Q1", "id-2026-fixture", drivetest.WithResourceKey("rk-q1"))
+	fake.AddFolder("id-q1-inner-fixture", "Inner", "id-quarter-fixture")
+	fake.Requested()
+	if _, err := svc.Search(t.Context(), service.SearchInput{UnderFolder: "/Projects"}); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	var walked, below, searched bool
+	for _, r := range fake.Requested() {
+		if !strings.HasSuffix(r.Path, "/files") {
+			continue
+		}
+		q, keyed := r.Query.Get("q"), strings.Contains(r.ResourceKeys, "id-quarter-fixture/rk-q1")
+		switch {
+		case strings.Contains(q, "mimeType = 'application/vnd.google-apps.folder'") && strings.Contains(q, "'id-2026-fixture' in parents"):
+			walked = strings.Contains(r.Query.Get("fields"), "resourceKey")
+		case strings.Contains(q, "mimeType = 'application/vnd.google-apps.folder'") && strings.Contains(q, "'id-quarter-fixture' in parents"):
+			below = keyed
+		case strings.Contains(q, "'id-quarter-fixture' in parents"):
+			searched = keyed
+		}
+	}
+	if !walked || !below || !searched {
+		t.Errorf("the walk asked for keys %v, the level below carried Q1's %v, the search carried it %v; want all three",
+			walked, below, searched)
+	}
+
+	fake.Requested()
+	if _, err := svc.Search(t.Context(), service.SearchInput{InFolder: "id-quarter-fixture"}); err != nil {
+		t.Fatalf("Search in_folder: %v", err)
+	}
+	if got := fake.Requested(); len(got) == 0 || !strings.Contains(got[len(got)-1].ResourceKeys, "id-quarter-fixture/rk-q1") {
+		t.Errorf("a search in_folder did not carry the folder's resource key: %+v", got)
+	}
+}
+
+// Drive may answer a page short of what was asked, with a token for the
+// rest, so the walk pages through each level to its end.
+func TestSearchUnderFolderPagesThroughEachLevel(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	deepTree(fake)
+	fake.FilePageCap = 1
+	out, err := svc.Search(t.Context(), service.SearchInput{Kind: "doc", UnderFolder: "/Projects"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.HasPrefix(out, "search: kind doc, anywhere under Projects (4 folders) — 1 hit\n") {
+		t.Errorf("a walk served a folder a page did not cover every folder:\n%s", out)
+	}
+}
+
+// A search outside the trash walks no trashed folder; a search of the
+// trash walks them, since what is inside a trashed folder is in the
+// trash with it.
+func TestSearchUnderFolderWalksTrashedFoldersOnlyInTheTrash(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-binned-fixture", "Binned", "id-2026-fixture", drivetest.Trashed())
+	for trashed, want := range map[bool]string{false: "(3 folders)", true: "(4 folders)"} {
+		out, err := svc.Search(t.Context(), service.SearchInput{UnderFolder: "/Projects", Trashed: trashed})
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		if !strings.Contains(out, "anywhere under Projects "+want) {
+			t.Errorf("trashed %v: want %s:\n%s", trashed, want, out)
+		}
+	}
+}
+
+func TestScopeMyDriveIsRefusedInASharedDrive(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	for _, in := range []service.SearchInput{
+		{Scope: "my_drive", UnderFolder: "drive:Marketing"},
+		{Scope: "my_drive", Drive: "Marketing"},
+	} {
+		_, err := svc.Search(t.Context(), in)
+		if err == nil || !strings.HasPrefix(err.Error(), "[invalid] scope my_drive searches My Drive and what is shared with you") {
+			t.Errorf("%+v: err = %v, want a refusal of scope my_drive", in, err)
+		}
+	}
+}
+
+// Drive's page token belongs to the request that made it, so a
+// continuation with any other filter, order or scope is refused.
+func TestASearchPageContinuesOnlyTheSearchItCameFrom(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	first := service.SearchInput{Kind: "doc", OrderBy: "name", Limit: 1}
+	out, err := svc.Search(t.Context(), first)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	token := nextToken(t, out)
+	same := first
+	same.PageToken, same.Limit = token, 5
+	if _, err := svc.Search(t.Context(), same); err != nil {
+		t.Errorf("the same search with another limit: %v", err)
+	}
+	for name, in := range map[string]service.SearchInput{
+		"another name":  {Kind: "doc", OrderBy: "name", Name: "Meeting"},
+		"another kind":  {Kind: "sheet", OrderBy: "name"},
+		"another order": {Kind: "doc", OrderBy: "modified"},
+		"another scope": {Kind: "doc", OrderBy: "name", Scope: "my_drive"},
+		"the trash":     {Kind: "doc", OrderBy: "name", Trashed: true},
+		"a drive":       {Kind: "doc", OrderBy: "name", Drive: "Marketing"},
+	} {
+		in.PageToken = token
+		_, err := svc.Search(t.Context(), in)
+		if err == nil || !strings.Contains(err.Error(), "this page_token came from a search with other filters") {
+			t.Errorf("%s: err = %v, want the continuation refused", name, err)
+		}
+	}
+	if _, err := svc.Search(t.Context(), service.SearchInput{Kind: "doc", PageToken: "offset-1"}); err == nil ||
+		!strings.Contains(err.Error(), "is not one this server gave out") {
+		t.Errorf("Drive's own token: err = %v, want it refused", err)
 	}
 }

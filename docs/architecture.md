@@ -543,7 +543,14 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   `starred`, `trashed`, `modified_after`, `modified_before`,
   `created_after`, `order_by` (`modified`, `name`, `created`, `recency`,
   `viewed`, `size`, `shared`), `limit` (default 25, max 200), `page_token`, and
-  `raw_query` for the rest of the syntax, ANDed in. Each hit shows kind,
+  `raw_query` for the rest of the syntax, ANDed in. `scope: my_drive`
+  with `drive`, or with an `under_folder` in a shared drive, is refused:
+  those search the shared drive, which is not My Drive. A next page's
+  token wraps Drive's with a digest of the query, the order, the drive
+  and the corpus, so a continuation with any other filter, order or
+  scope is refused rather than sent beside a different query, and so is
+  a token this server did not give out. The folders a query names, by
+  `in_folder` or `under_folder`, carry their resource keys. Each hit shows kind,
   name, id, location, modified time and who, and for a file shared with
   this account when and by whom. `shared` orders by `sharedWithMeTime
   desc`; only a file shared with this account has that time, so with no
@@ -574,11 +581,14 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   search under an 8 KB request line, and Google documents no limit
   (§18). A folder the account can see but not list is named in the
   result, since folders below it are not found. It is not taken with
-  `in_folder`. A next page's token wraps Drive's with the folder and a
-  digest of the folder set: a continuation under another folder, or
-  without `under_folder`, is refused, and one whose set changed since
-  the first page (walked again when the set kept for 5 minutes is gone)
-  is refused too, rather than continuing a different query.
+  `in_folder`. A level that comes back short with a token, which the
+  reference allows, is paged to its end. Each level asks for the
+  folders' resource keys, which the next level's listing and the search
+  send. A next page's token also carries the folder and a digest of the
+  folder set: a continuation under another folder, or without
+  `under_folder`, is refused, and one whose set changed since the first
+  page (walked again when the set kept for 5 minutes is gone) is
+  refused too, rather than continuing a different query.
 - `list_folder` lists one page of a folder's children, folders first,
   natural name order (`orderBy=folder,name_natural`), with `kind` and
   `page_token`. `recursive: true` walks breadth-first under `max_depth`
@@ -2566,7 +2576,8 @@ live run of it found.
 | A moved folder with limited access keeps out the destination's grants (unstated for a move) | **Unverified.** The sharing guide, read 2026-10-09, says of an inherited grant: "Changes must be made on the originating parent, or the folder must use the limited access setting." It says nothing about a move | The card reads `inheritedPermissionsDisabled`, and the move prediction does not use it: it counts the destination's grants on such a folder and may ask a question too many. A destination's own `view: metadata` grants are left out, since they do not reach what is inside it |
 | A bulk move needs one approval per item, as removal and sharing do (the "Bulk operations belong in the tool surface" row did not cover moves) | **Rejected for moves, decided 2026-10-09.** That row rejected bulk work because "one item per call keeps every removal and every share a visible approval". A move removes nothing and grants nothing by name: it is undone by moving the item back. What it can do that is not undone is let more people reach the item, and since 2026-10-09 that is put to the person before any item moves, once for the batch, naming every item that would reach further. Forty moves into a folder nobody else can reach is forty approvals of nothing | `move_file` takes `files`, at most 50, to one destination. Each item gets its own outcome, and a failure leaves the moves before it in place. Removal and sharing stay one item per call, and there is no bulk rename |
 | A query may carry any number of `in parents` terms (unstated) | **Unverified.** The `files.list` reference (updated 2026-07-07) and the search guide (updated 2026-09-09), read 2026-10-09, state no limit on the length of `q`, its number of terms or its complexity | `under_folder` stops at 100 folders, about 5.6 KB of encoded terms, which keeps a search under the 8 KB request line most HTTP servers accept, and refuses a larger tree. The live driver doubles a group of `in parents` terms from 50 until Drive refuses one and prints where |
-| A page token continues only the query it came from (unstated) | **Unverified.** The `files.list` reference says the token "is typically valid for several hours" and to start over when it is rejected; it does not say the token is bound to `q` | A search with `under_folder` wraps Drive's token with the folder and a digest of the folder set. A continuation under another folder, without `under_folder`, or over a set that changed since the first page is refused here, so Drive never sees a token beside a different query |
+| A page token continues only the query it came from (unstated) | **Unverified.** The `files.list` reference says the token "is typically valid for several hours" and to start over when it is rejected; it does not say the token is bound to `q` | Every search wraps Drive's token with a digest of the request: the query, which holds every filter and the folder set, the order, the drive and the corpus. With `under_folder` it also carries the folder and a digest of the folder set. A continuation with any of those different, under another folder, without `under_folder`, or over a set that changed since the first page is refused here, so Drive never sees a token beside a different query. Until 2026-10-09 only `under_folder` searches were bound, and any other filter could change between pages |
+| A page of `files.list` holds what `pageSize` asked unless it is the last (assumed by the `under_folder` walk until 2026-10-09) | **Refuted** against the `files.list` reference, read 2026-10-09: "Partial or empty result pages are possible even before the end of the files list has been reached" | The walk pages each level to its end. The fake can serve short pages (`FilePageCap`), and a test holds the walk to them |
 | A search in one shared drive should name it (convention) | **Confirmed** against the `files.list` reference, read 2026-10-09: "Prefer `user` or `drive` to `allDrives` for efficiency" | The walk under a shared-drive folder, and the search after it, send that drive's `driveId` |
 | `copyRequiresWriterPermission` is the file's download switch (what `update_file` and the card assumed until 2026-10-09) | **Refuted** against the release notes for 2025-07-16 ("the functionality is different for both reading from and writing to the field") and the files guide, <https://developers.google.com/workspace/drive/api/guides/file-locking>, read 2026-10-09: the field now reads whether viewers and commenters are restricted, counting the shared drive's setting; false "updates both the `restrictedForWriters` and `restrictedForReaders` fields to `false`"; use `DownloadRestriction` instead, and not both, since "the two field values might conflict" | The card shows `downloadRestrictions.effectiveDownloadRestrictionWithContext` and falls back to the legacy field only when that was not read. `restrict_download` writes `itemDownloadRestriction`. `copy_requires_writer_permission` stays in the contract, called legacy, and false reports that editors are let go too. The two together are refused |
 | `files.update` takes `downloadRestrictions` with only `itemDownloadRestriction` (the guide's word; `drives.update` refused the drive's equivalent live, 2026-09-30) | **Unverified for files.** The files guide says "set the `downloadRestrictions` field using the `files.update` method" and that only the item restriction can be set, with no example body. The drive-level refusal is why this is not taken on trust | `restrict_download` sends `{"itemDownloadRestriction": {"restrictedForReaders": …, "restrictedForWriters": …}}`, both switches always. The live driver sets each level on a Doc and fails a step when the card does not read it back. What `copyRequiresWriterPermission: true` does to `restrictedForWriters` is not documented either; the fake keeps it, and the live driver says which way Drive went |
