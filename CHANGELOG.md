@@ -46,6 +46,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `manage_revision` unkeeping the current revision says Drive keeps it until a newer one replaces it. It said the revision might already be discarded.
 - `list_permissions` no longer calls a My Drive owner's grant inherited, which it did when the owner also owns the folder above. `unshare_file` on the owner now points at an ownership transfer.
 - A file card marks the account as "(you)" when it trashed the item in a shared drive. It showed the account's name and address as anyone else's.
+- An error Google answers with an HTML page, or anything else that is not its error envelope, is no longer quoted. The message gives the HTTP status and what it means. A search Google refuses as too long says so, with the query's length; it read "searching Drive failed: <!DOCTYPE html>…". A 413 or 414 is `[invalid]`, where it was `[unexpected]`.
 - A sharing summary's "N of them through a folder above it" counts only the people. It counted a link, a domain or the owner that came from above too, and could say "2 of them" of one person.
 - A search hit or listed file that someone shared with you, in a folder you cannot see, is placed under "Shared with me". It read as having no folder this account can see.
 - `manage_approval` said an approved file is locked either way. An approval started with `no_action` is not.

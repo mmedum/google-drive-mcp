@@ -1,11 +1,13 @@
 package gapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/mmedum/google-drive-mcp/v2/internal/redact"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -86,6 +88,12 @@ type APIError struct {
 	Message string
 	Method  string
 	Path    string
+	// Page is set when Google answered without its error envelope, such
+	// as with an HTML error page from its front end, which refuses some
+	// requests before Drive reads them. Such a body is never copied into
+	// Message: it is not written for a reader, and a page can carry the
+	// request back.
+	Page bool
 }
 
 func (e *APIError) Error() string {
@@ -159,10 +167,39 @@ func (e *APIError) Unwrap() error {
 
 	case e.Status == 400 && sameReason(e.Reason, reasonDuplicate):
 		return ErrExists
-	case e.Status == 400:
+	case e.Status == 400, tooLong(e.Status):
 		return ErrInvalid
 	}
 	return ErrUnexpected
+}
+
+// tooLong reports whether a status says the request was too long to
+// take: 413 for its body, 414 for its address.
+func tooLong(status int) bool {
+	return status == http.StatusRequestEntityTooLarge || status == http.StatusRequestURITooLong
+}
+
+// TooLong reports whether Google refused a request as too long.
+func TooLong(err error) bool {
+	var e *APIError
+	return errors.As(err, &e) && tooLong(e.Status)
+}
+
+// IsPage reports whether Google answered a failure without its error
+// envelope. Such a refusal comes from Google's front end, before Drive
+// read the request.
+func IsPage(err error) bool {
+	var e *APIError
+	return errors.As(err, &e) && e.Page
+}
+
+// Status is the HTTP status Google answered a failure with, or 0.
+func Status(err error) int {
+	var e *APIError
+	if errors.As(err, &e) {
+		return e.Status
+	}
+	return 0
 }
 
 // IsAbuse reports whether Drive refused a download because it flagged the
@@ -307,15 +344,33 @@ func parseAPIError(status int, method, path string, body []byte) *APIError {
 			e.Reason = g.Error.Errors[0].Reason
 		}
 	} else {
-		e.Message = redact.Accounts(strings.TrimSpace(string(body)))
-		if r := []rune(e.Message); len(r) > 300 {
-			e.Message = string(r[:300]) + "…"
-		}
-		if e.Message == "" {
-			e.Message = "empty error body"
-		}
+		e.Page = true
+		e.Message = statusWords(status, body)
 	}
 	return e
+}
+
+// statusWords says what a failure was when Google sent no error envelope
+// to say it: the status, its name, and what came instead. The body
+// itself stays out. Seen live: a search Google refused for its length
+// came back as "searching Drive failed: <!DOCTYPE html>…", the first 300
+// characters of an HTML page.
+func statusWords(status int, body []byte) string {
+	head := fmt.Sprintf("HTTP %d", status)
+	if text := http.StatusText(status); text != "" {
+		head += " " + text
+	}
+	if tooLong(status) {
+		return head + ": the request is too long for Google to take"
+	}
+	trimmed := bytes.TrimSpace(body)
+	switch {
+	case len(trimmed) == 0:
+		return head + ", with an empty answer"
+	case bytes.HasPrefix(trimmed, []byte("<")):
+		return head + ", answered with an error page rather than a Drive error"
+	}
+	return head + ", with no Drive error in the answer"
 }
 
 // wrapTransportError turns errors from the oauth2 transport into typed

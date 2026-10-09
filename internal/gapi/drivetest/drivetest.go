@@ -47,6 +47,10 @@ type Failure struct {
 	// Hijack cuts the connection instead of answering, the way a dropped
 	// network does.
 	Hijack bool
+	// Page, when set, is the whole body in place of Google's error
+	// envelope: an HTML page, the way Google's front end answers a
+	// request it refuses before Drive reads it.
+	Page string
 }
 
 // Recorded is one request the fake served.

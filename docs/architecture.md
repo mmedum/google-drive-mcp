@@ -510,7 +510,13 @@ for that id.
 
 Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_found`, `ambiguous`, `exists`, `invalid`,
 `unsupported`, `blocked`, `rate_limited`, `server`, `network`,
-`ambiguous_outcome`, `unexpected`.
+`ambiguous_outcome`, `unexpected`. The message quotes Google's own
+error when Google sends its error envelope. A failure without one, such
+as an HTML page from Google's front end, is never quoted: the message
+gives the HTTP status and what it means. A 413 or 414 is `invalid`, a
+request too long to take. A search refused that way says so, with the
+query's length; a 400 page for a query longer than any Drive has been
+seen to take (§18) is called most likely too long.
 
 ## 7. Reading, content, organizing, sharing
 

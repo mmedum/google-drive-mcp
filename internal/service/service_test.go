@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -600,6 +601,37 @@ func TestSearchByName(t *testing.T) {
 	}
 	if !strings.Contains(out, "My Drive/Projects/2026") {
 		t.Errorf("a hit must say where it lives:\n%s", out)
+	}
+}
+
+// Google's front end refuses a search it finds too long with an HTML
+// page, before Drive reads it. The page never reaches the error; the
+// error says what the status means, and that the query was too long
+// when that is what it most likely was.
+func TestASearchGoogleRefusesWithAPageSaysWhyAndQuotesNoPage(t *testing.T) {
+	page := "<!DOCTYPE html>\n<html lang=en><title>Error 400 (Bad Request)</title></html>"
+	long := strings.Repeat("'id-root-my-drive' in parents or ", 400) + "'id-root-my-drive' in parents"
+	for _, tc := range []struct {
+		name   string
+		status int
+		raw    string
+		want   string
+	}{
+		{"a long query answered 400 with a page", http.StatusBadRequest, long,
+			"[invalid] Google refused the search before Drive read it, most likely as too long: its query is "},
+		{"a query answered 414", http.StatusRequestURITooLong, long,
+			"[invalid] Google refused the search as too long (HTTP 414): its query is "},
+		{"a short query answered 400 with a page", http.StatusBadRequest, "name = 'x'",
+			"[invalid] searching Drive failed: HTTP 400 Bad Request, answered with an error page rather than a Drive error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, fake := setup(t, service.Options{})
+			fake.Fail = drivetest.FailTimes(1, "/files", drivetest.Failure{Status: tc.status, Page: page})
+			_, err := svc.Search(t.Context(), service.SearchInput{RawQuery: tc.raw})
+			if err == nil || !strings.HasPrefix(err.Error(), tc.want) || strings.Contains(err.Error(), "<") {
+				t.Errorf("err = %v\nwant it to start %q and quote no page", err, tc.want)
+			}
+		})
 	}
 }
 

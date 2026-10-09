@@ -31,16 +31,48 @@ func TestAPermissionDenialDoesNotRepeatTheAccount(t *testing.T) {
 		t.Errorf("message = %q, want it unchanged", plain.Message)
 	}
 
-	// The body that is not an error envelope at all is the worse case:
-	// it is kept verbatim as the message, so whatever Google sent goes
-	// straight into the error. The first pass at this masked only the
-	// parsed field and left this one.
+	// A body that is not an error envelope at all stays out of the
+	// error entirely, address and all.
 	raw := parseAPIError(500, "GET", "/x", []byte("upstream refused someone.private@example.com"))
-	if strings.Contains(raw.Error(), "someone.private@example.com") {
-		t.Errorf("an unparsed body was kept verbatim: %s", raw.Error())
+	if strings.Contains(raw.Error(), "example.com") {
+		t.Errorf("an unparsed body reached the error: %s", raw.Error())
 	}
-	if !strings.Contains(raw.Error(), "…@example.com") {
-		t.Errorf("the domain should survive: %s", raw.Error())
+}
+
+// A failure Google answers without its error envelope says what the
+// status means and never quotes the body. A live search answered with
+// an HTML page became "searching Drive failed: <!DOCTYPE html>…".
+func TestAnErrorWithoutGooglesEnvelopeSaysTheStatusAndNotTheBody(t *testing.T) {
+	page := []byte("<!DOCTYPE html>\n<html lang=en><title>Error 400 (Bad Request)</title><p>q=AAAAquery1</p></html>")
+	for _, tc := range []struct {
+		status int
+		body   []byte
+		want   string
+		class  string
+		long   bool
+	}{
+		{400, page, "HTTP 400 Bad Request, answered with an error page rather than a Drive error", ClassInvalid, false},
+		{414, page, "HTTP 414 Request URI Too Long: the request is too long for Google to take", ClassInvalid, true},
+		{413, nil, "HTTP 413 Request Entity Too Large: the request is too long for Google to take", ClassInvalid, true},
+		{502, nil, "HTTP 502 Bad Gateway, with an empty answer", ClassServer, false},
+		{404, []byte("Not Found"), "HTTP 404 Not Found, with no Drive error in the answer", ClassNotFound, false},
+	} {
+		e := parseAPIError(tc.status, "GET", "/drive/v3/files", tc.body)
+		if e.Message != tc.want {
+			t.Errorf("%d: message = %q\nwant %q", tc.status, e.Message, tc.want)
+		}
+		if got := Class(e); got != tc.class {
+			t.Errorf("%d: class = %q, want %q", tc.status, got, tc.class)
+		}
+		if TooLong(e) != tc.long {
+			t.Errorf("%d: TooLong = %v, want %v", tc.status, TooLong(e), tc.long)
+		}
+		if !IsPage(e) || Status(e) != tc.status {
+			t.Errorf("%d: IsPage = %v, Status = %d; want true, %d", tc.status, IsPage(e), Status(e), tc.status)
+		}
+	}
+	if IsPage(parseAPIError(400, "GET", "/x", []byte(`{"error":{"message":"Invalid query"}}`))) {
+		t.Error("Drive's own error envelope was taken for a page")
 	}
 }
 

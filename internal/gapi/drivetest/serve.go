@@ -332,6 +332,12 @@ func (s *Server) injectFailure(w http.ResponseWriter, f *Failure) {
 	if f.RetryAfter != "" {
 		w.Header().Set("Retry-After", f.RetryAfter)
 	}
+	if f.Page != "" {
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		w.WriteHeader(f.Status)
+		_, _ = io.WriteString(w, f.Page)
+		return
+	}
 	msg := f.Message
 	if msg == "" {
 		msg = "injected failure"
