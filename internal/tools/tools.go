@@ -73,6 +73,7 @@ func Register(s *mcp.Server, d Deps) []string {
 	names = append(names, registerContent(s, d)...)
 	if !d.Config.ReadOnly {
 		names = append(names, registerWrite(s, d)...)
+		names = append(names, registerExtract(s, d)...)
 	}
 	names = append(names, registerAccess(s, d)...)
 	names = append(names, registerDrives(s, d)...)

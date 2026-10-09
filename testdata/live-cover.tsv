@@ -33,7 +33,6 @@
 # recorded coverage at the end of every run for that reason, and names
 # anything this file believes is driven that the run did not send.
 
-copy_file.ocr_language	undrivable	it hints the language of text in a scan, for convert_to. Every fixture here is text somebody typed, and a copy of typed text has no OCR to hint
 download_file.acknowledge_abuse	undrivable	it needs a file Google has flagged as malware or spam, and nothing here may create one
 list_approvals.page_token	undriven	a second page needs more approvals on one file than this run starts, and an edition allows one open approval at a time. This is the only one of the four that a reader for listed ids would not close
 list_labels.page_token	undrivable	no label is published to this account, so there is no first page to follow. The same blocker as the rest of the label surface
@@ -43,4 +42,3 @@ resolve_access_request.notify	undrivable	the same pending request, and it would 
 resolve_access_request.role	undrivable	the same pending request
 share_file.message	undrivable	it is only used when notify is true, which see
 share_file.notify	undrivable	it puts Google's mail in a real person's inbox on every run, which a driver may not do. The ownership transfer of spike F mails anyway, because Drive forces it
-upload_file.ocr_language	undrivable	it needs a scan or a photograph to convert, and every fixture here is text somebody typed

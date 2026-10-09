@@ -103,6 +103,7 @@ func (w *writeRun) exercise() {
 	ids := w.create()
 	w.readBack(ids)
 	w.officeFiles()
+	w.ocr()
 	w.organize(ids)
 	w.underFolder()
 	w.downloads(ids)

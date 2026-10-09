@@ -221,6 +221,7 @@ supports elicitation. Anything but Accept stops the write.
 | `list_folder` | One page of a folder's contents, or a budgeted tree of everything below it |
 | `search_files` | Find files across My Drive, files shared with you, and every shared drive, or under one folder at any depth |
 | `read_file` | The text of a file: a Doc as markdown, a Sheet as csv, a Word, Excel or PowerPoint file (or its OpenDocument counterpart) read here as text, a log or source file as itself, windowed with a continuation |
+| `extract_text` | The text in a PDF or an image, read by Google's OCR through a temporary Google Doc copy that is deleted again |
 | `download_file` | Write a file to the local directory, converting a Google document on the way out, checksum-verified |
 | `create_file` | A new empty Google file, or one written from text you have here, with optional conversion |
 | `upload_file` | Send a local file, in one request or in chunks that survive a dropped connection |
@@ -308,7 +309,9 @@ Five things it does differently from the alternatives:
   call, because a registered tool is one a model will reach for
   eventually. There is no bulk delete and no bulk share: one item per
   call, so every removal is a visible approval. Deleting the top of a
-  drive is refused outright.
+  drive is refused outright. The one thing deleted for good without
+  either is the temporary copy `extract_text` makes and removes within
+  the same call.
 - Talk to anything but Google. Every URL is checked against an allowlist
   of Google's own hosts before credentials are attached. No telemetry, no
   update checks.

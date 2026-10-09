@@ -5,12 +5,12 @@
 `[ambiguous_outcome]` instead of inviting a repeat. The server asks the person before a write it cannot take back or that opens
 a file past people somebody named (§4a), and six defects are fixed, two
 of them found by its live run (§16). The Go module path is now `/v2`. A default
-build registers **31** tools; eight more exist behind a flag — the
+build registers **32** tools; eight more exist behind a flag — the
 destructive five, plus `list_labels` and `manage_labels` under
 `GDRIVE_LABELS` and `list_activity` under `GDRIVE_ACTIVITY`. Those last
 three each need a Google API enabled in the Cloud project AND a scope the
 consent screen would otherwise not carry, which is why they are off by
-default — 39 tools in all, and 13 in read-only mode. Neither phase 5 nor
+default — 40 tools in all, and 13 in read-only mode. Neither phase 5 nor
 phase 6 added a tool. Every method of all three APIs is recorded as used
 on purpose or left out on purpose, and a gate holds that record to the
 code AND to a snapshot of the APIs themselves — offline, on every
@@ -193,7 +193,8 @@ Phase 3 with a budget); watch a file without a public endpoint; give a
 file two parents; export a Workspace document above 10 MB; export one
 sheet of a spreadsheet (csv and tsv take the first sheet; anything else
 is a Sheets API read this server does not offer); read the text of a PDF or image without first
-converting it to a Doc (which OCRs it, and creates a file); create an
+converting it to a Doc (which OCRs it, and creates a file: `extract_text`
+creates it and deletes it again, §7.1); create an
 access request; remove an inherited shared-drive permission on the child;
 undo a permanent delete.
 
@@ -261,7 +262,9 @@ undo a permanent delete.
 9. **Results say what changed.** Write tools return text and JSON, and the
    JSON carries everything the text does. Read tools return text only,
    because Claude Code 2.1 shows the model only the structured form when
-   both are present (§18).
+   both are present (§18). `extract_text` writes and returns text only,
+   as `read_file` does: its result is the text of a file, and a JSON copy
+   would double a 400 000-character window (§7.1).
 10. **The model sees what the Drive UI shows.** Kind in plain words
     ("Google Sheet", "PDF", "folder", "shortcut to a Google Doc"), owner,
     a sharing summary, link state, what the signed-in person can do
@@ -282,6 +285,10 @@ the account's organization; `resolve_access_request` when it accepts;
 destination would let more people reach the item, or give them more
 access (§7.3); and `update_file` when it turns a folder's limited access
 off and that lets someone new open it.
+
+`extract_text` asks nothing. What it deletes for good is the temporary
+copy it made in the same call, which nobody else has seen; the person's
+own files are not touched.
 
 A move asks on any widening, inside the organization too, where a share
 asks only past people somebody named. With `GDRIVE_SHARING=off` such a
@@ -620,6 +627,41 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   `download_file` and `copy_file` with `convert_to` as the ways forward;
   a password-protected file, which Office keeps in the same binary
   container, is named as such.
+- `extract_text` reads the text in a PDF or an image with Google's OCR.
+  Drive offers OCR only as part of an import into a Google Doc, so the
+  tool makes one: `files.copy` with `mimeType` a Google Doc and
+  `ocrLanguage` when given, into the root of My Drive with
+  `ignoreDefaultVisibility`, so the copy inherits nobody's access and
+  skips an organization's rule that shares every new file. It exports
+  the copy as plain text and deletes the copy for good, or with
+  `keep_copy` keeps it and names its id and link. It takes `offset` and
+  `max_chars` like `read_file`, and keeps the whole text for
+  `ExportTTL`, so paging makes no second copy; with `keep_copy` every
+  call makes one. It is a write, full mode only, and asks nothing
+  (§4a). Its annotations are a write's: it adds a file and removes only
+  that file, so `destructiveHint` is false, and two calls make two
+  copies, so it is not idempotent. It returns text only, as `read_file`
+  does (§4).
+
+  The hazards, each handled before or after the copy. A Doc refuses an
+  id from `files.generateIds` (§2), so the copy cannot be repeated
+  safely and the client does not repeat it: a copy Google did not
+  confirm is `[ambiguous_outcome]`, naming the copy and the
+  `search_files` `raw_query` that finds it, an `appProperties` marker
+  with a value unique to the call (private to this OAuth client, so only
+  this server's searches see it). A copy that could not be deleted is
+  named in the result, which still carries the text; the delete runs
+  even when the call was canceled, under its own deadline, and only on
+  the Google Doc Drive's answer to the copy named. A failed export
+  deletes the copy and says so. Before anything is written it refuses a
+  folder, a file `read_file` reads directly (a Google document, an
+  Office file, text), anything but a PDF or an image, a type the
+  account's import formats do not turn into a Doc (the import guide's
+  JPEG, PNG, GIF, BMP and PDF when those cannot be read), a file over
+  50 MB, and one whose `capabilities.canCopy` is false. Past 2 MB it
+  reads and warns, since Google asks for 2 MB or less. Every belief
+  about Google's OCR here is unverified until the live driver has run
+  it (§18).
 - `download_file` writes to `GDRIVE_LOCAL_DIR/<safe name>-<short
   id>.<ext>`: a blob through `alt=media`, streamed to disk in chunks, md5
   checked against the metadata, refused above `GDRIVE_MAX_DOWNLOAD`; a
@@ -972,6 +1014,7 @@ grants a permission.
 | `search_files` | Typed search across My Drive, shared with me and shared drives, or under one folder at any depth | readOnly | 0 |
 | `list_folder` | One page of children, or a budgeted tree | readOnly | 0 |
 | `read_file` | Text of a file, budgeted with continuation | readOnly | 1 |
+| `extract_text` | Text of a PDF or an image by Google's OCR, through a temporary Doc copy it deletes; text only | — | after 7 |
 | `download_file` | Blob, export or old revision to `GDRIVE_LOCAL_DIR`, checksum-verified | local write | 1 |
 | `create_file` | Empty Workspace file, or inline text with optional conversion | — | 1 |
 | `upload_file` | A local file, multipart or resumable, optional conversion | — | 1 |
@@ -1038,7 +1081,8 @@ subscriptions (no push without a public endpoint).
 
 **Results.** Read tools return a text block only. Write tools return text
 and JSON, and the JSON carries the file card and, for sharing, the
-before and after summaries.
+before and after summaries. `extract_text` is the exception: a write
+whose result is a file's text, returned as a text block alone (§4).
 
 ## 9. Confidentiality, security, safety
 
@@ -1075,7 +1119,7 @@ before and after summaries.
 | Acting on the wrong file | Ids are the contract; a name or path that matches more than one item is refused; every result shows the location. |
 | Exposing a file to the world or to the wrong domain | The organization's own sharing policy, enforced by Google on every call; `allow_anyone` per call; before-and-after exposure in every sharing result and every move; a move that widens access asks the person; `dry_run`; `GDRIVE_SHARING=off`; no publish-to-web at all. |
 | Unwanted email to people | `notify` is off unless asked; the result says when Google forced it on. |
-| Mass deletion | Trash is the only default removal and it is reversible; permanent deletion and emptying the trash are gated; no bulk tool. |
+| Mass deletion | Trash is the only default removal and it is reversible; permanent deletion and emptying the trash are gated; no bulk tool. The one ungated permanent delete is `extract_text` removing the copy it made in the same call, and only the file Drive's answer to that copy named. |
 | Copying private files onto disk | Downloads only under `GDRIVE_LOCAL_DIR`, size-capped, named in the result. |
 | Uploading files the person did not mean to share | Uploads only from `GDRIVE_LOCAL_DIR`; inline content is what the model wrote. |
 | Instructions hidden in file content | Read tools are read-only and content is returned as data; the server never acts on what a file says; the client's per-call approval covers writes. |
@@ -1195,6 +1239,9 @@ honest option and the one a model can act on.
   that cannot be repeated. A delete retried after a 5xx that then finds
   nothing is ambiguous too: the earlier attempt may have deleted it.
   Resumable uploads recover through the protocol itself.
+  `extract_text`'s copy is such a create: a Google Doc, so no id, so a
+  5xx or a cut connection is `[ambiguous_outcome]` with the marker that
+  finds the copy, and never a second copy.
 - **Limiters.** Reads and listings 10/s, burst 20. Writes 5/s, burst 10.
   Sharing 1/s, burst 3 (`sharingRateLimitExceeded` is its own quota).
   Transfers are bandwidth-bound, not count-bound.
@@ -2488,3 +2535,12 @@ live run of it found.
 | Word stores a built-in style under its English name in every language (assumed) | **Unverified.** A localized Word can translate the style id; the parser trusts the style's name, `heading N` or `Title`, and its outline level, never the id | A heading in a file saved by a localized Word that does not keep the English name reads as body text. The live driver's files are built here, so a live run cannot settle it either |
 | Google's csv export of a Sheet pads every row to the widest (unstated) | **Unverified** | An Office workbook's rows end at their last value instead, which loses nothing and cannot turn formatting that runs to row 1 048 576 into a million blank lines |
 | Drive answers a byte range of a blob with that range (convention, §2) | **Confirmed** by the reference's partial-download section and in use since phase 1 for text windows. **Unverified** for many small ranges of one file in quick succession, which an Office read makes | A response that is not a 206 for a range past the start is refused as `[unexpected]` rather than parsed. The live driver reads three uploaded Office files back |
+| `files.copy` takes `ocrLanguage` and `ignoreDefaultVisibility` (convention) | **Confirmed** against the `files.copy` reference, read 2026-10-09: `ocrLanguage`, "A language hint for OCR processing during image import (ISO 639-1 code)"; `ignoreDefaultVisibility`, "Whether to ignore the domain's default visibility settings for the created file … Permissions are still inherited from parent folders." The upload guide, read the same day, calls the hint a BCP 47 code | `extract_text` passes the hint as given and describes it as ISO 639-1, the reference's word; a two-letter code is both. The copy goes to the root of My Drive, which passes on nobody's access |
+| Google reads text out of JPEG, PNG, GIF, BMP and PDF (convention) | **Confirmed** against the upload guide's import table, read 2026-10-09, which lists those five as becoming a Google Doc. The Help Center, <https://support.google.com/drive/answer/176692>, read the same day, names PDFs and ".jpeg, .png and .gif" | The account's `about.importFormats` decides when it can be read; the guide's five stand in when it cannot |
+| OCR has a size limit (convention) | **Confirmed as advice only.** The Help Center: "The file should be 2 MB or smaller", and text "at least 10 pixels high". Its storage page, <https://support.google.com/drive/answer/37603>, says a text document converted to a Doc "can be up to 50 MB"; for a PDF or an image that limit is **unverified** | Past 2 MB `extract_text` reads and warns; past 50 MB it refuses before copying, so a conversion that could only time out is not attempted |
+| Google's OCR reads every page of a PDF (unstated) | **Unverified.** Third-party guides, none of them Google's and none dated, say only the first ten pages are read; Google's current pages say nothing about pages | Nothing in the code depends on it. A result shorter than the file is not explained by the server, because it cannot know |
+| A copy converted to a Doc can be exported as soon as `files.copy` answers (unstated) | **Unverified** | `extract_text` exports at once. A failure there deletes the copy and reports Google's answer |
+| A Doc's plain-text export starts with a byte-order mark (unstated) | **Unverified** | `extract_text` drops one when it is there |
+| `appProperties has { key=… and value=… }` finds a file by its app property (convention) | **Confirmed** against the search-terms guide, read 2026-10-09, which lists `appProperties` with the `has` operator. That both halves are required is confirmed live for `properties` only (phase 4) and **unverified** for `appProperties`; the reference says app properties are "private to the requesting app" | The marker query names both. The fake accepts the query on `appProperties` and requires both halves, as it does for `properties` |
+| A write returns text and JSON with everything the text says (§4, rule 9) | **Not for `extract_text`, decided 2026-10-09.** Its result is a file's text, up to 400 000 characters a window; a JSON copy doubles it, and Claude Code shows the model only the structured half when there is one (the row on Claude Code 2.1 above). `read_file` returns text only for the same reason | `extract_text` returns a text block alone, whose header names the kept or leftover copy's id and link. A protocol test holds that it returns no structured content |
+| A permanent delete needs `GDRIVE_ENABLE_DESTRUCTIVE` (hard rule 5) | **Kept, with one exception decided 2026-10-09:** the temporary copy `extract_text` makes and deletes in the same call. It was never the person's, nobody has seen it, and putting it in the trash would leave a copy of their file there for 30 days | The delete reaches only the Google Doc Drive's answer to the copy named, never the source, and runs under its own deadline even when the call was canceled |

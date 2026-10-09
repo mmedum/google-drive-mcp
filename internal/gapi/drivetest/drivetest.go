@@ -210,6 +210,8 @@ func New() *Server {
 			"application/pdf":           {gdrive.MimeDocument},
 			"image/jpeg":                {gdrive.MimeDocument},
 			"image/png":                 {gdrive.MimeDocument},
+			"image/gif":                 {gdrive.MimeDocument},
+			"image/bmp":                 {gdrive.MimeDocument},
 			"text/csv":                  {gdrive.MimeSheet},
 			"text/tab-separated-values": {gdrive.MimeSheet},
 			"application/vnd.ms-excel":  {gdrive.MimeSheet},

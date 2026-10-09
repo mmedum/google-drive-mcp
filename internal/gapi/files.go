@@ -296,6 +296,11 @@ type WriteOptions struct {
 	// since, or the check read the reference page rather than the
 	// document. It is only meaningful on files.copy.
 	CopyComments bool
+	// IgnoreDefaultVisibility makes a create or a copy skip the domain's
+	// default visibility, which an administrator can set to share every
+	// new file with the whole organization. Permissions are still
+	// inherited from the parent folder.
+	IgnoreDefaultVisibility bool
 	// ResourceIDs carry resource keys for the ids this call names.
 	ResourceIDs []string
 }
@@ -335,6 +340,9 @@ func (o WriteOptions) values() url.Values {
 	}
 	if o.CopyComments {
 		v.Set("copyComments", "true")
+	}
+	if o.IgnoreDefaultVisibility {
+		v.Set("ignoreDefaultVisibility", "true")
 	}
 	return v
 }

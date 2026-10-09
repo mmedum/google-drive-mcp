@@ -26,6 +26,9 @@ type FileTextOptions struct {
 	// More says there is another window after this one.
 	More bool
 	Text string
+	// Tool is the tool to call again for the next window; read_file when
+	// it is empty.
+	Tool string
 }
 
 // FileText renders a window of a file's text under a header that says
@@ -80,8 +83,12 @@ func showing(o FileTextOptions) string {
 	if o.Total > 0 {
 		of = fmt.Sprintf(" of %d", o.Total)
 	}
-	return fmt.Sprintf("%s, bytes %d to %d%s — there is more: call read_file again with offset: %d",
-		format, o.Offset, end-1, of, end)
+	tool := o.Tool
+	if tool == "" {
+		tool = "read_file"
+	}
+	return fmt.Sprintf("%s, bytes %d to %d%s — there is more: call %s again with offset: %d",
+		format, o.Offset, end-1, of, tool, end)
 }
 
 // dataURI matches an inlined image in a markdown export.

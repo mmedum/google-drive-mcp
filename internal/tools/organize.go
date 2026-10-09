@@ -218,8 +218,8 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "copy_file",
 		Description: "Copy one file, leaving the original alone. With convert_to, Google imports the copy as one " +
-			"of its own kinds, which is the way to get readable text out of a PDF or a scanned image: copy it " +
-			"with convert_to: doc, then read_file the copy. " +
+			"of its own kinds; a PDF or a scanned image copied with convert_to: doc becomes a Google Doc with its " +
+			"text read out, which read_file then reads. extract_text does the same and deletes the copy again. " +
 			"A folder needs recursive: true, because Drive has no call that copies one — it is a listing per " +
 			"folder and a write per item, so a large tree takes a while. A tree over max_items is refused " +
 			"before anything is written rather than copied halfway; dry_run says how big it is first. " +

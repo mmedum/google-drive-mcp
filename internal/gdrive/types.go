@@ -608,6 +608,10 @@ type FileMeta struct {
 	// key, which is what the reference means by "entries with null values
 	// are cleared in update and copy requests".
 	Properties map[string]*string `json:"properties,omitempty"`
+	// AppProperties are private to the OAuth client that wrote them.
+	// extract_text marks its temporary copy with one, so a copy whose
+	// creation Drive never confirmed can be found again.
+	AppProperties map[string]string `json:"appProperties,omitempty"`
 
 	// ShortcutDetails carries the target of a shortcut being created.
 	ShortcutDetails *ShortcutDetails `json:"shortcutDetails,omitempty"`

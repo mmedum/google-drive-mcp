@@ -44,6 +44,10 @@ func sessionAndFake(t *testing.T, cfg config.Config, withCredentials bool) (*mcp
 	fake.AddComment("id-notes-fixture", "id-comment-fixture", "does this cover the second case?",
 		drivetest.WithReply("id-reply-fixture", "Someone Else", "not yet", ""))
 	fake.AddProposal("id-notes-fixture", "id-request-fixture", "alice@example.com", "writer")
+	// A scan whose bytes the fake's import hands back as the text it
+	// "read", standing in for Google's OCR.
+	fake.AddFile("id-scan-fixture", "scan.pdf", "application/pdf", fake.RootID)
+	fake.SetContent("id-scan-fixture", "Total: 42")
 
 	api := drivetest.Client(t, fake)
 	if !withCredentials {
@@ -117,7 +121,7 @@ func TestToolsListed(t *testing.T) {
 		"trash_file": false, "restore_file": false,
 		"share_file": false, "unshare_file": false, "manage_drive": false, "manage_revision": false,
 		"add_comment": false, "reply_comment": false, "resolve_access_request": false,
-		"manage_approval": false,
+		"manage_approval": false, "extract_text": false,
 	}
 	for name := range readTools {
 		want[name] = false
@@ -293,6 +297,28 @@ func TestReadToolsThroughTheProtocol(t *testing.T) {
 	}
 }
 
+func TestExtractTextReturnsTheTextAloneAndLeavesNoCopy(t *testing.T) {
+	// A write that returns text only, as read_file does: its result is a
+	// window of up to 400 000 characters, and Claude Code shows the model
+	// only the structured half when there is one (§4, §18).
+	cs, fake := sessionAndFake(t, defaultConfig(), true)
+	before := len(fake.Files)
+	res := call(t, cs, "extract_text", map[string]any{"file": "id-scan-fixture"})
+	out := resultText(t, res)
+	if res.IsError {
+		t.Fatalf("extract_text failed: %s", out)
+	}
+	if !strings.Contains(out, "Total: 42") {
+		t.Errorf("the text is missing:\n%s", out)
+	}
+	if res.StructuredContent != nil {
+		t.Errorf("extract_text returned structured content: %v", res.StructuredContent)
+	}
+	if after := len(fake.Files); after != before {
+		t.Errorf("the fake holds %d files after the call, %d before: the temporary copy was left", after, before)
+	}
+}
+
 func TestToolErrorsCarryAClass(t *testing.T) {
 	cs := session(t, defaultConfig(), true)
 	cases := []struct {
@@ -363,7 +389,7 @@ func TestDumpSchemas(t *testing.T) {
 	if out.Server != server.Name || out.SDK != server.SDKVersion {
 		t.Errorf("dump header = %+v", out)
 	}
-	const registeredTools = 31
+	const registeredTools = 32
 	if len(out.Tools) != registeredTools {
 		t.Fatalf("dumped %d tools, want %d", len(out.Tools), registeredTools)
 	}
@@ -1006,7 +1032,13 @@ func toolArgs() map[string][]map[string]any {
 			{},
 			{"kind": "not-a-kind", "name": "x"},
 		},
-		"read_file":      {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"read_file": {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}, {"file": "id-scan-fixture"}},
+		"extract_text": {
+			{"file": "id-scan-fixture"},
+			{"file": "id-scan-fixture", "ocr_language": "en", "offset": 2, "max_chars": 5, "keep_copy": true},
+			{"file": "id-notes-fixture"},
+			{"file": "id-projects-fixture"},
+		},
 		"download_file":  {{"file": "id-notes-fixture"}},
 		"upload_file":    {{"local_path": "notes.txt"}},
 		"create_file":    {{"name": "Notes", "kind": "doc"}, {"name": "x"}},

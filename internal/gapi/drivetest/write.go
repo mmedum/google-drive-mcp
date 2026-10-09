@@ -233,6 +233,12 @@ func applyMeta(f *gdrive.File, meta *gdrive.FileMeta) {
 		}
 		f.Properties[k] = *v
 	}
+	for k, v := range meta.AppProperties {
+		if f.AppProperties == nil {
+			f.AppProperties = map[string]string{}
+		}
+		f.AppProperties[k] = v
+	}
 }
 
 // setItemRestriction sets the download restriction on the file itself.

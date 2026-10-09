@@ -251,11 +251,12 @@ func (p *parser) parseTerm() (predicate, error) {
 }
 
 // parseHas reads the brace expression after `has` and builds the
-// predicate for it. Only `properties` is supported: appProperties are
-// private to the app that wrote them, and this server writes none.
+// predicate for it, on `properties` or on `appProperties`, which are
+// private to the app that wrote them: extract_text marks its temporary
+// copy with one.
 func (p *parser) parseHas(field string) (predicate, error) {
-	if field != "properties" {
-		return nil, fmt.Errorf("`has` is only supported on properties, not on %q", field)
+	if field != "properties" && field != "appProperties" {
+		return nil, fmt.Errorf("`has` is only supported on properties and appProperties, not on %q", field)
 	}
 	if t, ok := p.next(); !ok || t.kind != tokLBrace {
 		return nil, fmt.Errorf("expected `{` after `has`")
@@ -302,7 +303,11 @@ func (p *parser) parseHas(field string) (predicate, error) {
 		return nil, fmt.Errorf("`properties has` needs both a key and a value")
 	}
 	return func(f *gdrive.File, _ *Server) bool {
-		got, ok := f.Properties[key]
+		set := f.Properties
+		if field == "appProperties" {
+			set = f.AppProperties
+		}
+		got, ok := set[key]
 		if !ok {
 			return false
 		}

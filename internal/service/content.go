@@ -302,12 +302,32 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 			"makes a Google file of it that read_file reads.", f.Name, model.KindWithArticle(f), to)
 	}
 	if !model.IsTextLike(f.MimeType) {
-		return readPlan{}, Errorf(ClassUnsupported, "%s is %s, which is not text. Two ways forward: "+
-			"download_file writes it to disk, or copy_file with convert_to: doc asks Google to import it "+
-			"(which reads the text out of a PDF or an image) and then read_file works on the copy.",
-			f.Name, model.KindWithArticle(f))
+		return readPlan{}, s.notText(f)
 	}
 	return readPlan{formatName: "text"}, nil
+}
+
+// notText refuses a file that has no text of its own, with the ways
+// forward this server offers in the mode it was started in: a PDF or an
+// image has its text read by Google's OCR, which needs a copy, and a
+// read-only server makes none.
+func (s *Service) notText(f *gdrive.File) error {
+	mime := gdrive.MimeOnly(f.MimeType)
+	ocr := mime == "application/pdf" || strings.HasPrefix(mime, "image/")
+	switch {
+	case s.opts.ReadOnly:
+		return Errorf(ClassUnsupported, "%s is %s, which is not text. download_file writes it to disk; reading "+
+			"the text out of a PDF or an image takes a copy, which this read-only server does not make.",
+			f.Name, model.KindWithArticle(f))
+	case ocr:
+		return Errorf(ClassUnsupported, "%s is %s, which is not text. Three ways forward: extract_text reads "+
+			"its text with Google's OCR, through a temporary copy it deletes again; download_file writes it "+
+			"to disk; or copy_file with convert_to: doc keeps that copy as a Google Doc, which read_file reads.",
+			f.Name, model.KindWithArticle(f))
+	}
+	return Errorf(ClassUnsupported, "%s is %s, which is not text. download_file writes it to disk, or "+
+		"copy_file with convert_to asks Google to import it as one of its own kinds, if it imports this one.",
+		f.Name, model.KindWithArticle(f))
 }
 
 // readWindow reads at most budget bytes and returns whole characters
