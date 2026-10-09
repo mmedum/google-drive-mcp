@@ -55,6 +55,12 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - A file card said only "viewers and commenters cannot copy, print or download" when downloads were restricted, even when editors were restricted too. It now reads the restriction in effect.
 - `list_folder` says when this account can see a folder but cannot list what is in it. Such a folder used to list as empty. A recursive walk marks such folders and names them at the end. A recursive `copy_file` refuses a folder holding one, before it copies anything, where it used to copy that folder empty.
 - `download_file` of the current revision, named by its id, checks the bytes against Drive's md5. It said the file's checksum belonged to another version and could not be compared.
+- `list_comments` on a Google Sheet or a Slides deck names that kind, the place a comment pins to in it, and the Sheets or Slides API that pins it. It called every Google kind a document whose comments pin through the Docs API. `add_comment`'s description names all three APIs.
+- A dry run heads its before-and-after lines "would change:". It said "changed:", right under "NOTHING WAS CHANGED".
+- A conversion Google refuses says what it imports the file as instead, with the `convert_to` that asks for it: "Google does not import a CSV file as a Google Doc. It imports one as a Google Sheet (convert_to: sheet)." A converted copy says it was imported "as a Google Sheet", with the article.
+- `manage_approval` refused reads "approving Notes was refused", not "approve the approval on Notes". Canceling says the approval is canceled once, then who has been told.
+- `create_shortcut`'s note names what the shortcut points at and no longer repeats the card's line on what acts on the shortcut.
+- A revision Drive answers "not found" for says to try again in a few seconds when the file was just written, because Drive can list a new revision before it answers for it by id. It told the story of the live run that found this.
 
 ### Security
 

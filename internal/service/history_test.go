@@ -139,6 +139,11 @@ func TestManageRevisionExplainsAMissingRevision(t *testing.T) {
 	if !strings.Contains(err.Error(), "30 days") {
 		t.Errorf("the refusal does not say why it might be gone: %v", err)
 	}
+	// The rule a caller can act on, and no account of how it was found.
+	if !strings.HasSuffix(err.Error(), "If the file was written moments ago, try again in a few seconds: "+
+		"Drive can list a new revision before it answers for it by id.") {
+		t.Errorf("the refusal does not end on when to try again: %v", err)
+	}
 
 	for _, action := range []string{"", "pin"} {
 		if _, err := svc.ManageRevision(t.Context(), service.ManageRevisionInput{

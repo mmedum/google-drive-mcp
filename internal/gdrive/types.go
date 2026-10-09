@@ -767,8 +767,9 @@ type ChangeList struct {
 
 // QuotedFileContent is the passage a comment is pinned to. Drive fills
 // it for an anchored comment on a file it can quote from; this server
-// never sets one, because pinning a comment to a passage of a Google Doc
-// is a Docs API feature and this server stops at the file boundary.
+// never sets one, because pinning a comment in a Google Doc, Sheet or
+// Slides deck is that kind's own API's feature and this server stops at
+// the file boundary.
 type QuotedFileContent struct {
 	MimeType string `json:"mimeType,omitempty"`
 	Value    string `json:"value,omitempty"`

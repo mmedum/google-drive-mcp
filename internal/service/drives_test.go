@@ -298,6 +298,9 @@ func TestDryRunChangesNoDrive(t *testing.T) {
 	if !strings.Contains(got.Text, "NOTHING WAS CHANGED") {
 		t.Errorf("the dry run does not say so:\n%s", got.Text)
 	}
+	if !strings.Contains(got.Text, "\nwould change:\n  name: Marketing → Renamed\n") || strings.Contains(got.Text, "\nchanged:") {
+		t.Errorf("the dry run heads its changes as done:\n%s", got.Text)
+	}
 }
 
 func TestManageDriveIsNotAvailableReadOnly(t *testing.T) {

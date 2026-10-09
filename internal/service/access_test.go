@@ -452,6 +452,12 @@ func TestDryRunSharesNothing(t *testing.T) {
 	if !strings.HasPrefix(got.Text, "would have shared") {
 		t.Errorf("the lead line reads as though it happened:\n%s", got.Text)
 	}
+	// The before-and-after lines sit under NOTHING WAS CHANGED, so they
+	// are headed as what would change.
+	if !strings.Contains(got.Text, "\nwould change:\n  access for alice@example.com: no access → can edit\n") ||
+		strings.Contains(got.Text, "\nchanged:") {
+		t.Errorf("the dry run heads its changes as done:\n%s", got.Text)
+	}
 }
 
 // A dry run's note says what the call would do. Under "NOTHING WAS

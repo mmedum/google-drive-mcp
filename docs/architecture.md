@@ -957,10 +957,11 @@ drive as the target. `delete_drive` is gated and needs an empty drive.
 
 `list_comments` (threads with their replies inline, resolved state,
 tombstones on request), `add_comment` (unanchored; the description says
-that a comment pinned to a passage of a Google Doc is a Docs API feature
-this server does not offer), `reply_comment` (`action: reply | resolve |
-reopen | edit`), and the gated `delete_comment`. One Drive backend; the
-reason to have it here is every file that is not a Doc.
+that pinning a comment in a Google Doc, Sheet or Slides deck is a feature
+of the Docs, Sheets or Slides API, which this server does not use),
+`reply_comment` (`action: reply | resolve | reopen | edit`), and the
+gated `delete_comment`. One Drive backend; the reason to have it here is
+every file that is not a Doc.
 
 Four things the discovery document settled before any of it was written
 (§18):
@@ -2657,3 +2658,4 @@ left owed, for the next run:
 | A write returns text and JSON with everything the text says (§4, rule 9) | **Not for `extract_text`, decided 2026-10-09.** Its result is a file's text, up to 400 000 characters a window; a JSON copy doubles it, and Claude Code shows the model only the structured half when there is one (the row on Claude Code 2.1 above). `read_file` returns text only for the same reason | `extract_text` returns a text block alone, whose header names the kept or leftover copy's id and link. A protocol test holds that it returns no structured content |
 | A permanent delete needs `GDRIVE_ENABLE_DESTRUCTIVE` (hard rule 5) | **Kept, with one exception decided 2026-10-09:** the temporary copy `extract_text` makes and deletes in the same call. It was never the person's, nobody has seen it, and putting it in the trash would leave a copy of their file there for 30 days | The delete reaches only the Google Doc Drive's answer to the copy named, never the source, and runs under its own deadline even when the call was canceled |
 | A file card shows everyone who can reach a Google Form (unstated) | **Unverified, and probably not.** The Forms guide, <https://developers.google.com/workspace/forms/api/guides/publish-form>, updated 2026-09-03: "A responder is a permission with view='published' and role='reader'", anyone with the link as a responder is "a permission with type 'anyone', view 'published', and role 'reader'", and listing them needs "the query parameter `includePermissionsForView=published`". The `files.get` reference, updated 2026-03-20, says that parameter "Specifies which additional view's permissions to include in the response. Only `published` is supported." This server never sends it. A live run on 2026-10-09 found a Form whose card said "private to you" among the files a search for `visibility: link` and `anyone` returned | Nothing changed yet. A check by hand settles it: `get_file` on a Form published to anyone with the link, against `files.get` with `includePermissionsForView=published`. If the card under-reports, a Form's reads should ask for the published view and count its responders apart from its editors |
+| Pinning a comment belongs to the Docs API, for every Google document (what `list_comments` said of every kind until 2026-10-09) | **Refuted for Sheets and Slides** against the discovery documents, fetched 2026-10-09: Sheets v4, Docs v1 and Slides v1 each publish an `InsertCommentRequest`, tied to a `GridCoordinate` in a sheet, a `Range` in a document, and a page or a page element in a presentation | `list_comments` names the kind, the place a comment pins to there and the API that pins it. Another Google kind gets the sentence without an API. `add_comment`'s description names all three |

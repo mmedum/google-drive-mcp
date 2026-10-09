@@ -376,10 +376,10 @@ func TestAnUnsupportedConversionSaysWhatTheFileCanBecome(t *testing.T) {
 	if err == nil {
 		t.Fatal("a csv was accepted for conversion to a Google Doc")
 	}
-	for _, want := range []string{"[invalid]", "CSV file", "Google Doc", "sheet"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal does not mention %q: %v", want, err)
-		}
+	want := "[invalid] Google does not import a CSV file as a Google Doc. It imports one as a Google Sheet " +
+		"(convert_to: sheet). Without convert_to the file is copied as it is."
+	if err.Error() != want {
+		t.Errorf("the refusal reads\n%v\nwant\n%s", err, want)
 	}
 
 	// The conversion Drive does offer goes through.

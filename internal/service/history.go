@@ -128,8 +128,8 @@ func (s *Service) revisionError(err error, f *gdrive.File, revisionID string) er
 		return &Error{Class: ClassNotFound, Message: fmt.Sprintf(
 			"%s has no revision %s, or not yet. list_revisions shows the ids it does have; a blob "+
 				"revision that was never pinned is gone 30 days after it stopped being current. If "+
-				"the file was written moments ago, try again: a live run had this exact revision "+
-				"listed, then answered 404 here, then deleted it successfully seconds later.",
+				"the file was written moments ago, try again in a few seconds: Drive can list a new "+
+				"revision before it answers for it by id.",
 			f.Name, revisionID), Err: err}
 	}
 	return wrap(err, fmt.Sprintf("reading revision %s of %s", revisionID, f.Name))

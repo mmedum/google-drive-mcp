@@ -450,7 +450,7 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 		}
 		note := fmt.Sprintf("Would copy it as %s into %s", name, where)
 		if convert != "" {
-			note += ", imported as " + model.KindName(convert)
+			note += ", imported as " + model.KindNameWithArticle(convert)
 		}
 		note = strings.TrimSpace(note + ". " + sentence(s.moveNote(ctx, parts[0], parts[0].after, true)))
 		return s.copyResult(ctx, res, parts[0].before, parts[0].after, outcome{Action: render.ActionCopied,
@@ -477,7 +477,7 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 	}
 	if convert != "" {
 		notes = append(notes, fmt.Sprintf("Google imported the copy as %s. The original %s is untouched.",
-			model.KindName(convert), f.Name))
+			model.KindNameWithArticle(convert), f.Name))
 	}
 	if in.CopyComments {
 		// What was ASKED for, not what happened. files.copy answers with a
@@ -672,8 +672,7 @@ func (s *Service) CreateShortcut(ctx context.Context, in CreateShortcutInput) (*
 		return nil, wrap(err, fmt.Sprintf("creating a shortcut to %s in %s", target.Name, parent.Name))
 	}
 	return s.write(ctx, f, outcome{Action: render.ActionCreated,
-		Note: fmt.Sprintf("it points at %s (%s). Organizing, sharing and trashing "+
-			"act on the shortcut, not on what it points at.", target.Name, target.ID)})
+		Note: fmt.Sprintf("it points at %s.", target.Name)})
 }
 
 // TrashInput selects an item to trash or restore.

@@ -184,9 +184,15 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 	if action == ApprovalStart && in.LockFile {
 		note += " " + lockWords(after.File, lockedBefore, reread, converted)
 	}
+	state := approvalState(converted)
+	text := note + " " + state
+	if action == ApprovalCancel {
+		// The state is the news here, and the note says who heard it.
+		text = state + " " + note
+	}
 	return s.report(ctx, after, outcome{
 		Action: approvalOutcome(action),
-		Note:   note + " " + approvalState(converted),
+		Note:   strings.TrimSpace(text),
 	}), nil
 }
 
@@ -327,29 +333,33 @@ func (s *Service) answerApproval(ctx context.Context, f *gdrive.File, action str
 	}
 	body := &gdrive.ApprovalMessage{Message: message}
 	var (
-		out  *gdrive.Approval
-		err  error
-		note string
+		out   *gdrive.Approval
+		err   error
+		note  string
+		doing string
 	)
 	switch action {
 	case ApprovalApprove:
 		out, err = s.api.ApproveApproval(ctx, f.ID, id, body)
-		note = "Your approval is recorded."
+		note, doing = "Your approval is recorded.", "approving"
 	case ApprovalDecline:
 		out, err = s.api.DeclineApproval(ctx, f.ID, id, body)
 		// Worth stating: one decline ends it, unlike an approval, which
 		// waits for everybody.
 		note = "You declined, which completes the approval: one refusal decides it, where an approval " +
 			"waits for every reviewer."
+		doing = "declining the approval on"
 	case ApprovalCancel:
 		out, err = s.api.CancelApproval(ctx, f.ID, id, body)
-		note = "The approval is withdrawn. Everybody who was asked has been told."
+		// The state Drive reports says it is canceled; this says who knows.
+		note, doing = "Everybody who was asked has been told.", "canceling the approval on"
 	case ApprovalComment:
 		out, err = s.api.CommentApproval(ctx, f.ID, id, body)
 		note = "Your message is on the approval, and the person who asked and every reviewer have been mailed it."
+		doing = "commenting on the approval on"
 	}
 	if err != nil {
-		return nil, "", s.approvalError(err, f, action+" the approval on", id)
+		return nil, "", s.approvalError(err, f, doing, id)
 	}
 	return out, note, nil
 }

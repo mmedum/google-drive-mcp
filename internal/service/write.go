@@ -434,17 +434,17 @@ func (s *Service) checkConversion(ctx context.Context, from, to string) error {
 	names := make([]string, 0, len(targets))
 	for _, t := range targets {
 		if name := convertName(t); name != "" {
-			names = append(names, name)
+			names = append(names, fmt.Sprintf("%s (convert_to: %s)", model.KindNameWithArticle(t), name))
 		}
 	}
 	sort.Strings(names)
-	became := "nothing this server offers"
-	if len(names) > 0 {
-		became = strings.Join(names, " or ")
+	refused := fmt.Sprintf("Google does not import %s as %s", model.KindNameWithArticle(from), model.KindNameWithArticle(to))
+	if len(names) == 0 {
+		return Errorf(ClassInvalid, "%s, nor as anything else convert_to offers. "+
+			"Without convert_to the file is copied as it is.", refused)
 	}
-	return Errorf(ClassInvalid, "Google does not import %s as %s. It converts to %s. "+
-		"Without convert_to the file is copied as it is.",
-		model.KindName(from), model.KindName(to), became)
+	return Errorf(ClassInvalid, "%s. It imports one as %s. Without convert_to the file is copied as it is.",
+		refused, strings.Join(names, " or "))
 }
 
 // importTargets is what Google will convert one media type into, from

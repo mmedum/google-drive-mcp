@@ -349,6 +349,25 @@ func TestAnsweringAFinishedApprovalSaysThatIsPossible(t *testing.T) {
 			t.Errorf("the refusal does not mention %q:\n%s", want, msg)
 		}
 	}
+	if !strings.HasPrefix(msg, "[forbidden] approving Meeting notes was refused.") {
+		t.Errorf("the refusal does not open on what was refused:\n%s", msg)
+	}
+}
+
+// Canceling says the approval is canceled once, from what Drive reports,
+// and then who has been told.
+func TestCancelingAnApprovalSaysSoOnce(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddApproval("id-notes-fixture", "id-approval-off", "person@example.com")
+	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-notes-fixture", Action: "cancel", Approval: "id-approval-off",
+	})
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if !strings.HasSuffix(res.Text, "\nnote: The approval is canceled. Everybody who was asked has been told.\n") {
+		t.Errorf("the result does not say it was canceled, then who knows:\n%s", res.Text)
+	}
 }
 
 // TestARefusedListingDoesNotBlameAFinishedApproval keeps the message

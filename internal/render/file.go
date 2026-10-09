@@ -101,6 +101,15 @@ func writeAppliedLabels(b *buf, labels []model.AppliedLabel) {
 	}
 }
 
+// changesHead heads the before-and-after lines. A dry run changed
+// nothing, and its lines sit right under the line that says so.
+func changesHead(dryRun bool) string {
+	if dryRun {
+		return "would change:"
+	}
+	return "changed:"
+}
+
 // orEmpty renders a value that was not set, so a before-and-after line
 // never reads as though a field went from nothing to nothing.
 func orEmpty(v string) string {
@@ -180,7 +189,7 @@ func FileCard(f *model.File, o FileCardOptions) string {
 		b.line("NOTHING WAS CHANGED: this was a dry run. Call it again without dry_run to do it.")
 	}
 	if len(o.Changes) > 0 {
-		b.line("changed:")
+		b.line(changesHead(o.DryRun))
 		for _, c := range o.Changes {
 			b.linef("  %s: %s → %s", c.Field, orEmpty(c.From), orEmpty(c.To))
 		}

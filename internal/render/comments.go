@@ -19,9 +19,9 @@ type CommentsOptions struct {
 	// to the conversation. A listing that does not say so invites an
 	// add_comment that is refused.
 	CanComment bool
-	// Workspace marks a Google document, whose comments people make in
-	// the editor and pin to a passage.
-	Workspace bool
+	// PinNote says, for a Google document, where a comment pinned to a
+	// place in it comes from. model.PinNote writes it.
+	PinNote string
 	// NextPageToken means this page did not exhaust the threads.
 	NextPageToken string
 	// IncludedDeleted records that the caller asked for tombstones, so
@@ -161,9 +161,8 @@ func writeCommentNotes(b *buf, o CommentsOptions) {
 	if o.NextPageToken != "" {
 		b.linef("more threads: call again with page_token %q", o.NextPageToken)
 	}
-	if o.Workspace {
-		b.line("this is a Google document: a comment pinned to a passage was made in the editor, and " +
-			"add_comment here makes an unpinned one, because pinning belongs to the Docs API")
+	if o.PinNote != "" {
+		b.line(o.PinNote)
 	}
 	if !o.CanComment {
 		b.line("this account cannot comment on this file, so add_comment and reply_comment will be refused")

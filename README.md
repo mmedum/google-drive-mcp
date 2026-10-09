@@ -295,8 +295,9 @@ Five things it does differently from the alternatives:
 
 - Edit the content of a Google Doc, Sheet or Slides deck. It reads them
   through Google's export and says so. A comment made here sits on the
-  file rather than on a passage of the document: pinning one to a place
-  in a Doc is a Docs API feature, and this server does not use that API.
+  file rather than on a place in it: pinning one in a Doc, Sheet or
+  Slides deck is a feature of that kind's own API, which this server
+  does not use.
 - Widen access without being asked. Sharing tools check
   `capabilities.canShare` first, show who can see a file before and
   after, need `allow_anyone: true` for a public link, and send no

@@ -118,8 +118,9 @@ func TestCopyFile(t *testing.T) {
 	if converted.JSON.File.MimeType != gdrive.MimeSheet {
 		t.Errorf("converted to %q", converted.JSON.File.MimeType)
 	}
-	if !strings.Contains(converted.Text, "The original Budget.xlsx is untouched") {
-		t.Errorf("a conversion did not say the original was left alone:\n%s", converted.Text)
+	if !strings.Contains(converted.Text, "Google imported the copy as a Google Sheet. The original Budget.xlsx is untouched.") {
+		t.Errorf("a conversion did not say what the copy became and that the original was left alone:\n%s",
+			converted.Text)
 	}
 }
 
@@ -334,6 +335,13 @@ func TestCreateShortcut(t *testing.T) {
 	}
 	if !strings.Contains(got.Text, "act on the shortcut") {
 		t.Errorf("the result does not warn what a shortcut does:\n%s", got.Text)
+	}
+	// Once: the card says it, and the note names what the shortcut is to.
+	if n := strings.Count(got.Text, "act on the shortcut"); n != 1 {
+		t.Errorf("the result says what a shortcut does %d times:\n%s", n, got.Text)
+	}
+	if !strings.HasSuffix(got.Text, "note: it points at Budget.xlsx.\n") {
+		t.Errorf("the note does not name the target:\n%s", got.Text)
 	}
 }
 
