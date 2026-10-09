@@ -763,6 +763,102 @@ func TestFileCardSaysWhoSharedItWithYou(t *testing.T) {
 	}
 }
 
+// visibilityTree adds one file per kind of reach, each in its own way
+// open to people it does not name.
+func visibilityTree(fake *drivetest.Server) {
+	for _, f := range []struct {
+		id, name string
+		grant    *gdrive.Permission
+	}{
+		{"id-by-link-fixture", "By link", &gdrive.Permission{Type: "anyone", Role: "reader"}},
+		{"id-findable-fixture", "Findable", &gdrive.Permission{Type: "anyone", Role: "reader", AllowFileDiscovery: true}},
+		{"id-company-fixture", "Company", &gdrive.Permission{Type: "domain", Role: "reader", Domain: "example.com"}},
+		{"id-named-fixture", "Named", &gdrive.Permission{Type: "user", Role: "reader", EmailAddress: "jane@example.com"}},
+	} {
+		fake.AddFile(f.id, f.name, gdrive.MimeDocument, "id-2026-fixture")
+		fake.Grant(f.id, f.grant)
+	}
+}
+
+func TestSearchByVisibility(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	visibilityTree(fake)
+	for _, c := range []struct {
+		visibility, title string
+		want              []string
+	}{
+		{"anyone", "search: kind doc, open to anyone on the internet — 2 hits", []string{"By link", "Findable"}},
+		{"link", "search: kind doc, open to anyone with the link — 1 hit", []string{"By link"}},
+		{"domain", "search: kind doc, open to everyone in the organization — 1 hit", []string{"Company"}},
+		{"limited", "search: kind doc, open only to the people and groups it is shared with — 3 hits",
+			[]string{"Meeting notes", "Named", "Q3 plan"}},
+	} {
+		out, err := svc.Search(t.Context(), service.SearchInput{Kind: "doc", Visibility: c.visibility, OrderBy: "name"})
+		if err != nil {
+			t.Fatalf("%s: %v", c.visibility, err)
+		}
+		// The title carries the count, so the names below are all the hits.
+		if title, _, _ := strings.Cut(out, "\n"); title != c.title {
+			t.Errorf("%s: title = %q, want %q", c.visibility, title, c.title)
+		}
+		for _, name := range c.want {
+			if !strings.Contains(out, name) {
+				t.Errorf("%s: %s is missing:\n%s", c.visibility, name, out)
+			}
+		}
+	}
+}
+
+// shared_with finds a file whether the address may view, comment or
+// edit it. The fake reads readers narrowly, so a query that asked
+// readers alone would miss the editor here.
+func TestSearchSharedWithFindsViewersCommentersAndEditors(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	for _, f := range []struct{ id, name, role, address string }{
+		{"id-viewer-fixture", "Viewer", "reader", "jane@example.com"},
+		{"id-commenter-fixture", "Commenter", "commenter", "jane@example.com"},
+		{"id-editor-fixture", "Editor", "writer", "jane@example.com"},
+		{"id-someone-else-fixture", "Someone else", "writer", "john@example.com"},
+	} {
+		fake.AddFile(f.id, f.name, gdrive.MimeDocument, "id-2026-fixture")
+		fake.Grant(f.id, &gdrive.Permission{Type: "user", Role: f.role, EmailAddress: f.address})
+	}
+	out, err := svc.Search(t.Context(), service.SearchInput{SharedWith: "jane@example.com", OrderBy: "name"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.HasPrefix(out, "search: shared with jane@example.com — 3 hits\n") {
+		t.Errorf("title wrong:\n%s", out)
+	}
+	for _, want := range []string{"Viewer", "Commenter", "Editor"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%s is missing:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Someone else") {
+		t.Errorf("a file shared with another address is a hit:\n%s", out)
+	}
+}
+
+func TestSearchRefusesAVisibilityOrAddressItCannotRead(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	for _, c := range []struct {
+		in   service.SearchInput
+		want string
+	}{
+		{service.SearchInput{Visibility: "public"}, `[invalid] visibility "public" is not one of anyone, domain, limited, link`},
+		{service.SearchInput{SharedWith: "jane"}, `[invalid] shared_with takes one address of a person or group, ` +
+			`like someone@example.com, not "jane"`},
+		{service.SearchInput{SharedWith: "jane@example.com john@example.com"}, `[invalid] shared_with takes one ` +
+			`address of a person or group, like someone@example.com, not "jane@example.com john@example.com"`},
+	} {
+		_, err := svc.Search(t.Context(), c.in)
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%+v: err = %v\nwant %s", c.in, err, c.want)
+		}
+	}
+}
+
 func TestSearchRejectsBadEnums(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 	cases := []service.SearchInput{

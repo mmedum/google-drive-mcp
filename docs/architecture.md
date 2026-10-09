@@ -506,7 +506,9 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   `mime_type`, `in_folder` (direct children only; Drive cannot recurse in
   a query, and the description says so), `drive` (one shared drive),
   `scope` (`all`, `my_drive`, `shared_with_me`), `owner` (`me` or an
-  email), `starred`, `trashed`, `modified_after`, `modified_before`,
+  email), `visibility` (`anyone`, `link`, `domain`, `limited`, below),
+  `shared_with` (an address: `('x' in readers or 'x' in writers)`),
+  `starred`, `trashed`, `modified_after`, `modified_before`,
   `created_after`, `order_by` (`modified`, `name`, `created`, `recency`,
   `viewed`, `size`, `shared`), `limit` (default 25, max 200), `page_token`, and
   `raw_query` for the rest of the syntax, ANDed in. Each hit shows kind,
@@ -516,7 +518,12 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   `scope` it implies `shared_with_me` and the title says so, and with
   another scope it is refused. A search with no filter at all is allowed:
   every live file this account can see, titled "everything you can see,
-  by <order>". Locations need the parents'
+  by <order>". `visibility` maps onto Drive's five values: `anyone` is
+  `anyoneCanFind` or `anyoneWithLink`, since a person asking what is
+  public means both; `link` is `anyoneWithLink` alone, what the sharing
+  dialog calls "Anyone with the link"; `domain` is `domainCanFind` or
+  `domainWithLink`; `limited` is `limited`. There is no "shared outside
+  the organization" filter: Drive's query language has no term for it. Locations need the parents'
   names, which the listing does not carry: up to 20 distinct parents per
   page are looked up (cached), the rest show ids. `incomplete_search`
   from Google is passed on as a line the model can act on.
@@ -2306,3 +2313,5 @@ live run of it found.
 | CI's checkout has no tags, so a schema diff against the last tag compares against nothing there | **Refuted for this repository.** The `smoke` job checks out with `fetch-depth: 0`, which `actions/checkout`'s `action.yml` at the pinned v7.0.1 SHA describes as "all history for all branches and tags". The tag was there, and the diff built it | The diff still moved to a committed baseline, for what the tag could not do: it compared top-level inputs only, so a lost output field or a field deep in an object passed; it rebuilt old source on every run; and a deliberate break could not pass before its own tag existed |
 | `capabilities.canListChildren` false means a listing of the folder is refused (unstated) | **Unverified.** The `files` reference, read 2026-10-09, says only "Whether the current user can list the children of this folder." Whether `'id' in parents` then answers with nothing, with the items shared with the account directly, or with an error is not documented | `list_folder` lists anyway and says the folder cannot be listed, so either answer reads correctly; a recursive copy refuses. The live driver's `-unlistable REF` step settles which answer Drive gives |
 | `sharedWithMeTime` orders the files shared with this account (convention) | **Confirmed** against the `files.list` reference, read 2026-10-09: `orderBy` lists `sharedWithMeTime`, "When the file was shared with the user, if applicable". The `files` reference says the same of the field and calls `sharingUser` "The user who shared the file with the requesting user, if applicable". Where a file without the time sorts is not documented | `order_by: shared` sends `sharedWithMeTime desc` only beside `sharedWithMe = true`, so every hit has the time. Both fields are in the list mask, so a row says who shared a file and when, and a shared file whose folder is out of reach reads as "Shared with me" in a search, not as having no folder |
+| `visibility` takes the five values the search-terms guide lists (convention) | **Confirmed** against <https://developers.google.com/workspace/drive/api/guides/ref-search-terms>, read 2026-10-09: operators `=` and `!=`, values `anyoneCanFind`, `anyoneWithLink`, `domainCanFind`, `domainWithLink` and `limited`. The search guide says `limited` is "private, or shared with specific users or groups" | The fake refuses any other value or operator. Which value a file with both an anyone and a domain grant reports is not documented; the fake assumes the wider. The live driver searches `link`, `anyone` and `limited` around its link grant |
+| `readers` holds the people who can edit (unstated) | **Unverified.** The search-terms guide says `readers` are "Users or groups who have permission to read the file" and `writers` "have permission to modify the file", and nothing more | `shared_with` asks `readers` or `writers`, which is right either way. The fake takes the narrow reading: `readers` is reader and commenter, `writers` is writer, organizer and owner. With `-share`, the live driver asks `readers` alone for a file the address can edit and says which way Drive answered |

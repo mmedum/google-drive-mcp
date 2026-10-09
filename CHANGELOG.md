@@ -10,6 +10,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 - `search_files` takes `order_by: shared`, which puts the files most recently shared with you first. With no `scope` it searches only the files shared with you, and the title says so.
 - A file card, and a row in a search or a listing, says when a file was shared with you and by whom.
+- `search_files` takes `visibility`: `anyone` (anyone on the internet, by link or by search), `link` (anyone with the link), `domain` (everyone in the organization) or `limited` (only the people and groups it is shared with).
+- `search_files` takes `shared_with`, an address: only the files shared with that person or group, as viewer, commenter or editor.
 - `search_files` with no filter at all returns everything you can see, in the order `order_by` names. It used to be refused.
 
 ### Changed

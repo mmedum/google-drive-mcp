@@ -331,15 +331,18 @@ func inPredicate(field, value string) (predicate, error) {
 			return false
 		}, nil
 	case "writers", "readers":
+		// The reference says readers have "permission to read" and
+		// writers "permission to modify", and not whether readers holds
+		// the writers too. The fake takes the narrow reading, so a query
+		// that needs writers fails here rather than in production; §18
+		// records it as unverified.
+		roles := map[string]bool{"reader": true, "commenter": true}
+		if field == "writers" {
+			roles = map[string]bool{"writer": true, "fileOrganizer": true, "organizer": true, "owner": true}
+		}
 		return func(f *gdrive.File, s *Server) bool {
 			for _, p := range s.Permissions[f.ID] {
-				if p.EmailAddress != value {
-					continue
-				}
-				if field == "writers" && (p.Role == "writer" || p.Role == "owner") {
-					return true
-				}
-				if field == "readers" {
+				if p.EmailAddress == value && roles[p.Role] {
 					return true
 				}
 			}
@@ -351,6 +354,17 @@ func inPredicate(field, value string) (predicate, error) {
 
 func comparePredicate(field, op string, val token) (predicate, error) {
 	switch field {
+	case "visibility":
+		if op != "=" && op != "!=" {
+			return nil, fmt.Errorf("visibility takes = or !=, not %q", op)
+		}
+		if _, ok := visibilityRank[val.text]; !ok || val.kind != tokString {
+			return nil, fmt.Errorf("visibility %q is not one of the values the reference documents", val.text)
+		}
+		want := val.text
+		return func(f *gdrive.File, s *Server) bool {
+			return (visibilityOf(s.Permissions[f.ID]) == want) == (op == "=")
+		}, nil
 	case "name", "mimeType", "fullText":
 		want := val.text
 		return func(f *gdrive.File, s *Server) bool {
@@ -515,4 +529,39 @@ func words(s string) []string {
 	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
 	})
+}
+
+// visibilityRank orders the values the search-terms reference documents
+// for visibility, from the narrowest to the widest.
+var visibilityRank = map[string]int{
+	"limited": 0, "domainWithLink": 1, "domainCanFind": 2, "anyoneWithLink": 3, "anyoneCanFind": 4,
+}
+
+// visibilityOf is the visibility a file with these grants reports. An
+// anyone or domain grant sets it, discoverable or by link; with neither
+// it is limited. Which value wins when a file carries both kinds is not
+// documented; the widest is assumed.
+func visibilityOf(perms []*gdrive.Permission) string {
+	best := "limited"
+	for _, p := range perms {
+		var v string
+		switch p.Type {
+		case "anyone":
+			v = "anyoneWithLink"
+			if p.AllowFileDiscovery {
+				v = "anyoneCanFind"
+			}
+		case "domain":
+			v = "domainWithLink"
+			if p.AllowFileDiscovery {
+				v = "domainCanFind"
+			}
+		default:
+			continue
+		}
+		if visibilityRank[v] > visibilityRank[best] {
+			best = v
+		}
+	}
+	return best
 }

@@ -203,6 +203,43 @@ func (w *writeRun) pollProperty(property string) {
 		"minutes from now to close it.")
 }
 
+// pollSearch runs a search_files call in the scratch folder until it
+// finds the file, and reports whether it did. A sharing change reaches Drive's
+// search index late, as a property does, so an empty answer is first
+// waited out and then reported as unverified rather than as a defect.
+func (w *writeRun) pollSearch(search call, id, what string) bool {
+	search.args["in_folder"] = w.scratchID
+	const attempts = 10
+	for i := range attempts {
+		if i > 0 {
+			time.Sleep(3 * time.Second)
+		}
+		if strings.Contains(w.call(search), id) {
+			return true
+		}
+		w.out.Sayf("(the search has not found it yet; waiting — attempt %d of %d)", i+1, attempts)
+	}
+	w.out.Sayf("UNVERIFIED THIS RUN: %s. The search did not find the file after 30 seconds. Drive's "+
+		"index is eventually consistent, so run the same search by hand a few minutes from now.", what)
+	return false
+}
+
+// readersHoldWriters settles the belief shared_with is built around: the
+// reference does not say whether readers holds the people who can edit.
+// It asks readers alone for a file the -share address can edit, after
+// shared_with has shown the index knows the grant.
+func (w *writeRun) readersHoldWriters(id string) {
+	out := w.call(call{tool: "search_files", args: map[string]any{
+		"raw_query": "'" + w.share + "' in readers", "in_folder": w.scratchID,
+	}})
+	if strings.Contains(out, id) {
+		w.out.Say("(readers alone found a file the address can edit: readers holds the writers. Record it in §18.)")
+		return
+	}
+	w.out.Say("(readers alone did NOT find a file the address can edit: readers does not hold the writers. " +
+		"shared_with asks both, so it is right either way. Record it in §18.)")
+}
+
 // approvals exercises phase 4's review surface, and stops short of one
 // verb on purpose.
 //
@@ -558,6 +595,14 @@ func (w *writeRun) access(m made) {
 		"file": m.text, "principal": "anyone", "role": "reader", "allow_anyone": true,
 	})
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
+	// The link grant is the one reach this run can give: visibility
+	// link and anyone must find the file, and limited must not.
+	if m.text != "" {
+		w.pollSearch(call{tool: "search_files", args: map[string]any{"visibility": "link"}}, m.text,
+			"visibility link finds a file anyone with the link can open")
+		w.pollSearch(call{tool: "search_files", args: map[string]any{"visibility": "anyone"}}, m.text,
+			"visibility anyone finds the same file")
+	}
 	w.needing("share_file", m.text, map[string]any{
 		"file": m.text, "principal": "domain:example.com", "role": "reader",
 		"allow_domain": true, "dry_run": true,
@@ -572,6 +617,10 @@ func (w *writeRun) access(m made) {
 		"file": m.text, "permission_id": "anyoneWithLink", "dry_run": true,
 	})
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true})
+	if m.text != "" {
+		w.pollSearch(call{tool: "search_files", args: map[string]any{"visibility": "limited"}}, m.text,
+			"visibility limited finds the file once its link is gone")
+	}
 
 	if w.share == "" {
 		w.out.Say("\n(pass -share SOMEONE@EXAMPLE.COM to also exercise a real grant, an expiry " +
@@ -587,6 +636,10 @@ func (w *writeRun) access(m made) {
 		"file": m.text, "principal": w.share, "role": "writer",
 	})
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
+	if m.text != "" && w.pollSearch(call{tool: "search_files", args: map[string]any{"shared_with": w.share}}, m.text,
+		"shared_with finds a file the address can edit") {
+		w.readersHoldWriters(m.text)
+	}
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "principal": w.share})
 
 	w.spikeF()

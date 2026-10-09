@@ -41,6 +41,8 @@ type SearchInput struct {
 	Limit          int    `json:"limit,omitempty" jsonschema:"how many hits to return, default 25, maximum 200"`
 	PageToken      string `json:"page_token,omitempty" jsonschema:"the page_token from a previous result, to see the next page"`
 	Property       string `json:"property,omitempty" jsonschema:"match a custom file property, as \"key=value\". These are the pairs update_file sets: one app tags files this way for another to find. Both halves are required — Drive cannot search for a key whatever its value, whatever its documentation says."`
+	Visibility     string `json:"visibility,omitempty" jsonschema:"who can open the file without being named on it: anyone (anyone on the internet, by link or by search), link (anyone with the link), domain (everyone in the organization, by link or by search), or limited (only the people and groups it is shared with)"`
+	SharedWith     string `json:"shared_with,omitempty" jsonschema:"one address of a person or group: only files shared with it as viewer, commenter or editor"`
 	RawQuery       string `json:"raw_query,omitempty" jsonschema:"a Drive API v3 query expression, ANDed with the other fields, for syntax these fields do not cover"`
 }
 
@@ -94,7 +96,8 @@ func registerRead(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "search_files",
 		Description: "Find files across My Drive, files shared with you, and every shared drive, by name, content, " +
-			"kind, folder, owner, star or date. Each hit shows its kind, name, id, folder and last change. " +
+			"kind, folder, owner, star, date, who it is shared with or who can open it. Each hit shows its kind, " +
+			"name, id, folder and last change. " +
 			"IMPORTANT: Drive does not do substring search. `name` matches the beginnings of words and `text` matches " +
 			"whole words, so \"udget\" will never find \"Budget\". Use list_folder when you know where something is: " +
 			"a search costs twenty times what a read does. `in_folder` reaches direct children only. " +
@@ -107,7 +110,7 @@ func registerRead(s *mcp.Server, d Deps) []string {
 			Starred: in.Starred, Trashed: in.Trashed,
 			ModifiedAfter: in.ModifiedAfter, ModifiedBefore: in.ModifiedBefore, CreatedAfter: in.CreatedAfter,
 			OrderBy: in.OrderBy, Property: in.Property, Limit: in.Limit, PageToken: in.PageToken,
-			RawQuery: in.RawQuery,
+			RawQuery: in.RawQuery, Visibility: in.Visibility, SharedWith: in.SharedWith,
 		})
 		if err != nil {
 			return nil, nil, fail(err)

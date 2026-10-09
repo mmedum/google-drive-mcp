@@ -36,10 +36,36 @@ type SearchInput struct {
 	// file carrying that key whatever its value; "key=value" matches
 	// both. Properties are the key-value pairs update_file sets, which
 	// is how one app tags files for another to find.
-	Property  string
-	Limit     int
-	PageToken string
-	RawQuery  string
+	Property string
+	// Visibility is who can open the file without being named on it:
+	// anyone, link, domain or limited.
+	Visibility string
+	// SharedWith is an address of a person or group the file is shared
+	// with, as a viewer, commenter or editor.
+	SharedWith string
+	Limit      int
+	PageToken  string
+	RawQuery   string
+}
+
+// visibilities maps the visibility a tool accepts onto Drive's own
+// values, and says it in words. anyone covers both of Drive's values for
+// the whole internet, by link or by search, because a person asking what
+// is public means both; link is the one Drive's sharing dialog calls
+// "Anyone with the link".
+var visibilities = map[string]struct {
+	values []string
+	words  string
+}{
+	"anyone":  {[]string{"anyoneCanFind", "anyoneWithLink"}, "open to anyone on the internet"},
+	"link":    {[]string{"anyoneWithLink"}, "open to anyone with the link"},
+	"domain":  {[]string{"domainCanFind", "domainWithLink"}, "open to everyone in the organization"},
+	"limited": {[]string{"limited"}, "open only to the people and groups it is shared with"},
+}
+
+// Visibilities lists the accepted visibility names.
+func Visibilities() []string {
+	return sortedKeys(visibilities)
 }
 
 // Scope values for a search.
@@ -209,10 +235,12 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 		clauses = append(clauses, quote(res.File.ID)+" in parents")
 		described = append(described, "directly inside "+res.File.Name)
 	}
-	if owner := strings.TrimSpace(in.Owner); owner != "" {
-		clauses = append(clauses, quote(owner)+" in owners")
-		described = append(described, "owned by "+owner)
+	access, accessWords, err := accessClauses(in)
+	if err != nil {
+		return "", "", err
 	}
+	clauses = append(clauses, access...)
+	described = append(described, accessWords...)
 	if in.Starred {
 		clauses = append(clauses, "starred = true")
 		described = append(described, "starred")
@@ -274,6 +302,60 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 		described = append(described, "everything you can see, by "+orderName)
 	}
 	return strings.Join(clauses, " and "), "search: " + strings.Join(described, ", "), nil
+}
+
+// accessClauses are the clauses about who can reach a file: its owner,
+// its visibility and an address it is shared with.
+func accessClauses(in *SearchInput) (clauses, described []string, err error) {
+	if owner := strings.TrimSpace(in.Owner); owner != "" {
+		clauses = append(clauses, quote(owner)+" in owners")
+		described = append(described, "owned by "+owner)
+	}
+	if v := strings.TrimSpace(in.Visibility); v != "" {
+		clause, words, err := visibilityClause(v)
+		if err != nil {
+			return nil, nil, err
+		}
+		clauses = append(clauses, clause)
+		described = append(described, words)
+	}
+	if who := strings.TrimSpace(in.SharedWith); who != "" {
+		clause, err := sharedWithClause(who)
+		if err != nil {
+			return nil, nil, err
+		}
+		clauses = append(clauses, clause)
+		described = append(described, "shared with "+who)
+	}
+	return clauses, described, nil
+}
+
+// visibilityClause is the query clause for one visibility name and the
+// words that describe it.
+func visibilityClause(v string) (clause, words string, err error) {
+	vis, ok := visibilities[strings.ToLower(v)]
+	if !ok {
+		return "", "", Errorf(ClassInvalid, "visibility %q is not one of %s", v, strings.Join(Visibilities(), ", "))
+	}
+	terms := make([]string, 0, len(vis.values))
+	for _, value := range vis.values {
+		terms = append(terms, "visibility = "+quote(value))
+	}
+	if len(terms) == 1 {
+		return terms[0], vis.words, nil
+	}
+	return "(" + strings.Join(terms, " or ") + ")", vis.words, nil
+}
+
+// sharedWithClause finds the files an address can open. It asks readers
+// and writers both: the reference does not say whether readers includes
+// the people who can edit, and asking both is right either way.
+func sharedWithClause(who string) (string, error) {
+	if !strings.Contains(who, "@") || strings.ContainsAny(who, " \t") {
+		return "", Errorf(ClassInvalid, "shared_with takes one address of a person or group, like "+
+			"someone@example.com, not %q", who)
+	}
+	return "(" + quote(who) + " in readers or " + quote(who) + " in writers)", nil
 }
 
 // scopeClause is the query clause a scope adds and the words that

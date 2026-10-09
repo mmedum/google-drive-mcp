@@ -422,7 +422,7 @@ func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	schemas := map[string]string{}
-	var orderBy string
+	var orderBy, visibility string
 	for _, tool := range res.Tools {
 		raw, _ := json.Marshal(tool.InputSchema)
 		schemas[tool.Name] = string(raw)
@@ -436,6 +436,7 @@ func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
 				t.Fatalf("search_files schema does not decode: %v", err)
 			}
 			orderBy = schema.Properties["order_by"].Description
+			visibility = schema.Properties["visibility"].Description
 		}
 	}
 	for _, tool := range []string{"search_files", "list_folder"} {
@@ -450,6 +451,11 @@ func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
 	for _, order := range service.OrderBys() {
 		if !regexp.MustCompile(`\b` + order + `\b`).MatchString(orderBy) {
 			t.Errorf("order_by does not offer the order %q that the service accepts: %q", order, orderBy)
+		}
+	}
+	for _, v := range service.Visibilities() {
+		if !regexp.MustCompile(`\b` + v + `\b`).MatchString(visibility) {
+			t.Errorf("visibility does not offer %q, which the service accepts: %q", v, visibility)
 		}
 	}
 	// The download formats are the same shape of promise: a list typed
