@@ -2635,6 +2635,9 @@ for the next run:
   against `files.get` with `includePermissionsForView=published` (the
   Form row). In all three runs a Form's card read "private to you"
   while the link searches returned it.
+- Moving a folder that has limited access: the move prediction ignores
+  the folder's own setting, a belief its row records as unverified, and
+  no live step makes that move yet.
 - Cleanup by hand: each run leaves its scratch folder in the trash,
   which held nearly all of the account's Drive usage from earlier runs,
   and approvals mail the account.
