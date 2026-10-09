@@ -820,7 +820,9 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   Items move one call each, in order, and a failure does not undo the
   moves before it or stop the ones after. A failed item is read back:
   one Drive moved anyway is reported as moved, and one it did not says
-  where it is.
+  where it is. A call that moves none because each item failed or was
+  refused reports the action `failed`, never `unchanged`, which says
+  there was nothing to do.
 - `copy_file`: `file`, `name` (default "Copy of …", as Drive does), `to`
   (default the source's folder, as Drive does), `convert_to` (import
   conversion, OCR for PDFs and images, `ocr_language`),

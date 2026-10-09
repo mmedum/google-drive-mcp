@@ -139,6 +139,15 @@ func TestAQuestionBindsWhatTheWriteDependsOn(t *testing.T) {
 		AskDeleteComment("id-1", "f", false, "x", "y", []string{"a", "b"}).Bind {
 		t.Error("a reply added to a thread is not bound")
 	}
+	to := MoveTarget{ID: "id-to", Name: "Open", Kind: "folder"}
+	one := func(id string) MoveItem { return MoveItem{ID: id, Name: "same name", Kind: "file"} }
+	if AskMove(to, []string{"id-1"}, []MoveItem{one("id-1")}).Bind == AskMove(to, []string{"id-2"}, []MoveItem{one("id-2")}).Bind {
+		t.Error("a move of two files of one name binds the same answer")
+	}
+	if AskMove(to, []string{"id-1", "id-3"}, []MoveItem{one("id-1")}).Bind ==
+		AskMove(to, []string{"id-1", "id-4"}, []MoveItem{one("id-1")}).Bind {
+		t.Error("a move of several binds the same answer whatever else moves with the item that widens")
+	}
 	a, b := AskEmptyTrash("id-1", "d", 3, true), AskEmptyTrash("id-1", "d", 4, true)
 	if a.Bind != b.Bind {
 		t.Error("the trash count is bound, so a trash that changes while the person reads is never confirmed")

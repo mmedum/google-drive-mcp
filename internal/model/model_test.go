@@ -634,4 +634,10 @@ func TestGainedIsWhoAChangeReachesThatItDidNot(t *testing.T) {
 	if !SameReach(after, after, "") || SameReach(before, after, "me@example.com") {
 		t.Error("SameReach does not tell a list from a wider one")
 	}
+	// The account is itself however Drive spells its address, even where
+	// it reached nothing before.
+	if got := Gained(SharingOf(false, nil), SharingOf(true, []Grant{{Type: "user", Role: "writer", Who: "Me@Example.com"}}),
+		"me@example.com"); len(got) != 0 {
+		t.Errorf("Gained counts the account itself in another case: %+v", got)
+	}
 }

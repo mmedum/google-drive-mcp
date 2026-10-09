@@ -414,6 +414,45 @@ func TestMoveSeveralGivesEachItemItsOwnOutcome(t *testing.T) {
 	}
 }
 
+// A move of several that moves nothing because every item failed or was
+// refused is not "unchanged", which says there was nothing to do.
+func TestMoveSeveralThatMovesNothingSaysItFailed(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	two := service.MoveFileInput{To: "id-archive-fixture", Files: []string{"id-budget-fixture", "id-notes-fixture"}}
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method == http.MethodPatch {
+			return &drivetest.Failure{Status: http.StatusForbidden, Reason: "insufficientFilePermissions", Message: "no"}
+		}
+		return nil
+	}
+	got, err := svc.MoveFile(yes(t), two)
+	if err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	if got.JSON.Action != "failed" || got.JSON.Note != "nothing moved: 2 items failed, and each says why." {
+		t.Errorf("action %q, note %q; want failed, and why", got.JSON.Action, got.JSON.Note)
+	}
+	fake.Fail = nil
+	mixed := service.MoveFileInput{To: "id-archive-fixture", Files: []string{"id-nope", "id-archive-fixture"}}
+	got, err = svc.MoveFile(yes(t), mixed)
+	if err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	if got.JSON.Action != "failed" || got.JSON.Note != "nothing moved: 2 items refused, and each says why." {
+		t.Errorf("action %q, note %q; want failed, and why", got.JSON.Action, got.JSON.Note)
+	}
+	if _, err := svc.MoveFile(yes(t), two); err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	got, err = svc.MoveFile(yes(t), two)
+	if err != nil {
+		t.Fatalf("MoveFile again: %v", err)
+	}
+	if got.JSON.Action != "unchanged" {
+		t.Errorf("a move of items already there: action %q, want unchanged", got.JSON.Action)
+	}
+}
+
 func TestMoveSeveralAsksOnceNamingTheItemsThatWiden(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	linkShared(fake)

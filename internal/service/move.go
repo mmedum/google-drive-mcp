@@ -244,7 +244,7 @@ func (s *Service) moveOne(ctx context.Context, it *movedItem) {
 // manyResult reports a move of several items.
 func (s *Service) manyResult(ctx context.Context, target *gdrive.File, items []*movedItem, dryRun bool) *Result {
 	out := make([]render.MovedJSON, 0, len(items))
-	moved, failed := 0, 0
+	moved, failed, refused := 0, 0, 0
 	for _, it := range items {
 		out = append(out, it.json)
 		switch it.json.Outcome {
@@ -252,14 +252,28 @@ func (s *Service) manyResult(ctx context.Context, target *gdrive.File, items []*
 			moved++
 		case render.MovedFailed:
 			failed++
+		case render.MovedRefused:
+			refused++
 		}
 	}
-	note := ""
-	if failed > 0 && moved > 0 {
+	note, action := "", render.ActionMoved
+	switch {
+	case moved > 0 && failed > 0:
 		note = "each item moved or failed on its own: the ones that moved stay moved."
-	}
-	action := render.ActionMoved
-	if moved == 0 {
+	case moved == 0 && failed+refused > 0:
+		action = render.ActionFailed
+		var why []string
+		if failed > 0 {
+			why = append(why, model.Plural(failed, "item", "items")+" failed")
+		}
+		if refused > 0 {
+			why = append(why, model.Plural(refused, "item", "items")+" refused")
+		}
+		note = "nothing moved: " + strings.Join(why, " and ") + ", and each says why."
+		if dryRun {
+			note = "nothing would move: " + strings.Join(why, " and ") + ", and each says why."
+		}
+	case moved == 0:
 		action = render.ActionUnchanged
 	}
 	text := render.MoveMany(s.locationOf(ctx, target), out, dryRun, note)

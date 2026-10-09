@@ -191,6 +191,51 @@ func TestTurningLimitedAccessOffAsksNothingWhenNobodyCouldOpenIt(t *testing.T) {
 	}
 }
 
+// Drive gives turning limited access on and turning it off a
+// capability each, and an account may hold one without the other.
+func TestLimitedAccessChecksTheCapabilityForEachWay(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-close-only-fixture", "Close only", "id-archive-fixture",
+		drivetest.WithCapabilities(gdrive.Capabilities{CanListChildren: true, CanDisableInheritedPermissions: true}))
+	fake.AddFolder("id-open-only-fixture", "Open only", "id-archive-fixture", drivetest.LimitedAccess(),
+		drivetest.WithCapabilities(gdrive.Capabilities{CanListChildren: true, CanEnableInheritedPermissions: true}))
+	if _, err := svc.UpdateFile(yes(t), service.UpdateFileInput{File: "id-close-only-fixture", LimitedAccess: new(true)}); err != nil {
+		t.Errorf("turning it on with the right to: %v", err)
+	}
+	if _, err := svc.UpdateFile(yes(t), service.UpdateFileInput{File: "id-open-only-fixture", LimitedAccess: new(false)}); err != nil {
+		t.Errorf("turning it off with the right to: %v", err)
+	}
+	fake.Files["id-close-only-fixture"].InheritedPermissionsDisabled = true
+	fake.Files["id-open-only-fixture"].InheritedPermissionsDisabled = false
+	for id, on := range map[string]bool{"id-close-only-fixture": false, "id-open-only-fixture": true} {
+		_, err := svc.UpdateFile(yes(t), service.UpdateFileInput{File: id, LimitedAccess: new(on)})
+		if err == nil || !strings.HasPrefix(err.Error(), "[forbidden] this account cannot turn limited access") {
+			t.Errorf("%s, limited access %v without the right to: err = %v", id, on, err)
+		}
+	}
+}
+
+// The account's own access is not who limited access keeps out: when
+// only the account would open the folder from above, turning it off asks
+// nothing.
+func TestTurningLimitedAccessOffLeavesTheAccountOutOfWhoItAdds(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-dana-fixture", "Dana's", fake.RootID, drivetest.Owner("Dana", "dana@example.com"))
+	fake.Grant("id-dana-fixture", &gdrive.Permission{Type: "user", Role: "writer", EmailAddress: drivetest.AccountEmail})
+	fake.AddFolder("id-board-fixture", "Board", "id-dana-fixture", drivetest.LimitedAccess(),
+		drivetest.Owner("Dana", "dana@example.com"),
+		drivetest.WithCapabilities(gdrive.Capabilities{CanListChildren: true, CanEnableInheritedPermissions: true}))
+	p := declines()
+	if _, err := svc.UpdateFile(service.WithAsker(t.Context(), p), service.UpdateFileInput{
+		File: "id-board-fixture", LimitedAccess: new(false),
+	}); err != nil {
+		t.Fatalf("UpdateFile: %v", err)
+	}
+	if len(p.asked) != 0 {
+		t.Errorf("asked the person about the account itself: %s", p.asked[0].Text)
+	}
+}
+
 func TestLimitedAccessIsAFoldersAndNeedsTheRightToSetIt(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddFolder("id-theirs-fixture", "Theirs", "id-archive-fixture",

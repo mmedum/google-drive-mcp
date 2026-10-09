@@ -22,7 +22,7 @@ type WriteJSON struct {
 	Summary string `json:"summary" jsonschema:"the same report as the text result"`
 	// Action is one of render.Actions(); a test holds the schema's list
 	// and that set in step.
-	Action string `json:"action" jsonschema:"what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do"`
+	Action string `json:"action" jsonschema:"what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do"`
 	Note   string `json:"note,omitempty" jsonschema:"anything about the result that the fields do not carry"`
 	// DryRun marks a result that describes what would happen and changed
 	// nothing.
@@ -206,7 +206,11 @@ const (
 	// ActionDenied is an access request refused. It is its own word
 	// rather than "unchanged" because something did happen: the person
 	// waiting has been answered, and the request is gone.
-	ActionDenied    Action = "denied"
+	ActionDenied Action = "denied"
+	// ActionFailed is a call of several items that changed none of them,
+	// each failing or refused with its own reason. It is not "unchanged",
+	// which says there was nothing to do.
+	ActionFailed    Action = "failed"
 	ActionUnchanged Action = "unchanged"
 )
 
@@ -217,7 +221,7 @@ func Actions() []string {
 	all := []Action{ActionCreated, ActionUploaded, ActionUpdated, ActionMoved,
 		ActionCopied, ActionTrashed, ActionRestored, ActionShared, ActionUnshared,
 		ActionDeleted, ActionEmptied, ActionCommented, ActionReplied, ActionResolved,
-		ActionReopened, ActionDenied, ActionUnchanged}
+		ActionReopened, ActionDenied, ActionFailed, ActionUnchanged}
 	out := make([]string, 0, len(all))
 	for _, a := range all {
 		out = append(out, string(a))
