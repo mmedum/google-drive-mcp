@@ -133,6 +133,17 @@ func TestLinksAreRedactedWholeNotJustTheirIds(t *testing.T) {
 	}
 }
 
+func TestALinkEndsBeforeTheSentenceDoes(t *testing.T) {
+	r := NewRedactor(false)
+	got := r.Do("The copy is kept: https://docs.google.com/document/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit. " +
+		"read_file reads it, or https://drive.google.com/open?id=1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms, " +
+		"and https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/view?usp=sharing!")
+	want := "The copy is kept: <LINK_1>. read_file reads it, or <LINK_2>, and <LINK_3>!"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
 func TestANumericPermissionIDIsRedacted(t *testing.T) {
 	// A permission id for a person is twenty digits with no letter, so
 	// the "a capital and a digit" rule let one through in a live run. It

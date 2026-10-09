@@ -2,6 +2,8 @@ package livecover
 
 import (
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 )
 
@@ -58,9 +60,11 @@ func (r *Recorder) Sent(tool string, args map[string]any) {
 // published is the surface the server registered for THIS run, which is
 // the only fair denominator: a run without -destructive registers none
 // of the five, and counting them would report a driver as worse than it
-// is. believed is what FromSource read, and everything interesting is in
-// the gap between the two.
-func (r *Recorder) Report(published map[string][]string, believed map[string]map[string]bool) string {
+// is. steps is what ReadSteps read, and everything interesting is in
+// the gap between the two. given is the flags this run was passed, which
+// is what tells a step behind a flag the run lacked from a step that
+// exists and does not run.
+func (r *Recorder) Report(published map[string][]string, steps Steps, given map[string]bool) string {
 	var b strings.Builder
 	total, driven := 0, 0
 	var untouched []string
@@ -81,8 +85,8 @@ func (r *Recorder) Report(published map[string][]string, believed map[string]map
 	// The check the source cannot make. A step whose words are in the
 	// file and whose call never happened reads as coverage nobody has,
 	// and this is the only place the difference is visible.
-	var ghosts []string
-	for _, tool := range Sorted(believed) {
+	var behind, ghosts []string
+	for _, tool := range Sorted(steps) {
 		if _, registered := published[tool]; !registered {
 			continue
 		}
@@ -91,19 +95,27 @@ func (r *Recorder) Report(published map[string][]string, believed map[string]map
 		if r.called[tool] == 0 {
 			continue
 		}
-		for _, option := range Sorted(believed[tool]) {
-			if !r.sent[tool][option] {
+		for _, option := range Sorted(steps[tool]) {
+			if r.sent[tool][option] {
+				continue
+			}
+			if lacked := lackedFlags(steps[tool][option], given); lacked != "" {
+				behind = append(behind, tool+"."+option+" ("+lacked+")")
+			} else {
 				ghosts = append(ghosts, tool+"."+option)
 			}
 		}
 	}
 	// Already in order: the two Sorted walks above build these as
 	// tool.option, and "." sorts below every character a name can carry.
+	if len(behind) > 0 {
+		fmt.Fprintf(&b, "\n\n%d option(s) the driver sends only behind a flag this run was not given:\n   %s",
+			len(behind), strings.Join(behind, ", "))
+	}
 	if len(ghosts) > 0 {
-		fmt.Fprintf(&b, "\n\n!! %d option(s) the driver's source says it sends were NOT sent by this run.\n"+
-			"   Expected for a step behind an option this run was not given — -file, -share, -drive.\n"+
-			"   Otherwise it is a step that exists and does not run, which `gates live-cover` reads\n"+
-			"   as coverage because the words are there:\n   %s",
+		fmt.Fprintf(&b, "\n\n!! %d option(s) the driver's source says it sends were NOT sent by this run,\n"+
+			"   and no flag this run lacked explains it. It is a step that exists and does not run,\n"+
+			"   which `gates live-cover` reads as coverage because the words are there:\n   %s",
 			len(ghosts), strings.Join(ghosts, ", "))
 	}
 	if len(untouched) > 0 {
@@ -112,4 +124,29 @@ func (r *Recorder) Report(published map[string][]string, believed map[string]map
 			len(untouched), strings.Join(untouched, ", "))
 	}
 	return b.String()
+}
+
+// lackedFlags names the flags this run lacked that kept every step
+// sending an option from running: "-labels", or "-drive or
+// -destructive" when two steps wait for different ones. It is "" when a
+// step waits for nothing this run lacked, which means that step should
+// have run.
+func lackedFlags(gates []Gate, given map[string]bool) string {
+	var alternatives []string
+	for _, gate := range gates {
+		var lacked []string
+		for _, flag := range gate {
+			if !given[flag] {
+				lacked = append(lacked, "-"+flag)
+			}
+		}
+		if len(lacked) == 0 {
+			return ""
+		}
+		if alt := strings.Join(lacked, " and "); !slices.Contains(alternatives, alt) {
+			alternatives = append(alternatives, alt)
+		}
+	}
+	sort.Strings(alternatives)
+	return strings.Join(alternatives, " or ")
 }

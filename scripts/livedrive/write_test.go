@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -39,6 +40,32 @@ func TestFirstRevisionReadsTheIDOutOfAListing(t *testing.T) {
 		if looksLikeDate(not) {
 			t.Errorf("looksLikeDate(%q) = true", not)
 		}
+	}
+}
+
+func TestHeadCountsTheLinesItLeavesOut(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{"a\nb", "a\nb"},
+		{"a\nb\nc", "a\nb\n… (1 more line)"},
+		{"a\nb\nc\nd", "a\nb\n… (2 more lines)"},
+	} {
+		if got := head(tc.text, 2); got != tc.want {
+			t.Errorf("head(%q, 2) = %q, want %q", tc.text, got, tc.want)
+		}
+	}
+}
+
+func TestAFlagIsGivenWhenItIsSetAwayFromItsDefault(t *testing.T) {
+	fs := flag.NewFlagSet("livedrive", flag.ContinueOnError)
+	fs.Bool("write", false, "")
+	fs.Bool("labels", false, "")
+	fs.String("share", "", "")
+	fs.String("bin", "./google-drive-mcp", "")
+	if err := fs.Parse([]string{"-write", "-labels=false", "-bin", "./google-drive-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := givenFlags(fs); len(got) != 1 || !got["write"] {
+		t.Errorf("given = %v, want only write", got)
 	}
 }
 

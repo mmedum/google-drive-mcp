@@ -1500,6 +1500,47 @@ func writeFiller(path string, n int) error {
 	return f.Close()
 }
 
+// indexableText checks that use_content_as_indexable_text makes an
+// upload's words searchable. Drive reads a text file's words on its own,
+// so the bytes go up as a type it does not read, holding a word that is
+// in no name or description under the scratch folder, and the step
+// searches for that word. The same bytes go up again without the flag:
+// only that copy staying out of the results shows the flag did it.
+func (w *writeRun) indexableText() {
+	const word = "quokkalantern"
+	path := filepath.Join(w.dir, "indexable upload.bin")
+	if err := os.WriteFile(path, []byte("the one word only this text holds is "+word+"\n"), 0o600); err != nil {
+		w.problem("writing the indexable-text fixture", err)
+		return
+	}
+	flagged := w.createAndKeepID("upload_file", map[string]any{
+		"local_path": "indexable upload.bin", "parent": w.scratchID, "name": "indexed upload.bin",
+		"mime_type": "application/octet-stream", "use_content_as_indexable_text": true, "allow_duplicate": true,
+	})
+	control := w.createAndKeepID("upload_file", map[string]any{
+		"local_path": "indexable upload.bin", "parent": w.scratchID, "name": "control upload.bin",
+		"mime_type": "application/octet-stream", "allow_duplicate": true,
+	})
+	if flagged == "" {
+		w.out.Say("\n=== indexable text: skipped, the upload it needs was never made ===")
+		return
+	}
+	if !w.pollSearch(call{tool: "search_files", args: map[string]any{"text": word}}, flagged,
+		"use_content_as_indexable_text makes an upload's words searchable") || control == "" {
+		return
+	}
+	// The index has caught up with the flagged copy, which went up first,
+	// so one search is a fair look for the control.
+	if w.searchAllPages(call{tool: "search_files", args: map[string]any{"text": word, "under_folder": w.scratchID}},
+		control) {
+		w.out.Say("(the copy uploaded without use_content_as_indexable_text was found by the same word: " +
+			"Drive reads this type on its own, so this run does not show what the flag does. Record it in §18.)")
+		return
+	}
+	w.out.Say("(the copy uploaded without use_content_as_indexable_text was not found by the same word, " +
+		"and the one with it was: the flag made the difference. Record it in §18.)")
+}
+
 // resources reads the three gdrive:// templates, which is the half of
 // phase 3's surface no tool call reaches. A resource read is a different
 // method with a different failure shape, so a driver that only calls
@@ -1555,7 +1596,12 @@ func head(text string, n int) string {
 	if len(lines) <= n {
 		return text
 	}
-	return strings.Join(lines[:n], "\n") + "\n… (" + fmt.Sprint(len(lines)-n) + " more lines)"
+	more := len(lines) - n
+	word := "lines"
+	if more == 1 {
+		word = "line"
+	}
+	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n… (%d more %s)", more, word)
 }
 
 // policyRefusal is the one check §17a has been waiting for an
@@ -1770,19 +1816,19 @@ func (w *writeRun) spareArguments(m made) {
 	// none of them.
 	if w.dir != "" {
 		path := filepath.Join(w.dir, "described upload.txt")
-		if err := os.WriteFile(path, []byte("bytes Drive does not read on its own\n"), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte("bytes uploaded by the live driver\n"), 0o600); err != nil {
 			w.problem("writing the upload fixture", err)
 		} else {
 			w.needing("upload_file", w.scratchID, map[string]any{
 				"local_path": "described upload.txt", "parent": w.scratchID,
-				"description": "uploaded by the live driver", "mime_type": "text/plain",
-				"use_content_as_indexable_text": true, "allow_duplicate": true,
+				"description": "uploaded by the live driver", "mime_type": "text/plain", "allow_duplicate": true,
 			})
 			w.needing("upload_file", w.scratchID, map[string]any{
 				"local_path": "described upload.txt", "parent": w.scratchID,
 				"name": "imported as a doc", "convert_to": "doc", "allow_duplicate": true,
 			})
 		}
+		w.indexableText()
 	}
 
 	// The two sharing switches on a file, which the card prints back.

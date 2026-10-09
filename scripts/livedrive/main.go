@@ -81,7 +81,8 @@ func main() {
 	t := transcript.New(red)
 	if err := run(options{binary: *binary, file: *file, write: *write,
 		parent: *parent, drive: *drive, share: *share, blocked: *blocked, unlistable: *unlistable,
-		labels: *labels, activity: *activity, destructive: *destructive}, t); err != nil {
+		labels: *labels, activity: *activity, destructive: *destructive,
+		given: givenFlags(flag.CommandLine)}, t); err != nil {
 		t.Fail("livedrive: %v", err)
 		os.Exit(1)
 	}
@@ -132,6 +133,9 @@ type options struct {
 	destructive bool
 	// unlistable is a folder whose canListChildren is false.
 	unlistable string
+	// given is the flags this run was passed, by name, which is what
+	// tells a step behind a flag from one that did not run.
+	given map[string]bool
 	// person answers the server's questions.
 	person *person
 }
@@ -188,7 +192,6 @@ func run(o options, t *transcript.Transcript) error {
 		return err
 	}
 	defer sess.Close()
-	file := o.file
 
 	// What this run actually sends, recorded where the calls go out. The
 	// static gate reads the driver's source and cannot tell a step that
@@ -222,10 +225,10 @@ func run(o options, t *transcript.Transcript) error {
 		{tool: "get_file", args: map[string]any{"file": "1SyntheticFixtureFileIdAAAAAAAAAAAA"},
 			expectError: true, why: "an id that names nothing"},
 	}
-	if file != "" {
+	if o.file != "" {
 		calls = append(calls,
-			call{tool: "get_file", args: map[string]any{"file": file}},
-			call{tool: "list_folder", args: map[string]any{"folder": file, "recursive": true, "max_depth": 2}},
+			call{tool: "get_file", args: map[string]any{"file": o.file}},
+			call{tool: "list_folder", args: map[string]any{"folder": o.file, "recursive": true, "max_depth": 2}},
 		)
 	}
 
@@ -263,7 +266,7 @@ func run(o options, t *transcript.Transcript) error {
 		}
 	}
 
-	if file == "" {
+	if o.file == "" {
 		t.Say("\n(pass -file REF to also exercise get_file and a recursive listing)")
 	}
 	if o.unlistable == "" {
@@ -285,7 +288,7 @@ func run(o options, t *transcript.Transcript) error {
 		}
 	}
 	t.Sayf("\n%d question(s) put to the person, %d declined", o.person.asked, o.person.declined)
-	t.Say("\n" + coverage(rec, sess))
+	t.Say("\n" + coverage(rec, sess, o.given))
 	t.Say("\n" + t.Summary())
 	if unexpected > 0 {
 		return fmt.Errorf("%d call(s) did not behave as expected", unexpected)
@@ -303,12 +306,24 @@ func run(o options, t *transcript.Transcript) error {
 // `gates live-cover` is the thing that gate cannot see — an option the
 // driver's source says it sends, on a tool this run really called, that
 // the run did not send. That is a step which exists and does not run.
-func coverage(rec *livecover.Recorder, sess *mcpstdio.Session) string {
+func coverage(rec *livecover.Recorder, sess *mcpstdio.Session, given map[string]bool) string {
 	published := sess.Options()
-	// The error is deliberately dropped, and FromSource returns a nil map
+	// The error is deliberately dropped, and ReadSteps returns a nil map
 	// with it: reading the source is a convenience here and the recording
 	// is not. A driver run from a directory without the source still
 	// knows what it sent, and should say so rather than fail.
-	believed, _ := livecover.FromSource(filepath.Join("scripts", "livedrive"), published)
-	return rec.Report(published, believed)
+	steps, _ := livecover.ReadSteps(filepath.Join("scripts", "livedrive"), published)
+	return rec.Report(published, steps, given)
+}
+
+// givenFlags is the flags a run was passed: those set to something other
+// than their default, so -write=false counts as not given.
+func givenFlags(fs *flag.FlagSet) map[string]bool {
+	given := map[string]bool{}
+	fs.VisitAll(func(f *flag.Flag) {
+		if f.Value.String() != f.DefValue {
+			given[f.Name] = true
+		}
+	})
+	return given
 }

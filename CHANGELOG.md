@@ -62,6 +62,9 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `create_shortcut`'s note names what the shortcut points at and no longer repeats the card's line on what acts on the shortcut.
 - A revision Drive answers "not found" for says to try again in a few seconds when the file was just written, because Drive can list a new revision before it answers for it by id. It told the story of the live run that found this.
 - `add_comment` without `content` is refused as `[invalid]`, saying what is missing. It was the SDK's schema error, which has no class. The schema no longer marks `content` required; its description says it is.
+- The live driver names, for each option a run did not send, the flag that would have sent it, read from the driver's own source. Only an option no missing flag explains is a warning. It named `-file`, `-share` and `-drive` for all of them, which was wrong for half.
+- The live driver's transcript ends a link before the period after it, so two sentences no longer run together. A shortened resource says "1 more line".
+- The live driver checks `use_content_as_indexable_text`: it uploads bytes of a type Drive does not read on its own, searches for a word only that text holds, and says whether a copy uploaded without the flag is found too.
 
 ### Security
 
