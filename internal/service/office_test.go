@@ -97,6 +97,22 @@ func TestReadFileReadsAnExcelWorkbookAsCSVOrTSV(t *testing.T) {
 	}
 }
 
+func TestReadFileNamesTheFormatInItsContinuation(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	addOffice(fake, "id-sales-fixture", "Sales.xlsx", mimeXlsx, officetest.Xlsx(officetest.Workbook{
+		Sheets: []officetest.Sheet{{Name: "Totals", Data: officetest.Row(1, "region", "total") + officetest.Row(2, "North", "40")}},
+	}))
+	out, err := svc.ReadFile(t.Context(), service.ReadFileInput{File: "id-sales-fixture", Format: "TSV", MaxChars: 5})
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	// Without the format the next call would read the csv, whose
+	// offsets are another text's.
+	if !strings.Contains(out, "call read_file again with offset: 5 and format: tsv\n") {
+		t.Errorf("the continuation does not carry the format:\n%s", out)
+	}
+}
+
 func TestReadFileRefusesAFormatForADocumentThatIsNotASheet(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	addOffice(fake, "id-report-fixture", "Report.docx", mimeDocx, officetest.Docx(officetest.WordParagraph("", "x")))

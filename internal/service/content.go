@@ -137,7 +137,7 @@ func (s *Service) exportWindow(ctx context.Context, res *Resolved, plan readPlan
 ) (textWindow, error) {
 	f := res.File
 	key := f.ID + "\x00" + f.HeadRevisionID + "\x00" + f.ModifiedTime + "\x00" + plan.exportMime
-	kept, ok := s.exportedText(key)
+	kept, ok := s.keptText(&s.export, key)
 	if !ok {
 		content, err := s.api.Export(ctx, f.ID, plan.exportMime)
 		if err != nil {
@@ -157,7 +157,7 @@ func (s *Service) exportWindow(ctx context.Context, res *Resolved, plan readPlan
 			// window boundary.
 			kept.text = render.StripDataURIs(kept.text)
 		}
-		s.keepExport(key, kept)
+		s.keepText(&s.export, key, kept)
 	}
 	return keptWindow(kept, in.Offset, budget), nil
 }
@@ -197,19 +197,22 @@ func stringWindow(text string, budget int) (string, int64) {
 // MaxExport is Google's own ceiling on files.export.
 const MaxExport = 10 << 20
 
-func (s *Service) exportedText(key string) (exported, bool) {
+// keptText is the text held in one slot under key, while it is inside
+// ExportTTL.
+func (s *Service) keptText(slot *exported, key string) (exported, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.export.key != key || s.now().Sub(s.export.at) > s.opts.ExportTTL {
+	if slot.key != key || s.now().Sub(slot.at) > s.opts.ExportTTL {
 		return exported{}, false
 	}
-	return s.export, true
+	return *slot, true
 }
 
-func (s *Service) keepExport(key string, kept exported) {
+// keepText holds text in one slot under key, in place of what was there.
+func (s *Service) keepText(slot *exported, key string, kept exported) {
 	kept.key, kept.at = key, s.now()
 	s.mu.Lock()
-	s.export = kept
+	*slot = kept
 	s.mu.Unlock()
 }
 
@@ -218,6 +221,10 @@ func (s *Service) keepExport(key string, kept exported) {
 func (s *Service) renderText(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput,
 	w textWindow,
 ) string {
+	again := ""
+	if format := strings.ToLower(strings.TrimSpace(in.Format)); format != "" {
+		again = "format: " + format
+	}
 	return render.FileText(s.Model(ctx, res), render.FileTextOptions{
 		Now:              s.now(),
 		FollowedShortcut: res.FollowedShortcut,
@@ -228,6 +235,7 @@ func (s *Service) renderText(ctx context.Context, res *Resolved, plan readPlan, 
 		Total:            w.total,
 		More:             w.more,
 		Text:             w.text,
+		Again:            again,
 	})
 }
 

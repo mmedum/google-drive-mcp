@@ -29,6 +29,9 @@ type FileTextOptions struct {
 	// Tool is the tool to call again for the next window; read_file when
 	// it is empty.
 	Tool string
+	// Again is what the next call repeats besides the offset, such as
+	// "ocr_language: de", so the next window is cut from the same text.
+	Again string
 }
 
 // FileText renders a window of a file's text under a header that says
@@ -87,8 +90,12 @@ func showing(o FileTextOptions) string {
 	if tool == "" {
 		tool = "read_file"
 	}
-	return fmt.Sprintf("%s, bytes %d to %d%s — there is more: call %s again with offset: %d",
-		format, o.Offset, end-1, of, tool, end)
+	again := ""
+	if o.Again != "" {
+		again = " and " + o.Again
+	}
+	return fmt.Sprintf("%s, bytes %d to %d%s — there is more: call %s again with offset: %d%s",
+		format, o.Offset, end-1, of, tool, end, again)
 }
 
 // dataURI matches an inlined image in a markdown export.

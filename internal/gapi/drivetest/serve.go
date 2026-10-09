@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"sort"
@@ -23,7 +25,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(),
 		ResourceKeys: r.Header.Get("X-Goog-Drive-Resource-Keys"),
 	})
-	fail := s.Fail
+	fail, rewrite := s.Fail, s.Rewrite
 	s.mu.Unlock()
 
 	if fail != nil {
@@ -32,7 +34,21 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if rewrite != nil {
+		rec := httptest.NewRecorder()
+		s.route(rec, r)
+		status, body := rewrite(r, rec.Code, rec.Body.Bytes())
+		maps.Copy(w.Header(), rec.Header())
+		w.Header().Del("Content-Length")
+		w.WriteHeader(status)
+		_, _ = w.Write(body)
+		return
+	}
+	s.route(w, r)
+}
 
+// route serves one request that was not failed.
+func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	if s.serveElsewhere(w, r) {
 		return
 	}

@@ -136,6 +136,11 @@ type Server struct {
 	// Fail is consulted before every request; a non-nil result is served
 	// instead of the real answer.
 	Fail func(r *http.Request) *Failure
+	// Rewrite, when set, is handed every answer after the request was
+	// served, and what it returns is sent instead: an answer Drive should
+	// not give, or a failure after the work was done, which is what a
+	// client has to survive and the fake otherwise never says.
+	Rewrite func(r *http.Request, status int, body []byte) (int, []byte)
 	// Requests records everything served, for assertions.
 	Requests []Recorded
 

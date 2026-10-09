@@ -48,10 +48,11 @@ const (
 	// Help Center says it of text documents; for a PDF or an image it is
 	// recorded as unverified (§18).
 	ocrLargest = 50 << 20
-	// cleanupTimeout bounds deleting the temporary copy, which runs even
-	// when the call itself was canceled: a copy left behind is the one
-	// lasting effect this tool can have.
-	cleanupTimeout = 2 * time.Minute
+	// detachedTimeout bounds the work that runs on when the call itself
+	// is canceled: waiting for Google's answer to the copy, and deleting
+	// the copy. A copy left behind is the one lasting effect this tool
+	// can have.
+	detachedTimeout = 2 * time.Minute
 )
 
 // ocrTypes are the types Google's import guide lists as becoming a
@@ -89,7 +90,7 @@ func (s *Service) ExtractText(ctx context.Context, in ExtractTextInput) (string,
 		"often not recognized, Google says, and the text comes without its layout."}
 	kept, cached := exported{}, false
 	if !in.KeepCopy {
-		kept, cached = s.exportedText(key)
+		kept, cached = s.keptText(&s.ocrText, key)
 	}
 	if cached {
 		notes = append(notes, "This is the text read a few minutes ago, kept for paging; no copy was made this time.")
@@ -99,8 +100,13 @@ func (s *Service) ExtractText(ctx context.Context, in ExtractTextInput) (string,
 			return "", err
 		}
 		kept = exported{text: text}
-		s.keepExport(key, kept)
+		s.keepText(&s.ocrText, key, kept)
 		notes = append(notes, note)
+		if in.Offset > 0 {
+			notes = append(notes, "The text read for an earlier window was no longer kept, so Google's OCR "+
+				"read the file again. A second reading can differ from the first, so this window may not "+
+				"start exactly where the last one ended.")
+		}
 	}
 	if n, ok := f.SizeBytes(); ok && n > ocrAdvised {
 		notes = append(notes, fmt.Sprintf("The file is %s, and Google asks for 2 MB or less for this, so "+
@@ -110,6 +116,10 @@ func (s *Service) ExtractText(ctx context.Context, in ExtractTextInput) (string,
 		notes = append(notes, "Google's OCR found no text in it.")
 	}
 	w := keptWindow(kept, in.Offset, render.Budget(in.MaxChars))
+	again := ""
+	if lang != "" {
+		again = "ocr_language: " + lang
+	}
 	return render.FileText(s.Model(ctx, res), render.FileTextOptions{
 		Now:              s.now(),
 		FollowedShortcut: res.FollowedShortcut,
@@ -121,6 +131,7 @@ func (s *Service) ExtractText(ctx context.Context, in ExtractTextInput) (string,
 		More:             w.more,
 		Text:             w.text,
 		Tool:             "extract_text",
+		Again:            again,
 	}), nil
 }
 
@@ -185,9 +196,16 @@ func (s *Service) ocr(ctx context.Context, f *gdrive.File, lang string, keep boo
 	// (§2), so the POST cannot be repeated safely and the client does
 	// not repeat it. A copy whose answer is lost is the one way this
 	// call can leave a file behind, and the marker is how to find it.
+	//
+	// The copy runs on when the call is canceled, under a bound of its
+	// own, so that Google's answer still arrives and names the copy to
+	// delete. A cancel that cut the request short would leave the copy
+	// unknown and unreported.
 	meta := &gdrive.FileMeta{Name: name, MimeType: gdrive.MimeDocument, Parents: []string{RootAlias},
 		AppProperties: map[string]string{ExtractMarkerKey: marker}}
-	copied, err := s.api.CopyFile(ctx, f.ID, meta, gapi.WriteOptions{OCRLanguage: lang, IgnoreDefaultVisibility: true})
+	copyCtx, cancel := detached(ctx)
+	defer cancel()
+	copied, err := s.api.CopyFile(copyCtx, f.ID, meta, gapi.WriteOptions{OCRLanguage: lang, IgnoreDefaultVisibility: true})
 	if err != nil {
 		if gapi.Class(err) == ClassAmbiguousIO {
 			return "", "", &Error{Class: ClassAmbiguousIO, Err: err, Message: fmt.Sprintf(
@@ -199,6 +217,16 @@ func (s *Service) ocr(ctx context.Context, f *gdrive.File, lang string, keep boo
 		return "", "", wrap(err, "copying "+f.Name+" as a Google Doc to read its text")
 	}
 	s.forget(copied, false)
+	if ctx.Err() != nil {
+		// Nobody is waiting for the text, so the copy is not wanted,
+		// even one asked to be kept: its id would reach nobody.
+		note := "The copy was deleted, so nothing was left behind."
+		if err := s.deleteTemporary(ctx, f, copied); err != nil {
+			note = leftover(copied, err)
+		}
+		return "", "", &Error{Class: ClassUnexpected, Err: ctx.Err(), Message: fmt.Sprintf(
+			"the call was canceled while Google made the temporary Google Doc copy of %s. %s", f.Name, note)}
+	}
 	text, exportErr := s.copyText(ctx, copied)
 	reading := "reading the text of " + f.Name + " from the copy Google made"
 	if keep {
@@ -248,13 +276,19 @@ func (s *Service) deleteTemporary(ctx context.Context, source, copied *gdrive.Fi
 		return fmt.Errorf("%w: Drive's answer to the copy does not describe the Google Doc it made",
 			gapi.ErrUnexpected)
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	ctx, cancel := detached(ctx)
 	defer cancel()
 	if err := s.api.DeleteFile(ctx, copied.ID); err != nil {
 		return err
 	}
 	s.forget(copied, true)
 	return nil
+}
+
+// detached is a context that a cancel of the call does not end, bounded
+// by detachedTimeout.
+func detached(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), detachedTimeout)
 }
 
 // leftover says that a temporary copy may still be there, and how to

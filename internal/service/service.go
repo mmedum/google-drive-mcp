@@ -203,6 +203,11 @@ type Service struct {
 	// file is kept here too, under the same cap, for the same reason:
 	// reading it costs a pass over the file, whichever window is asked.
 	export exported
+	// ocrText holds the last text extract_text read, apart from export:
+	// a read_file between two of its windows would otherwise push it
+	// out, and reading it again makes another copy, whose text can
+	// differ from the first.
+	ocrText exported
 	// folders is the folder set the last search with under_folder
 	// walked, kept for its next page.
 	folders keptFolders

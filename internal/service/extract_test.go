@@ -2,9 +2,12 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
@@ -344,4 +347,209 @@ func TestExtractTextFallsBackToGooglesListWhenImportFormatsCannotBeRead(t *testi
 	if _, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-chart-gif-fixture"}); err != nil {
 		t.Errorf("gif: %v; it is on the import guide's list", err)
 	}
+}
+
+func TestExtractTextPagesAfterAnotherReadWithoutASecondCopy(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	addScan(fake, "id-scan-fixture", "abcdefghijklmnopqrst")
+	_ = fake.Requested()
+	if _, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture", OCRLanguage: "de", MaxChars: 10}); err != nil {
+		t.Fatalf("first window: %v", err)
+	}
+	// A read in between, which keeps its own text.
+	if _, err := svc.ReadFile(t.Context(), service.ReadFileInput{File: "id-notes-fixture"}); err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	second, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture", OCRLanguage: "de", Offset: 10, MaxChars: 10})
+	if err != nil {
+		t.Fatalf("second window: %v", err)
+	}
+	if got := body(second); got != "klmnopqrst\n" {
+		t.Errorf("second window = %q", got)
+	}
+	if copied, _, _ := requests(fake); copied != 1 {
+		t.Errorf("paging around another read made %d copies, want 1", copied)
+	}
+}
+
+func TestExtractTextNamesTheLanguageInItsContinuation(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	addScan(fake, "id-scan-fixture", "abcdefghijklmnopqrst")
+	out, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture", OCRLanguage: "de", MaxChars: 10})
+	if err != nil {
+		t.Fatalf("ExtractText: %v", err)
+	}
+	if !strings.Contains(out, "call extract_text again with offset: 10 and ocr_language: de\n") {
+		t.Errorf("the continuation does not carry the language, which is part of what was read:\n%s", out)
+	}
+}
+
+func TestExtractTextSaysWhenAWindowCameFromASecondReading(t *testing.T) {
+	now := testNow
+	svc, fake := setup(t, service.Options{Now: func() time.Time { return now }})
+	addScan(fake, "id-scan-fixture", "abcdefghijklmnopqrst")
+	first, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture", MaxChars: 10})
+	if err != nil {
+		t.Fatalf("first window: %v", err)
+	}
+	const shift = "may not start exactly where the last one ended"
+	if strings.Contains(first, shift) {
+		t.Errorf("a first window warns of a shift:\n%s", first)
+	}
+	now = now.Add(time.Hour)
+	second, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture", Offset: 10, MaxChars: 10})
+	if err != nil {
+		t.Fatalf("second window: %v", err)
+	}
+	if !strings.Contains(second, shift) {
+		t.Errorf("a window read from a second copy does not say it may have shifted:\n%s", second)
+	}
+}
+
+func TestExtractTextKeepsEachFilesAndLanguagesTextApart(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	// Two files alike in all but their id, so only the id tells their
+	// text apart.
+	same := func(f *gdrive.File) {
+		f.HeadRevisionID, f.ModifiedTime = "id-revision-fixture", "2026-01-02T03:04:05.000Z"
+	}
+	addScan(fake, "id-scan-one-fixture", "first file", same)
+	addScan(fake, "id-scan-two-fixture", "second file", same)
+	_ = fake.Requested()
+	for id, want := range map[string]string{"id-scan-one-fixture": "first file\n", "id-scan-two-fixture": "second file\n"} {
+		out, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: id})
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if got := body(out); got != want {
+			t.Errorf("%s: text = %q, want %q", id, got, want)
+		}
+	}
+	// Another language is another reading.
+	for _, lang := range []string{"de", "fr"} {
+		if _, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-one-fixture", OCRLanguage: lang}); err != nil {
+			t.Fatalf("%s: %v", lang, err)
+		}
+	}
+	if copied, _, query := requests(fake); copied != 4 || !strings.Contains(query[3], "ocrLanguage=fr") {
+		t.Errorf("%d copies, the last asked with %v; want four, the last in French", copied, query)
+	}
+}
+
+func TestExtractTextKeepsACopyEvenWhenTheTextIsKept(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	addScan(fake, "id-scan-fixture", "text")
+	if _, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture"}); err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	out, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture", KeepCopy: true})
+	if err != nil {
+		t.Fatalf("keep_copy: %v", err)
+	}
+	left := copies(fake)
+	if len(left) != 1 || !strings.Contains(out, left[0].ID) {
+		t.Errorf("keep_copy after a kept read left %d copies; want one, named in the result:\n%s", len(left), out)
+	}
+}
+
+func TestExtractTextDeletesACopyMadeAfterTheCallWasCanceled(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	addScan(fake, "id-scan-fixture", "text")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// The call is canceled while the copy is on its way to Google, which
+	// makes it anyway.
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/copy") {
+			cancel()
+		}
+		return nil
+	}
+	_ = fake.Requested()
+	_, err := svc.ExtractText(ctx, service.ExtractTextInput{File: "id-scan-fixture", KeepCopy: true})
+	if err == nil || !strings.Contains(err.Error(), "canceled") || !strings.Contains(err.Error(), "The copy was deleted") {
+		t.Errorf("err = %v, want the cancel, and that the copy was deleted", err)
+	}
+	if left := copies(fake); len(left) != 0 {
+		t.Errorf("a canceled call left an unreported copy: %s", left[0].ID)
+	}
+	if copied, deleted, _ := requests(fake); copied != 1 || deleted != 1 {
+		t.Errorf("%d copies and %d deletes, want one of each", copied, deleted)
+	}
+}
+
+func TestExtractTextDeletesOnlyTheGoogleDocItsCopyMade(t *testing.T) {
+	// Drive's answer to the copy is all that names what to delete for
+	// good, so an answer that does not describe a new Google Doc deletes
+	// nothing.
+	cases := map[string]func(f map[string]any){
+		"an answer that is not a Google Doc": func(f map[string]any) { f["mimeType"] = "application/pdf" },
+		"an answer naming the source":        func(f map[string]any) { f["id"] = "id-scan-fixture" },
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			svc, fake := setup(t, service.Options{})
+			addScan(fake, "id-scan-fixture", "text")
+			fake.Rewrite = func(r *http.Request, status int, body []byte) (int, []byte) {
+				if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/copy") {
+					return status, body
+				}
+				var f map[string]any
+				if err := json.Unmarshal(body, &f); err != nil {
+					t.Fatalf("copy answer: %v", err)
+				}
+				change(f)
+				out, _ := json.Marshal(f)
+				return status, out
+			}
+			_ = fake.Requested()
+			out, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture"})
+			if _, deleted, _ := requests(fake); deleted != 0 {
+				t.Errorf("%d deletes, want none", deleted)
+			}
+			if said := out + errString(err); !strings.Contains(said, "could not be deleted") {
+				t.Errorf("the result does not say the copy is still there: %s", said)
+			}
+			if fake.Files["id-scan-fixture"] == nil {
+				t.Error("the source was deleted")
+			}
+		})
+	}
+}
+
+func TestExtractTextNamesTheSearchThatFindsALostCopy(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	addScan(fake, "id-scan-fixture", "text")
+	// Google makes the copy, and the answer is lost as a server error.
+	fake.Rewrite = func(r *http.Request, status int, body []byte) (int, []byte) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/copy") {
+			return http.StatusInternalServerError, []byte(`{"error":{"code":500,"message":"Backend Error","errors":[{"reason":"backendError"}]}}`)
+		}
+		return status, body
+	}
+	_, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture"})
+	if err == nil || !strings.HasPrefix(err.Error(), "[ambiguous_outcome]") {
+		t.Fatalf("err = %v, want [ambiguous_outcome]", err)
+	}
+	query := regexp.MustCompile(`appProperties has \{ key='[^']+' and value='[^']+' \}`).FindString(err.Error())
+	if query == "" {
+		t.Fatalf("the error names no marker search: %v", err)
+	}
+	fake.Rewrite = nil
+	found, err := svc.Search(t.Context(), service.SearchInput{RawQuery: query})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	left := copies(fake)
+	if len(left) != 1 || !strings.Contains(found, left[0].ID) {
+		t.Errorf("the search the error names does not find the copy Google made:\n%s", found)
+	}
+}
+
+// errString is an error's text, or nothing.
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

@@ -645,12 +645,17 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   the copy as plain text and deletes the copy for good, or with
   `keep_copy` keeps it and names its id and link. It takes `offset` and
   `max_chars` like `read_file`, and keeps the whole text for
-  `ExportTTL`, so paging makes no second copy; with `keep_copy` every
-  call makes one. It is a write, full mode only, and asks nothing
-  (§4a). Its annotations are a write's: it adds a file and removes only
-  that file, so `destructiveHint` is false, and two calls make two
-  copies, so it is not idempotent. It returns text only, as `read_file`
-  does (§4).
+  `ExportTTL` apart from the text other reads keep, so paging makes no
+  second copy even with a `read_file` between two windows; with
+  `keep_copy` every call makes one. The continuation names
+  `ocr_language` when it was given, since another language is another
+  reading. A window that had to be read again, its text no longer
+  kept, says that a second reading can differ and the window may not
+  start where the last ended. It is a write, full mode only, and asks
+  nothing (§4a). Its annotations are a write's: it adds a file and
+  removes only that file, so `destructiveHint` is false, and two calls
+  make two copies, so it is not idempotent. It returns text only, as
+  `read_file` does (§4).
 
   The hazards, each handled before or after the copy. A Doc refuses an
   id from `files.generateIds` (§2), so the copy cannot be repeated
@@ -661,7 +666,11 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   this server's searches see it). A copy that could not be deleted is
   named in the result, which still carries the text; the delete runs
   even when the call was canceled, under its own deadline, and only on
-  the Google Doc Drive's answer to the copy named. A failed export
+  the Google Doc Drive's answer to the copy named. The copy itself runs
+  on when the call is canceled, under the same deadline, so Google's
+  answer still names the copy, which is then deleted, even one asked
+  to be kept: a cancel that cut the request short left a copy nobody
+  was told of. A failed export
   deletes the copy and says so. Before anything is written it refuses a
   folder, a file `read_file` reads directly (a Google document, an
   Office file, text), anything but a PDF or an image, a type the
