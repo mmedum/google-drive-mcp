@@ -49,7 +49,7 @@ var commands map[string]command
 func init() {
 	commands = map[string]command{
 		"coverage":    {run: coverage, args: "[PROFILE] [MIN]", doc: "statement-coverage floor per core package", gate: true},
-		"schema-diff": {run: schemaDiff, args: "[BINARY]", doc: "tool surface against the last tag", gate: true},
+		"schema-diff": {run: schemaDiff, args: "[BINARY]", doc: "tool surface against the newest release's baseline", gate: true},
 		"smoke":       {run: smoke, args: "[BINARY]", doc: "drive the binary over stdio, no credentials", gate: true},
 		"staleness":   {run: staleness, args: "[BINARY]", doc: "documentation must match the code", gate: true},
 		"leaks":       {run: leaks, args: "[history]", doc: "nothing from a real Drive is in the tree, or the history", gate: true},
@@ -62,6 +62,8 @@ func init() {
 		"parity": {run: parity, doc: "`make check` and CI run the same gates", gate: true},
 		"release-notes": {run: releaseNotes, args: "VERSION [CHANGELOG]",
 			doc: "one version's CHANGELOG section, which is the release note"},
+		"schema-baseline": {run: schemaBaseline, args: "[BINARY]",
+			doc: "record the release being cut as the tool-surface baseline, in its release commit"},
 		"transcript": {run: transcript,
 			doc: "a program that drives a real account cannot reach a terminal except through the redactor", gate: true},
 		"live-cover": {run: liveCover, args: "[BINARY]",

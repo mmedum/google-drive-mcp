@@ -46,7 +46,7 @@ make vuln
 make licenses       # allowed licenses only
 make smoke          # drive the binary over stdio, without credentials
 make schemas        # write schemas.json
-make schema-diff    # compare the tool surface with the last tag
+make schema-diff    # compare the tool surface with the newest release's
 make staleness      # docs must match the code
 make pins           # every tool a workflow installs is one exact version
 make gate-classes   # the error classes the code emits are the ones it declares
@@ -74,7 +74,7 @@ connection, which is how the retry and backoff paths are exercised.
 
 ```
 go run ./scripts/gates coverage cov.out 80    statement-coverage floor per core package
-go run ./scripts/gates schema-diff BINARY     tool surface against the last tag
+go run ./scripts/gates schema-diff BINARY     tool surface against the newest release's
 go run ./scripts/gates smoke BINARY           drive the binary over stdio, no credentials
 go run ./scripts/gates staleness BINARY       documentation must match the code
 go run ./scripts/gates pins                   workflow tool versions are exact, not ranges
@@ -246,7 +246,12 @@ A release, once the phase's work is merged:
    CHANGED; every method it adds fails `make check` until
    `testdata/api-coverage.tsv` gives it a verdict.
 1. On a topic branch, update `CHANGELOG.md`: move `[Unreleased]` into a
-   version heading with today's date.
+   version heading with today's date, and leave an empty `[Unreleased]`
+   above it. Then run `make schema-baseline VERSION=vN.N.N` to record the
+   release's tool surface in `testdata/schema-baseline.json`;
+   `make schema-diff` fails until it is done. It refuses a build stamped
+   with another version, and a break unless the release is a new major
+   version.
 2. Update the status line and the phase table in `docs/architecture.md`,
    and add what was verified live to its evidence log.
 3. Commit as `Release N.N.N`, open a pull request, wait for CI, merge.
@@ -299,5 +304,6 @@ public the moment the repository is.
    `docs/configuration.md`, and add a `CHANGELOG.md` entry. `make
    staleness` fails until you do, in both directions: it also catches a
    documented tool that no longer exists.
-6. Run `make schema-diff`. A removed tool or field, or a new required
-   field, is a breaking change.
+6. Run `make schema-diff`. A removed tool, a removed or retyped field at
+   any depth, or a newly required input is a breaking change, and fails
+   it.

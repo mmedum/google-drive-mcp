@@ -61,8 +61,11 @@ Also:
 - Add or update tests (golden files with `go test ./internal/render -update`).
 - Update `README.md`, `docs/`, and `CHANGELOG.md` under `[Unreleased]`
   when behavior or the tool surface changes.
-- Run `./google-drive-mcp --dump-schemas` and check the diff; a removed
-  tool or field, or a new required field, is a breaking change.
+- Read what `make schema-diff` prints. It compares the tool surface with
+  the newest release's, recorded in `testdata/schema-baseline.json`, and
+  fails on a removed tool or resource, an input or output field removed
+  or retyped at any depth, or a newly required input. Such a break ships
+  only as a new major version.
 
 ## Layout
 

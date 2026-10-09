@@ -1081,8 +1081,8 @@ honest option and the one a model can act on.
   why configuration is env-first.
 - **Setup guide** in the README, in the order `doctor` checks it (§10).
 - **Versioning.** Semantic versions; Keep a Changelog; the schema diff in
-  CI classifies tool removals, renames and new required fields as
-  breaking.
+  CI fails on a removed or renamed tool or resource, a field removed or
+  retyped at any depth, and a newly required input.
 - **Documentation set.** README, this file, `docs/configuration.md`,
   `docs/security.md`, `docs/development.md`, `CONTRIBUTING.md`,
   `SECURITY.md`, `CHANGELOG.md`. Apache-2.0.
@@ -1107,7 +1107,16 @@ honest option and the one a model can act on.
   an injected network failure.
 - **Coverage floor** 80% per core package: `config`, `credentials`,
   `auth`, `gapi`, `ref`, `model`, `render`, `service`, `tools`, `server`.
-- **Schema dump and diff** in CI against the last tag.
+- **Schema dump and diff** in CI against `testdata/schema-baseline.json`,
+  the surface of the CHANGELOG's newest release, recorded in that
+  release's commit by `make schema-baseline VERSION=vX.Y.Z`. The diff
+  compares input and output fields at any depth with their types. It
+  also fails when the baseline is not the newest release's, and, with
+  nothing under `[Unreleased]`, when the build differs from it at all.
+  It used to build the last tag and compare top-level inputs only: an
+  output field could be dropped unseen, and a deliberate break had no
+  way through before its tag existed. The baseline was recorded from
+  the v2.0.1 tag, whose dump already carried output schemas.
 - **Stdio smoke** without credentials: initialize with the newest
   protocol version the SDK offers and with `2025-11-25`, list tools and
   resource templates, call `get_file` and expect an `[auth]` tool error.
@@ -2277,3 +2286,9 @@ live run of it found.
 | A client draws a question as plain text | **Refuted.** VS Code's `mcpElicitationService.ts`, read 2026-09-29, builds a form question as an untrusted `MarkdownString` | Every value from Drive or the call stands in a code span with its backticks and quote marks folded, and links broken |
 | `\b` in a Go regular expression is a word boundary in any script | **Refuted.** `go doc regexp/syntax`, Go 1.27.1: `\b` is "at ASCII word boundary" | The link shapes in a question are unanchored, so a link after an underscore or in a non-Latin domain is broken too; a test holds both |
 | A destructive tool should carry both `requiresUserInteraction` and the server's own question | **Refuted** 2026-10-09, after the owner was asked twice for one delete in another server built the same way. No source recommends two hard gates for one call: the spec puts confirmation on the client, GitHub's `delete_repository` and Supabase confirm with `destructiveHint` plus a form elicitation and set no mark, and Claude Code's documentation scopes the mark to "tools whose permission prompt is itself the point" | The mark is sent per client, present only when the request declares no form elicitation, on the five tools that ask before every write (`askedEveryCall`). A Claude Code `Elicitation` hook that accepts now confirms these deletes alone, where the mark used to stop the call before it reached the server. A typed confirmation, which would stop Codex accepting an empty form unseen, was offered and not chosen |
+
+**Gap-analysis additions (2026-10-09).**
+
+| Convention | Verdict | Effect |
+|---|---|---|
+| CI's checkout has no tags, so a schema diff against the last tag compares against nothing there | **Refuted for this repository.** The `smoke` job checks out with `fetch-depth: 0`, which `actions/checkout`'s `action.yml` at the pinned v7.0.1 SHA describes as "all history for all branches and tags". The tag was there, and the diff built it | The diff still moved to a committed baseline, for what the tag could not do: it compared top-level inputs only, so a lost output field or a field deep in an object passed; it rebuilt old source on every run; and a deliberate break could not pass before its own tag existed |
