@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-09
+
 ### Added
 
 - `move_file` takes `files`, up to 50 items, moved to one destination. Each item gets its own outcome in `items`: moved, unchanged, refused with the reason, or failed with Drive's answer, and a failure does not undo the moves before it. A call that moves none because each failed or was refused reports the action `failed`. `dry_run` lists what would happen to each. The person is asked once for the whole call, naming every item that would reach more people.
@@ -2109,6 +2111,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[2.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/mmedum/google-drive-mcp/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.3...v1.3.0

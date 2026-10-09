@@ -1,8 +1,10 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 7 complete (2026-09-30), released as v2.0.1
-(2026-10-01), which reports a write that may have landed as
-`[ambiguous_outcome]` instead of inviting a repeat. The server asks the person before a write it cannot take back or that opens
+**Status:** phase 8 complete (2026-10-09), released as v2.1.0
+(2026-10-09): the 2026-10-08 gap analysis, built, reviewed and run live —
+Office and OCR text, download restrictions and limited access, search
+under a folder, and a move or copy that asks before it widens who can
+reach a file (§16). The server asks the person before a write it cannot take back or that opens
 a file past people somebody named (§4a), and six defects are fixed, two
 of them found by its live run (§16). The Go module path is now `/v2`. A default
 build registers **32** tools; eight more exist behind a flag — the
@@ -1839,6 +1841,22 @@ the driver accepts either way.
    topic branch, a pull request, CI green, merge, then the tag pushed on
    its own.
 4. Stop and wait for "go".
+
+**Phase 8 — the gap analysis (v2.1.0). Done 2026-10-09.** The
+2026-10-08 comparison with the API and with Google's own servers named
+what this server could not do; this phase built it. `read_file` reads
+Office and OpenDocument files, parsed locally under hard caps, and
+`extract_text` reads a PDF or an image through Google's OCR on a
+temporary copy it deletes. `update_file` restricts downloads and gives a
+folder limited access. `search_files` searches a whole folder tree
+(`under_folder`), by who can open a file (`visibility`) and by who it is
+shared with (`shared_with`), and shows who shared a file with you and
+when. `move_file` and `copy_file` show who can reach an item before and
+after, ask before a destination widens that, and refuse it under
+`GDRIVE_SHARING=off`; `move_file` moves up to 50 items at once.
+`manage_approval` chooses what a content change does to an approval.
+Two reviews (correctness and quality) and two live runs found what the
+unit suite could not; their verdicts are in §18.
 
 ## 17. Open decisions
 

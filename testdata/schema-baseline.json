@@ -1,6 +1,6 @@
 {
   "server": "google-drive-mcp",
-  "version": "v2.0.1",
+  "version": "v2.1.0",
   "sdk": "v1.8.0",
   "tools": [
     {
@@ -10,12 +10,12 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Start a comment thread on a file. Everybody who can see the file can see the comment, and Drive mails the people who follow it. The comment is not pinned to any passage: pinning one to a place in a Google Doc is a feature of the Docs API, which this server does not use. Use reply_comment to answer, close or reopen a thread.",
+      "description": "Start a comment thread on a file. Everybody who can see the file can see the comment, and Drive mails the people who follow it. The comment is not pinned to any place in the file: pinning one in a Google Doc, Sheet or Slides deck is a feature of the Docs, Sheets or Slides API, which this server does not use. Use reply_comment to answer, close or reopen a thread.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "content": {
-            "description": "what the comment says, as plain text. Everybody who can see the file can see it.",
+            "description": "what the comment says, as plain text. Required. Everybody who can see the file can see it.",
             "type": "string"
           },
           "file": {
@@ -24,8 +24,7 @@
           }
         },
         "required": [
-          "file",
-          "content"
+          "file"
         ],
         "type": "object"
       },
@@ -34,7 +33,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -120,6 +119,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -130,6 +133,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -175,6 +182,62 @@
               "object"
             ]
           },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "note": {
             "description": "anything about the result that the fields do not carry",
             "type": "string"
@@ -206,7 +269,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Copy one file, leaving the original alone. With convert_to, Google imports the copy as one of its own kinds, which is the way to get readable text out of a PDF or a scanned image: copy it with convert_to: doc, then read_file the copy. A folder needs recursive: true, because Drive has no call that copies one — it is a listing per folder and a write per item, so a large tree takes a while. A tree over max_items is refused before anything is written rather than copied halfway; dry_run says how big it is first. Shortcuts inside a tree are made again pointing where they point now, not at the copies.",
+      "description": "Copy one file, leaving the original alone. With convert_to, Google imports the copy as one of its own kinds; a PDF or a scanned image copied with convert_to: doc becomes a Google Doc with its text read out, which read_file then reads. extract_text does the same and deletes the copy again. A folder needs recursive: true, because Drive has no call that copies one — it is a listing per folder and a write per item, so a large tree takes a while. A tree over max_items is refused before anything is written rather than copied halfway; dry_run says how big it is first. Shortcuts inside a tree are made again pointing where they point now, not at the copies. A copy takes on who can reach the folder it lands in, and none of the sharing of the original; the result shows who can reach each. A copy that more people can reach than the original, or with more access, is also put to the person when the client can ask; a call they do not confirm is [blocked], nothing is copied, and it is not made again unless they ask. A server started with GDRIVE_SHARING=off refuses such a copy instead.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -265,7 +328,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -351,6 +414,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -361,6 +428,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -404,6 +475,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -488,7 +615,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -574,6 +701,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -584,6 +715,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -627,6 +762,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -695,7 +886,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -781,6 +972,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -791,6 +986,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -834,6 +1033,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -898,7 +1153,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -984,6 +1239,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -994,6 +1253,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -1037,6 +1300,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -1109,7 +1428,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -1195,6 +1514,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -1205,6 +1528,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -1248,6 +1575,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -1311,7 +1694,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -1397,6 +1780,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -1407,6 +1794,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -1450,6 +1841,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -1513,7 +1960,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -1599,6 +2046,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -1609,6 +2060,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -1652,6 +2107,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -1720,7 +2231,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -1806,6 +2317,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -1816,6 +2331,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -1861,6 +2380,62 @@
               "object"
             ]
           },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "note": {
             "description": "anything about the result that the fields do not carry",
             "type": "string"
@@ -1892,7 +2467,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Write a file to the server's local directory, streamed and checked against Drive's own checksum. Use it for what read_file cannot return — a PDF, an image, a video, an Office file, a whole spreadsheet — and for keeping a copy. A Google Doc, Sheet or Slides deck is converted on the way out, docx, xlsx and pptx by default. The result says where the file landed. This needs the server to have been started with GDRIVE_LOCAL_DIR; get_account says whether it was.",
+      "description": "Write a file to the server's local directory, streamed and checked against Drive's own checksum. Use it for what read_file cannot return — a PDF, an image, a video, an Office file in the binary format from before 2007, every sheet of a spreadsheet — and for keeping a copy. A Google Doc, Sheet or Slides deck is converted on the way out, docx, xlsx and pptx by default. The result says where the file landed. This needs the server to have been started with GDRIVE_LOCAL_DIR; get_account says whether it was.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1954,7 +2529,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -2040,6 +2615,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -2050,6 +2629,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -2095,6 +2678,62 @@
               "object"
             ]
           },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "note": {
             "description": "anything about the result that the fields do not carry",
             "type": "string"
@@ -2118,6 +2757,45 @@
         ],
         "type": "object"
       }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Read the text in a PDF or an image (JPEG, PNG, GIF or BMP) with Google's OCR. Drive reads such text only while converting a file into a Google Doc, so this makes a temporary Google Doc copy in the root of My Drive, exports its text and deletes the copy for good; keep_copy leaves it instead. The original is not changed. Calling again with offset pages through the same text for a few minutes without another copy. If Google does not confirm the copy was made, the result is [ambiguous_outcome] and says how to find it with search_files; do not call again to find out. read_file reads a Google Doc, an Office file or a text file directly, with no copy. Google asks for files of 2 MB or less; a file over 50 MB is refused.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "description": "the PDF or image: a file id, any Drive URL, a path from My Drive like /Scans/receipt.pdf, or a shared-drive path like drive:Finance/Receipts/receipt.pdf. A name or path matching more than one item is refused with the candidates listed, so pass an id when you have one. A shortcut is followed to what it points at.",
+            "type": "string"
+          },
+          "keep_copy": {
+            "description": "keep the Google Doc the OCR made, in the root of My Drive, and say its id and link, instead of deleting it",
+            "type": "boolean"
+          },
+          "max_chars": {
+            "description": "how much text to return, default 20000, maximum 400000",
+            "type": "integer"
+          },
+          "ocr_language": {
+            "description": "an ISO 639-1 language code hinting what language the text is in, such as en or de. Google detects the language without it.",
+            "type": "string"
+          },
+          "offset": {
+            "description": "where to start reading the text. Pass 0 for the beginning, or the offset a previous call of this tool on the same file said to continue from.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "type": "object"
+      },
+      "name": "extract_text"
     },
     {
       "annotations": {
@@ -2356,7 +3034,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "List what is in a folder: one page, folders first and then names in natural order, or with recursive: true a tree of the folders below it. Prefer this over search_files when you know where to look. Items in the trash are left out unless you ask for them. A recursive walk is bounded by max_depth and max_items and names the folders it did not enter, so a tree that stops early says so rather than looking complete.",
+      "description": "List what is in a folder: one page, folders first and then names in natural order, or with recursive: true a tree of the folders below it. Prefer this over search_files when you know where to look. Items in the trash are left out unless you ask for them. A recursive walk is bounded by max_depth and max_items and names the folders it did not enter, so a tree that stops early says so rather than looking complete. A folder this account can see but cannot list is marked, since it may hold more than is shown.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2475,7 +3153,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Ask people to review a file, answer a review you were asked for, withdraw one, comment on one, or change who is being asked. Actions: start, approve, decline, cancel, comment, reassign. EVERY ACTION MAILS SOMEBODY — the reviewers, or the person who asked — and there is no way to turn that off, unlike sharing. An approval grants nobody access; what it can do is LOCK the file: certainly once it is APPROVED, and lock_file asks for it at the start although Drive does not always apply that — the result says which. A locked file cannot be edited by anyone, and the lock an approval leaves does not come off. Declining completes the approval on its own, where approving waits for every reviewer. A reviewer can be added, or replaced by somebody else, but never simply removed.",
+      "description": "Ask people to review a file, answer a review you were asked for, withdraw one, comment on one, or change who is being asked. Actions: start, approve, decline, cancel, comment, reassign. EVERY ACTION MAILS SOMEBODY — the reviewers, or the person who asked — and there is no way to turn that off, unlike sharing. An approval grants nobody access; what it can do is LOCK the file: once it is APPROVED, unless it was started with on_content_change no_action, and lock_file asks for it at the start although Drive does not always apply that — the result says which. A locked file cannot be edited by anyone, and the lock an approval leaves does not come off. Declining completes the approval on its own, where approving waits for every reviewer. A reviewer can be added, or replaced by somebody else, but never simply removed.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2496,11 +3174,15 @@
             "type": "string"
           },
           "lock_file": {
-            "description": "with start, ask Drive to lock the file's content while the approval is open. Drive does not always apply it — the result says whether it did — but an APPROVED file is locked either way",
+            "description": "with start, ask Drive to lock the file's content while the approval is open. Drive does not always apply it, and the result says whether it did. Separately, an approval started with on_content_change reset_approval locks the file once it is APPROVED",
             "type": "boolean"
           },
           "message": {
             "description": "a message that goes into the notification and into the approval's log. Required for comment, optional elsewhere.",
+            "type": "string"
+          },
+          "on_content_change": {
+            "description": "with start, what a change to the file's content does to the approval: reset_approval (the default) clears answers already given while it is open and LOCKS the file once it is approved; no_action leaves the answers as they are and does not lock the file",
             "type": "string"
           },
           "replace_reviewers": {
@@ -2535,7 +3217,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -2621,6 +3303,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -2631,6 +3317,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -2674,6 +3364,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -2745,7 +3491,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -2831,6 +3577,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -2841,6 +3591,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -2884,6 +3638,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -2960,7 +3770,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -3046,6 +3856,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -3056,6 +3870,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -3099,6 +3917,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -3161,7 +4035,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -3247,6 +4121,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -3257,6 +4135,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -3300,6 +4182,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -3333,17 +4271,27 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Move one item into another folder or into a shared drive. A file in Drive has exactly one parent, so this takes it out of where it was: everyone who reached it through the old folder now will not. A folder in My Drive cannot move into a shared drive at all: make one there with create_folder and move the files into it. dry_run reports the old and new locations and changes nothing.",
+      "description": "Move an item into another folder or into a shared drive, or up to 50 items with files. A file in Drive has exactly one parent, so this takes it out of where it was. A move also changes who can reach it: it keeps the access granted on it directly, loses what it had through the old folder, and gains everyone who can reach the new folder or shared drive. The result shows who could reach it before and who can after. A folder in My Drive cannot move into a shared drive at all: make one there with create_folder and move the files into it. dry_run reports the old and new locations and who would reach each item, and changes nothing. A move that lets more people reach an item, or gives them more access, is also put to the person when the client can ask, once for the whole call; a call they do not confirm is [blocked], nothing in it moves, and it is not made again unless they ask. A server started with GDRIVE_SHARING=off refuses such a move instead.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "dry_run": {
-            "description": "report what would happen and change nothing",
+            "description": "report what would happen to each item, who could reach it before and after included, and change nothing",
             "type": "boolean"
           },
           "file": {
-            "description": "the item to move: an id, a Drive URL, a path from My Drive, or a shared-drive path. A shortcut is moved itself, not what it points at.",
+            "description": "the item to move: an id, a Drive URL, a path from My Drive, or a shared-drive path. A shortcut is moved itself, not what it points at. Pass this or files.",
             "type": "string"
+          },
+          "files": {
+            "description": "several items to move to the one destination, at most 50, each as file takes it. Pass this or file, not both. Each item gets its own outcome: moved, unchanged, refused with the reason, or failed with Drive's error. A failure does not undo the moves before it.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
           },
           "to": {
             "description": "where it goes: a folder id, a Drive URL, the word root for My Drive, a path from My Drive like /Projects/2026, or a shared drive as drive:Marketing",
@@ -3351,7 +4299,6 @@
           }
         },
         "required": [
-          "file",
           "to"
         ],
         "type": "object"
@@ -3361,7 +4308,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -3447,6 +4394,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -3457,6 +4408,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -3502,6 +4457,62 @@
               "object"
             ]
           },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "note": {
             "description": "anything about the result that the fields do not carry",
             "type": "string"
@@ -3532,7 +4543,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "The text of one file, straight back to you: a Google Doc as markdown, a Sheet as csv, Slides as plain text, and a text file, log, CSV, JSON or source file as itself. Only the part you ask for is fetched, so the head of a 200 MB log costs one small request; the header says which part you got and how to ask for the next. PDFs, Office files and images are refused with the two ways forward, because they are not text. Nothing is written to disk: download_file does that.",
+      "description": "The text of one file, straight back to you: a Google Doc as markdown, a Sheet as csv, Slides as plain text, and a text file, log, CSV, JSON or source file as itself. A Word document, an Excel workbook or a PowerPoint deck, or its OpenDocument counterpart, is read here as text: a document in order, a workbook's first sheet as csv, a deck slide by slide. The old .doc, .xls and .ppt formats are not. Only the part you ask for is fetched, so the head of a 200 MB log costs one small request; the header says which part you got and how to ask for the next. PDFs and images are not text: extract_text reads them with Google's OCR, where it is registered. Nothing is written to disk: download_file does that.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3541,7 +4552,7 @@
             "type": "string"
           },
           "format": {
-            "description": "for a spreadsheet only: csv (the default) or tsv",
+            "description": "for a spreadsheet only, a Google Sheet or an Excel or OpenDocument workbook: csv (the default) or tsv",
             "type": "string"
           },
           "max_chars": {
@@ -3603,7 +4614,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -3689,6 +4700,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -3699,6 +4714,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -3742,6 +4761,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -3816,7 +4891,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -3902,6 +4977,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -3912,6 +4991,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -3955,6 +5038,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -4011,7 +5150,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -4097,6 +5236,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -4107,6 +5250,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -4152,6 +5299,62 @@
               "object"
             ]
           },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "note": {
             "description": "anything about the result that the fields do not carry",
             "type": "string"
@@ -4182,7 +5385,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Find files across My Drive, files shared with you, and every shared drive, by name, content, kind, folder, owner, star or date. Each hit shows its kind, name, id, folder and last change. IMPORTANT: Drive does not do substring search. `name` matches the beginnings of words and `text` matches whole words, so \"udget\" will never find \"Budget\". Use list_folder when you know where something is: a search costs twenty times what a read does. `in_folder` reaches direct children only.",
+      "description": "Find files across My Drive, files shared with you, and every shared drive, by name, content, kind, folder, owner, star, date, who it is shared with or who can open it. Each hit shows its kind, name, id, folder and last change. IMPORTANT: Drive does not do substring search. `name` matches the beginnings of words and `text` matches whole words, so \"udget\" will never find \"Budget\". Use list_folder when you know where something is: a search costs twenty times what a read does. `in_folder` reaches direct children only; `under_folder` reaches every folder below as well. With no filter at all it returns everything you can see, in the order order_by names.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4195,7 +5398,7 @@
             "type": "string"
           },
           "in_folder": {
-            "description": "only items DIRECTLY inside this folder; Drive cannot search a folder recursively, so this does not reach subfolders. Takes the same forms as file.",
+            "description": "only items DIRECTLY inside this folder; this does not reach subfolders, under_folder does. Takes the same forms as file.",
             "type": "string"
           },
           "kind": {
@@ -4223,7 +5426,7 @@
             "type": "string"
           },
           "order_by": {
-            "description": "modified (the default), created, name, recency, viewed or size",
+            "description": "modified (the default), created, name, recency, viewed, size, or shared for the files most recently shared with you first. shared with no scope searches only the files shared with you.",
             "type": "string"
           },
           "owner": {
@@ -4231,7 +5434,7 @@
             "type": "string"
           },
           "page_token": {
-            "description": "the page_token from a previous result, to see the next page",
+            "description": "the page_token from a previous result, to see the next page. It continues only that search: pass the same filters, order, scope and drive with it.",
             "type": "string"
           },
           "property": {
@@ -4243,7 +5446,11 @@
             "type": "string"
           },
           "scope": {
-            "description": "all (the default), my_drive, or shared_with_me",
+            "description": "all (the default), my_drive, or shared_with_me. my_drive is refused with drive, or with an under_folder in a shared drive.",
+            "type": "string"
+          },
+          "shared_with": {
+            "description": "one address of a person or group: only files shared with it as viewer, commenter or editor",
             "type": "string"
           },
           "starred": {
@@ -4257,6 +5464,14 @@
           "trashed": {
             "description": "search the trash instead of live files",
             "type": "boolean"
+          },
+          "under_folder": {
+            "description": "only items in this folder or in any folder below it, at any depth. Takes the same forms as file. It costs one listing per level of folders before the search, covers at most 100 folders and refuses a larger tree, and does not follow shortcuts. A page_token from such a search continues only a search under the same folder. Pass this or in_folder, not both.",
+            "type": "string"
+          },
+          "visibility": {
+            "description": "who can open the file without being named on it: anyone (anyone on the internet, by link or by search), link (anyone with the link), domain (everyone in the organization, by link or by search), or limited (only the people and groups it is shared with)",
+            "type": "string"
           }
         },
         "type": "object"
@@ -4334,7 +5549,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -4420,6 +5635,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -4430,6 +5649,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -4473,6 +5696,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -4529,7 +5808,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -4615,6 +5894,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -4625,6 +5908,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -4668,6 +5955,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -4736,7 +6079,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -4822,6 +6165,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -4832,6 +6179,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -4875,6 +6226,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -4947,7 +6354,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -5033,6 +6440,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -5043,6 +6454,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -5086,6 +6501,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -5119,7 +6590,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Change a file's details without touching its content: rename it, describe it, star it, color a folder, set custom properties, mark it as opened, or turn off copying and re-sharing. Only the fields you pass change, and the result shows each one before and after. update_content replaces what is inside a file; move_file changes where it is.",
+      "description": "Change a file's details without touching its content: rename it, describe it, star it, color a folder, set custom properties, mark it as opened, stop downloads and re-sharing, or give a folder limited access. Only the fields you pass change, and the result shows each one before and after. Turning a folder's limited access off is also put to the person when the client can ask; a call they do not confirm is [blocked] and is not made again unless they ask. A server started with GDRIVE_SHARING=off refuses anything here that lets more people reach or pass on a file. update_content replaces what is inside a file; move_file changes where it is.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5128,7 +6599,7 @@
             "type": "string"
           },
           "copy_requires_writer_permission": {
-            "description": "true stops viewers and commenters copying, printing or downloading it",
+            "description": "legacy: Drive's old download switch, kept for compatibility. true stops viewers and commenters copying, printing or downloading it; false lifts every download restriction set on the file, editors' included. Use restrict_download instead; the two are refused together.",
             "type": [
               "null",
               "boolean"
@@ -5145,6 +6616,13 @@
             "description": "the item to change: an id, a Drive URL, a path from My Drive, or a shared-drive path. A name or path matching more than one item is refused with the candidates listed. A shortcut is changed itself, not what it points at.",
             "type": "string"
           },
+          "limited_access": {
+            "description": "for a folder: true lets only the people added to it directly open it, and those who reach the folder above see it without opening it. false lets everyone who reaches the folder above open it and everything inside it, which is put to the person first when the client can ask.",
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
           "name": {
             "description": "a new name",
             "type": "string"
@@ -5155,6 +6633,10 @@
             },
             "description": "custom key-value pairs stored on the file and visible to every app. An empty value deletes that key.",
             "type": "object"
+          },
+          "restrict_download": {
+            "description": "who cannot download, print or copy it: none, viewers (viewers and commenters), or editors (editors as well). Only its owner, or an organizer of its shared drive, can change it. A shared drive or an organization rule can restrict more than this sets; the result shows what is in effect.",
+            "type": "string"
           },
           "starred": {
             "description": "star or unstar it",
@@ -5185,7 +6667,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -5271,6 +6753,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -5281,6 +6767,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -5324,6 +6814,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
@@ -5408,7 +6954,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, or unchanged when the call found nothing to do",
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
             "type": "string"
           },
           "changes": {
@@ -5494,6 +7040,10 @@
             "additionalProperties": false,
             "description": "the file as it is now",
             "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
               "head_revision": {
                 "type": "string"
               },
@@ -5504,6 +7054,10 @@
               "kind": {
                 "description": "what kind of thing it is, in plain words",
                 "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
               },
               "link": {
                 "description": "the Drive link a person can open",
@@ -5547,6 +7101,62 @@
             "type": [
               "null",
               "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "note": {
