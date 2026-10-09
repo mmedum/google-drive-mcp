@@ -270,6 +270,19 @@ func TestAccountGolden(t *testing.T) {
 	golden(t, "account.txt", out)
 }
 
+// extract_text deletes the copy it makes for good, so the line that
+// says nothing removes anything permanently names it when it is there.
+func TestAccountNamesTheOneThingThatDeletesForGood(t *testing.T) {
+	about := &gdrive.About{User: &gdrive.User{EmailAddress: "person@example.com"}}
+	out := Account(about, AccountOptions{Tools: []string{"extract_text", "get_account"}})
+	want := "destructive tools: disabled: nothing registered here removes anything permanently, except the " +
+		"temporary copy extract_text makes to read a PDF or an image, which it deletes for good unless keep_copy " +
+		"is set. Set GDRIVE_ENABLE_DESTRUCTIVE=true to change that.\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("account output missing %q:\n%s", want, out)
+	}
+}
+
 func TestAccountLockedDown(t *testing.T) {
 	about := &gdrive.About{
 		User:         &gdrive.User{EmailAddress: "person@example.com"},

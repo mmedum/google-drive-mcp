@@ -898,8 +898,12 @@ result says "changed from reader to writer". The text shows exposure
 before and after; the JSON carries the permission id and the new sharing
 summary. `unshare_file` takes `principal` or `permission_id`, and
 `remove_link: true` for the `anyone` or `domain` link grant; an inherited
-shared-drive permission is refused with the source named. A grant to
-`anyone`, a `domain:` or a new owner is also put to the person (§4a).
+shared-drive permission is refused with the source named. An owner's
+grant is never called inherited: Drive lists a My Drive owner's grant
+both as made on the item and as coming from the folder above that the
+owner also owns. A dry run of either tool says what the grant would
+do, never that it did. A grant to `anyone`, a `domain:` or a new owner
+is also put to the person (§4a).
 
 Publishing a revision to the web (`revisions.update published`) is an
 exposure with no audience control and is deliberately not offered.

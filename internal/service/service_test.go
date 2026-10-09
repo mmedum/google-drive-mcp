@@ -763,6 +763,45 @@ func TestFileCardSaysWhoSharedItWithYou(t *testing.T) {
 	}
 }
 
+// A file this account shared with itself, as a shared drive's file can
+// be, names the account as "you" on the card and in a search row.
+func TestTheAccountIsMarkedWhenItSharedTheFile(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-self-shared-fixture", "Self shared", gdrive.MimeDocument, "",
+		drivetest.SharedWithMe("2026-03-01T09:00:00Z", drivetest.AccountName, drivetest.AccountEmail))
+	fake.Files["id-self-shared-fixture"].SharingUser.Me = true
+
+	card, err := svc.GetFile(t.Context(), service.GetFileInput{File: "id-self-shared-fixture"})
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	row, err := svc.Search(t.Context(), service.SearchInput{OrderBy: "shared"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	for _, out := range []string{card, row} {
+		if !strings.Contains(out, "2026-03-01 09:00Z (5 days ago) by Test Person (you)") {
+			t.Errorf("the account is not marked as the one who shared it:\n%s", out)
+		}
+	}
+}
+
+// A shared drive records who trashed an item; when it was this account,
+// the card says "you".
+func TestTheAccountIsMarkedWhenItTrashedTheFile(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	if _, err := svc.TrashFile(t.Context(), service.TrashInput{File: "id-q3-plan-fixture"}); err != nil {
+		t.Fatalf("TrashFile: %v", err)
+	}
+	card, err := svc.GetFile(t.Context(), service.GetFileInput{File: "id-q3-plan-fixture"})
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if !strings.Contains(card, "\ntrashed: yes, by Test Person (you) on ") {
+		t.Errorf("the account is not marked as the one who trashed it:\n%s", card)
+	}
+}
+
 // visibilityTree adds one file per kind of reach, each in its own way
 // open to people it does not name.
 func visibilityTree(fake *drivetest.Server) {

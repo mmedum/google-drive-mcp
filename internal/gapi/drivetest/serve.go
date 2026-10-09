@@ -731,6 +731,11 @@ func (s *Server) downloadRestrictionsLocked(f *gdrive.File) *gdrive.DownloadRest
 // struct's json tags are exactly the names a fields expression uses, so
 // this goes through JSON rather than a hand-written copy per field: a
 // list of 46 assignments is a list that falls behind gdrive.File.
+//
+// A field asked for with a sub-selection, such as
+// sharingUser(displayName,emailAddress), keeps only what was named in
+// it, as Drive does. Without that, a mask missing "me" passed every test
+// while no sharer was ever marked as the account.
 func projectFields(f *gdrive.File, fields string) *gdrive.File {
 	want := map[string]bool{"id": true} // the id always comes back
 	for _, name := range splitFields(fields) {
@@ -744,9 +749,13 @@ func projectFields(f *gdrive.File, fields string) *gdrive.File {
 	if err := json.Unmarshal(raw, &all); err != nil {
 		return f
 	}
+	subs := subSelections(fields)
 	for k := range all {
-		if !want[k] {
+		switch {
+		case !want[k]:
 			delete(all, k)
+		case subs[k] != nil:
+			all[k] = keepOnly(all[k], subs[k])
 		}
 	}
 	kept, err := json.Marshal(all)
@@ -758,6 +767,55 @@ func projectFields(f *gdrive.File, fields string) *gdrive.File {
 		return f
 	}
 	return out
+}
+
+// subSelection is a field with a list of plain names after it in
+// parentheses, which is one Drive answers with those names alone.
+var subSelection = regexp.MustCompile(`(\w+)\(([\w,\s]*)\)`)
+
+// subSelections maps each field asked for with a sub-selection of plain
+// names to those names. A field whose sub-selection nests further is
+// left out and kept whole.
+func subSelections(fields string) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, m := range subSelection.FindAllStringSubmatch(fields, -1) {
+		names := map[string]bool{}
+		for _, n := range strings.Split(m[2], ",") {
+			names[strings.TrimSpace(n)] = true
+		}
+		out[m[1]] = names
+	}
+	return out
+}
+
+// keepOnly cuts an object, or each object in a list, down to the named
+// keys. Anything else it is given comes back as it was.
+func keepOnly(raw json.RawMessage, names map[string]bool) json.RawMessage {
+	cut := func(obj map[string]json.RawMessage) {
+		for k := range obj {
+			if !names[k] {
+				delete(obj, k)
+			}
+		}
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) == nil {
+		cut(obj)
+		if b, err := json.Marshal(obj); err == nil {
+			return b
+		}
+		return raw
+	}
+	var list []map[string]json.RawMessage
+	if json.Unmarshal(raw, &list) == nil {
+		for _, o := range list {
+			cut(o)
+		}
+		if b, err := json.Marshal(list); err == nil {
+			return b
+		}
+	}
+	return raw
 }
 
 // splitFields pulls the field names out of a Drive fields expression.

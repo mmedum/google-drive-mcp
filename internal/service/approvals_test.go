@@ -27,6 +27,20 @@ func TestListApprovalsSaysWhenItIsWaitingOnYou(t *testing.T) {
 	}
 }
 
+// An approval that is over waits on nobody, whoever never answered it.
+func TestListApprovalsSaysWhoNeverAnsweredOneThatIsOver(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddApproval("id-notes-fixture", "id-approval-1", "person@example.com").Status = "CANCELLED"
+
+	out, err := svc.ListApprovals(t.Context(), service.ListApprovalsInput{File: "id-notes-fixture"})
+	if err != nil {
+		t.Fatalf("ListApprovals: %v", err)
+	}
+	if !strings.Contains(out, "  no answer from: Test Person (you)") || strings.Contains(out, "waiting on") {
+		t.Errorf("a canceled approval reads as waiting on somebody:\n%s", out)
+	}
+}
+
 func TestListApprovalsOnAFileWithNone(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 	out, err := svc.ListApprovals(t.Context(), service.ListApprovalsInput{File: "id-notes-fixture"})

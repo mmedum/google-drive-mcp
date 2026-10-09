@@ -100,6 +100,31 @@ func TestManageRevisionPinsAndUnpins(t *testing.T) {
 	}
 }
 
+// The current revision is not one Drive may already have discarded:
+// it keeps the current one, and the 30 days start when a newer one
+// replaces it.
+func TestUnkeepingTheCurrentRevisionSaysDriveKeepsIt(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.SetContent("id-budget-fixture", "first")
+	head := fake.Files["id-budget-fixture"].HeadRevisionID
+	if _, err := svc.ManageRevision(t.Context(), service.ManageRevisionInput{
+		File: "id-budget-fixture", Revision: head, Action: "keep",
+	}); err != nil {
+		t.Fatalf("keep: %v", err)
+	}
+	got, err := svc.ManageRevision(t.Context(), service.ManageRevisionInput{
+		File: "id-budget-fixture", Revision: head, Action: "unkeep",
+	})
+	if err != nil {
+		t.Fatalf("unkeep: %v", err)
+	}
+	want := "revision " + head + " of Budget.xlsx is not kept forever. It is the current revision, which Drive " +
+		"keeps. Once a newer one replaces it, Drive discards it 30 days later."
+	if got.JSON.Note != want {
+		t.Errorf("note = %q\nwant %q", got.JSON.Note, want)
+	}
+}
+
 func TestManageRevisionExplainsAMissingRevision(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 	_, err := svc.ManageRevision(t.Context(), service.ManageRevisionInput{

@@ -398,6 +398,28 @@ func TestAnInheritedGrantIsRefusedWithItsSourceNamed(t *testing.T) {
 	}
 }
 
+// Drive lists a My Drive owner's grant with two details: one made on
+// the item, and one from the folder above that the owner also owns. It
+// is the owner's own grant, not one inherited from that folder.
+func TestTheOwnersGrantIsNotCalledInherited(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	for _, id := range []string{"id-2026-fixture", "id-budget-fixture"} {
+		fake.Grant(id, &gdrive.Permission{Type: "user", Role: "owner", EmailAddress: drivetest.AccountEmail})
+	}
+
+	out, err := svc.ListPermissions(t.Context(), service.ListPermissionsInput{File: "id-budget-fixture"})
+	if err != nil {
+		t.Fatalf("ListPermissions: %v", err)
+	}
+	if strings.Contains(out, "inherited") {
+		t.Errorf("the owner's grant reads as inherited:\n%s", out)
+	}
+	_, err = svc.UnshareFile(t.Context(), service.UnshareFileInput{File: "id-budget-fixture", Principal: drivetest.AccountEmail})
+	if err == nil || !strings.Contains(err.Error(), "an owner's access is not revoked but transferred") {
+		t.Errorf("err = %v, want the owner's refusal rather than an inherited one", err)
+	}
+}
+
 func TestAnOwnersAccessIsTransferredNotRevoked(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.Grant("id-budget-fixture", &gdrive.Permission{
@@ -429,6 +451,47 @@ func TestDryRunSharesNothing(t *testing.T) {
 	}
 	if !strings.HasPrefix(got.Text, "would have shared") {
 		t.Errorf("the lead line reads as though it happened:\n%s", got.Text)
+	}
+}
+
+// A dry run's note says what the call would do. Under "NOTHING WAS
+// CHANGED", a note saying the link is open, mail went out or the link
+// is dead is false.
+func TestADryRunsNoteSaysWhatWouldHappen(t *testing.T) {
+	for _, tc := range []struct {
+		in   service.ShareFileInput
+		want string
+	}{
+		{service.ShareFileInput{Principal: "anyone", Role: "reader", AllowAnyone: true},
+			"anyone with the link would reach it without signing in."},
+		{service.ShareFileInput{Principal: "alice@example.com", Role: "reader", Notify: true},
+			"Google would send alice@example.com a notification email."},
+		{service.ShareFileInput{Principal: "alice@example.com", Role: "reader"},
+			"no email would be sent; pass notify: true if they should hear about it."},
+		{service.ShareFileInput{Principal: "alice@example.com", Role: "owner", TransferOwnership: true},
+			"this account would become a writer on it rather than its owner, and could not take that back: " +
+				"only the new owner can hand it on. Google always mails an ownership transfer; that cannot be turned off."},
+	} {
+		svc, _ := setup(t, service.Options{})
+		tc.in.File, tc.in.DryRun = "id-budget-fixture", true
+		got, err := svc.ShareFile(t.Context(), tc.in)
+		if err != nil {
+			t.Fatalf("ShareFile %+v: %v", tc.in, err)
+		}
+		if got.JSON.Note != tc.want {
+			t.Errorf("%s as %s: note = %q\nwant %q", tc.in.Principal, tc.in.Role, got.JSON.Note, tc.want)
+		}
+	}
+
+	svc, fake := setup(t, service.Options{})
+	fake.Grant("id-budget-fixture", &gdrive.Permission{Type: "anyone", Role: "reader"})
+	got, err := svc.UnshareFile(t.Context(), service.UnshareFileInput{File: "id-budget-fixture", RemoveLink: true, DryRun: true})
+	if err != nil {
+		t.Fatalf("UnshareFile: %v", err)
+	}
+	want := "the link that grant made would stop working; anyone holding it would see a request-access page"
+	if got.JSON.Note != want {
+		t.Errorf("unshare: note = %q\nwant %q", got.JSON.Note, want)
 	}
 }
 

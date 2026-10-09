@@ -16,9 +16,9 @@ import (
 // list so a file card never depends on which call produced the file, and
 // files.get costs the same 5 units whatever it returns.
 const FileFields = "id,name,mimeType,description,parents,starred,trashed,explicitlyTrashed," +
-	"trashedTime,trashingUser(displayName,emailAddress),createdTime,modifiedTime,modifiedByMeTime," +
+	"trashedTime,trashingUser(displayName,emailAddress,me),createdTime,modifiedTime,modifiedByMeTime," +
 	"viewedByMeTime,sharedWithMeTime,owners(displayName,emailAddress,me),lastModifyingUser(displayName,emailAddress,me)," +
-	"sharingUser(displayName,emailAddress),ownedByMe,shared,webViewLink,size,quotaBytesUsed,md5Checksum," +
+	"sharingUser(displayName,emailAddress,me),ownedByMe,shared,webViewLink,size,quotaBytesUsed,md5Checksum," +
 	"sha256Checksum,headRevisionId,version,fileExtension,originalFilename,folderColorRgb,driveId,resourceKey," +
 	"writersCanShare,copyRequiresWriterPermission,downloadRestrictions,inheritedPermissionsDisabled," +
 	"capabilities,shortcutDetails,linkShareMetadata," +
@@ -30,7 +30,7 @@ const FileFields = "id,name,mimeType,description,parents,starred,trashed,explici
 // for a file someone shared with this account, when and by whom.
 const ListFileFields = "id,name,mimeType,parents,starred,trashed,createdTime,modifiedTime," +
 	"owners(displayName,emailAddress,me),lastModifyingUser(displayName,emailAddress,me),shared," +
-	"sharedWithMeTime,sharingUser(displayName,emailAddress)," +
+	"sharedWithMeTime,sharingUser(displayName,emailAddress,me)," +
 	"size,driveId,resourceKey,shortcutDetails,webViewLink"
 
 // MaxPageSize is Drive's hard limit for a listing page.

@@ -165,7 +165,13 @@ func GrantOf(p *gdrive.Permission) Grant {
 		Discoverable: p.AllowFileDiscovery, Expires: p.ExpirationTime,
 		PendingOwner: p.PendingOwner, Deleted: p.Deleted, NameOnly: p.View == gdrive.ViewMetadata,
 	}
-	if inherited, from := p.Inherited(); inherited {
+	// An owner's grant is made on the item, even when the owner also
+	// reaches it through a folder above that it owns: Drive lists both
+	// ways in permissionDetails. It is not one that "can only be
+	// removed where it was granted".
+	role, direct := DirectRole(p)
+	ownsIt := direct && role == RoleOwner
+	if inherited, from := p.Inherited(); inherited && !ownsIt {
 		g.InheritedFrom = from
 		if g.InheritedFrom == "" {
 			// The reference says inheritedFrom "is only populated for
