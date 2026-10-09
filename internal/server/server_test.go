@@ -344,6 +344,24 @@ func TestToolErrorsCarryAClass(t *testing.T) {
 	}
 }
 
+// A comment with no content is the server's own [invalid] refusal, which
+// says what is missing, and not the SDK's schema error, which has no
+// class and reads like a fault.
+func TestAddCommentWithoutContentIsAnInvalidRefusal(t *testing.T) {
+	cs, fake := sessionAndFake(t, defaultConfig(), true)
+	res := call(t, cs, "add_comment", map[string]any{"file": "id-notes-fixture"})
+	if !res.IsError {
+		t.Fatal("a comment with no content was accepted")
+	}
+	want := "[invalid] content is required: a comment with nothing in it says nothing"
+	if got := resultText(t, res); got != want {
+		t.Errorf("the refusal reads %q, want %q", got, want)
+	}
+	if n := len(fake.Comments["id-notes-fixture"]); n != 1 {
+		t.Errorf("the file has %d threads, want the 1 it had", n)
+	}
+}
+
 func TestWithoutCredentialsEveryToolAnswersAuth(t *testing.T) {
 	cs := session(t, defaultConfig(), false)
 	for _, name := range []string{"get_account", "get_file", "search_files", "list_folder"} {

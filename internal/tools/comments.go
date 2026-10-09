@@ -22,8 +22,12 @@ type CommentsInput struct {
 
 // AddCommentInput is a new thread.
 type AddCommentInput struct {
-	File    string `json:"file" jsonschema:"the file to comment on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
-	Content string `json:"content" jsonschema:"what the comment says, as plain text. Everybody who can see the file can see it."`
+	File string `json:"file" jsonschema:"the file to comment on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	// Not required in the schema, on purpose. The SDK checks a required
+	// field before the handler runs and answers with its own unclassed
+	// schema error; the service's [invalid] refusal says what is missing
+	// and why, as reply_comment's does.
+	Content string `json:"content,omitempty" jsonschema:"what the comment says, as plain text. Required. Everybody who can see the file can see it."`
 }
 
 // ReplyCommentInput acts on one thread.
