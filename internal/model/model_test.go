@@ -219,7 +219,7 @@ func TestSharingPublicAndInherited(t *testing.T) {
 	if s.Inherited != 1 {
 		t.Errorf("inherited = %d", s.Inherited)
 	}
-	if !strings.Contains(s.Summary(), "inherited from the shared drive") {
+	if !strings.Contains(s.Summary(), "(1 of them through a folder above it)") {
 		t.Errorf("summary = %q", s.Summary())
 	}
 	for _, g := range s.Grants {
@@ -585,5 +585,53 @@ func TestExportFormatsAreShortNamesAndNeverLinks(t *testing.T) {
 	}
 	if ExportFormats(nil) != nil {
 		t.Error("ExportFormats(nil) should be empty")
+	}
+}
+
+func TestDirectRoleIsWhatWasGrantedOnTheItemItself(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		p      *gdrive.Permission
+		role   string
+		direct bool
+	}{
+		{"no details", &gdrive.Permission{Role: "writer"}, "writer", true},
+		{"inherited only", &gdrive.Permission{Role: "writer", Details: []*gdrive.PermissionDetails{
+			{Role: "writer", Inherited: true}}}, "", false},
+		{"both ways", &gdrive.Permission{Role: "writer", Details: []*gdrive.PermissionDetails{
+			{Role: "writer", Inherited: true}, {Role: "commenter"}, {Role: "reader"}}}, "commenter", true},
+	} {
+		role, direct := DirectRole(tc.p)
+		if role != tc.role || direct != tc.direct {
+			t.Errorf("%s: DirectRole = %q, %v; want %q, %v", tc.name, role, direct, tc.role, tc.direct)
+		}
+	}
+}
+
+func TestGainedIsWhoAChangeReachesThatItDidNot(t *testing.T) {
+	before := SharingOf(true, []Grant{
+		{Type: "user", Role: "reader", Who: "a@example.com"},
+		{Type: "anyone", Role: "reader", Who: "anyone"},
+		{Type: "user", Role: "owner", Who: "me@example.com"},
+	})
+	after := SharingOf(true, []Grant{
+		{Type: "user", Role: "writer", Who: "A@example.com"},                // more access
+		{Type: "anyone", Role: "reader", Who: "anyone", Discoverable: true}, // findable by search now
+		{Type: "domain", Role: "reader", Who: "example.com"},                // nobody there before
+		{Type: "user", Role: "owner", Who: "b@example.com"},                 // an owner counts as an editor
+		{Type: "user", Role: "writer", Who: "me@example.com"},               // the account itself
+		{Type: "user", Role: "reader", Who: "gone@example.com", Deleted: true},
+	})
+	var got []string
+	for _, g := range Gained(before, after, "ME@example.com") {
+		got = append(got, g.Type+" "+g.Who+" "+g.Role)
+	}
+	// In the order a summary lists grants: the owner first.
+	want := "user b@example.com writer|user A@example.com writer|anyone anyone reader|domain example.com reader"
+	if strings.Join(got, "|") != want {
+		t.Errorf("Gained = %q, want %q", strings.Join(got, "|"), want)
+	}
+	if !SameReach(after, after, "") || SameReach(before, after, "me@example.com") {
+		t.Error("SameReach does not tell a list from a wider one")
 	}
 }

@@ -16,11 +16,14 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** a `move_file` that lets more people reach the item asks the person first, so a client that declares elicitation but has no person to answer, such as `claude -p`, can no longer make it.
 - A delete asks once in Claude Code, not twice. In a client that can ask the person, `delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and `delete_comment` no longer carry the `requiresUserInteraction` mark; the server's own question, which shows what the delete destroys, is the confirmation. To see only that question, add the five tools to Claude Code's allow list. A Claude Code `Elicitation` hook that accepts now confirms these deletes alone, where the mark used to stop the call before it reached the server.
 - The schema diff compares the tool surface with the newest release's, recorded in `testdata/schema-baseline.json`, and checks input and output fields at any depth with their types. It used to rebuild the last tag and compare top-level inputs only, so a dropped output field passed. A release commit records the baseline with `make schema-baseline VERSION=vX.Y.Z`, which refuses a break unless the release is a new major version.
 
 ### Fixed
 
+- `move_file` says who could reach the item before the move and who can after, in `sharing_before` and `sharing_after`. A moved item takes on the destination's sharing and loses what it had through its old folder, and the result used to report only the new location. A move into a folder or shared drive that more people can reach, or that gives them more access, is now put to the person first when the client can ask, naming who it adds. `dry_run` shows the same without asking. After the move the result reads who can reach the item from Drive, and says so when that differs from what was worked out beforehand.
+- A sharing summary for a My Drive item that people reach through a folder above it says "through a folder above it". It said "inherited from the shared drive".
 - A search hit or listed file that someone shared with you, in a folder you cannot see, is placed under "Shared with me". It read as having no folder this account can see.
 - `list_folder` says when this account can see a folder but cannot list what is in it. Such a folder used to list as empty. A recursive walk marks such folders and names them at the end. A recursive `copy_file` refuses a folder holding one, before it copies anything, where it used to copy that folder empty.
 

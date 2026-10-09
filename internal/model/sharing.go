@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -131,48 +132,68 @@ type Sharing struct {
 // an empty list that was read means "no grants", while one that could
 // not be read means "unknown", and the two must not print the same.
 func NewSharing(shared bool, perms []*gdrive.Permission, known bool) Sharing {
-	s := Sharing{Shared: shared}
 	if !known {
-		s.Unknown = true
-		return s
+		return Sharing{Shared: shared, Unknown: true}
 	}
+	grants := make([]Grant, 0, len(perms))
 	for _, p := range perms {
-		if p == nil {
-			continue
+		if p != nil {
+			grants = append(grants, GrantOf(p))
 		}
-		inherited, from := p.Inherited()
-		g := Grant{
-			PermissionID: p.ID, Type: p.Type, Role: p.Role, Name: p.DisplayName,
-			Discoverable: p.AllowFileDiscovery, Expires: p.ExpirationTime,
-			PendingOwner: p.PendingOwner, Deleted: p.Deleted,
+	}
+	return SharingOf(shared, grants)
+}
+
+// GrantOf is one permission as the model shows it.
+func GrantOf(p *gdrive.Permission) Grant {
+	g := Grant{
+		PermissionID: p.ID, Type: p.Type, Role: p.Role, Name: p.DisplayName,
+		Discoverable: p.AllowFileDiscovery, Expires: p.ExpirationTime,
+		PendingOwner: p.PendingOwner, Deleted: p.Deleted,
+	}
+	if inherited, from := p.Inherited(); inherited {
+		g.InheritedFrom = from
+		if g.InheritedFrom == "" {
+			// The reference says inheritedFrom "is only populated for
+			// items in shared drives", so an empty one is a My Drive
+			// item inheriting from a folder above it. Calling that
+			// "the shared drive" was wrong on every My Drive file
+			// that had an inherited grant, which is most of them.
+			g.InheritedFrom = "a folder above it"
 		}
-		if inherited {
-			g.InheritedFrom = from
-			if g.InheritedFrom == "" {
-				// The reference says inheritedFrom "is only populated for
-				// items in shared drives", so an empty one is a My Drive
-				// item inheriting from a folder above it. Calling that
-				// "the shared drive" was wrong on every My Drive file
-				// that had an inherited grant, which is most of them.
-				g.InheritedFrom = "a folder above it"
-			}
+	}
+	switch p.Type {
+	case "anyone":
+		g.Who = "anyone"
+	case "domain":
+		g.Who = p.Domain
+	default:
+		g.Who = p.EmailAddress
+	}
+	return g
+}
+
+// SharingOf summarizes grants already in the model's terms: a
+// permission list read from Drive, or one worked out before a change
+// that has not happened yet.
+func SharingOf(shared bool, grants []Grant) Sharing {
+	s := Sharing{Shared: shared, Grants: slices.Clone(grants)}
+	for _, g := range grants {
+		if g.Inherited() {
 			s.Inherited++
 		}
-		switch p.Type {
+		switch g.Type {
 		case "anyone":
-			g.Who = "anyone"
 			link := g
 			s.Link = &link
 		case "domain":
-			g.Who = p.Domain
 			s.Domains = append(s.Domains, g)
 		default:
-			g.Who = p.EmailAddress
-			if p.Role == RoleOwner {
+			if g.Role == RoleOwner {
 				s.Owner = g.Label()
 			} else {
 				s.People++
-				switch p.Role {
+				switch g.Role {
 				case RoleWriter, RoleOrganizer, RoleFileOrganizer:
 					s.Editors++
 				case RoleCommenter:
@@ -181,11 +202,10 @@ func NewSharing(shared bool, perms []*gdrive.Permission, known bool) Sharing {
 					s.Viewers++
 				}
 			}
-			if p.PendingOwner {
+			if g.PendingOwner {
 				s.PendingOwner = g.Label()
 			}
 		}
-		s.Grants = append(s.Grants, g)
 	}
 	sort.SliceStable(s.Grants, func(i, j int) bool {
 		ri, rj := roleRank[s.Grants[i].Role], roleRank[s.Grants[j].Role]
@@ -230,7 +250,10 @@ func (s Sharing) Summary() string {
 		case s.Inherited > 0 && s.SharedDrive != "":
 			line += fmt.Sprintf(" (%d of them through the shared drive %s)", s.Inherited, s.SharedDrive)
 		case s.Inherited > 0:
-			line += fmt.Sprintf(" (%d inherited from the shared drive)", s.Inherited)
+			// Without a shared drive's name this is a My Drive item, whose
+			// inherited grants come from its folders. Saying "the shared
+			// drive" here named a drive the file had never been in.
+			line += fmt.Sprintf(" (%d of them through a folder above it)", s.Inherited)
 		}
 		parts = append(parts, line)
 	}
@@ -277,6 +300,76 @@ func (s Sharing) Summary() string {
 // Public reports whether anyone with the link can reach the file, which
 // is the exposure worth naming before and after a sharing change.
 func (s Sharing) Public() bool { return s.Link != nil }
+
+// DirectRole is the role a permission gives on the item itself, apart
+// from what the item inherits, and false when every way it reaches the
+// item is inherited. A permission with no details counts as direct: the
+// reference says inherited "is always populated", so only a hand-made
+// answer lacks it. A moved item keeps what is direct and loses what it
+// inherited where it was.
+func DirectRole(p *gdrive.Permission) (string, bool) {
+	if p == nil {
+		return "", false
+	}
+	if len(p.Details) == 0 {
+		return p.Role, true
+	}
+	role, found := "", false
+	for _, d := range p.Details {
+		if !d.Inherited && (!found || RoleWidens(role, d.Role)) {
+			role, found = d.Role, true
+		}
+	}
+	return role, found
+}
+
+// Key is who a grant reaches, which is what two lists of grants are
+// compared on: the same person, group, domain or link.
+func (g Grant) Key() string { return g.Type + ":" + strings.ToLower(g.Who) }
+
+// Gained is what after reaches that before did not: a person, group,
+// domain or link with no access before, more access than before, or a
+// link grant that now turns up in search. self is the signed-in
+// account's address, whose own access is nobody's exposure. An owner who
+// appears is counted as someone who can edit, which is what that is to
+// the people asking who can reach a file.
+func Gained(before, after Sharing, self string) []Grant {
+	had := map[string]Grant{}
+	for _, g := range before.Grants {
+		if e, ok := had[g.Key()]; ok {
+			if RoleWidens(e.Role, g.Role) {
+				e.Role = g.Role
+			}
+			e.Discoverable = e.Discoverable || g.Discoverable
+			g = e
+		}
+		had[g.Key()] = g
+	}
+	self = strings.TrimSpace(self)
+	var out []Grant
+	for _, g := range after.Grants {
+		if g.Deleted || self != "" && g.Type == "user" && strings.EqualFold(g.Who, self) {
+			continue
+		}
+		e, ok := had[g.Key()]
+		if ok && !RoleWidens(e.Role, g.Role) && (!g.Discoverable || e.Discoverable) {
+			continue
+		}
+		if g.Role == RoleOwner {
+			g.Role = RoleWriter
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// SameReach reports whether two summaries reach the same people, groups,
+// domains and links with the same access, wherever it comes from. self
+// is left out of both, as Gained leaves it out. It compares the grants
+// each holds, so it means something only when both lists were read.
+func SameReach(a, b Sharing, self string) bool {
+	return len(Gained(a, b, self)) == 0 && len(Gained(b, a, self)) == 0
+}
 
 // Plural renders a count with its noun. It lives here because model owns
 // the other humanizing helpers (HumanSize, HumanTime, Ago) that render

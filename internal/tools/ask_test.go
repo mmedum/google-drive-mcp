@@ -14,6 +14,7 @@ import (
 
 	"github.com/mmedum/google-drive-mcp/v2/internal/config"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v2/internal/server"
 	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 	"github.com/mmedum/google-drive-mcp/v2/internal/tools"
@@ -61,6 +62,8 @@ func fixtures(t *testing.T) *drivetest.Server {
 	fake.AddDrive("id-drive-empty", "Empty drive")
 	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
 	fake.AddProposal("id-notes-fixture", "id-request-fixture", "outsider@example.org", "writer")
+	// Anything moved into Archive can be opened by anyone with the link.
+	fake.Grant("id-archive-fixture", &gdrive.Permission{Type: "anyone", Role: "reader"})
 	return fake
 }
 
@@ -160,6 +163,11 @@ var askCases = map[string]askCase{
 		method: http.MethodPatch, path: "/drives/id-drive-marketing",
 		shows: []string{"turn off domain_users_only on the shared drive `Marketing`"},
 	},
+	"move_file": {
+		args:   map[string]any{"file": "id-budget-fixture", "to": "id-archive-fixture"},
+		method: http.MethodPatch, path: "/files/id-budget-fixture",
+		shows: []string{"move the file `Budget.xlsx` into the folder `Archive`", "anyone with the link can view"},
+	},
 }
 
 // argsFor is a case's arguments against fake, with the revision filled
@@ -237,15 +245,15 @@ func TestEveryAskingWriteWaitsForThePerson(t *testing.T) {
 	}
 }
 
-// Every tool that takes confirm asks, as do the two that widen access;
-// the list is read from the published schemas, not typed out.
+// Every tool that takes confirm asks, as do the four that can widen
+// access; the list is read from the published schemas, not typed out.
 func TestEveryToolThatTakesConfirmAsks(t *testing.T) {
 	cs, _ := connect(t, everything(), "", nil)
 	res, err := cs.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"share_file": true, "manage_drive": true, "resolve_access_request": true}
+	want := map[string]bool{"share_file": true, "manage_drive": true, "resolve_access_request": true, "move_file": true}
 	registered := map[string]bool{}
 	for _, tool := range res.Tools {
 		registered[tool.Name] = true
@@ -328,6 +336,8 @@ func TestWhatAsksNothing(t *testing.T) {
 		{Name: "manage_drive", Arguments: map[string]any{"action": "restrict", "drive": "Marketing",
 			"restrictions": map[string]any{"members_only": true}}},
 		{Name: "manage_drive", Arguments: map[string]any{"action": "rename", "drive": "Marketing", "name": "Brand"}},
+		{Name: "move_file", Arguments: map[string]any{"file": "id-budget-fixture", "to": "id-archive-fixture", "dry_run": true}},
+		{Name: "move_file", Arguments: map[string]any{"file": "id-notes-fixture", "to": "id-projects-fixture"}},
 	} {
 		if res := callTool(t, cs, call); res.IsError {
 			t.Errorf("%s %v: %s", call.Name, call.Arguments, text(res))

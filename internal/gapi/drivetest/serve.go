@@ -648,7 +648,13 @@ func (s *Server) project(f *gdrive.File, fields string, labelIDs []string) *gdri
 		out.ExportLinks = links
 	}
 	s.mu.Lock()
-	if perms := s.Permissions[f.ID]; len(perms) > 0 {
+	perms := s.Permissions[f.ID]
+	if f.DriveID == "" {
+		// The reference calls this "The full list of permissions for the
+		// file", so a My Drive item carries what it inherits too.
+		perms = s.grantsLocked(f.ID)
+	}
+	if len(perms) > 0 {
 		out.Permissions = append([]*gdrive.Permission(nil), perms...)
 		ids := make([]string, 0, len(perms))
 		for _, p := range perms {

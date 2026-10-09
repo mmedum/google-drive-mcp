@@ -52,6 +52,13 @@ const (
 
 var now = time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
 
+// movedTo is who a move would add: a person, by name and address, and a
+// domain.
+func movedTo() []model.Grant {
+	return []model.Grant{{Type: "user", Role: "writer", Who: their, Name: other},
+		{Type: "domain", Role: "reader", Who: "corp.example.net"}}
+}
+
 func meUser() *gdrive.User    { return &gdrive.User{DisplayName: me, Me: true} }
 func otherUser() *gdrive.User { return &gdrive.User{DisplayName: other, EmailAddress: their} }
 
@@ -165,6 +172,8 @@ func rendered() map[string]string {
 		render.AskLoosenDrive(fixtureDriveID, "Marketing", []string{"domain_users_only"}).Text,
 		render.AskGrantRequest(fixtureID, "Budget.xlsx", "id-request-1", their, "writer", "please let me in").Text,
 		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOutside, Who: their, Role: "writer"}).Text,
+		render.AskMove(render.MoveTarget{ID: fixtureID, Name: "Team", Kind: "folder"},
+			render.MoveItem{ID: fixtureID, Name: "Budget.xlsx", Kind: "file", Gained: movedTo()}).Text,
 	}, "\n")
 	return out
 }
@@ -387,6 +396,7 @@ var renderedKey = map[string]string{
 	"AskShare":          "questions",
 	"AskLoosenDrive":    "questions",
 	"AskGrantRequest":   "questions",
+	"AskMove":           "questions",
 }
 
 // notRenderers are the exported string functions in internal/render that
@@ -398,4 +408,5 @@ var notRenderers = map[string]string{
 	"Sum":           "a SHA-256 in hex that binds an answer to a text, never shown to anyone",
 	"Activity":      "asserted by TestActivityNamesNobody, which is stronger: it prints no person at all",
 	"Labels":        "a label definition as this server models it has no person in it to print",
+	"Reach":         "who a move adds, as counts of people by role, then domains and the link: it prints no name or address, and AskMove, which carries it, is in rendered()",
 }

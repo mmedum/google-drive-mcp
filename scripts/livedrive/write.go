@@ -103,6 +103,7 @@ func (w *writeRun) exercise() {
 	ids := w.create()
 	w.readBack(ids)
 	w.organize(ids)
+	w.moveExposure()
 	w.access(ids)
 	w.history(ids)
 	w.collaboration(ids)
@@ -1002,6 +1003,54 @@ func (w *writeRun) organize(m made) {
 	w.needing("restore_file", m.text, map[string]any{"file": m.text})
 }
 
+// moveExposure is a move that lets more people reach a file, and the
+// question that puts to the person. A folder made here is opened to
+// anyone with the link, and a file moved into it is reachable that way
+// too: the sharing guide says a move "re-evaluates and applies the new
+// parent's permissions". The server works out who can reach the file
+// after the move before making it, then reads it back, and says when the
+// two differ; a step here fails when they do, because that is the belief
+// (§18) this run exists to check. Moving it back out narrows, and must
+// ask nothing. The link is removed again before the folder is trashed.
+func (w *writeRun) moveExposure() {
+	open := w.createAndKeepID("create_folder", map[string]any{"name": "Open by link", "parent": w.scratchID})
+	file := w.createAndKeepID("create_file", map[string]any{
+		"name": "moves into the open folder.txt", "parent": w.scratchID,
+		"content": "who can reach this depends on its folder\n", "mime_type": "text/plain",
+	})
+	if open == "" || file == "" {
+		w.out.Say("\n=== move exposure: skipped, the folder or file it needs was never created ===")
+		return
+	}
+	w.needing("share_file", open, map[string]any{
+		"file": open, "principal": "anyone", "role": "reader", "allow_anyone": true,
+	})
+	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": open, "dry_run": true}}))
+	w.declining("move_file", map[string]any{"file": file, "to": open})
+	moved := w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": open}})
+	w.unpredicted(moved)
+	if !strings.Contains(moved, "anyone with the link can view") {
+		w.problem("the file moved into a folder anyone with the link can open does not say anyone with "+
+			"the link can view it", errors.New("no link in the result"))
+	}
+	asked := w.person.asked
+	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": w.scratchID}}))
+	if w.person.asked != asked {
+		w.problem("moving the file back out of the open folder asked the person, and that move only "+
+			"narrows who can reach it", errors.New("a question on a narrowing move"))
+	}
+	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
+}
+
+// unpredicted fails the step when a move's result says Drive answered
+// other than the server worked out before the move.
+func (w *writeRun) unpredicted(out string) {
+	if strings.Contains(out, "that is not who this server worked out") {
+		w.problem("after the move Drive reports other access than the server predicted; the beliefs "+
+			"about what a move does to sharing (§18) are wrong somewhere", errors.New("prediction missed"))
+	}
+}
+
 // refusals are the calls that must not work. A refusal that is expected
 // proves as much as a success: it is how the server says no to something
 // it should not do.
@@ -1043,8 +1092,11 @@ func (w *writeRun) sharedDrive(m made) {
 		return
 	}
 	target := "drive:" + w.drive
-	w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target, "dry_run": true}})
+	// The drive's members reach whatever moves in, so when it has any
+	// besides this account the move asks the person, who accepts.
+	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target, "dry_run": true}}))
 	if out := w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target}}); out != "" {
+		w.unpredicted(out)
 		// The file is now outside the scratch folder, so trashing the
 		// scratch folder will not take it. Bringing it back is the only
 		// cleanup there is, and a failure here is the one thing this run
@@ -1062,6 +1114,7 @@ func (w *writeRun) sharedDrive(m made) {
 func (w *writeRun) recover(id string) {
 	back := w.call(call{tool: "move_file", args: map[string]any{"file": id, "to": w.scratchID}})
 	if strings.Contains(back, "moved:") {
+		w.unpredicted(back)
 		return
 	}
 	// A second attempt: the usual reason is a rate limit, and this is

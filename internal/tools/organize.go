@@ -191,14 +191,18 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "move_file",
 		Description: "Move one item into another folder or into a shared drive. A file in Drive has exactly one " +
-			"parent, so this takes it out of where it was: everyone who reached it through the old folder now " +
-			"will not. A folder in My Drive cannot move into a shared drive at all: make one there with " +
-			"create_folder and move the files into it. dry_run reports the old and new locations and changes " +
-			"nothing.",
+			"parent, so this takes it out of where it was. A move also changes who can reach it: it keeps the " +
+			"access granted on it directly, loses what it had through the old folder, and gains everyone who " +
+			"can reach the new folder or shared drive. The result shows who could reach it before and who can " +
+			"after. A folder in My Drive cannot move into a shared drive at all: make one there with " +
+			"create_folder and move the files into it. dry_run reports the old and new locations and who would " +
+			"reach it, and changes nothing. A move that lets more people reach it, or gives them more access, " +
+			"is also put to the person when the client can ask; a call they do not confirm is [blocked], and is " +
+			"not made again unless they ask.",
 		Annotations: idempotentWrite,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "move_file", func(ctx context.Context, in MoveFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.MoveFile(ctx, service.MoveFileInput{File: in.File, To: in.To, DryRun: in.DryRun}))
-	})
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "copy_file",

@@ -211,6 +211,102 @@ func AskLoosenDrive(id, drive string, off []string) Question {
 	return ask(lines, id)
 }
 
+// MoveTarget is where a move goes.
+type MoveTarget struct {
+	ID, Name string
+	// Kind is "folder", "shared drive", or "My Drive" for its root.
+	Kind string
+}
+
+// MoveItem is one item a move would let more people reach, or reach
+// with more access.
+type MoveItem struct {
+	ID, Name string
+	// Kind is "file", "folder" or "shortcut".
+	Kind string
+	// Gained is who it would reach that it does not now.
+	Gained []model.Grant
+	// Unread names what could not be read, "it" or "the destination",
+	// when who it would reach is unknown.
+	Unread string
+}
+
+// AskMove asks before move_file puts an item where more people can
+// reach it. The answer is bound to the item and the destination.
+func AskMove(to MoveTarget, it MoveItem) Question {
+	lines := []string{
+		fmt.Sprintf("move_file: move the %s %s into %s?", it.Kind, quoted(it.Name, quotedLen), moveWhere(to)),
+		"It would reach more people there, or give them more access: " + moveReach(it),
+	}
+	if it.Unread != "" {
+		lines[1] = "Who can reach " + it.Unread + " could not be read, so whether more people would reach it there is unknown."
+	}
+	if it.Kind == "folder" {
+		lines = append(lines, "Everything inside it moves too, and is reached the same way.")
+	}
+	return ask(lines, to.ID, it.ID)
+}
+
+// moveWhere names a move's destination in a question.
+func moveWhere(to MoveTarget) string {
+	switch to.Kind {
+	case "shared drive":
+		return "the shared drive " + quoted(to.Name, quotedLen)
+	case "My Drive":
+		return "My Drive"
+	}
+	return "the folder " + quoted(to.Name, quotedLen)
+}
+
+// moveReach is who one item would newly reach.
+func moveReach(it MoveItem) string {
+	if it.Unread != "" {
+		return "who can reach " + it.Unread + " could not be read"
+	}
+	return strings.Join(reachParts(it.Gained, func(s string) string { return quoted(s, quotedLen) }), "; ")
+}
+
+// Reach says who a set of grants reaches, in a sharing summary's terms:
+// how many people and what they may do, then each domain, then the link.
+func Reach(grants []model.Grant) string {
+	return strings.Join(reachParts(grants, func(s string) string { return s }), "; ")
+}
+
+// reachParts is Reach in parts; q writes a domain from Drive, which a
+// question quotes.
+func reachParts(grants []model.Grant, q func(string) string) []string {
+	s := model.SharingOf(true, grants)
+	var parts []string
+	if s.People > 0 {
+		var who []string
+		if s.Editors > 0 {
+			who = append(who, fmt.Sprintf("%d can edit", s.Editors))
+		}
+		if s.Commenters > 0 {
+			who = append(who, fmt.Sprintf("%d can comment", s.Commenters))
+		}
+		if s.Viewers > 0 {
+			who = append(who, fmt.Sprintf("%d can view", s.Viewers))
+		}
+		parts = append(parts, model.Plural(s.People, "person", "people")+" ("+strings.Join(who, ", ")+")")
+	}
+	for _, d := range s.Domains {
+		line := "everyone at " + q(d.Who) + " " + model.RoleWords(d.Role)
+		if d.Discoverable {
+			line += ", and finds it by search"
+		}
+		parts = append(parts, line)
+	}
+	if l := s.Link; l != nil {
+		line := "anyone with the link " + model.RoleWords(l.Role)
+		if l.Discoverable {
+			line = "anyone on the internet " + model.RoleWords(l.Role) + " and can find it by search"
+		}
+		parts = append(parts, line)
+	}
+	return parts
+}
+
 // body0 is the start of a body, quoted on one line, and how much more
 // there is.
 func body0(body string) string {

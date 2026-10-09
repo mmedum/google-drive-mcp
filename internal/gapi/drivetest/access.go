@@ -227,31 +227,97 @@ func (s *Server) permissionSubjectLocked(id string) string {
 	return ""
 }
 
-// grantsLocked is every grant that reaches a file: its own, plus the
-// ones a shared drive passes down. Drive reports an inherited grant on
-// the item with permissionDetails saying where it came from, and it can
-// only be removed there — which is the case list_permissions and
-// unshare_file both have to get right. The caller holds the lock.
+// grantsLocked is every grant that reaches a file: its own, the ones
+// each folder above it passes down, and in a shared drive the drive's
+// members. The sharing guide says "All child files and folders
+// automatically inherit permissions from their parent folder", and that
+// a move "re-evaluates and applies the new parent's permissions", which
+// working inheritance out on every read gets for free. Drive reports an
+// inherited grant on the item with permissionDetails saying where it
+// came from — inheritedFrom only in a shared drive, as the reference
+// says — and it can only be removed there, which is the case
+// list_permissions and unshare_file both have to get right.
+//
+// Drive keeps one permission per principal, so a principal reached more
+// than one way is one entry: the highest role on top, and a detail for
+// each way. The caller holds the lock.
 func (s *Server) grantsLocked(fileID string) []*gdrive.Permission {
 	f := s.fileLocked(fileID)
 	if f == nil {
 		return s.Permissions[fileID]
 	}
-	own := s.Permissions[f.ID]
-	// The drive's own root carries its membership directly; only the
-	// items inside it inherit.
-	if f.DriveID == "" || f.DriveID == f.ID {
-		return own
+	var out []*gdrive.Permission
+	add := func(p *gdrive.Permission, inherited bool, kind, from string) {
+		for i, e := range out {
+			if !samePrincipal(e, p) {
+				continue
+			}
+			// A copy, so a merge never changes a stored grant: an update
+			// or a delete acts on those.
+			merged := *e
+			if len(merged.Details) == 0 {
+				merged.Details = []*gdrive.PermissionDetails{{PermissionType: "file", Role: e.Role}}
+			}
+			merged.Details = append(append([]*gdrive.PermissionDetails(nil), merged.Details...),
+				&gdrive.PermissionDetails{PermissionType: kind, Role: p.Role, Inherited: inherited, InheritedFrom: from})
+			if roleRank(p.Role) < roleRank(merged.Role) {
+				merged.Role = p.Role
+			}
+			merged.AllowFileDiscovery = merged.AllowFileDiscovery || p.AllowFileDiscovery
+			out[i] = &merged
+			return
+		}
+		if !inherited {
+			out = append(out, p)
+			return
+		}
+		copied := *p
+		copied.Details = []*gdrive.PermissionDetails{{PermissionType: kind, Role: p.Role, Inherited: true, InheritedFrom: from}}
+		out = append(out, &copied)
 	}
-	out := make([]*gdrive.Permission, 0, len(own))
-	for _, p := range s.Permissions[f.DriveID] {
-		inherited := *p
-		inherited.Details = []*gdrive.PermissionDetails{{
-			PermissionType: "member", Role: p.Role, Inherited: true, InheritedFrom: f.DriveID,
-		}}
-		out = append(out, &inherited)
+	for _, p := range s.Permissions[f.ID] {
+		add(p, false, "file", "")
 	}
-	return append(out, own...)
+	// The drive's own root carries its membership directly; the items
+	// inside it inherit, from every folder on the way up and then from
+	// the drive.
+	seen := map[string]bool{f.ID: true}
+	for parent := s.fileLocked(f.Parent()); parent != nil && !seen[parent.ID]; parent = s.fileLocked(parent.Parent()) {
+		seen[parent.ID] = true
+		if parent.DriveID != "" && parent.ID == parent.DriveID {
+			break
+		}
+		from := ""
+		if f.DriveID != "" {
+			from = parent.ID
+		}
+		for _, p := range s.Permissions[parent.ID] {
+			add(p, true, "file", from)
+		}
+	}
+	if f.DriveID != "" && f.DriveID != f.ID {
+		for _, p := range s.Permissions[f.DriveID] {
+			add(p, true, "member", f.DriveID)
+		}
+	}
+	return out
+}
+
+// roleRank orders Drive's roles from most to least access.
+func roleRank(role string) int {
+	switch role {
+	case "owner":
+		return 0
+	case "organizer":
+		return 1
+	case "fileOrganizer":
+		return 2
+	case "writer":
+		return 3
+	case "commenter":
+		return 4
+	}
+	return 5
 }
 
 func displayNameFor(p *gdrive.Permission) string {

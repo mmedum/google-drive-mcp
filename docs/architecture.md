@@ -273,12 +273,19 @@ undo a permanent delete.
 `confirm: true`, `allow_anyone`, `allow_domain` and
 `transfer_ownership` are arguments the model writes, and a persuaded
 model writes them too. So when the client can ask, the server asks the
-person itself, through MCP form elicitation, before eight writes:
+person itself, through MCP form elicitation, before nine writes:
 `delete_file`, `empty_trash`, `delete_drive`, `delete_revision`,
 `delete_comment`; `share_file` when it grants `anyone`, a whole
 `domain:` or ownership, or widens a grant to a person or group outside
 the account's organization; `resolve_access_request` when it accepts;
-and `manage_drive` when it turns a restriction off.
+`manage_drive` when it turns a restriction off; and `move_file` when the
+destination would let more people reach the item, or give them more
+access (§7.3).
+
+A move asks on any widening, inside the organization too, where a share
+asks only past people somebody named. A share names its grantee in the
+call, so the model wrote down who it reaches; a move names a folder,
+and who that folder reaches is nowhere in the call.
 
 Outside means an address whose domain is not the signed-in account's.
 A personal Google address is always outside, since two of them share a
@@ -609,7 +616,25 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   the single-parent rule, refuses a My Drive folder bound for a shared
   drive with the API's reason and the alternative ("create the folder in
   the shared drive, then move the files"), supports `dry_run`. Returns
-  old path and new path.
+  old path and new path, and who could reach the item before and who can
+  after (`sharing_before`, `sharing_after`).
+
+  A move changes who can reach the item (§18): it keeps the grants made
+  on it directly, loses what it inherited where it was, and inherits
+  everything the destination has; a My Drive item moved into a shared
+  drive loses its owner to the drive. Before the move the server reads
+  the item's permissions and the destination's and works out the after
+  from those rules. When the after reaches someone the before did not,
+  or reaches them with more access, or either list cannot be read, the
+  move is put to the person (§4a); the question names who it adds, in
+  the sharing summary's terms. A dry run shows the same and asks
+  nothing. After the move the server reads the item's permissions again
+  and reports those, and says so when they differ from what it worked
+  out. The signed-in account's own access is left out of who a move
+  adds. An owner of the destination who does not own the item counts as
+  an editor, since what Drive gives them is not documented. Children of
+  a moved folder are not read one by one: the question says they are
+  reached the same way.
 - `copy_file`: `file`, `name` (default "Copy of …", as Drive does), `to`
   (default the source's folder, as Drive does), `convert_to` (import
   conversion, OCR for PDFs and images, `ocr_language`),
@@ -842,7 +867,7 @@ grants a permission.
 | `update_content` | Replace a blob's content; the old one stays a revision for about 30 days unless pinned | destructive | 1 |
 | `create_folder` | New folder; refuses a duplicate name unless allowed | — | 1 |
 | `update_file` | Rename, describe, star, color, properties, sharing switches | idempotent | 1 |
-| `move_file` | Move to a folder or shared drive; single parent; dry run | idempotent | 1 |
+| `move_file` | Move to a folder or shared drive; single parent; who can reach it before and after, asking when that widens; dry run | idempotent | 1 |
 | `copy_file` | Copy, optionally converting (OCR); `recursive` walks a folder, refusing a tree over budget rather than copying half of it | — | 1, 3 |
 | `create_shortcut` | Shortcut to a file or folder | — | 1 |
 | `trash_file`, `restore_file` | Reversible removal and its undo | idempotent | 1 |
@@ -933,7 +958,7 @@ before and after summaries.
 | Risk | What limits it |
 |---|---|
 | Acting on the wrong file | Ids are the contract; a name or path that matches more than one item is refused; every result shows the location. |
-| Exposing a file to the world or to the wrong domain | The organization's own sharing policy, enforced by Google on every call; `allow_anyone` per call; before-and-after exposure in every sharing result; `dry_run`; `GDRIVE_SHARING=off`; no publish-to-web at all. |
+| Exposing a file to the world or to the wrong domain | The organization's own sharing policy, enforced by Google on every call; `allow_anyone` per call; before-and-after exposure in every sharing result and every move; a move that widens access asks the person; `dry_run`; `GDRIVE_SHARING=off`; no publish-to-web at all. |
 | Unwanted email to people | `notify` is off unless asked; the result says when Google forced it on. |
 | Mass deletion | Trash is the only default removal and it is reversible; permanent deletion and emptying the trash are gated; no bulk tool. |
 | Copying private files onto disk | Downloads only under `GDRIVE_LOCAL_DIR`, size-capped, named in the result. |
@@ -2315,3 +2340,9 @@ live run of it found.
 | `sharedWithMeTime` orders the files shared with this account (convention) | **Confirmed** against the `files.list` reference, read 2026-10-09: `orderBy` lists `sharedWithMeTime`, "When the file was shared with the user, if applicable". The `files` reference says the same of the field and calls `sharingUser` "The user who shared the file with the requesting user, if applicable". Where a file without the time sorts is not documented | `order_by: shared` sends `sharedWithMeTime desc` only beside `sharedWithMe = true`, so every hit has the time. Both fields are in the list mask, so a row says who shared a file and when, and a shared file whose folder is out of reach reads as "Shared with me" in a search, not as having no folder |
 | `visibility` takes the five values the search-terms guide lists (convention) | **Confirmed** against <https://developers.google.com/workspace/drive/api/guides/ref-search-terms>, read 2026-10-09: operators `=` and `!=`, values `anyoneCanFind`, `anyoneWithLink`, `domainCanFind`, `domainWithLink` and `limited`. The search guide says `limited` is "private, or shared with specific users or groups" | The fake refuses any other value or operator. Which value a file with both an anyone and a domain grant reports is not documented; the fake assumes the wider. The live driver searches `link`, `anyone` and `limited` around its link grant |
 | `readers` holds the people who can edit (unstated) | **Unverified.** The search-terms guide says `readers` are "Users or groups who have permission to read the file" and `writers` "have permission to modify the file", and nothing more | `shared_with` asks `readers` or `writers`, which is right either way. The fake takes the narrow reading: `readers` is reader and commenter, `writers` is writer, organizer and owner. With `-share`, the live driver asks `readers` alone for a file the address can edit and says which way Drive answered |
+| A move leaves an item's sharing alone (what `move_file` assumed until 2026-10-09) | **Refuted** against the sharing guide, <https://developers.google.com/workspace/drive/api/guides/manage-sharing>, read 2026-10-09: "Moving an item to a new parent folder re-evaluates and applies the new parent's permissions to the item and its children." The Workspace admin help, <https://knowledge.workspace.google.com/admin/drive/moving-content-from-drive-shared-folders>, read the same day: "Any permissions that the moved content inherited from the shared folder are removed. It inherits new permissions from the destination folder, in addition to other, explicitly set, permissions." | `move_file` works out who can reach the item after the move from its direct grants and the destination's list, reports before and after, asks the person when that widens (§4a), and reads the after back from Drive |
+| Moves into, out of and between shared drives follow the same rule (the API guides say nothing) | **Confirmed in part** against the Workspace help, <https://support.google.com/a/users/answer/12380484>, read 2026-10-09: an item moved in "keeps its sharing permissions", "file permissions inherited from the folder the file was in aren't copied", and its creator is "no longer the owner"; moved out, access is "reassessed" and "the file's original sharing settings take effect". It also says access "may change if sharing settings for the shared drive are more restrictive", without saying how | The prediction drops the owner on a move into a shared drive and otherwise applies the same rule. A drive's restriction dropping a direct grant would make the prediction overstate, which asks a question too many; the read-back reports what Drive did. Shared drive to shared drive is not driven live: the driver takes one `-drive` |
+| What the owner of a My Drive destination folder gets on an item moved into it (undocumented) | **Unverified.** No reference or help page read 2026-10-09 says | Counted as an editor, which errs toward showing more exposure. Settling it needs a folder another account owns, which a one-account run cannot make; the read-back reports what Drive did on any real move |
+| `permissionDetails` marks inherited grants on a My Drive item (unstated for My Drive) | **Unverified.** The `permissions` reference, read 2026-10-09, says `inherited` "is always populated" and `inheritedFrom` "is only populated for items in shared drives", which implies My Drive items carry details without a source. If they carry none, every grant reads as direct, the prediction keeps grants the move takes away, and the read-back says the two differ | The live driver moves a file into a link-shared folder and back out, and fails the step when the result says Drive answered other than predicted |
+| A move's new sharing is in place when `files.update` answers (unstated) | **Unverified** | The read-back is one permission list right after the move. A late answer shows as "that is not who this server worked out would reach it", which points at `list_permissions`; the live driver's two moves fail on it |
+| A moved folder with limited access keeps out the destination's grants (unstated for a move) | **Unverified.** The sharing guide, read 2026-10-09, says of an inherited grant: "Changes must be made on the originating parent, or the folder must use the limited access setting." It says nothing about a move | The server does not read `inheritedPermissionsDisabled`, so it counts the destination's grants on such a folder and may ask a question too many |
