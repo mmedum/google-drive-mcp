@@ -1,6 +1,7 @@
 package office
 
 import (
+	"cmp"
 	"encoding/xml"
 	"strconv"
 	"strings"
@@ -85,7 +86,13 @@ func (p *pkg) workbook(part string) (*workbook, error) {
 	wb := &workbook{}
 	err := p.walk(part, func(w *walker, t xml.Token) error {
 		se, ok := t.(xml.StartElement)
-		if !ok || !in(se.Name, nsS) {
+		if !ok {
+			return nil
+		}
+		if len(w.stack) == 1 && !is(se.Name, "workbook", nsS) {
+			return notKind(part, "Excel workbook", se.Name)
+		}
+		if !in(se.Name, nsS) {
 			return nil
 		}
 		switch se.Name.Local {
@@ -96,6 +103,9 @@ func (p *pkg) workbook(part string) (*workbook, error) {
 			}
 		case "sheet":
 			if is(w.parent(), "sheets", nsS) {
+				if len(wb.sheets) >= MaxListed {
+					return listed("sheets", part)
+				}
 				state := attr(se, "state")
 				wb.sheets = append(wb.sheets, sheetRef{
 					name: attr(se, "name"), hidden: state == "hidden" || state == "veryHidden",
@@ -120,6 +130,9 @@ func (p *pkg) cellStyles(part string) ([]numKind, error) {
 		}
 		switch {
 		case se.Name.Local == "numFmt" && is(w.parent(), "numFmts", nsS):
+			if len(custom) >= MaxListed {
+				return listed("number formats", part)
+			}
 			if id, err := strconv.Atoi(attr(se, "numFmtId")); err == nil {
 				custom[id] = attr(se, "formatCode")
 			}
@@ -188,7 +201,7 @@ type cell struct {
 
 func (p *pkg) sheetRows(part string, shared []string, kinds []numKind, date1904 bool, g *grid) error {
 	var (
-		row     []string
+		row     cells
 		rowNum  int
 		nextCol int
 		c       cell
@@ -206,7 +219,8 @@ func (p *pkg) sheetRows(part string, shared []string, kinds []numKind, date1904 
 				} else {
 					rowNum++
 				}
-				row, nextCol = row[:0], 0
+				row.reset()
+				nextCol = 0
 			case "c":
 				c.col = nextCol
 				if col, _, ok := cellRef(attr(t, "r")); ok {
@@ -237,10 +251,15 @@ func (p *pkg) sheetRows(part string, shared []string, kinds []numKind, date1904 
 				if err != nil {
 					return err
 				}
-				row = setCell(row, c.col, v)
+				row.set(c.col, v)
 				nextCol = c.col + 1
+				if row.size > g.room() {
+					// The row cannot fit, so writing what of it has
+					// been read stops at the cap.
+					return cmp.Or(g.row(rowNum, row.vals), errFull)
+				}
 			case is(t.Name, "row", nsS):
-				return g.row(rowNum, row)
+				return g.row(rowNum, row.vals)
 			}
 		}
 		return nil

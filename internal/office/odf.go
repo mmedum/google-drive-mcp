@@ -1,6 +1,7 @@
 package office
 
 import (
+	"cmp"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -23,6 +24,9 @@ func (p *pkg) odt() (*Result, error) {
 	f := newFlow(p.o.MaxText)
 	lists := &odfLists{}
 	return finish(f.out, p.walk(odfContent, func(w *walker, t xml.Token) error {
+		if err := odfBody(w, t, "text"); err != nil {
+			return err
+		}
 		return odfRun(w, t, f, lists)
 	}))
 }
@@ -37,6 +41,9 @@ func (p *pkg) odp() (*Result, error) {
 	lists := &odfLists{}
 	pages := 0
 	res, err := finish(f.out, p.walk(odfContent, func(w *walker, t xml.Token) error {
+		if err := odfBody(w, t, "presentation"); err != nil {
+			return err
+		}
 		if se, ok := t.(xml.StartElement); ok && odf(se.Name, odfDraw, "page") {
 			pages++
 			return f.marker(fmt.Sprintf("--- slide %d ---", pages))
@@ -47,6 +54,28 @@ func (p *pkg) odp() (*Result, error) {
 		res.Slides = pages
 	}
 	return res, err
+}
+
+// odfKinds names what the element inside office:body makes a file.
+var odfKinds = map[string]string{
+	"text":         "OpenDocument text",
+	"spreadsheet":  "OpenDocument spreadsheet",
+	"presentation": "OpenDocument presentation",
+}
+
+// odfBody refuses content that is not the kind asked for: the root has
+// to be office:document-content, and the element inside office:body says
+// which of the three a file is.
+func odfBody(w *walker, t xml.Token, want string) error {
+	se, ok := t.(xml.StartElement)
+	switch {
+	case !ok:
+	case len(w.stack) == 1 && !odf(se.Name, odfOffice, "document-content"):
+		return notKind(odfContent, odfKinds[want], se.Name)
+	case len(w.stack) == 3 && odf(w.parent(), odfOffice, "body") && !odf(se.Name, odfOffice, want):
+		return notKind(odfContent, odfKinds[want], se.Name)
+	}
+	return nil
 }
 
 // odfLists tracks the list items a paragraph sits in.
@@ -164,7 +193,12 @@ func (p *pkg) ods() (*Result, error) {
 		return nil, unreadable("it has no %s, which is where such a file keeps its content", odfContent)
 	}
 	s := &odsSheet{grid: &grid{out: &textOut{max: p.o.MaxText}, delim: p.o.Delimiter}, max: p.o.MaxText}
-	err := p.walk(odfContent, s.token)
+	err := p.walk(odfContent, func(w *walker, t xml.Token) error {
+		if err := odfBody(w, t, "spreadsheet"); err != nil {
+			return err
+		}
+		return s.token(w, t)
+	})
 	if errors.Is(err, errDone) {
 		err = nil
 	}
@@ -194,7 +228,7 @@ type odsSheet struct {
 	// inside its cells, whose rows are that cell's text, not the sheet's.
 	started bool
 	nested  int
-	row     []string
+	row     cells
 	rowNum  int
 	repeat  int
 	col     int
@@ -241,7 +275,7 @@ func (s *odsSheet) token(w *walker, t xml.Token) error {
 			s.nested--
 		case s.nested > 0:
 		case odf(t.Name, odfTable, "table-cell"), odf(t.Name, odfTable, "covered-table-cell"):
-			s.endCell()
+			return s.endCell()
 		case odf(t.Name, odfTable, "table-row"):
 			return s.endRow()
 		}
@@ -255,7 +289,8 @@ func (s *odsSheet) cellStart(t xml.StartElement) {
 	switch {
 	case s.nested > 0 && !odf(t.Name, odfText, "p"):
 	case odf(t.Name, odfTable, "table-row"):
-		s.row, s.col = s.row[:0], 0
+		s.row.reset()
+		s.col = 0
 		s.repeat = repeatOf(t, "number-rows-repeated")
 	case odf(t.Name, odfTable, "table-cell"), odf(t.Name, odfTable, "covered-table-cell"):
 		s.value, s.hasValue = odsValue(t)
@@ -274,40 +309,39 @@ func (s *odsSheet) cellStart(t xml.StartElement) {
 
 // endCell places a cell's value in as many columns as it repeats over.
 // An empty cell repeated to the edge of the sheet, which is how
-// LibreOffice ends a row, costs nothing.
-func (s *odsSheet) endCell() {
+// LibreOffice ends a row, costs nothing. A row that grows past what the
+// cap can still hold is written as far as it was read, which stops the
+// read.
+func (s *odsSheet) endCell() error {
 	v := s.text.String()
 	if s.hasValue {
 		v = s.value
 	}
 	if v == "" {
 		s.col += s.colRepeat
-		return
+		return nil
 	}
 	for range clampRepeat(s.colRepeat, maxColumns-s.col) {
-		s.row = setCell(s.row, s.col, v)
+		s.row.set(s.col, v)
 		s.col++
+		if s.row.size > s.grid.room() {
+			return cmp.Or(s.grid.row(s.rowNum+1, s.row.vals), errFull)
+		}
 	}
+	return nil
 }
 
 // endRow writes a row as many times as it repeats. An empty row that
 // repeats a million times, which is how LibreOffice ends a sheet, costs
 // nothing.
 func (s *odsSheet) endRow() error {
-	empty := true
-	for _, c := range s.row {
-		if c != "" {
-			empty = false
-			break
-		}
-	}
-	if empty {
+	if s.row.size == 0 {
 		s.rowNum += s.repeat
 		return nil
 	}
 	for range clampRepeat(s.repeat, maxRows) {
 		s.rowNum++
-		if err := s.grid.row(s.rowNum, s.row); err != nil {
+		if err := s.grid.row(s.rowNum, s.row.vals); err != nil {
 			return err
 		}
 	}

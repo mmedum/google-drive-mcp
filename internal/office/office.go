@@ -7,10 +7,12 @@
 // — in Drive, behind byte ranges — fetches only the zip's directory and
 // the parts that carry text, never the images beside them. Everything it
 // reads is bounded: the text it returns, the entries it accepts, how far
-// one part may expand, how much XML it parses and how deeply that XML
-// nests. A file past a limit is refused, or its text is cut short and
-// the result says so. Nothing a file contains can make it hold more than
-// a few tens of megabytes.
+// one part may expand, how much XML it parses, how long one token of it
+// may run and how deeply it nests. A row, a cell and every list a file
+// keeps is counted as it grows, never once it is whole. A file past a
+// limit is refused, or its text is cut short and the result says so.
+// Nothing a file contains can make it hold more than a few tens of
+// megabytes, and a canceled context stops a read between two tokens.
 //
 // It imports nothing from this repository, so it can be fuzzed and
 // tested on its own.
@@ -18,7 +20,9 @@ package office
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/xml"
 	"errors"
@@ -77,6 +81,11 @@ type Options struct {
 	// MaxRead is the most XML parsed, across every part, before the text
 	// is cut short. Zero means DefaultMaxRead.
 	MaxRead int64
+	// MaxToken is the longest one token of XML may run: a run of text,
+	// or a tag with its attributes. encoding/xml holds a token whole
+	// before handing it over, so this is what one costs. Past it the
+	// text is cut short. Zero means DefaultMaxToken.
+	MaxToken int64
 }
 
 // The limits. Each one is what keeps a file that was made to hurt from
@@ -88,6 +97,9 @@ const (
 	// DefaultMaxRead bounds the XML parsed. A sheet's markup runs to ten
 	// times its text, so this is room for the text cap and then some.
 	DefaultMaxRead = 256 << 20
+	// DefaultMaxToken bounds one token. Excel holds at most 32 767
+	// characters in a cell, and a megabyte is thirty times that.
+	DefaultMaxToken = 1 << 20
 	// MaxEntries is the most entries a zip may list. A Word document
 	// has a few dozen; a large deck a few thousand.
 	MaxEntries = 10000
@@ -103,6 +115,10 @@ const (
 	// MaxDepth is how deeply the XML may nest. A table in a table in a
 	// text box is a dozen levels; this is twenty times that.
 	MaxDepth = 256
+	// MaxListed is the most relationships, styles, number formats,
+	// sheets or slides one file may list. Word allows about four
+	// thousand styles and Excel about two hundred and fifty formats.
+	MaxListed = 1 << 16
 )
 
 func (o Options) withDefaults() Options {
@@ -114,6 +130,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.MaxRead <= 0 {
 		o.MaxRead = DefaultMaxRead
+	}
+	if o.MaxToken <= 0 {
+		o.MaxToken = DefaultMaxToken
 	}
 	return o
 }
@@ -152,8 +171,9 @@ func overLimit(format string, args ...any) error {
 	return &Error{Limit: true, Reason: fmt.Sprintf(format, args...)}
 }
 
-// Extract reads the text of one file of the given kind.
-func Extract(r io.ReaderAt, size int64, kind Kind, o Options) (*Result, error) {
+// Extract reads the text of one file of the given kind. It returns the
+// context's error when the context ends before the read does.
+func Extract(ctx context.Context, r io.ReaderAt, size int64, kind Kind, o Options) (*Result, error) {
 	o = o.withDefaults()
 	if kind == None {
 		return nil, unreadable("it is not a format this reader knows")
@@ -161,14 +181,15 @@ func Extract(r io.ReaderAt, size int64, kind Kind, o Options) (*Result, error) {
 	if err := checkDirectory(r, size); err != nil {
 		return nil, err
 	}
-	zr, err := zip.NewReader(r, size)
+	src := &source{r: r}
+	zr, err := zip.NewReader(src, size)
 	if err != nil {
 		return nil, notAZip(r, err)
 	}
 	if len(zr.File) > MaxEntries {
 		return nil, overLimit("it holds %d entries, and this server reads files of at most %d", len(zr.File), MaxEntries)
 	}
-	p := &pkg{o: o, files: make(map[string]*zip.File, len(zr.File))}
+	p := &pkg{ctx: ctx, o: o, src: src, files: make(map[string]*zip.File, len(zr.File))}
 	for _, f := range zr.File {
 		if _, seen := p.files[f.Name]; !seen {
 			p.files[f.Name] = f
@@ -194,10 +215,12 @@ func Extract(r io.ReaderAt, size int64, kind Kind, o Options) (*Result, error) {
 // directoryEnd is the fixed part of the zip's end-of-directory record.
 const directoryEnd = 22
 
-// checkDirectory reads the zip's end record and refuses a directory too
-// large to hold, before archive/zip reads all of it into memory. The
-// record sits in the last 64 KiB of the file, which is the first thing
-// archive/zip reads anyway, so this costs no extra fetch.
+// checkDirectory refuses a directory too large to hold, before
+// archive/zip reads all of it into memory. It reads the end record,
+// which sits in the last 64 KiB of the file, the first thing archive/zip
+// reads anyway; then it counts the headers the way archive/zip will
+// read them, since archive/zip reads headers until one is not a header
+// and checks only the low 16 bits of the count the end record gives.
 func checkDirectory(r io.ReaderAt, size int64) error {
 	if size < directoryEnd {
 		return unreadable("it is %d bytes long, too short to be the zip archive every such file is", size)
@@ -212,6 +235,7 @@ func checkDirectory(r io.ReaderAt, size int64) error {
 		return notAZip(r, zip.ErrFormat)
 	}
 	rec := tail[at:]
+	endAt := size - tailLen + int64(at)
 	records := uint64(binary.LittleEndian.Uint16(rec[10:]))
 	dirSize := uint64(binary.LittleEndian.Uint32(rec[12:]))
 	dirOffset := uint64(binary.LittleEndian.Uint32(rec[16:]))
@@ -219,7 +243,7 @@ func checkDirectory(r io.ReaderAt, size int64) error {
 		// A zip64 archive keeps the real numbers in a second record,
 		// which a locator just before this one points at.
 		var err error
-		if records, dirSize, err = zip64Directory(r, size, size-tailLen+int64(at)); err != nil {
+		if endAt, records, dirSize, dirOffset, err = zip64Directory(r, size, endAt); err != nil {
 			return err
 		}
 	}
@@ -229,7 +253,65 @@ func checkDirectory(r io.ReaderAt, size int64) error {
 	if dirSize > MaxDirectory {
 		return overLimit("its table of contents is %d bytes, and this server reads at most %d", dirSize, MaxDirectory)
 	}
+	// archive/zip reads the directory from just before the end record,
+	// or from the offset the record gives when a header is there, for a
+	// file with something in front of it. Both are counted rather than
+	// guessing which it will take.
+	start := endAt - int64(dirSize)
+	if err := countHeaders(r, size, start); err != nil {
+		return err
+	}
+	if dirOffset < uint64(start) {
+		return countHeaders(r, size, int64(dirOffset))
+	}
 	return nil
+}
+
+// headerLen is the fixed part of a central directory header.
+const headerLen = 46
+
+// countHeaders reads the directory header by header from start, as
+// archive/zip will, until one is not a header, and refuses more entries
+// or more bytes than this server reads, whatever the end record says. It
+// reads at most MaxDirectory bytes and one header past them.
+func countHeaders(r io.ReaderAt, size, start int64) error {
+	if start < 0 || start >= size {
+		return unreadable("its table of contents points outside the file")
+	}
+	br := bufio.NewReader(io.NewSectionReader(r, start, min(size-start, MaxDirectory+headerLen+1)))
+	h := make([]byte, headerLen)
+	var count, read int64
+	for {
+		if _, err := io.ReadFull(br, h); err != nil {
+			return endOfHeaders(err)
+		}
+		if !bytes.Equal(h[:4], []byte("PK\x01\x02")) {
+			return nil
+		}
+		count++
+		read += headerLen
+		if count > MaxEntries {
+			return overLimit("it holds more than %d entries, and this server reads files of at most %d", MaxEntries, MaxEntries)
+		}
+		rest := int64(binary.LittleEndian.Uint16(h[28:])) + int64(binary.LittleEndian.Uint16(h[30:])) +
+			int64(binary.LittleEndian.Uint16(h[32:]))
+		if read += rest; read > MaxDirectory {
+			return overLimit("its table of contents runs past %d bytes, and this server reads at most that", MaxDirectory)
+		}
+		if _, err := br.Discard(int(rest)); err != nil {
+			return endOfHeaders(err)
+		}
+	}
+}
+
+// endOfHeaders is what running out of bytes means while counting
+// headers: the end of the file ends the directory, as it does for
+// archive/zip; a failure to fetch is that failure.
+func endOfHeaders(err error) error {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil
+	}
+	return err
 }
 
 // findDirectoryEnd finds the end record in the tail of a file, the way
@@ -247,32 +329,33 @@ func findDirectoryEnd(b []byte) int {
 	return -1
 }
 
-// zip64Directory reads the entry count and directory size out of a
-// zip64 end record.
-func zip64Directory(r io.ReaderAt, size, endAt int64) (records, dirSize uint64, err error) {
+// zip64Directory reads where the zip64 end record is, and the entry
+// count, directory size and directory offset it gives.
+func zip64Directory(r io.ReaderAt, size, endAt int64) (at int64, records, dirSize, dirOffset uint64, err error) {
 	const locatorLen, recordLen = 20, 56
 	if endAt < locatorLen {
-		return 0, 0, unreadable("its zip64 directory is missing")
+		return 0, 0, 0, 0, unreadable("its zip64 directory is missing")
 	}
 	loc := make([]byte, locatorLen)
 	if _, err := r.ReadAt(loc, endAt-locatorLen); err != nil && !errors.Is(err, io.EOF) {
-		return 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 	if !bytes.Equal(loc[:4], []byte("PK\x06\x07")) {
-		return 0, 0, unreadable("its zip64 directory is missing")
+		return 0, 0, 0, 0, unreadable("its zip64 directory is missing")
 	}
-	at := binary.LittleEndian.Uint64(loc[8:])
-	if at > uint64(size-recordLen) {
-		return 0, 0, unreadable("its zip64 directory points outside the file")
+	where := binary.LittleEndian.Uint64(loc[8:])
+	if size < recordLen || where > uint64(size-recordLen) {
+		return 0, 0, 0, 0, unreadable("its zip64 directory points outside the file")
 	}
 	rec := make([]byte, recordLen)
-	if _, err := r.ReadAt(rec, int64(at)); err != nil && !errors.Is(err, io.EOF) {
-		return 0, 0, err
+	if _, err := r.ReadAt(rec, int64(where)); err != nil && !errors.Is(err, io.EOF) {
+		return 0, 0, 0, 0, err
 	}
 	if !bytes.Equal(rec[:4], []byte("PK\x06\x06")) {
-		return 0, 0, unreadable("its zip64 directory is damaged")
+		return 0, 0, 0, 0, unreadable("its zip64 directory is damaged")
 	}
-	return binary.LittleEndian.Uint64(rec[32:]), binary.LittleEndian.Uint64(rec[40:]), nil
+	return int64(where), binary.LittleEndian.Uint64(rec[32:]), binary.LittleEndian.Uint64(rec[40:]),
+		binary.LittleEndian.Uint64(rec[48:]), nil
 }
 
 // compoundFile is the signature of an OLE compound file. Office keeps a
@@ -299,43 +382,77 @@ func notAZip(r io.ReaderAt, err error) error {
 // pkg is one opened file: its entries by name and what has been read
 // of them.
 type pkg struct {
+	// ctx is the read's context, kept here because every parse goes
+	// through walk and nothing outlives the one call to Extract.
+	ctx   context.Context
 	o     Options
+	src   *source
 	files map[string]*zip.File
 	// read is the XML parsed so far, across every part.
 	read int64
 }
 
-// errReadCap stops a parse once MaxRead is spent.
-var errReadCap = errors.New("the XML read limit was reached")
+// source counts the bytes archive/zip reads from the file. What a part
+// pulls through it while it inflates is the part's real compressed
+// size, which its declared one only bounds from above.
+type source struct {
+	r io.ReaderAt
+	n int64
+}
+
+func (s *source) ReadAt(b []byte, off int64) (int, error) {
+	n, err := s.r.ReadAt(b, off)
+	s.n += int64(n)
+	return n, err
+}
+
+// The errors that stop a parse and cut the text short.
+var (
+	// errReadCap stops a parse once MaxRead is spent.
+	errReadCap = errors.New("the XML read limit was reached")
+	// errTokenCap stops a parse at a token longer than MaxToken.
+	errTokenCap = errors.New("one token of the XML runs past the limit")
+)
 
 // has reports whether the package holds a part.
 func (p *pkg) has(name string) bool { return p.files[name] != nil }
 
 // open opens one part for reading, refusing one that would expand past
-// the ratio Apache POI calls a zip bomb.
+// the ratio Apache POI calls a zip bomb: before reading, by the sizes
+// the part declares, and while reading, by the bytes it has actually
+// pulled from the file, since a declared compressed size can be a lie
+// in the direction that hides the ratio.
 func (p *pkg) open(name string) (io.ReadCloser, error) {
 	f := p.files[name]
 	if f == nil {
 		return nil, unreadable("it has no %s", name)
 	}
-	// archive/zip stops a part at its declared uncompressed size and
-	// reads no more than its declared compressed size, so the ratio of
-	// the two is the ratio a reader can actually meet.
 	if f.UncompressedSize64 > ratioGrace && f.UncompressedSize64 > MaxRatio*max(f.CompressedSize64, 1) {
-		return nil, overLimit("its part %s expands from %d bytes to %d, more than %d times over, which is how "+
-			"a file built to exhaust a reader looks", name, f.CompressedSize64, f.UncompressedSize64, MaxRatio)
+		return nil, bomb(name, f.CompressedSize64, f.UncompressedSize64)
 	}
+	from := p.src.n
 	rc, err := f.Open()
 	if err != nil {
 		return nil, unreadable("its part %s cannot be opened: %v", name, err)
 	}
-	return &counted{rc: rc, p: p}, nil
+	return &counted{rc: rc, p: p, name: name, from: from}, nil
 }
 
-// counted charges what a part yields against the package's read limit.
+func bomb(name string, compressed, uncompressed uint64) error {
+	return overLimit("its part %s expands from %d bytes to %d, more than %d times over, which is how "+
+		"a file built to exhaust a reader looks", name, compressed, uncompressed, MaxRatio)
+}
+
+// counted charges what a part yields against the package's read limit,
+// and holds the part to the ratio by what it has really cost.
 type counted struct {
-	rc io.ReadCloser
-	p  *pkg
+	rc   io.ReadCloser
+	p    *pkg
+	name string
+	// from is where the file's byte count stood when the part opened,
+	// and yielded is what the part has given so far.
+	from    int64
+	yielded int64
 }
 
 func (c *counted) Read(b []byte) (int, error) {
@@ -347,6 +464,10 @@ func (c *counted) Read(b []byte) (int, error) {
 	}
 	n, err := c.rc.Read(b)
 	c.p.read += int64(n)
+	c.yielded += int64(n)
+	if pulled := c.p.src.n - c.from; c.yielded > ratioGrace && c.yielded > MaxRatio*max(pulled, 1) {
+		return n, bomb(c.name, uint64(pulled), uint64(c.yielded))
+	}
 	if errors.Is(err, zip.ErrFormat) || errors.Is(err, zip.ErrChecksum) {
 		err = unreadable("a part of it is damaged: %v", err)
 	}
@@ -385,6 +506,9 @@ func (p *pkg) rels(part string) (map[string]rel, error) {
 		if se, ok := t.(xml.StartElement); ok && se.Name.Local == "Relationship" {
 			if attr(se, "TargetMode") == "External" {
 				return nil
+			}
+			if len(out) >= MaxListed {
+				return listed("relationships", name)
 			}
 			out[attr(se, "Id")] = rel{kind: attr(se, "Type"), target: resolve(part, attr(se, "Target"))}
 		}
@@ -438,7 +562,48 @@ func finish(out *textOut, err error) (*Result, error) {
 // stopped reports whether a parse ended at one of the limits that cut
 // the text short rather than refuse the file.
 func stopped(err error) bool {
-	return errors.Is(err, errFull) || errors.Is(err, errReadCap) || errors.Is(err, ErrFetchLimit)
+	return errors.Is(err, errFull) || errors.Is(err, errReadCap) || errors.Is(err, errTokenCap) ||
+		errors.Is(err, ErrFetchLimit)
+}
+
+// notKind refuses a file whose content is another kind than its type
+// says, such as a workbook given a Word document's type, rather than
+// read it as empty. want is the kind the type names, and root is the
+// element the part opened with.
+func notKind(part, want string, root xml.Name) error {
+	if got := kindOf(root); got != "" && got != want {
+		return unreadable("its content is %s %s, not the %s its type says", article(got), got, want)
+	}
+	return unreadable("its content is not the %s its type says: its part %s holds %s", want, part, root.Local)
+}
+
+// kindOf names the kind of file a root element, or the element inside an
+// OpenDocument body, belongs to.
+func kindOf(n xml.Name) string {
+	switch {
+	case is(n, "document", nsW):
+		return "Word document"
+	case is(n, "workbook", nsS):
+		return "Excel workbook"
+	case is(n, "presentation", nsP):
+		return "PowerPoint presentation"
+	case n.Space == odfOffice:
+		return odfKinds[n.Local]
+	}
+	return ""
+}
+
+func article(s string) string {
+	if strings.ContainsRune("AEIOU", rune(s[0])) {
+		return "an"
+	}
+	return "a"
+}
+
+// listed is the refusal of a file that lists more of something than
+// MaxListed.
+func listed(what, part string) error {
+	return overLimit("its part %s lists more than %d %s", part, MaxListed, what)
 }
 
 // tolerable reports an error from a part the text can do without that
@@ -453,7 +618,7 @@ func tolerable(err error) bool {
 // limit there refuses the file rather than cutting its text short,
 // because the text that would follow cannot be read without it.
 func aux(part string, err error) error {
-	if errors.Is(err, errFull) || errors.Is(err, errReadCap) {
+	if errors.Is(err, errFull) || errors.Is(err, errReadCap) || errors.Is(err, errTokenCap) {
 		return overLimit("reading its part %s needs more than this server reads", part)
 	}
 	return err

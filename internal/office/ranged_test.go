@@ -54,7 +54,7 @@ func TestRangeReaderFetchesOnlyThePartsItReads(t *testing.T) {
 	)
 	r := &remote{data: data}
 	ra := office.NewRangeReader(int64(len(data)), r.fetch, 0)
-	res, err := office.Extract(ra, int64(len(data)), office.Docx, office.Options{})
+	res, err := office.Extract(t.Context(), ra, int64(len(data)), office.Docx, office.Options{})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestRangeReaderFetchesFurtherAheadAsAReadCarriesOn(t *testing.T) {
 			body.String() + `</w:body></w:document>`})
 	r := &remote{data: data}
 	ra := office.NewRangeReader(int64(len(data)), r.fetch, 0)
-	if _, err := office.Extract(ra, int64(len(data)), office.Docx, office.Options{}); err != nil {
+	if _, err := office.Extract(t.Context(), ra, int64(len(data)), office.Docx, office.Options{}); err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 	if r.requests > 12 {
@@ -102,7 +102,7 @@ func TestATooLongDirectoryIsRefusedBeforeItIsRead(t *testing.T) {
 	data := officetest.Zip(many...)
 	r := &remote{data: data}
 	ra := office.NewRangeReader(int64(len(data)), r.fetch, 0)
-	_, err := office.Extract(ra, int64(len(data)), office.Odt, office.Options{})
+	_, err := office.Extract(t.Context(), ra, int64(len(data)), office.Odt, office.Options{})
 	var oe *office.Error
 	if !errors.As(err, &oe) || !oe.Limit {
 		t.Fatalf("err = %v, want a limit", err)
@@ -116,7 +116,7 @@ func TestRangeReaderStopsAtItsBudget(t *testing.T) {
 	data := officetest.Docx(officetest.WordParagraph("", "text"))
 	r := &remote{data: data}
 	ra := office.NewRangeReader(int64(len(data)), r.fetch, 100)
-	_, err := office.Extract(ra, int64(len(data)), office.Docx, office.Options{})
+	_, err := office.Extract(t.Context(), ra, int64(len(data)), office.Docx, office.Options{})
 	if !errors.Is(err, office.ErrFetchLimit) {
 		t.Fatalf("err = %v, want ErrFetchLimit", err)
 	}
@@ -134,7 +134,7 @@ func TestRangeReaderKeepsTheFirstFailure(t *testing.T) {
 	for name, r := range cases {
 		t.Run(name, func(t *testing.T) {
 			ra := office.NewRangeReader(int64(len(data)), r.fetch, 0)
-			if _, err := office.Extract(ra, int64(len(data)), office.Docx, office.Options{}); err == nil {
+			if _, err := office.Extract(t.Context(), ra, int64(len(data)), office.Docx, office.Options{}); err == nil {
 				t.Fatal("Extract succeeded over a failing fetch")
 			}
 			if ra.Err() == nil {

@@ -14,7 +14,7 @@ import (
 // extract reads a file held in memory.
 func extract(t *testing.T, data []byte, kind office.Kind, o office.Options) *office.Result {
 	t.Helper()
-	res, err := office.Extract(bytes.NewReader(data), int64(len(data)), kind, o)
+	res, err := office.Extract(t.Context(), bytes.NewReader(data), int64(len(data)), kind, o)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -24,7 +24,7 @@ func extract(t *testing.T, data []byte, kind office.Kind, o office.Options) *off
 // refusal reads a file that ought to be refused, and returns why.
 func refusal(t *testing.T, data []byte, kind office.Kind) *office.Error {
 	t.Helper()
-	res, err := office.Extract(bytes.NewReader(data), int64(len(data)), kind, office.Options{})
+	res, err := office.Extract(t.Context(), bytes.NewReader(data), int64(len(data)), kind, office.Options{})
 	if err == nil {
 		t.Fatalf("Extract succeeded with %q, want a refusal", res.Text)
 	}
@@ -193,7 +193,7 @@ lines</t></is></c><c r="C4" t="b"><v>1</v></c></row>` +
 func TestExcelShowsDatesAndTimesTheFormatsMakeOfThem(t *testing.T) {
 	// One cell per format. Each style index names a number format: the
 	// built-ins by id, and custom codes in numFmts.
-	xfs := []int{0, 14, 20, 22, 46, 164, 165, 166, 167, 168, 169, 170}
+	xfs := []int{0, 14, 20, 22, 46, 164, 165, 166, 167, 168, 169, 170, 171, 172}
 	var cellXfs strings.Builder
 	for _, id := range xfs {
 		fmt.Fprintf(&cellXfs, `<xf numFmtId="%d"/>`, id)
@@ -204,7 +204,11 @@ func TestExcelShowsDatesAndTimesTheFormatsMakeOfThem(t *testing.T) {
 		`<numFmt numFmtId="167" formatCode="&quot;due &quot;d/m"/>` +
 		`<numFmt numFmtId="168" formatCode="[Red]#,##0.00"/>` +
 		`<numFmt numFmtId="169" formatCode="h:mm AM/PM"/>` +
-		`<numFmt numFmtId="170" formatCode="mmmm"/>`
+		`<numFmt numFmtId="170" formatCode="mmmm"/>` +
+		// A backslash escapes the character after it, which in these
+		// takes more than one byte.
+		`<numFmt numFmtId="171" formatCode="yyyy\年m\月d\日"/>` +
+		`<numFmt numFmtId="172" formatCode="[$-FC19]dd\ mmmm\ yyyy\ \г\.;@"/>`
 	cases := []struct {
 		style int
 		value string
@@ -231,6 +235,8 @@ func TestExcelShowsDatesAndTimesTheFormatsMakeOfThem(t *testing.T) {
 		{10, "0.75", "18:00:00"},               // AM/PM makes a time
 		{1, "-1", "-1"},                        // a negative serial is no date
 		{11, "45000", "2023-03-15"},            // a month name alone is a date
+		{12, "45000", "2023-03-15"},            // a Japanese long date
+		{13, "45000", "2023-03-15"},            // a Russian long date
 	}
 	var rows strings.Builder
 	for i, c := range cases {

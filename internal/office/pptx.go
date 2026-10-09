@@ -18,8 +18,16 @@ func (p *pkg) pptx() (*Result, error) {
 		return nil, err
 	}
 	var order []string
-	err = p.walk(main, func(_ *walker, t xml.Token) error {
-		if se, ok := t.(xml.StartElement); ok && is(se.Name, "sldId", nsP) {
+	err = p.walk(main, func(w *walker, t xml.Token) error {
+		se, ok := t.(xml.StartElement)
+		switch {
+		case !ok:
+		case len(w.stack) == 1 && !is(se.Name, "presentation", nsP):
+			return notKind(main, "PowerPoint presentation", se.Name)
+		case is(se.Name, "sldId", nsP):
+			if len(order) >= MaxListed {
+				return listed("slides", main)
+			}
 			order = append(order, attrIn(se, "id", nsR))
 		}
 		return nil

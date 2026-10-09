@@ -90,7 +90,7 @@ func (s *Service) extractOffice(ctx context.Context, f *gdrive.File, size int64,
 	if plan.formatName == "tsv" {
 		delim = '\t'
 	}
-	got, err := office.Extract(ra, size, plan.office, office.Options{Delimiter: delim, MaxText: MaxExport})
+	got, err := office.Extract(ctx, ra, size, plan.office, office.Options{Delimiter: delim, MaxText: MaxExport})
 	s.log.DebugContext(ctx, "office text read", "requests", ra.Requests(), "bytes", ra.Fetched(),
 		"ms", s.now().Sub(started).Milliseconds(), "ok", err == nil)
 	if err != nil {
@@ -126,6 +126,9 @@ func (s *Service) officeError(err, fetchErr error, f *gdrive.File) error {
 	var oe *office.Error
 	if fetchErr != nil && !errors.As(fetchErr, &oe) {
 		return s.contentError(fetchErr, f, "reading")
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return s.contentError(err, f, "reading")
 	}
 	if errors.As(err, &oe) && oe.Limit {
 		return Errorf(ClassUnsupported, "%s is larger than this server reads in one go: %s. "+

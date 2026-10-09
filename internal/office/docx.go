@@ -47,6 +47,9 @@ func (p *pkg) wordBody(part string, styles map[string]wordStyle, f *flow) error 
 	return p.walk(part, func(w *walker, t xml.Token) error {
 		switch t := t.(type) {
 		case xml.StartElement:
+			if len(w.stack) == 1 && !is(t.Name, "document", nsW) {
+				return notKind(part, "Word document", t.Name)
+			}
 			return wordStart(w, t, styles, f)
 		case xml.EndElement:
 			if !in(t.Name, nsW) {
@@ -167,57 +170,68 @@ func wordParagraphProperty(w *walker, t xml.StartElement, styles map[string]word
 // never what decides; whether it keeps the English name is recorded in
 // §18 as unverified.
 func (p *pkg) wordStyles(part string) (map[string]wordStyle, error) {
-	out := map[string]wordStyle{}
-	current := ""
+	r := &styleReader{part: part, out: map[string]wordStyle{}}
 	err := p.walk(part, func(w *walker, t xml.Token) error {
 		switch t := t.(type) {
 		case xml.StartElement:
-			if !in(t.Name, nsW) {
-				return nil
-			}
-			switch t.Name.Local {
-			case "style":
-				current = ""
-				if attr(t, "type") == "paragraph" {
-					current = attr(t, "styleId")
-				}
-			case "name":
-				if current == "" || !is(w.parent(), "style", nsW) {
-					return nil
-				}
-				s := out[current]
-				name := strings.ToLower(strings.TrimSpace(attr(t, "val")))
-				if level, ok := strings.CutPrefix(name, "heading "); ok {
-					if n, err := strconv.Atoi(level); err == nil && n >= 1 && n <= 9 {
-						s.heading = n
-					}
-				} else if name == "title" {
-					s.heading = 1
-				}
-				out[current] = s
-			case "outlineLvl":
-				if current == "" || !w.inside("style") {
-					return nil
-				}
-				if n, err := strconv.Atoi(attr(t, "val")); err == nil && n >= 0 && n < 9 {
-					s := out[current]
-					s.heading = n + 1
-					out[current] = s
-				}
-			case "numId":
-				if current == "" || !w.inside("style") {
-					return nil
-				}
-				s := out[current]
-				s.list = attr(t, "val") != "0"
-				out[current] = s
+			if in(t.Name, nsW) {
+				return r.start(w, t)
 			}
 		case xml.EndElement:
 			if is(t.Name, "style", nsW) {
-				current = ""
+				r.current = ""
 			}
 		}
 		return nil
 	})
-	return out, err
+	return r.out, err
+}
+
+// styleReader is a style sheet being read: the styles so far, and the
+// paragraph style whose definition is open.
+type styleReader struct {
+	part    string
+	out     map[string]wordStyle
+	current string
+}
+
+func (r *styleReader) start(w *walker, t xml.StartElement) error {
+	if t.Name.Local == "style" {
+		r.current = ""
+		if attr(t, "type") == "paragraph" {
+			r.current = attr(t, "styleId")
+		}
+		if _, seen := r.out[r.current]; r.current != "" && !seen && len(r.out) >= MaxListed {
+			return listed("styles", r.part)
+		}
+		return nil
+	}
+	if r.current == "" || !w.inside("style") {
+		return nil
+	}
+	s := r.out[r.current]
+	switch t.Name.Local {
+	case "name":
+		if !is(w.parent(), "style", nsW) {
+			return nil
+		}
+		name := strings.ToLower(strings.TrimSpace(attr(t, "val")))
+		if level, ok := strings.CutPrefix(name, "heading "); ok {
+			if n, err := strconv.Atoi(level); err == nil && n >= 1 && n <= 9 {
+				s.heading = n
+			}
+		} else if name == "title" {
+			s.heading = 1
+		}
+	case "outlineLvl":
+		if n, err := strconv.Atoi(attr(t, "val")); err == nil && n >= 0 && n < 9 {
+			s.heading = n + 1
+		}
+	case "numId":
+		s.list = attr(t, "val") != "0"
+	default:
+		return nil
+	}
+	r.out[r.current] = s
+	return nil
 }

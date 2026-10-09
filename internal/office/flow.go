@@ -86,7 +86,9 @@ type para struct {
 
 // table is one table being read.
 type table struct {
-	row    []string
+	row cells
+	// col is the column the next cell starts at.
+	col    int
 	cell   strings.Builder
 	inCell bool
 	// rowRepeat and cellRepeat are how many rows or columns the open
@@ -180,7 +182,10 @@ func (f *flow) line(s string) error {
 	}
 	f.blank = false
 	f.lines++
-	return f.out.write(s + "\n")
+	if err := f.out.write(s); err != nil {
+		return err
+	}
+	return f.out.write("\n")
 }
 
 // marker writes a line that heads a section, such as a slide, with a
@@ -196,7 +201,8 @@ func (f *flow) startTable() { f.tables = append(f.tables, &table{}) }
 // repeats passes one.
 func (f *flow) startRow(repeat int) {
 	if t := f.currentTable(); t != nil {
-		t.row = t.row[:0]
+		t.row.reset()
+		t.col = 0
 		t.rowRepeat = repeat
 	}
 }
@@ -211,7 +217,8 @@ func (f *flow) startCell(repeat int) {
 }
 
 // endCell closes a cell. An empty one is kept as a place: the cells
-// after it are still in their columns.
+// after it are still in their columns. A row longer than the whole text
+// cap ends the text, and nothing past that point is kept.
 func (f *flow) endCell() {
 	t := f.currentTable()
 	if t == nil || !t.inCell {
@@ -219,40 +226,64 @@ func (f *flow) endCell() {
 	}
 	t.inCell = false
 	s := oneLine(t.cell.String())
-	for range clampRepeat(t.cellRepeat, maxColumns-len(t.row)) {
-		t.row = append(t.row, s)
+	if s == "" {
+		t.col += max(t.cellRepeat, 1)
+		return
+	}
+	for range clampRepeat(t.cellRepeat, maxColumns-t.col) {
+		t.row.set(t.col, s)
+		t.col++
+		if t.row.size > f.out.max {
+			f.cut = true
+			return
+		}
 	}
 }
 
 // endRow writes a row, as many times as it repeats. A row of nothing is
 // not written. A row of a table inside a cell becomes text of that cell.
+// The row is put together once, however often it repeats, and the
+// repeats stop at the cap.
 func (f *flow) endRow() error {
 	t := f.currentTable()
 	if t == nil {
 		return nil
 	}
-	repeat := t.rowRepeat
-	cells := t.row
+	cells := t.row.vals
 	for len(cells) > 0 && cells[len(cells)-1] == "" {
 		cells = cells[:len(cells)-1]
 	}
 	if len(cells) == 0 {
-		return nil
+		return f.full()
 	}
-	if len(f.tables) > 1 {
+	nested := len(f.tables) > 1
+	var b strings.Builder
+	if !nested {
+		b.WriteString("| ")
+	}
+	for i, c := range cells {
+		if i > 0 {
+			b.WriteString(" | ")
+		}
+		b.WriteString(c)
+	}
+	if nested {
 		outer := f.tables[len(f.tables)-2]
-		for range clampRepeat(repeat, maxRows) {
-			f.cut = addToCell(outer, strings.Join(cells, " | "), f.out.max) || f.cut
+		for range clampRepeat(t.rowRepeat, maxRows) {
+			if addToCell(outer, b.String(), f.out.max) {
+				f.cut = true
+				break
+			}
 		}
 		return f.full()
 	}
-	line := "| " + strings.Join(cells, " | ") + " |"
-	for range clampRepeat(repeat, maxRows) {
-		if err := f.line(line); err != nil {
+	b.WriteString(" |")
+	for range clampRepeat(t.rowRepeat, maxRows) {
+		if err := f.line(b.String()); err != nil {
 			return err
 		}
 	}
-	return nil
+	return f.full()
 }
 
 func (f *flow) endTable() {

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // grid writes a sheet's rows as csv or tsv. A row ends at its last
@@ -18,6 +19,9 @@ type grid struct {
 	// next is the row number a row written now would have, 1-based.
 	next int
 }
+
+// room is how many more bytes of text fit under the cap.
+func (g *grid) room() int { return g.out.max - g.out.b.Len() }
 
 // row writes the row numbered num, after a blank line for every row
 // skipped since the last one written.
@@ -62,20 +66,34 @@ func field(s string, delim byte) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
-// setCell puts a value at a 0-based column, filling the gap before it
-// with empty cells. A column past the widest sheet is dropped.
-func setCell(row []string, col int, v string) []string {
-	if col < 0 || col >= maxColumns {
-		return row
+// cells is a row being read: its values by column, and the bytes of text
+// they hold. An empty value past the last one is not held, so a row of
+// sixteen thousand empty cells costs what an empty row does; and the
+// text is counted as it grows, so a row too long for the cap is noticed
+// while it is read rather than once it is whole.
+type cells struct {
+	vals []string
+	size int
+}
+
+func (r *cells) reset() { r.vals, r.size = r.vals[:0], 0 }
+
+// set puts a value at a 0-based column, filling the gap before it with
+// empty cells. A column past the widest sheet is dropped.
+func (r *cells) set(col int, v string) {
+	if col < 0 || col >= maxColumns || (v == "" && col >= len(r.vals)) {
+		return
 	}
-	if col < len(row) {
-		row[col] = v
-		return row
+	if col < len(r.vals) {
+		r.size += len(v) - len(r.vals[col])
+		r.vals[col] = v
+		return
 	}
-	for len(row) < col {
-		row = append(row, "")
+	for len(r.vals) < col {
+		r.vals = append(r.vals, "")
 	}
-	return append(row, v)
+	r.vals = append(r.vals, v)
+	r.size += len(v)
 }
 
 // cellRef reads the column and row out of a reference like "AB12",
@@ -148,7 +166,10 @@ func formatKind(code string) numKind {
 		case c == '"':
 			quoted = true
 		case c == '\\', c == '_', c == '*':
-			i++
+			// Each stands before one character, which may take more
+			// than one byte.
+			_, n := utf8.DecodeRuneInString(code[i+1:])
+			i += n
 		case c == ';':
 			i = len(code)
 		case c == '[':

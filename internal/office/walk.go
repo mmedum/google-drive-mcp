@@ -23,17 +23,27 @@ type walker struct {
 //
 // encoding/xml expands only the five predefined entities and refuses
 // any other, so a part cannot define the entity that expands into a
-// billion copies of itself. Nesting is bounded here, and the bytes it
-// reads are bounded by the part's reader.
+// billion copies of itself. Nesting is bounded here, the length of one
+// token by tokenLimit, and the bytes read by the part's reader. The
+// context is checked before every token.
 func (p *pkg) walk(name string, fn func(w *walker, t xml.Token) error) error {
 	rc, err := p.open(name)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rc.Close() }()
-	dec := xml.NewDecoder(rc)
+	limit := &tokenLimit{r: rc, max: p.o.MaxToken}
+	dec := xml.NewDecoder(limit)
+	limit.dec = dec
 	w := &walker{part: name}
+	done := p.ctx.Done()
 	for {
+		select {
+		case <-done:
+			return p.ctx.Err()
+		default:
+		}
+		limit.start = dec.InputOffset()
 		tok, err := dec.Token()
 		if errors.Is(err, io.EOF) {
 			return nil
@@ -41,34 +51,58 @@ func (p *pkg) walk(name string, fn func(w *walker, t xml.Token) error) error {
 		if err != nil {
 			return w.fail(err)
 		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if len(w.stack) >= MaxDepth {
-				return overLimit("its part %s nests more than %d levels deep", name, MaxDepth)
-			}
-			w.stack = append(w.stack, t.Name)
-			if w.skipAt == 0 {
-				if err := fn(w, t); err != nil {
-					return err
-				}
-			}
-		case xml.EndElement:
-			if w.skipAt == len(w.stack) {
-				w.skipAt = 0
-			} else if w.skipAt == 0 {
-				if err := fn(w, t); err != nil {
-					return err
-				}
-			}
-			w.stack = w.stack[:len(w.stack)-1]
-		case xml.CharData:
-			if w.skipAt == 0 {
-				if err := fn(w, t); err != nil {
-					return err
-				}
-			}
+		if err := w.handle(tok, fn); err != nil {
+			return err
 		}
 	}
+}
+
+// handle keeps the stack of open elements and passes the token on.
+func (w *walker) handle(tok xml.Token, fn func(w *walker, t xml.Token) error) error {
+	switch t := tok.(type) {
+	case xml.StartElement:
+		if len(w.stack) >= MaxDepth {
+			return overLimit("its part %s nests more than %d levels deep", w.part, MaxDepth)
+		}
+		w.stack = append(w.stack, t.Name)
+		if w.skipAt == 0 {
+			return fn(w, t)
+		}
+	case xml.EndElement:
+		var err error
+		if w.skipAt == len(w.stack) {
+			w.skipAt = 0
+		} else if w.skipAt == 0 {
+			err = fn(w, t)
+		}
+		w.stack = w.stack[:len(w.stack)-1]
+		return err
+	case xml.CharData:
+		if w.skipAt == 0 {
+			return fn(w, t)
+		}
+	}
+	return nil
+}
+
+// tokenLimit stops the decoder once it has read more than max bytes
+// since the last token it handed over. encoding/xml holds a token whole
+// in memory before it returns it, so without this one run of text
+// hundreds of megabytes long would be held at once. The decoder reads
+// ahead a buffer at a time, so a token may run past max by that much.
+type tokenLimit struct {
+	r   io.Reader
+	dec *xml.Decoder
+	// start is where the token being read began.
+	start int64
+	max   int64
+}
+
+func (l *tokenLimit) Read(b []byte) (int, error) {
+	if l.dec.InputOffset()-l.start > l.max {
+		return 0, errTokenCap
+	}
+	return l.r.Read(b)
 }
 
 // skip passes over the contents of the element just started.
