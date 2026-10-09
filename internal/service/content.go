@@ -440,7 +440,7 @@ func (s *Service) DownloadFile(ctx context.Context, in DownloadFileInput) (strin
 	// Hashing a gigabyte is pointless when there is nothing to compare
 	// the digest against, which is the case for every export and every
 	// older revision.
-	compare := f.MD5Checksum != "" && in.Revision == ""
+	compare := f.MD5Checksum != "" && isCurrent(f, in.Revision)
 	written, sum, err := writeStream(path, content.Body, compare)
 	if err != nil {
 		return "", err
@@ -686,6 +686,13 @@ func writeStream(path string, body io.Reader, checksum bool) (int64, string, err
 	return written, hex.EncodeToString(sum.Sum(nil)), nil
 }
 
+// isCurrent says whether a download asked for the file's current
+// content: no revision, or the head one by its id. The file's checksum
+// is that content's, and no other revision's.
+func isCurrent(f *gdrive.File, revision string) bool {
+	return revision == "" || revision == f.HeadRevisionID
+}
+
 // checksumVerdict says whether the bytes on disk are the bytes Drive
 // holds — as facts, not as a sentence: internal/render decides how to
 // put it. An export and an older revision have no checksum to compare
@@ -694,7 +701,7 @@ func checksumVerdict(f *gdrive.File, revision, got string) model.Checksum {
 	switch {
 	case f.MD5Checksum == "":
 		return model.Checksum{State: model.ChecksumNotPublished}
-	case revision != "":
+	case !isCurrent(f, revision):
 		return model.Checksum{State: model.ChecksumNotComparable,
 			Why: "the file's checksum is the current version's, not this revision's"}
 	case f.MD5Checksum == got:

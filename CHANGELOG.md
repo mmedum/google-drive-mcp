@@ -54,6 +54,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `manage_approval` said an approved file is locked either way. An approval started with `no_action` is not.
 - A file card said only "viewers and commenters cannot copy, print or download" when downloads were restricted, even when editors were restricted too. It now reads the restriction in effect.
 - `list_folder` says when this account can see a folder but cannot list what is in it. Such a folder used to list as empty. A recursive walk marks such folders and names them at the end. A recursive `copy_file` refuses a folder holding one, before it copies anything, where it used to copy that folder empty.
+- `download_file` of the current revision, named by its id, checks the bytes against Drive's md5. It said the file's checksum belonged to another version and could not be compared.
 
 ### Security
 
