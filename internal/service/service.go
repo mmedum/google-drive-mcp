@@ -201,6 +201,9 @@ type Service struct {
 	// call happen and continuation is sequential. Google caps an export
 	// at 10 MB, which bounds what it can hold.
 	export exported
+	// folders is the folder set the last search with under_folder
+	// walked, kept for its next page.
+	folders keptFolders
 	// tools are the names the server registered, for get_account.
 	tools []string
 }

@@ -28,7 +28,8 @@ type SearchInput struct {
 	Text           string `json:"text,omitempty" jsonschema:"match whole words in the file's content and name. Wrap in double quotes for an exact phrase. Not a substring match."`
 	Kind           string `json:"kind,omitempty" jsonschema:"limit to one kind: folder, doc, sheet, slides, form, drawing, pdf, image, video, audio, shortcut, office, or any (the default)"`
 	MimeType       string `json:"mime_type,omitempty" jsonschema:"limit to one exact MIME type, for kinds the kind field does not name"`
-	InFolder       string `json:"in_folder,omitempty" jsonschema:"only items DIRECTLY inside this folder; Drive cannot search a folder recursively, so this does not reach subfolders. Takes the same forms as file."`
+	InFolder       string `json:"in_folder,omitempty" jsonschema:"only items DIRECTLY inside this folder; this does not reach subfolders, under_folder does. Takes the same forms as file."`
+	UnderFolder    string `json:"under_folder,omitempty" jsonschema:"only items in this folder or in any folder below it, at any depth. Takes the same forms as file. It costs one listing per level of folders before the search, covers at most 100 folders and refuses a larger tree, and does not follow shortcuts. A page_token from such a search continues only a search under the same folder. Pass this or in_folder, not both."`
 	Drive          string `json:"drive,omitempty" jsonschema:"search one shared drive, by name or id. Without it the search covers My Drive, files shared with you, and every shared drive."`
 	Scope          string `json:"scope,omitempty" jsonschema:"all (the default), my_drive, or shared_with_me"`
 	Owner          string `json:"owner,omitempty" jsonschema:"me, or an email address"`
@@ -100,13 +101,14 @@ func registerRead(s *mcp.Server, d Deps) []string {
 			"name, id, folder and last change. " +
 			"IMPORTANT: Drive does not do substring search. `name` matches the beginnings of words and `text` matches " +
 			"whole words, so \"udget\" will never find \"Budget\". Use list_folder when you know where something is: " +
-			"a search costs twenty times what a read does. `in_folder` reaches direct children only. " +
+			"a search costs twenty times what a read does. `in_folder` reaches direct children only; `under_folder` " +
+			"reaches every folder below as well. " +
 			"With no filter at all it returns everything you can see, in the order order_by names.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, any, error) {
 		out, err := d.Service.Search(ctx, service.SearchInput{
 			Name: in.Name, Text: in.Text, Kind: in.Kind, MimeType: in.MimeType,
-			InFolder: in.InFolder, Drive: in.Drive, Scope: in.Scope, Owner: in.Owner,
+			InFolder: in.InFolder, UnderFolder: in.UnderFolder, Drive: in.Drive, Scope: in.Scope, Owner: in.Owner,
 			Starred: in.Starred, Trashed: in.Trashed,
 			ModifiedAfter: in.ModifiedAfter, ModifiedBefore: in.ModifiedBefore, CreatedAfter: in.CreatedAfter,
 			OrderBy: in.OrderBy, Property: in.Property, Limit: in.Limit, PageToken: in.PageToken,

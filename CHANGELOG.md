@@ -13,6 +13,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - A file card, and a row in a search or a listing, says when a file was shared with you and by whom.
 - `search_files` takes `visibility`: `anyone` (anyone on the internet, by link or by search), `link` (anyone with the link), `domain` (everyone in the organization) or `limited` (only the people and groups it is shared with).
 - `search_files` takes `shared_with`, an address: only the files shared with that person or group, as viewer, commenter or editor.
+- `search_files` takes `under_folder`: only items in that folder or any folder below it. It walks the folders first, one listing per level, covers at most 100 folders and refuses a larger tree, and does not follow shortcuts. It names the folders it could not list. A `page_token` from such a search continues only a search under the same folder, over the same folders.
 - `search_files` with no filter at all returns everything you can see, in the order `order_by` names. It used to be refused.
 
 ### Changed

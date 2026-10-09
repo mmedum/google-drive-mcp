@@ -18,11 +18,14 @@ import (
 // the escaping rules and the prefix semantics of `contains` live here
 // rather than in every caller.
 type SearchInput struct {
-	Name           string
-	Text           string
-	Kind           string
-	MimeType       string
-	InFolder       string
+	Name     string
+	Text     string
+	Kind     string
+	MimeType string
+	InFolder string
+	// UnderFolder searches a folder and every folder below it, at most
+	// MaxUnderFolders of them. Not together with InFolder.
+	UnderFolder    string
 	Drive          string
 	Scope          string
 	Owner          string
@@ -156,7 +159,11 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 	if !ok {
 		return "", Errorf(ClassInvalid, "order_by %q is not one of %s", in.OrderBy, strings.Join(OrderBys(), ", "))
 	}
-	query, describe, err := s.buildQuery(ctx, &in, orderName)
+	under, pageToken, err := s.underFolder(ctx, &in)
+	if err != nil {
+		return "", err
+	}
+	query, describe, err := s.buildQuery(ctx, &in, orderName, under)
 	if err != nil {
 		return "", err
 	}
@@ -168,13 +175,18 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 		limit = MaxSearchLimit
 	}
 
-	lq := gapi.ListQuery{Q: query, PageSize: limit, PageToken: in.PageToken, OrderBy: order}
-	if in.Drive != "" {
+	lq := gapi.ListQuery{Q: query, PageSize: limit, PageToken: pageToken, OrderBy: order}
+	switch {
+	case in.Drive != "":
 		d, err := s.findDrive(ctx, in.Drive)
 		if err != nil {
 			return "", err
 		}
 		lq.DriveID = d.ID
+	case under != nil && under.root.DriveID != "":
+		// Everything under a folder in a shared drive is in that drive,
+		// so only that drive is searched.
+		lq.DriveID = under.root.DriveID
 	}
 	if strings.EqualFold(in.Scope, ScopeMyDrive) {
 		lq.Corpora = gapi.CorporaUser
@@ -185,23 +197,29 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 	}
 
 	files := s.decorate(ctx, list.Files)
+	next, note := list.NextPageToken, ""
+	if under != nil {
+		next, note = under.wrap(next), under.note()
+	}
 	empty := "no file matched. Note that `name` matches the beginnings of words, not any substring: " +
 		"\"udget\" will not find \"Budget\". `text` matches whole words in the content. Widen the search or try search_files with fewer fields."
 	return render.Listing(files, render.ListingOptions{
 		Title:            fmt.Sprintf("%s — %s", describe, model.Plural(len(list.Files), "hit", "hits")),
 		Now:              s.now(),
 		ShowLocation:     true,
-		NextPageToken:    list.NextPageToken,
+		NextPageToken:    next,
 		IncompleteSearch: list.IncompleteSearch,
 		Empty:            empty,
+		Note:             note,
 	}), nil
 }
 
 // buildQuery turns the typed fields into a Drive query and a description
 // of what was actually asked, so an empty result can be read against the
 // question rather than guessed at. orderName is the order the search
-// uses, which the description names when nothing else narrows it.
-func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName string) (query, describe string, err error) {
+// uses, which the description names when nothing else narrows it. under
+// is the folder set under_folder walked, or nil.
+func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName string, under *folderSet) (query, describe string, err error) {
 	var clauses, described []string
 
 	if name := strings.TrimSpace(in.Name); name != "" {
@@ -234,6 +252,10 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 		}
 		clauses = append(clauses, quote(res.File.ID)+" in parents")
 		described = append(described, "directly inside "+res.File.Name)
+	}
+	if under != nil {
+		clauses = append(clauses, under.clause())
+		described = append(described, under.words())
 	}
 	access, accessWords, err := accessClauses(in)
 	if err != nil {

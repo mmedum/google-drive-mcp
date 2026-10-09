@@ -512,7 +512,8 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   `kind` (`folder`, `doc`, `sheet`, `slides`, `form`, `drawing`, `pdf`,
   `image`, `video`, `audio`, `shortcut`, `office`, `any`) or a raw
   `mime_type`, `in_folder` (direct children only; Drive cannot recurse in
-  a query, and the description says so), `drive` (one shared drive),
+  a query, and the description says so), `under_folder` (below),
+  `drive` (one shared drive),
   `scope` (`all`, `my_drive`, `shared_with_me`), `owner` (`me` or an
   email), `visibility` (`anyone`, `link`, `domain`, `limited`, below),
   `shared_with` (an address: `('x' in readers or 'x' in writers)`),
@@ -535,6 +536,26 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   names, which the listing does not carry: up to 20 distinct parents per
   page are looked up (cached), the rest show ids. `incomplete_search`
   from Google is passed on as a line the model can act on.
+
+  `under_folder` searches a folder and every folder below it. Drive
+  cannot recurse in a query, so the server walks the tree first, one
+  level at a time: one listing per level asks for
+  `mimeType = 'application/vnd.google-apps.folder' and ('a' in parents
+  or 'b' in parents …)`, with the shared drive's `driveId` when the
+  folder is in one. Only folders are asked for, so a shortcut is never
+  followed. Then the search adds one `('a' in parents or …)` group over
+  every folder found, so Drive's own order and page token still work.
+  It covers at most 100 folders, the named one included, and refuses a
+  larger tree before searching, as `copy_file` refuses a tree over its
+  budget: about 56 bytes a folder once the URL encodes it keeps a
+  search under an 8 KB request line, and Google documents no limit
+  (§18). A folder the account can see but not list is named in the
+  result, since folders below it are not found. It is not taken with
+  `in_folder`. A next page's token wraps Drive's with the folder and a
+  digest of the folder set: a continuation under another folder, or
+  without `under_folder`, is refused, and one whose set changed since
+  the first page (walked again when the set kept for 5 minutes is gone)
+  is refused too, rather than continuing a different query.
 - `list_folder` lists one page of a folder's children, folders first,
   natural name order (`orderBy=folder,name_natural`), with `kind` and
   `page_token`. `recursive: true` walks breadth-first under `max_depth`
@@ -875,7 +896,7 @@ grants a permission.
 |---|---|---|---|
 | `get_account` | Who is signed in, storage used and limit, can create shared drives, sharing policy in effect | readOnly | 0 |
 | `get_file` | The file card (§7.1) | readOnly | 0 |
-| `search_files` | Typed search across My Drive, shared with me and shared drives | readOnly | 0 |
+| `search_files` | Typed search across My Drive, shared with me and shared drives, or under one folder at any depth | readOnly | 0 |
 | `list_folder` | One page of children, or a budgeted tree | readOnly | 0 |
 | `read_file` | Text of a file, budgeted with continuation | readOnly | 1 |
 | `download_file` | Blob, export or old revision to `GDRIVE_LOCAL_DIR`, checksum-verified | local write | 1 |
@@ -2367,3 +2388,6 @@ live run of it found.
 | A move's new sharing is in place when `files.update` answers (unstated) | **Unverified** | The read-back is one permission list right after the move. A late answer shows as "that is not who this server worked out would reach it", which points at `list_permissions`; the live driver's two moves fail on it |
 | A moved folder with limited access keeps out the destination's grants (unstated for a move) | **Unverified.** The sharing guide, read 2026-10-09, says of an inherited grant: "Changes must be made on the originating parent, or the folder must use the limited access setting." It says nothing about a move | The server does not read `inheritedPermissionsDisabled`, so it counts the destination's grants on such a folder and may ask a question too many |
 | A bulk move needs one approval per item, as removal and sharing do (the "Bulk operations belong in the tool surface" row did not cover moves) | **Rejected for moves, decided 2026-10-09.** That row rejected bulk work because "one item per call keeps every removal and every share a visible approval". A move removes nothing and grants nothing by name: it is undone by moving the item back. What it can do that is not undone is let more people reach the item, and since 2026-10-09 that is put to the person before any item moves, once for the batch, naming every item that would reach further. Forty moves into a folder nobody else can reach is forty approvals of nothing | `move_file` takes `files`, at most 50, to one destination. Each item gets its own outcome, and a failure leaves the moves before it in place. Removal and sharing stay one item per call, and there is no bulk rename |
+| A query may carry any number of `in parents` terms (unstated) | **Unverified.** The `files.list` reference (updated 2026-07-07) and the search guide (updated 2026-09-09), read 2026-10-09, state no limit on the length of `q`, its number of terms or its complexity | `under_folder` stops at 100 folders, about 5.6 KB of encoded terms, which keeps a search under the 8 KB request line most HTTP servers accept, and refuses a larger tree. The live driver doubles a group of `in parents` terms from 50 until Drive refuses one and prints where |
+| A page token continues only the query it came from (unstated) | **Unverified.** The `files.list` reference says the token "is typically valid for several hours" and to start over when it is rejected; it does not say the token is bound to `q` | A search with `under_folder` wraps Drive's token with the folder and a digest of the folder set. A continuation under another folder, without `under_folder`, or over a set that changed since the first page is refused here, so Drive never sees a token beside a different query |
+| A search in one shared drive should name it (convention) | **Confirmed** against the `files.list` reference, read 2026-10-09: "Prefer `user` or `drive` to `allDrives` for efficiency" | The walk under a shared-drive folder, and the search after it, send that drive's `driveId` |

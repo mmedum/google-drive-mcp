@@ -103,6 +103,7 @@ func (w *writeRun) exercise() {
 	ids := w.create()
 	w.readBack(ids)
 	w.organize(ids)
+	w.underFolder()
 	w.moveExposure()
 	w.access(ids)
 	w.history(ids)
@@ -1041,6 +1042,83 @@ func (w *writeRun) moveExposure() {
 	}
 	w.moveSeveral(open, file)
 	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
+}
+
+// underFolder searches a folder two levels deep with under_folder, pages
+// it, and checks a page_token is refused under another folder. Then it
+// looks for where Drive refuses a long `in parents` group, which nothing
+// Google publishes says (§18).
+func (w *writeRun) underFolder() {
+	outer := w.createAndKeepID("create_folder", map[string]any{"name": "Under", "parent": w.scratchID})
+	inner := ""
+	if outer != "" {
+		inner = w.createAndKeepID("create_folder", map[string]any{"name": "Inner", "parent": outer})
+	}
+	if inner == "" {
+		w.out.Say("\n=== under_folder: skipped, the folders it needs were never created ===")
+		return
+	}
+	var files []string
+	for _, name := range []string{"found under a folder one.txt", "found under a folder two.txt"} {
+		files = append(files, w.createAndKeepID("create_file", map[string]any{
+			"name": name, "parent": inner, "content": "two levels down\n", "mime_type": "text/plain",
+		}))
+	}
+	search := map[string]any{"under_folder": outer, "name": "found", "limit": 1}
+	page := ""
+	for i := range 10 {
+		if i > 0 {
+			time.Sleep(3 * time.Second)
+		}
+		page = w.call(call{tool: "search_files", args: search})
+		if files[0] != "" && strings.Contains(page, files[0]) || files[1] != "" && strings.Contains(page, files[1]) {
+			break
+		}
+	}
+	token := tokenIn(page)
+	if token == "" {
+		w.unverified("search_files.under_folder found no page to continue: the index has not caught up with "+
+			"the two files this run made two levels down", errors.New("no page_token"))
+		return
+	}
+	w.call(call{tool: "search_files", args: map[string]any{
+		"under_folder": outer, "name": "found", "limit": 1, "page_token": token,
+	}})
+	w.expecting("search_files", outer, map[string]any{
+		"under_folder": inner, "name": "found", "limit": 1, "page_token": token,
+	}, "a page_token from a search under another folder")
+	w.queryLimit()
+}
+
+// queryLimit looks for the longest `in parents` group Drive takes, by
+// doubling one until Drive refuses it. under_folder stops at
+// service.MaxUnderFolders folders on the belief that Drive takes that
+// many (§18). It repeats the scratch folder's id, so it measures length
+// and term count, not distinct folders. Nothing here fails the run: it
+// reports the answer for §18.
+func (w *writeRun) queryLimit() {
+	w.out.Sayf("\n=== where Drive refuses a long in-parents group (under_folder stops at %d) ===",
+		service.MaxUnderFolders)
+	accepted := 0
+	for n := service.MaxUnderFolders / 2; n <= 32*service.MaxUnderFolders; n *= 2 {
+		terms := make([]string, n)
+		for i := range terms {
+			terms[i] = "'" + w.scratchID + "' in parents"
+		}
+		raw := strings.Join(terms, " or ")
+		out, isError, err := w.sess.CallTool("search_files", map[string]any{"raw_query": raw, "limit": 1})
+		if err != nil || isError {
+			answer, _, _ := strings.Cut(out, "\n")
+			if err != nil {
+				answer = err.Error()
+			}
+			w.out.Sayf("(Drive refused %d terms, %d bytes of query, and took %d. Record it in §18. The answer: %s)",
+				n, len(raw), accepted, answer)
+			return
+		}
+		accepted = n
+	}
+	w.out.Sayf("(Drive took %d terms. Record in §18 that it refused none tried.)", accepted)
 }
 
 // moveSeveral moves two files into the open folder in one call, with the
