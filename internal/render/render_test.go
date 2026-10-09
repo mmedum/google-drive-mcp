@@ -120,11 +120,46 @@ func TestFileCardNotesAFollowedShortcut(t *testing.T) {
 	}
 }
 
-func TestFileCardWarnsAboutACopyRestriction(t *testing.T) {
-	f := &gdrive.File{ID: "id-x-fixture", Name: "Locked.pdf", MimeType: "application/pdf", CopyRequiresWriterPermission: true}
+// The card says who cannot download in effect, and where that comes
+// from when it is not the file's own setting. The legacy switch is the
+// fallback when Drive did not report the restriction.
+func TestFileCardSaysWhoCannotDownload(t *testing.T) {
+	viewers := &gdrive.DownloadRestriction{RestrictedForReaders: true}
+	editors := &gdrive.DownloadRestriction{RestrictedForReaders: true, RestrictedForWriters: true}
+	for _, tc := range []struct {
+		name string
+		f    gdrive.File
+		want string
+	}{
+		{"legacy switch alone", gdrive.File{CopyRequiresWriterPermission: true},
+			"downloads: viewers and commenters cannot download, print or copy it\n"},
+		{"editors, set on the file", gdrive.File{DownloadRestrictions: &gdrive.DownloadRestrictionsMetadata{
+			ItemDownloadRestriction: editors, EffectiveDownloadRestrictionWithContext: editors}},
+			"downloads: viewers, commenters and editors cannot download, print or copy it\n"},
+		{"viewers, from the drive", gdrive.File{CopyRequiresWriterPermission: true,
+			DownloadRestrictions: &gdrive.DownloadRestrictionsMetadata{
+				ItemDownloadRestriction: &gdrive.DownloadRestriction{}, EffectiveDownloadRestrictionWithContext: viewers}},
+			"downloads: viewers and commenters cannot download, print or copy it (set by the shared drive or an " +
+				"organization rule, not on the file)\n"},
+		{"nobody", gdrive.File{DownloadRestrictions: &gdrive.DownloadRestrictionsMetadata{
+			ItemDownloadRestriction: &gdrive.DownloadRestriction{}}}, ""},
+	} {
+		f := tc.f
+		f.ID, f.Name, f.MimeType = "id-x-fixture", "Locked.pdf", "application/pdf"
+		got := FileCard(model.New(&f, model.Options{}), FileCardOptions{Now: now})
+		_, line, found := strings.Cut(got, "downloads: ")
+		if tc.want == "" && found || tc.want != "" && !strings.Contains(got, tc.want) {
+			t.Errorf("%s: got\n%s\nwant %q (%q)", tc.name, got, tc.want, line)
+		}
+	}
+}
+
+func TestFileCardSaysAFolderHasLimitedAccess(t *testing.T) {
+	f := &gdrive.File{ID: "id-x-fixture", Name: "Board", MimeType: gdrive.MimeFolder, InheritedPermissionsDisabled: true}
 	got := FileCard(model.New(f, model.Options{}), FileCardOptions{Now: now})
-	if !strings.Contains(got, "cannot copy, print or download") {
-		t.Errorf("output does not mention the copy restriction:\n%s", got)
+	if !strings.Contains(got, "\nlimited access: only people added to this folder directly can open it; others who "+
+		"reach the folder above see it without opening it\n") {
+		t.Errorf("the card does not say the folder has limited access:\n%s", got)
 	}
 }
 

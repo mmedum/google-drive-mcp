@@ -69,7 +69,7 @@ func (s *Service) ListPermissions(ctx context.Context, in ListPermissionsInput) 
 	}
 	o := render.PermissionsOptions{
 		Sharing: sharing, SharedDrive: isDrive,
-		CanShare: model.CanShare(f),
+		CanShare: model.CanShare(f), LimitedAccess: f.IsFolder() && f.InheritedPermissionsDisabled,
 	}
 	if isDrive {
 		o.Subject = f.Name + " — shared drive"

@@ -66,8 +66,10 @@ type UpdateFileMetaInput struct {
 	Starred                      *bool             `json:"starred,omitempty" jsonschema:"star or unstar it"`
 	Color                        string            `json:"color,omitempty" jsonschema:"for a folder: an RGB hex color like #4986e7"`
 	Properties                   map[string]string `json:"properties,omitempty" jsonschema:"custom key-value pairs stored on the file and visible to every app. An empty value deletes that key."`
-	CopyRequiresWriterPermission *bool             `json:"copy_requires_writer_permission,omitempty" jsonschema:"true stops viewers and commenters copying, printing or downloading it"`
+	CopyRequiresWriterPermission *bool             `json:"copy_requires_writer_permission,omitempty" jsonschema:"legacy: Drive's old download switch, kept for compatibility. true stops viewers and commenters copying, printing or downloading it; false lifts every download restriction set on the file, editors' included. Use restrict_download instead; the two are refused together."`
 	WritersCanShare              *bool             `json:"writers_can_share,omitempty" jsonschema:"false stops editors changing who else can see it"`
+	RestrictDownload             string            `json:"restrict_download,omitempty" jsonschema:"who cannot download, print or copy it: none, viewers (viewers and commenters), or editors (editors as well). Only its owner, or an organizer of its shared drive, can change it. A shared drive or an organization rule can restrict more than this sets; the result shows what is in effect."`
+	LimitedAccess                *bool             `json:"limited_access,omitempty" jsonschema:"for a folder: true lets only the people added to it directly open it, and those who reach the folder above see it without opening it. false lets everyone who reaches the folder above open it and everything inside it, which is put to the person first when the client can ask."`
 	Viewed                       bool              `json:"viewed,omitempty" jsonschema:"mark the file as opened by you just now, which is what puts it at the top of Drive's Recent view. Only true does anything: Drive stores a timestamp and offers no way to say a file was never opened."`
 }
 
@@ -175,19 +177,24 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "update_file",
 		Description: "Change a file's details without touching its content: rename it, describe it, star it, " +
-			"color a folder, set custom properties, mark it as opened, or turn off copying and re-sharing. " +
-			"Only the fields you pass change, and the result shows each one before and after. " +
+			"color a folder, set custom properties, mark it as opened, stop downloads and re-sharing, or give a " +
+			"folder limited access. Only the fields you pass change, and the result shows each one before and " +
+			"after. Turning a folder's limited access off is also put to the person when the client can ask; a " +
+			"call they do not confirm is [blocked] and is not made again unless they ask. A server started with " +
+			"GDRIVE_SHARING=off refuses anything here that lets more people reach or pass on a file. " +
 			"update_content replaces what is inside a file; move_file changes where it is.",
 		Annotations: idempotentWrite,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateFileMetaInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "update_file", func(ctx context.Context, in UpdateFileMetaInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.UpdateFile(ctx, service.UpdateFileInput{
 			File: in.File, Name: in.Name, Description: in.Description, Starred: in.Starred,
 			Color: in.Color, Properties: in.Properties,
 			CopyRequiresWriterPermission: in.CopyRequiresWriterPermission,
 			WritersCanShare:              in.WritersCanShare,
+			RestrictDownload:             in.RestrictDownload,
+			LimitedAccess:                in.LimitedAccess,
 			Viewed:                       in.Viewed,
 		}))
-	})
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "move_file",

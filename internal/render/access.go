@@ -25,6 +25,9 @@ type PermissionsOptions struct {
 	// any of it. A listing that does not say so invites a share_file that
 	// is refused.
 	CanShare bool
+	// LimitedAccess marks a folder only the people added to it directly
+	// can open.
+	LimitedAccess bool
 	// Note is a closing line.
 	Note string
 }
@@ -54,7 +57,7 @@ func Permissions(grants []model.Grant, o PermissionsOptions) string {
 	var table strings.Builder
 	w := tabwriter.NewWriter(&table, 0, 0, 2, ' ', 0)
 	for _, g := range grants {
-		cells := []string{model.RoleWords(g.Role), g.Label(), g.PermissionID, grantFlags(g)}
+		cells := []string{g.Words(), g.Label(), g.PermissionID, grantFlags(g)}
 		_, _ = fmt.Fprintln(w, strings.Join(cells, "\t"))
 	}
 	_ = w.Flush()
@@ -106,6 +109,16 @@ func writePermissionNotes(b *buf, grants []model.Grant, o PermissionsOptions) {
 	if inherited > 0 {
 		b.linef("%s here %s inherited and can only be removed where it was granted, not on this file",
 			model.Plural(inherited, "grant", "grants"), isAre(inherited))
+	}
+	if o.LimitedAccess {
+		b.line("this folder has limited access: only people added to it directly can open it")
+	}
+	for _, g := range grants {
+		if g.NameOnly {
+			b.line("a grant that \"can see it but not open it\" reaches this folder from above, and limited " +
+				"access keeps it out of the folder and everything inside it")
+			break
+		}
 	}
 	if !o.CanShare {
 		b.line("this account cannot change who can see this, so share_file and unshare_file will be refused on it")

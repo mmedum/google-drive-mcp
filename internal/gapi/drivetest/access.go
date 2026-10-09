@@ -248,35 +248,30 @@ func (s *Server) grantsLocked(fileID string) []*gdrive.Permission {
 	}
 	var out []*gdrive.Permission
 	add := func(p *gdrive.Permission, inherited bool, kind, from string) {
-		for i, e := range out {
-			if !samePrincipal(e, p) {
-				continue
-			}
-			// A copy, so a merge never changes a stored grant: an update
-			// or a delete acts on those.
-			merged := *e
-			if len(merged.Details) == 0 {
-				merged.Details = []*gdrive.PermissionDetails{{PermissionType: "file", Role: e.Role}}
-			}
-			merged.Details = append(append([]*gdrive.PermissionDetails(nil), merged.Details...),
-				&gdrive.PermissionDetails{PermissionType: kind, Role: p.Role, Inherited: inherited, InheritedFrom: from})
-			if roleRank(p.Role) < roleRank(merged.Role) {
-				merged.Role = p.Role
-			}
-			merged.AllowFileDiscovery = merged.AllowFileDiscovery || p.AllowFileDiscovery
-			out[i] = &merged
-			return
-		}
-		if !inherited {
-			out = append(out, p)
-			return
-		}
-		copied := *p
-		copied.Details = []*gdrive.PermissionDetails{{PermissionType: kind, Role: p.Role, Inherited: true, InheritedFrom: from}}
-		out = append(out, &copied)
+		out = mergeGrant(out, p, inherited, kind, from)
 	}
 	for _, p := range s.Permissions[f.ID] {
 		add(p, false, "file", "")
+	}
+	// A folder with limited access keeps out what reaches it from above.
+	// The access guide: only the people added to it directly open it;
+	// the ones who reach it from above are listed on it with view
+	// metadata and role reader, every detail inherited; owners and
+	// organizers keep their access. Below such a folder, what came from
+	// above it does not reach at all.
+	limited, cut := f.IsFolder() && f.InheritedPermissionsDisabled, false
+	inherit := func(p *gdrive.Permission, kind, from string) {
+		switch {
+		case p.Role == "owner" || p.Role == "organizer":
+			add(p, true, kind, from)
+		case cut:
+		case limited:
+			seen := *p
+			seen.Role, seen.View = "reader", gdrive.ViewMetadata
+			add(&seen, true, kind, from)
+		default:
+			add(p, true, kind, from)
+		}
 	}
 	// The drive's own root carries its membership directly; the items
 	// inside it inherit, from every folder on the way up and then from
@@ -292,15 +287,51 @@ func (s *Server) grantsLocked(fileID string) []*gdrive.Permission {
 			from = parent.ID
 		}
 		for _, p := range s.Permissions[parent.ID] {
-			add(p, true, "file", from)
+			inherit(p, "file", from)
 		}
+		cut = cut || parent.IsFolder() && parent.InheritedPermissionsDisabled
 	}
 	if f.DriveID != "" && f.DriveID != f.ID {
 		for _, p := range s.Permissions[f.DriveID] {
-			add(p, true, "member", f.DriveID)
+			inherit(p, "member", f.DriveID)
 		}
 	}
 	return out
+}
+
+// mergeGrant adds one way a principal reaches a file to the grants
+// found so far: a new entry, or a detail on the principal's existing one
+// with the higher role on top. A metadata view stays only while every
+// way is one.
+func mergeGrant(out []*gdrive.Permission, p *gdrive.Permission, inherited bool, kind, from string) []*gdrive.Permission {
+	for i, e := range out {
+		if !samePrincipal(e, p) {
+			continue
+		}
+		// A copy, so a merge never changes a stored grant: an update
+		// or a delete acts on those.
+		merged := *e
+		if len(merged.Details) == 0 {
+			merged.Details = []*gdrive.PermissionDetails{{PermissionType: "file", Role: e.Role}}
+		}
+		merged.Details = append(append([]*gdrive.PermissionDetails(nil), merged.Details...),
+			&gdrive.PermissionDetails{PermissionType: kind, Role: p.Role, Inherited: inherited, InheritedFrom: from})
+		if roleRank(p.Role) < roleRank(merged.Role) {
+			merged.Role = p.Role
+		}
+		if p.View != gdrive.ViewMetadata {
+			merged.View = ""
+		}
+		merged.AllowFileDiscovery = merged.AllowFileDiscovery || p.AllowFileDiscovery
+		out[i] = &merged
+		return out
+	}
+	if !inherited {
+		return append(out, p)
+	}
+	copied := *p
+	copied.Details = []*gdrive.PermissionDetails{{PermissionType: kind, Role: p.Role, Inherited: true, InheritedFrom: from}}
+	return append(out, &copied)
 }
 
 // roleRank orders Drive's roles from most to least access.

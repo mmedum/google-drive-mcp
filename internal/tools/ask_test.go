@@ -62,8 +62,10 @@ func fixtures(t *testing.T) *drivetest.Server {
 	fake.AddDrive("id-drive-empty", "Empty drive")
 	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
 	fake.AddProposal("id-notes-fixture", "id-request-fixture", "outsider@example.org", "writer")
-	// Anything moved into Archive can be opened by anyone with the link.
+	// Anything moved into Archive can be opened by anyone with the link,
+	// and a folder in it with limited access would open to them.
 	fake.Grant("id-archive-fixture", &gdrive.Permission{Type: "anyone", Role: "reader"})
+	fake.AddFolder("id-limited-fixture", "Limited", "id-archive-fixture", drivetest.LimitedAccess())
 	return fake
 }
 
@@ -168,6 +170,11 @@ var askCases = map[string]askCase{
 		method: http.MethodPatch, path: "/files/id-budget-fixture",
 		shows: []string{"move the file `Budget.xlsx` into the folder `Archive`", "anyone with the link can view"},
 	},
+	"update_file": {
+		args:   map[string]any{"file": "id-limited-fixture", "limited_access": false},
+		method: http.MethodPatch, path: "/files/id-limited-fixture",
+		shows: []string{"turn off limited access on the folder `Limited`", "anyone with the link can view"},
+	},
 }
 
 // argsFor is a case's arguments against fake, with the revision filled
@@ -245,7 +252,7 @@ func TestEveryAskingWriteWaitsForThePerson(t *testing.T) {
 	}
 }
 
-// Every tool that takes confirm asks, as do the four that can widen
+// Every tool that takes confirm asks, as do the five that can widen
 // access; the list is read from the published schemas, not typed out.
 func TestEveryToolThatTakesConfirmAsks(t *testing.T) {
 	cs, _ := connect(t, everything(), "", nil)
@@ -253,7 +260,8 @@ func TestEveryToolThatTakesConfirmAsks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"share_file": true, "manage_drive": true, "resolve_access_request": true, "move_file": true}
+	want := map[string]bool{"share_file": true, "manage_drive": true, "resolve_access_request": true, "move_file": true,
+		"update_file": true}
 	registered := map[string]bool{}
 	for _, tool := range res.Tools {
 		registered[tool.Name] = true

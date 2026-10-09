@@ -20,7 +20,8 @@ const FileFields = "id,name,mimeType,description,parents,starred,trashed,explici
 	"viewedByMeTime,sharedWithMeTime,owners(displayName,emailAddress,me),lastModifyingUser(displayName,emailAddress,me)," +
 	"sharingUser(displayName,emailAddress),ownedByMe,shared,webViewLink,size,quotaBytesUsed,md5Checksum," +
 	"sha256Checksum,headRevisionId,version,fileExtension,originalFilename,folderColorRgb,driveId,resourceKey," +
-	"writersCanShare,copyRequiresWriterPermission,capabilities,shortcutDetails,linkShareMetadata," +
+	"writersCanShare,copyRequiresWriterPermission,downloadRestrictions,inheritedPermissionsDisabled," +
+	"capabilities,shortcutDetails,linkShareMetadata," +
 	"permissions,permissionIds,properties,appProperties,exportLinks,contentRestrictions"
 
 // ListFileFields is the leaner per-file list for search and folder
@@ -225,7 +226,7 @@ func (c *Client) GenerateIDs(ctx context.Context, count int) ([]string, error) {
 
 // PermissionFields is what a permission listing asks for.
 const PermissionFields = "id,type,role,emailAddress,domain,displayName,allowFileDiscovery," +
-	"expirationTime,deleted,pendingOwner,permissionDetails"
+	"expirationTime,deleted,pendingOwner,permissionDetails,view"
 
 // ListPermissions returns every grant on a file or shared drive, paging
 // to the end. A file's permissions are few; a shared drive's are the

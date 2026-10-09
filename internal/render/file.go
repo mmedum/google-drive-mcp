@@ -172,9 +172,7 @@ func FileCard(f *model.File, o FileCardOptions) string {
 		b.field("export formats", strings.Join(f.ExportFormats, ", "))
 	}
 	cardTags(&b, f)
-	if f.CopyRequiresWriterPermission {
-		b.line("note: viewers and commenters cannot copy, print or download this file")
-	}
+	cardRestrictions(&b, f)
 	if f.BoundaryNote != "" {
 		b.line("note: " + f.BoundaryNote)
 	}
@@ -191,6 +189,28 @@ func FileCard(f *model.File, o FileCardOptions) string {
 		b.line("note: " + o.Note)
 	}
 	return b.String()
+}
+
+// cardRestrictions says who cannot download, print or copy the file,
+// and whether a folder has limited access. The restriction shown is the
+// one in effect, which counts the shared drive and the organization's
+// rules; the legacy switch reads true for viewers alone, so it says less
+// than the restriction does and is the fallback when that was not read.
+func cardRestrictions(b *buf, f *model.File) {
+	switch {
+	case f.Downloads != "" && f.Downloads != model.DownloadsOpen:
+		line := model.DownloadWords(f.Downloads)
+		if f.DownloadsOnFile != f.Downloads {
+			line += " (set by the shared drive or an organization rule, not on the file)"
+		}
+		b.field("downloads", line)
+	case f.Downloads == "" && f.CopyRequiresWriterPermission:
+		b.field("downloads", model.DownloadWords(model.DownloadsViewers))
+	}
+	if f.LimitedAccess {
+		b.field("limited access", "only people added to this folder directly can open it; others who reach "+
+			"the folder above see it without opening it")
+	}
 }
 
 // sharedWithYou says when and by whom someone shared a file with this

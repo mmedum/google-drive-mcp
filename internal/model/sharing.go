@@ -70,6 +70,17 @@ type Grant struct {
 	// inherited grant can only be removed at its source.
 	InheritedFrom string
 	Deleted       bool
+	// NameOnly is a grant a limited-access folder keeps out: Drive's
+	// metadata view, which shows the folder without opening it.
+	NameOnly bool
+}
+
+// Words says what the grant lets its principal do, in plain words.
+func (g Grant) Words() string {
+	if g.NameOnly {
+		return "can see it but not open it"
+	}
+	return RoleWords(g.Role)
 }
 
 // Inherited reports whether the grant comes from an ancestor.
@@ -105,8 +116,9 @@ type Sharing struct {
 	Grants []Grant
 	// People counts user and group grants other than the owner.
 	People int
-	// Editors, Commenters and Viewers count those people by what they may do.
-	Editors, Commenters, Viewers int
+	// Editors, Commenters and Viewers count those people by what they may
+	// do, and NameOnly the ones a limited-access folder keeps out.
+	Editors, Commenters, Viewers, NameOnly int
 	// Link is the anyone grant, when there is one.
 	Link *Grant
 	// Domains are the domain-wide grants.
@@ -149,7 +161,7 @@ func GrantOf(p *gdrive.Permission) Grant {
 	g := Grant{
 		PermissionID: p.ID, Type: p.Type, Role: p.Role, Name: p.DisplayName,
 		Discoverable: p.AllowFileDiscovery, Expires: p.ExpirationTime,
-		PendingOwner: p.PendingOwner, Deleted: p.Deleted,
+		PendingOwner: p.PendingOwner, Deleted: p.Deleted, NameOnly: p.View == gdrive.ViewMetadata,
 	}
 	if inherited, from := p.Inherited(); inherited {
 		g.InheritedFrom = from
@@ -193,10 +205,12 @@ func SharingOf(shared bool, grants []Grant) Sharing {
 				s.Owner = g.Label()
 			} else {
 				s.People++
-				switch g.Role {
-				case RoleWriter, RoleOrganizer, RoleFileOrganizer:
+				switch {
+				case g.NameOnly:
+					s.NameOnly++
+				case g.Role == RoleWriter || g.Role == RoleOrganizer || g.Role == RoleFileOrganizer:
 					s.Editors++
-				case RoleCommenter:
+				case g.Role == RoleCommenter:
 					s.Commenters++
 				default:
 					s.Viewers++
@@ -237,6 +251,9 @@ func (s Sharing) Summary() string {
 		if s.Viewers > 0 {
 			who = append(who, fmt.Sprintf("%d can view", s.Viewers))
 		}
+		if s.NameOnly > 0 {
+			who = append(who, fmt.Sprintf("%d can see it but not open it", s.NameOnly))
+		}
 		line := fmt.Sprintf("shared with %s: %s", Plural(s.People, "person", "people"), strings.Join(who, ", "))
 		// Where the grants come from decides what can be done about
 		// them: an inherited one is removed at the drive, not here. Said
@@ -258,7 +275,7 @@ func (s Sharing) Summary() string {
 		parts = append(parts, line)
 	}
 	for _, d := range s.Domains {
-		line := "everyone at " + d.Who + " " + RoleWords(d.Role)
+		line := "everyone at " + d.Who + " " + d.Words()
 		if !d.Discoverable {
 			line += " with the link"
 		} else {
@@ -267,9 +284,9 @@ func (s Sharing) Summary() string {
 		parts = append(parts, line)
 	}
 	if s.Link != nil {
-		line := "anyone with the link " + RoleWords(s.Link.Role)
+		line := "anyone with the link " + s.Link.Words()
 		if s.Link.Discoverable {
-			line = "anyone on the internet " + RoleWords(s.Link.Role) + " and can find it by search"
+			line = "anyone on the internet " + s.Link.Words() + " and can find it by search"
 		}
 		parts = append(parts, line)
 	}
@@ -328,8 +345,9 @@ func DirectRole(p *gdrive.Permission) (string, bool) {
 func (g Grant) Key() string { return g.Type + ":" + strings.ToLower(g.Who) }
 
 // Gained is what after reaches that before did not: a person, group,
-// domain or link with no access before, more access than before, or a
-// link grant that now turns up in search. self is the signed-in
+// domain or link with no access before, more access than before, a
+// folder opened to one who could only see it, or a link grant that now
+// turns up in search. self is the signed-in
 // account's address, whose own access is nobody's exposure. An owner who
 // appears is counted as someone who can edit, which is what that is to
 // the people asking who can reach a file.
@@ -341,6 +359,7 @@ func Gained(before, after Sharing, self string) []Grant {
 				e.Role = g.Role
 			}
 			e.Discoverable = e.Discoverable || g.Discoverable
+			e.NameOnly = e.NameOnly && g.NameOnly
 			g = e
 		}
 		had[g.Key()] = g
@@ -352,7 +371,11 @@ func Gained(before, after Sharing, self string) []Grant {
 			continue
 		}
 		e, ok := had[g.Key()]
-		if ok && !RoleWidens(e.Role, g.Role) && (!g.Discoverable || e.Discoverable) {
+		// Opening what one could only see is more access, whatever the
+		// two roles say: a limited-access folder's metadata view is
+		// always a reader.
+		opened := e.NameOnly && !g.NameOnly
+		if ok && !RoleWidens(e.Role, g.Role) && (!g.Discoverable || e.Discoverable) && !opened {
 			continue
 		}
 		if g.Role == RoleOwner {

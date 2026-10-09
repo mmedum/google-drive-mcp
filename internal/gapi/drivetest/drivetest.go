@@ -293,6 +293,16 @@ func InDrive(driveID string) FileOpt { return func(f *gdrive.File) { f.DriveID =
 // under the 2021 security update has.
 func WithResourceKey(key string) FileOpt { return func(f *gdrive.File) { f.ResourceKey = key } }
 
+// LimitedAccess gives a folder limited access: only the people added to
+// it directly open it.
+func LimitedAccess() FileOpt { return func(f *gdrive.File) { f.InheritedPermissionsDisabled = true } }
+
+// DownloadsRestricted sets the download restriction on the file itself,
+// with the legacy switch reading as Drive's guide says it does.
+func DownloadsRestricted(r gdrive.DownloadRestriction) FileOpt {
+	return func(f *gdrive.File) { setItemRestriction(f, r) }
+}
+
 // WithCapabilities replaces the computed capabilities.
 func WithCapabilities(c gdrive.Capabilities) FileOpt {
 	return func(f *gdrive.File) { f.Capabilities = &c }
@@ -510,9 +520,11 @@ func defaultCapabilities(mime string) *gdrive.Capabilities {
 		CanModifyContent: true, CanReadRevisions: true,
 		CanMoveItemWithinDrive: true, CanMoveItemOutOfDrive: true,
 		CanModifyLabels: true, CanReadLabels: true,
-		CanStartApproval: true,
+		CanStartApproval: true, CanChangeItemDownloadRestriction: true,
 	}
 	if mime == gdrive.MimeFolder {
+		c.CanDisableInheritedPermissions = true
+		c.CanEnableInheritedPermissions = true
 		c.CanListChildren = true
 		c.CanAddChildren = true
 		c.CanRemoveChildren = true

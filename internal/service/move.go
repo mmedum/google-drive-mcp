@@ -489,6 +489,11 @@ func movedGrants(f, target *gdrive.File, item, dest []*gdrive.Permission) []mode
 		put(g)
 	}
 	for _, p := range dest {
+		// Someone who sees a limited-access destination without opening
+		// it does not reach what is inside it.
+		if p.View == gdrive.ViewMetadata {
+			continue
+		}
 		g := model.GrantOf(p)
 		g.PermissionID, g.InheritedFrom, g.PendingOwner = "", target.Name, false
 		if g.Role == model.RoleOwner {

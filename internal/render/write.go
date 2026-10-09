@@ -141,6 +141,10 @@ type FileJSON struct {
 	Trashed      bool   `json:"trashed,omitempty"`
 	// ShortcutTarget is the id a shortcut points at.
 	ShortcutTarget string `json:"shortcut_target,omitempty"`
+	// DownloadsRestricted and LimitedAccess are what update_file's
+	// restrict_download and limited_access set, as Drive reports them.
+	DownloadsRestricted string `json:"downloads_restricted,omitempty" jsonschema:"who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say"`
+	LimitedAccess       bool   `json:"limited_access,omitempty" jsonschema:"true for a folder only the people added to it directly can open"`
 }
 
 // NewDriveJSON builds the structured form of a shared drive from the
@@ -165,6 +169,10 @@ func NewWriteJSON(f *model.File, action Action, note, summary string, changes []
 		Location: f.Location.String(), Link: f.Link, MD5: f.MD5,
 		HeadRevision: f.HeadRevisionID, Sharing: f.Sharing.Summary(),
 		Starred: f.Starred, Trashed: f.Trashed, ShortcutTarget: f.ShortcutTargetID,
+		LimitedAccess: f.LimitedAccess,
+	}
+	if f.Downloads != "" && f.Downloads != model.DownloadsOpen {
+		out.File.DownloadsRestricted = f.Downloads
 	}
 	if f.HasSize {
 		out.File.Size = f.Size

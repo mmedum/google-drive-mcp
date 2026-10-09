@@ -132,15 +132,12 @@ drive	File	viewedByMe	out	viewedByMeTime is modeled and carries when, not just w
 # share_file work in roles and types; capabilities is what this server
 # reads to say what the signed-in account may do.
 drive	File	clientEncryptionDetails	out	whether the file is client-side encrypted, and with which key
-drive	File	downloadRestrictions	out	a download and copy restriction newer than this server's guard
 drive	File	hasAugmentedPermissions	out	whether a shared-drive file carries permissions beyond the drive's
-drive	File	inheritedPermissionsDisabled	out	whether a folder stops inheriting permissions
 drive	File	isAppAuthorized	out	whether the file was created by the calling app; this server is not a Drive app
 drive	File	viewersCanCopyContent	out	deprecated alias of copyRequiresWriterPermission, which is modeled
 drive	File	spaces	out	which of drive, appDataFolder or photos the file sits in; every file this server reaches is in drive
 drive	Permission	inheritedPermissionsDisabled	out	whether this permission stops being inherited; no tool sets it
 drive	Permission	photoLink	out	the grantee's profile picture; get_account reports the address, not the portrait
-drive	Permission	view	out	marks a permission as belonging to a published view rather than the file; no tool publishes
 #
 # Structs the wire package names differently from the schema they model:
 # the Activity API's types carry an Activity prefix here because Drive
@@ -246,6 +243,8 @@ drive	Status	details	out	not read by any tool
 # deliberately a few fields of the resource they write.
 -	CommentMeta	*	local	the comments.create and comments.update body
 -	DownloadResponse	*	local	the shape download_file reduces a finished operation to: where to fetch the bytes from
+-	DownloadRestrictionPatch	*	local	the item restriction in a downloadRestrictions body: both switches always sent, so false reaches Drive
+-	DownloadRestrictionsPatch	*	local	the downloadRestrictions half of a files.update body: the item restriction only, since the effective one is output only
 -	DriveMeta	*	local	the drives.create and drives.update body
 -	DriveRestrictionsPatch	*	local	the restrictions in that body: the switches a caller may set, with pointers so false is sent, and no downloadRestriction, which drives.update refuses
 -	FileMeta	*	local	the files.create, files.update and files.copy body: the fields of File a caller may set, with pointers so an unset field is not sent
@@ -287,7 +286,7 @@ drive	File.capabilities	canMoveTeamDriveItem	out	the deprecated TeamDrive spelli
 drive	File.capabilities	canReadTeamDrive	out	the deprecated TeamDrive spelling; the shared-drive form of the same capability is modeled
 drive	File.capabilities	canRemoveContentRestriction	out	as canModifyContentRestriction
 drive	File.capabilities	canRemoveMyDriveParent	out	as canAddFolderFromAnotherDrive
-drive	Drive.capabilities	canChangeDownloadRestriction	out	manage_drive reports what Drive accepted; no tool sets a download restriction
+drive	Drive.capabilities	canChangeDownloadRestriction	out	manage_drive reports what Drive accepted; no tool sets a shared drive's download restriction, which drives.update refuses
 drive	Drive.capabilities	canChangeSharingFoldersRequiresOrganizerPermissionRestriction	out	manage_drive sets the switch and reports what Drive accepted
 drive	Drive.capabilities	canDeleteChildren	out	trash_file and delete guard on the item itself
 drive	Drive.capabilities	canResetDriveRestrictions	out	no tool resets a shared drive's restrictions in one call

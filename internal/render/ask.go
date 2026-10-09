@@ -211,6 +211,22 @@ func AskLoosenDrive(id, drive string, off []string) Question {
 	return ask(lines, id)
 }
 
+// AskOpenFolder asks before update_file turns a folder's limited access
+// off, which lets everyone who reaches the folder above open it and
+// everything inside it. gained is who that adds; unread, when not empty,
+// names what could not be read, which leaves it unknown.
+func AskOpenFolder(id, name string, gained []model.Grant, unread string) Question {
+	lines := []string{
+		fmt.Sprintf("update_file: turn off limited access on the folder %s?", quoted(name, quotedLen)),
+		"Everyone who reaches the folder above it could then open it and everything inside it: " +
+			strings.Join(reachParts(gained, func(s string) string { return quoted(s, quotedLen) }), "; "),
+	}
+	if unread != "" {
+		lines[1] = "Who can reach " + unread + " could not be read, so who could then open it is unknown."
+	}
+	return ask(lines, id)
+}
+
 // MoveTarget is where a move goes.
 type MoveTarget struct {
 	ID, Name string
@@ -306,19 +322,22 @@ func reachParts(grants []model.Grant, q func(string) string) []string {
 		if s.Viewers > 0 {
 			who = append(who, fmt.Sprintf("%d can view", s.Viewers))
 		}
+		if s.NameOnly > 0 {
+			who = append(who, fmt.Sprintf("%d can see it but not open it", s.NameOnly))
+		}
 		parts = append(parts, model.Plural(s.People, "person", "people")+" ("+strings.Join(who, ", ")+")")
 	}
 	for _, d := range s.Domains {
-		line := "everyone at " + q(d.Who) + " " + model.RoleWords(d.Role)
+		line := "everyone at " + q(d.Who) + " " + d.Words()
 		if d.Discoverable {
 			line += ", and finds it by search"
 		}
 		parts = append(parts, line)
 	}
 	if l := s.Link; l != nil {
-		line := "anyone with the link " + model.RoleWords(l.Role)
+		line := "anyone with the link " + l.Words()
 		if l.Discoverable {
-			line = "anyone on the internet " + model.RoleWords(l.Role) + " and can find it by search"
+			line = "anyone on the internet " + l.Words() + " and can find it by search"
 		}
 		parts = append(parts, line)
 	}

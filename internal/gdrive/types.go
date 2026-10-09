@@ -350,6 +350,15 @@ type File struct {
 	WritersCanShare              bool `json:"writersCanShare,omitempty"`
 	CopyRequiresWriterPermission bool `json:"copyRequiresWriterPermission,omitempty"`
 	HasThumbnail                 bool `json:"hasThumbnail,omitempty"`
+	// InheritedPermissionsDisabled is a folder's limited access: only
+	// the people added to it directly can open it, and those who reach
+	// it from above see it without opening it.
+	InheritedPermissionsDisabled bool `json:"inheritedPermissionsDisabled,omitempty"`
+
+	// DownloadRestrictions is who may download, print and copy the file:
+	// as set on the file, and in effect once the shared drive and the
+	// organization's rules are counted.
+	DownloadRestrictions *DownloadRestrictionsMetadata `json:"downloadRestrictions,omitempty"`
 
 	Capabilities    *Capabilities      `json:"capabilities,omitempty"`
 	ShortcutDetails *ShortcutDetails   `json:"shortcutDetails,omitempty"`
@@ -429,7 +438,15 @@ type Permission struct {
 	Deleted            bool                 `json:"deleted,omitempty"`
 	PendingOwner       bool                 `json:"pendingOwner,omitempty"`
 	Details            []*PermissionDetails `json:"permissionDetails,omitempty"`
+	// View is "metadata" on a grant a limited-access folder keeps out:
+	// it shows the folder without opening it. "published" belongs to a
+	// published view, which this server never makes.
+	View string `json:"view,omitempty"`
 }
+
+// ViewMetadata is the view a limited-access folder gives the people who
+// reach it from above.
+const ViewMetadata = "metadata"
 
 // Inherited reports whether the grant comes from a shared-drive ancestor.
 func (p *Permission) Inherited() (bool, string) {
@@ -471,11 +488,21 @@ type DriveCapabilities struct {
 	CanTrashChildren            bool `json:"canTrashChildren,omitempty"`
 }
 
-// DownloadRestriction is who may download and copy, as a shared drive's
-// managers have set it.
+// DownloadRestriction is who may download, print and copy, on a file or
+// a shared drive. The reference says restrictedForWriters true means
+// readers are restricted too.
 type DownloadRestriction struct {
 	RestrictedForReaders bool `json:"restrictedForReaders,omitempty"`
 	RestrictedForWriters bool `json:"restrictedForWriters,omitempty"`
+}
+
+// DownloadRestrictionsMetadata is a file's download restriction twice:
+// as its owner or organizer set it on the file, and in effect, which
+// counts the shared drive's setting and the organization's data loss
+// prevention rules as well. Only the first can be written.
+type DownloadRestrictionsMetadata struct {
+	ItemDownloadRestriction                 *DownloadRestriction `json:"itemDownloadRestriction,omitempty"`
+	EffectiveDownloadRestrictionWithContext *DownloadRestriction `json:"effectiveDownloadRestrictionWithContext,omitempty"`
 }
 
 // DriveRestrictions are the switches a shared drive carries, plus the
@@ -562,6 +589,13 @@ type FileMeta struct {
 
 	WritersCanShare              *bool `json:"writersCanShare,omitempty"`
 	CopyRequiresWriterPermission *bool `json:"copyRequiresWriterPermission,omitempty"`
+	// InheritedPermissionsDisabled turns a folder's limited access on or
+	// off. Drive offers it on folders only.
+	InheritedPermissionsDisabled *bool `json:"inheritedPermissionsDisabled,omitempty"`
+	// DownloadRestrictions sets who may download, print and copy the
+	// file. The files guide says to set it with files.update and not
+	// beside copyRequiresWriterPermission, since the two may conflict.
+	DownloadRestrictions *DownloadRestrictionsPatch `json:"downloadRestrictions,omitempty"`
 
 	// ViewedByMeTime is when the signed-in person last opened the file.
 	// It is the one "output only in spirit" field the API lets a caller
@@ -681,6 +715,20 @@ type DriveRestrictionsPatch struct {
 	DomainUsersOnly                           *bool `json:"domainUsersOnly,omitempty"`
 	DriveMembersOnly                          *bool `json:"driveMembersOnly,omitempty"`
 	SharingFoldersRequiresOrganizerPermission *bool `json:"sharingFoldersRequiresOrganizerPermission,omitempty"`
+}
+
+// DownloadRestrictionsPatch is the downloadRestrictions half of a
+// files.update body. Only itemDownloadRestriction can be written; the
+// effective one is output only.
+type DownloadRestrictionsPatch struct {
+	ItemDownloadRestriction DownloadRestrictionPatch `json:"itemDownloadRestriction"`
+}
+
+// DownloadRestrictionPatch is a file's download restriction as sent:
+// both switches always, so false is sent rather than left out.
+type DownloadRestrictionPatch struct {
+	RestrictedForReaders bool `json:"restrictedForReaders"`
+	RestrictedForWriters bool `json:"restrictedForWriters"`
 }
 
 // StartPageToken is the changes.getStartPageToken response: the point in

@@ -273,14 +273,15 @@ undo a permanent delete.
 `confirm: true`, `allow_anyone`, `allow_domain` and
 `transfer_ownership` are arguments the model writes, and a persuaded
 model writes them too. So when the client can ask, the server asks the
-person itself, through MCP form elicitation, before nine writes:
+person itself, through MCP form elicitation, before ten writes:
 `delete_file`, `empty_trash`, `delete_drive`, `delete_revision`,
 `delete_comment`; `share_file` when it grants `anyone`, a whole
 `domain:` or ownership, or widens a grant to a person or group outside
 the account's organization; `resolve_access_request` when it accepts;
-`manage_drive` when it turns a restriction off; and `move_file` when the
+`manage_drive` when it turns a restriction off; `move_file` when the
 destination would let more people reach the item, or give them more
-access (§7.3).
+access (§7.3); and `update_file` when it turns a folder's limited access
+off and that lets someone new open it.
 
 A move asks on any widening, inside the organization too, where a share
 asks only past people somebody named. With `GDRIVE_SHARING=off` such a
@@ -632,8 +633,37 @@ Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_fou
   with its id (§17).
 - `update_file`: `name`, `description`, `starred`, `color` (folders),
   `properties` (a map; an empty value deletes a key),
-  `copy_requires_writer_permission`, `writers_can_share`. Patch semantics:
+  `copy_requires_writer_permission`, `writers_can_share`,
+  `restrict_download`, `limited_access` (folders). Patch semantics:
   only the fields passed change. Returns before and after per field.
+
+  `restrict_download` is `none`, `viewers` (viewers and commenters) or
+  `editors` (editors as well), sent as
+  `downloadRestrictions.itemDownloadRestriction` with both switches. It
+  needs `capabilities.canChangeItemDownloadRestriction`, which Drive
+  gives a file's owner or a shared drive's organizer. The card shows
+  `effectiveDownloadRestrictionWithContext`, which counts the shared
+  drive's restriction and the organization's data loss prevention
+  rules, and says so when that is more than the file's own setting.
+  `copy_requires_writer_permission` is kept as Drive's legacy switch and
+  described as such: since 2025-07-16 it reads whether viewers are
+  restricted, and false lifts the restriction on editors too, which the
+  result now says. The files guide warns the two "might conflict", so
+  passing both in one call is refused.
+
+  `limited_access` is `inheritedPermissionsDisabled`, which Drive offers
+  on folders only: on, only the people added to the folder directly open
+  it, and those who reach it from above see it without opening it. A
+  file is refused before Drive is asked, and so is a change the
+  capabilities (`canDisableInheritedPermissions`,
+  `canEnableInheritedPermissions`) do not allow. Off lets everyone who
+  reaches the folder above open it and everything inside it, so the
+  server reads the folder's permissions and the folder above's, works
+  out who that adds the way a move into that folder is worked out, and
+  asks the person when it adds anyone or either list cannot be read
+  (§4a). `list_permissions` marks a `view: metadata` grant as one that
+  "can see it but not open it", and the sharing summary counts those
+  apart.
 - `move_file`: `file`, or `files` for up to 50 items, `to` (a folder,
   `root`, or a shared drive). Checks
   the single-parent rule, refuses a My Drive folder bound for a shared
@@ -745,8 +775,9 @@ restriction flags (`domain_users_only`, `members_only`,
 `folder_sharing_requires_organizer`), `dry_run`. Every flag is a limit,
 so turning one off loosens the drive: with `GDRIVE_SHARING=off` that is
 refused, and turning one on is not. `update_file`'s
-`copy_requires_writer_permission: false` and `writers_can_share: true`
-are refused there the same way. Members
+`copy_requires_writer_permission: false`, `writers_can_share: true`, a
+`restrict_download` that restricts fewer people than the file does, and
+`limited_access: false` are refused there the same way. Members
 are added and removed through `share_file` and `unshare_file` with the
 drive as the target. `delete_drive` is gated and needs an empty drive.
 
@@ -904,7 +935,7 @@ grants a permission.
 | `upload_file` | A local file, multipart or resumable, optional conversion | — | 1 |
 | `update_content` | Replace a blob's content; the old one stays a revision for about 30 days unless pinned | destructive | 1 |
 | `create_folder` | New folder; refuses a duplicate name unless allowed | — | 1 |
-| `update_file` | Rename, describe, star, color, properties, sharing switches | idempotent | 1 |
+| `update_file` | Rename, describe, star, color, properties, sharing switches, download restriction, a folder's limited access (asks before turning it off) | idempotent | 1 |
 | `move_file` | Move one item, or up to 50, to a folder or shared drive; single parent; who can reach each before and after, asking once when that widens; dry run | idempotent | 1 |
 | `copy_file` | Copy, optionally converting (OCR); `recursive` walks a folder, refusing a tree over budget rather than copying half of it | — | 1, 3 |
 | `create_shortcut` | Shortcut to a file or folder | — | 1 |
@@ -1668,9 +1699,11 @@ Raised by the phase 7 reviews (2026-09-30) and left open on purpose:
   colleague is routine, and asking on it would wear the question out
   for the ones that matter (§4a). Under injection, a colleague's address
   is still one somebody named.
-- **`update_file`'s two sharing switches ask nothing.** Letting viewers
-  copy a file or editors reshare it is refused with
-  `GDRIVE_SHARING=off`, as the drive-level switches are, but not asked.
+- **`update_file`'s download and reshare switches ask nothing.** Letting
+  viewers copy a file, editors reshare it, or lifting a download
+  restriction is refused with `GDRIVE_SHARING=off`, as the drive-level
+  switches are, but not asked. Turning a folder's limited access off is
+  asked, because it opens the folder to people nobody named in the call.
 - **Shown, not bound.** The trash count and a folder's contents are not
   bound. An unasked `trash_file` or `move_file` running while the person
   reads can add to what an accepted `empty_trash` or `delete_file`
@@ -2386,8 +2419,12 @@ live run of it found.
 | What the owner of a My Drive destination folder gets on an item moved into it (undocumented) | **Unverified.** No reference or help page read 2026-10-09 says | Counted as an editor, which errs toward showing more exposure. Settling it needs a folder another account owns, which a one-account run cannot make; the read-back reports what Drive did on any real move |
 | `permissionDetails` marks inherited grants on a My Drive item (unstated for My Drive) | **Unverified.** The `permissions` reference, read 2026-10-09, says `inherited` "is always populated" and `inheritedFrom` "is only populated for items in shared drives", which implies My Drive items carry details without a source. If they carry none, every grant reads as direct, the prediction keeps grants the move takes away, and the read-back says the two differ | The live driver moves a file into a link-shared folder and back out, and fails the step when the result says Drive answered other than predicted |
 | A move's new sharing is in place when `files.update` answers (unstated) | **Unverified** | The read-back is one permission list right after the move. A late answer shows as "that is not who this server worked out would reach it", which points at `list_permissions`; the live driver's two moves fail on it |
-| A moved folder with limited access keeps out the destination's grants (unstated for a move) | **Unverified.** The sharing guide, read 2026-10-09, says of an inherited grant: "Changes must be made on the originating parent, or the folder must use the limited access setting." It says nothing about a move | The server does not read `inheritedPermissionsDisabled`, so it counts the destination's grants on such a folder and may ask a question too many |
+| A moved folder with limited access keeps out the destination's grants (unstated for a move) | **Unverified.** The sharing guide, read 2026-10-09, says of an inherited grant: "Changes must be made on the originating parent, or the folder must use the limited access setting." It says nothing about a move | The card reads `inheritedPermissionsDisabled`, and the move prediction does not use it: it counts the destination's grants on such a folder and may ask a question too many. A destination's own `view: metadata` grants are left out, since they do not reach what is inside it |
 | A bulk move needs one approval per item, as removal and sharing do (the "Bulk operations belong in the tool surface" row did not cover moves) | **Rejected for moves, decided 2026-10-09.** That row rejected bulk work because "one item per call keeps every removal and every share a visible approval". A move removes nothing and grants nothing by name: it is undone by moving the item back. What it can do that is not undone is let more people reach the item, and since 2026-10-09 that is put to the person before any item moves, once for the batch, naming every item that would reach further. Forty moves into a folder nobody else can reach is forty approvals of nothing | `move_file` takes `files`, at most 50, to one destination. Each item gets its own outcome, and a failure leaves the moves before it in place. Removal and sharing stay one item per call, and there is no bulk rename |
 | A query may carry any number of `in parents` terms (unstated) | **Unverified.** The `files.list` reference (updated 2026-07-07) and the search guide (updated 2026-09-09), read 2026-10-09, state no limit on the length of `q`, its number of terms or its complexity | `under_folder` stops at 100 folders, about 5.6 KB of encoded terms, which keeps a search under the 8 KB request line most HTTP servers accept, and refuses a larger tree. The live driver doubles a group of `in parents` terms from 50 until Drive refuses one and prints where |
 | A page token continues only the query it came from (unstated) | **Unverified.** The `files.list` reference says the token "is typically valid for several hours" and to start over when it is rejected; it does not say the token is bound to `q` | A search with `under_folder` wraps Drive's token with the folder and a digest of the folder set. A continuation under another folder, without `under_folder`, or over a set that changed since the first page is refused here, so Drive never sees a token beside a different query |
 | A search in one shared drive should name it (convention) | **Confirmed** against the `files.list` reference, read 2026-10-09: "Prefer `user` or `drive` to `allDrives` for efficiency" | The walk under a shared-drive folder, and the search after it, send that drive's `driveId` |
+| `copyRequiresWriterPermission` is the file's download switch (what `update_file` and the card assumed until 2026-10-09) | **Refuted** against the release notes for 2025-07-16 ("the functionality is different for both reading from and writing to the field") and the files guide, <https://developers.google.com/workspace/drive/api/guides/file-locking>, read 2026-10-09: the field now reads whether viewers and commenters are restricted, counting the shared drive's setting; false "updates both the `restrictedForWriters` and `restrictedForReaders` fields to `false`"; use `DownloadRestriction` instead, and not both, since "the two field values might conflict" | The card shows `downloadRestrictions.effectiveDownloadRestrictionWithContext` and falls back to the legacy field only when that was not read. `restrict_download` writes `itemDownloadRestriction`. `copy_requires_writer_permission` stays in the contract, called legacy, and false reports that editors are let go too. The two together are refused |
+| `files.update` takes `downloadRestrictions` with only `itemDownloadRestriction` (the guide's word; `drives.update` refused the drive's equivalent live, 2026-09-30) | **Unverified for files.** The files guide says "set the `downloadRestrictions` field using the `files.update` method" and that only the item restriction can be set, with no example body. The drive-level refusal is why this is not taken on trust | `restrict_download` sends `{"itemDownloadRestriction": {"restrictedForReaders": …, "restrictedForWriters": …}}`, both switches always. The live driver sets each level on a Doc and fails a step when the card does not read it back. What `copyRequiresWriterPermission: true` does to `restrictedForWriters` is not documented either; the fake keeps it, and the live driver says which way Drive went |
+| Limited access is a folder's, set by its owner or organizer (convention) | **Confirmed** against <https://developers.google.com/workspace/drive/api/guides/limited-expansive-access>, read 2026-10-09: "limited access isn't available for files"; "only the `owner` role in My Drive and the `organizer` role in shared drives can enable or disable limited access", and a writer in My Drive when `writersCanShare` is true; `canDisableInheritedPermissions` and `canEnableInheritedPermissions` say whether the account may | `limited_access` on a file is refused before Drive is asked, and so is a change the capabilities do not allow. What Drive answers for a file is not documented; the fake answers 400 `invalid` |
+| A grant a limited-access folder keeps out is listed as `view: metadata` (convention) | **Confirmed for people** against the same guide: such permissions carry "`inheritedPermissionsDisabled=true` and `view=metadata`", "The role is always set to `reader`", and every `permissionDetails` entry is inherited. The `Permission.view` reference says the metadata view "is only supported on folders". **Unverified** for a link or domain grant from above, which the guide does not show | `list_permissions` says such a grant "can see it but not open it" and the summary counts it apart; a destination's metadata grants are left out of a move's prediction. The fake lists every grant from above that way, owners and organizers excepted, and passes none of them below the folder. The live driver gives a folder inside a link-shared one limited access and says how Drive lists the link |

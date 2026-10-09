@@ -648,6 +648,8 @@ func (s *Server) project(f *gdrive.File, fields string, labelIDs []string) *gdri
 		out.ExportLinks = links
 	}
 	s.mu.Lock()
+	out.DownloadRestrictions = s.downloadRestrictionsLocked(f)
+	out.CopyRequiresWriterPermission = out.DownloadRestrictions.EffectiveDownloadRestrictionWithContext.RestrictedForReaders
 	perms := s.Permissions[f.ID]
 	if f.DriveID == "" {
 		// The reference calls this "The full list of permissions for the
@@ -681,6 +683,28 @@ func (s *Server) project(f *gdrive.File, fields string, labelIDs []string) *gdri
 		return &out
 	}
 	return projectFields(&out, fields)
+}
+
+// downloadRestrictionsLocked is a file's download restriction as Drive
+// reports it: what is set on the file, and in effect, which counts the
+// shared drive's restriction too. The fake has no data loss prevention
+// rules to count. The caller holds the lock.
+func (s *Server) downloadRestrictionsLocked(f *gdrive.File) *gdrive.DownloadRestrictionsMetadata {
+	item := gdrive.DownloadRestriction{}
+	if f.DownloadRestrictions != nil && f.DownloadRestrictions.ItemDownloadRestriction != nil {
+		item = *f.DownloadRestrictions.ItemDownloadRestriction
+	}
+	if f.CopyRequiresWriterPermission {
+		// A test that set the legacy switch alone meant readers.
+		item.RestrictedForReaders = true
+	}
+	effective := item
+	if d := s.Drives[f.DriveID]; d != nil && d.Restrictions != nil && d.Restrictions.DownloadRestriction != nil {
+		effective.RestrictedForReaders = effective.RestrictedForReaders || d.Restrictions.DownloadRestriction.RestrictedForReaders
+		effective.RestrictedForWriters = effective.RestrictedForWriters || d.Restrictions.DownloadRestriction.RestrictedForWriters
+	}
+	effective.RestrictedForReaders = effective.RestrictedForReaders || effective.RestrictedForWriters
+	return &gdrive.DownloadRestrictionsMetadata{ItemDownloadRestriction: &item, EffectiveDownloadRestrictionWithContext: &effective}
 }
 
 // projectFields drops every field the request did not ask for. The wire

@@ -104,6 +104,8 @@ func (w *writeRun) exercise() {
 	w.readBack(ids)
 	w.organize(ids)
 	w.underFolder()
+	w.downloads(ids)
+	w.limitedAccess()
 	w.moveExposure()
 	w.access(ids)
 	w.history(ids)
@@ -1041,6 +1043,81 @@ func (w *writeRun) moveExposure() {
 			"narrows who can reach it", errors.New("a question on a narrowing move"))
 	}
 	w.moveSeveral(open, file)
+	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
+}
+
+// downloads sets a file's download restriction each way and reads it
+// back, then checks what the legacy switch does to it. The guide says
+// false lifts the restriction on editors too; what true does to editors
+// it does not say (§18), and the card after it does.
+func (w *writeRun) downloads(m made) {
+	if m.doc == "" {
+		w.out.Say("\n=== download restrictions: skipped, the document was never created ===")
+		return
+	}
+	expect := func(args map[string]any, want, not string) {
+		args["file"] = m.doc
+		out := w.call(call{tool: "update_file", args: args})
+		switch {
+		case want != "" && !strings.Contains(out, want):
+			w.problem("the card after "+mcpstdio.Encode(args)+" does not say "+want, errors.New("restriction not read back"))
+		case not != "" && strings.Contains(out, not):
+			w.problem("the card after "+mcpstdio.Encode(args)+" still says "+not, errors.New("restriction not read back"))
+		}
+	}
+	editors := "downloads: viewers, commenters and editors cannot"
+	viewers := "downloads: viewers and commenters cannot"
+	expect(map[string]any{"restrict_download": "editors"}, editors, "")
+	expect(map[string]any{"copy_requires_writer_permission": false}, "", "downloads:")
+	out := w.call(call{tool: "update_file", args: map[string]any{"file": m.doc, "copy_requires_writer_permission": true}})
+	switch {
+	case strings.Contains(out, editors):
+		w.out.Say("(copy_requires_writer_permission true restricted editors too. Record it in §18.)")
+	case strings.Contains(out, viewers):
+		w.out.Say("(copy_requires_writer_permission true restricted viewers and commenters only. Record it in §18.)")
+	default:
+		w.problem("the card after copy_requires_writer_permission true says nobody is restricted",
+			errors.New("restriction not read back"))
+	}
+	expect(map[string]any{"restrict_download": "none"}, "", "downloads:")
+	w.expecting("update_file", m.doc, map[string]any{
+		"file": m.doc, "restrict_download": "viewers", "copy_requires_writer_permission": true,
+	}, "the current switch and the legacy one together, which Google warns can conflict")
+}
+
+// limitedAccess gives a folder inside a link-shared folder limited
+// access, reads who it keeps out, then turns it off: once declined, once
+// accepted. It settles whether Drive lists a link grant from above as a
+// metadata view, which the access guide shows for people only (§18).
+func (w *writeRun) limitedAccess() {
+	open := w.createAndKeepID("create_folder", map[string]any{"name": "Open around a limited one", "parent": w.scratchID})
+	inner := ""
+	if open != "" {
+		inner = w.createAndKeepID("create_folder", map[string]any{"name": "Limited", "parent": open})
+	}
+	if inner == "" {
+		w.out.Say("\n=== limited access: skipped, the folders it needs were never created ===")
+		return
+	}
+	w.needing("share_file", open, map[string]any{"file": open, "principal": "anyone", "role": "reader", "allow_anyone": true})
+	card := w.call(call{tool: "update_file", args: map[string]any{"file": inner, "limited_access": true}})
+	if !strings.Contains(card, "limited access: only people added") {
+		w.problem("the card after limited_access true does not say the folder has limited access",
+			errors.New("limited access not read back"))
+	}
+	perms := w.call(call{tool: "list_permissions", args: map[string]any{"file": inner}})
+	if strings.Contains(perms, "anyone with the link can see it but not open it") {
+		w.out.Say("(Drive lists the link grant from above as a metadata view. Record it in §18.)")
+	} else {
+		w.out.Say("(Drive does NOT list the link grant from above as a metadata view; read the listing above " +
+			"and record what it shows in §18.)")
+	}
+	w.declining("update_file", map[string]any{"file": inner, "limited_access": false})
+	opened := w.call(call{tool: "update_file", args: map[string]any{"file": inner, "limited_access": false}})
+	if strings.Contains(opened, "limited access: only people added") {
+		w.problem("the card after limited_access false still says the folder has limited access",
+			errors.New("limited access not read back"))
+	}
 	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
 }
 

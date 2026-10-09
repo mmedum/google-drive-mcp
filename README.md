@@ -201,7 +201,7 @@ the server will do at all:
 |---|---|---|
 | `GDRIVE_LOCAL_DIR` | unset | The one directory downloads are written to and uploads are read from. **Unset means no file transfer at all.** |
 | `GDRIVE_READ_ONLY` | `false` | Register only read tools, and ask for read-only scopes at login. |
-| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, keeps a shared drive's restrictions, and a file's copy and reshare switches, from being loosened, and refuses a move that would let more people reach an item. |
+| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, keeps a shared drive's restrictions, a file's download and reshare switches and a folder's limited access from being loosened, and refuses a move that would let more people reach an item. |
 | `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back. Each still needs `confirm: true` per call. |
 | `GDRIVE_REQUIRE_PROMPT` | `false` | Refuse the writes that ask the person when the client cannot ask them. |
 
@@ -217,7 +217,7 @@ supports elicitation. Anything but Accept stops the write.
 | Tool | What it does |
 |---|---|
 | `get_account` | Who is signed in, storage used, whether this account has shared drives, and which of this server's tools are registered |
-| `get_file` | Everything about one file: kind, location, link, size, owner, who can see it, and what you may do with it |
+| `get_file` | Everything about one file: kind, location, link, size, owner, who can see it, who cannot download it, and what you may do with it |
 | `list_folder` | One page of a folder's contents, or a budgeted tree of everything below it |
 | `search_files` | Find files across My Drive, files shared with you, and every shared drive, or under one folder at any depth |
 | `read_file` | The text of a file: a Doc as markdown, a Sheet as csv, a log or source file as itself, windowed with a continuation |
@@ -226,7 +226,7 @@ supports elicitation. Anything but Accept stops the write.
 | `upload_file` | Send a local file, in one request or in chunks that survive a dropped connection |
 | `update_content` | Replace what is inside a file, keeping its id, its place and everything that points at it |
 | `create_folder` | A new folder, refusing a duplicate name unless you allow it |
-| `update_file` | Rename, describe, star, color, set properties, or turn off copying and re-sharing |
+| `update_file` | Rename, describe, star, color, set properties, restrict downloads and re-sharing, or give a folder limited access |
 | `move_file` | Move an item, or up to 50, to another folder or shared drive, with who can reach each before and after, and a dry run |
 | `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder |
 | `create_shortcut` | A pointer to one item from another folder |
