@@ -1841,12 +1841,18 @@ func (w *writeRun) spareArguments(m made) {
 
 	// A dry run in front of something reversible, and an older revision
 	// fetched by id — the one the run has just made a second one over.
+	// Drive lists the current revision first, so the older one is asked
+	// for by skipping it; the current one is fetched too, since its
+	// download is the one the server checks against Drive's checksum.
 	w.needing("restore_file", m.text, map[string]any{"file": m.text, "dry_run": true})
-	if rev := w.firstRevision(m.text); rev != "" {
+	if rev := w.revisionID(m.text, true); rev != "" {
 		w.needing("download_file", m.text, map[string]any{"file": m.text, "revision": rev})
 	} else {
-		w.unverified("download_file.revision was not exercised: no older revision is listed",
+		w.unverified("download_file.revision was not exercised on an older revision: none is listed",
 			errors.New("the revision listing lags the write that made one"))
+	}
+	if rev := w.firstRevision(m.text); rev != "" {
+		w.needing("download_file", m.text, map[string]any{"file": m.text, "revision": rev})
 	}
 
 	w.spareListings(m)
