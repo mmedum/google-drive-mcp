@@ -137,29 +137,36 @@ func (s *Service) exportWindow(ctx context.Context, res *Resolved, plan readPlan
 ) (textWindow, error) {
 	f := res.File
 	key := f.ID + "\x00" + f.HeadRevisionID + "\x00" + f.ModifiedTime + "\x00" + plan.exportMime
-	kept, ok := s.keptText(&s.export, key)
-	if !ok {
-		content, err := s.api.Export(ctx, f.ID, plan.exportMime)
+	kept, _, err := s.keptText(&s.export, key, false, func() (exported, error) {
+		text, err := s.exportAll(ctx, f.ID, plan.exportMime)
 		if err != nil {
-			return textWindow{}, s.contentError(err, f, "reading")
+			return exported{}, s.contentError(err, f, "reading")
 		}
-		defer func() { _ = content.Body.Close() }()
-		// The cap is Google's own: an export larger than this does not
-		// arrive, so reading to the end is bounded whatever the file is.
-		raw, err := io.ReadAll(io.LimitReader(content.Body, MaxExport))
-		if err != nil {
-			return textWindow{}, wrap(err, "reading "+f.Name)
-		}
-		kept.text = string(raw)
 		if plan.stripDataURIs {
 			// Stripping once, before the cache, keeps every window
 			// consistent and stops a data URI being cut in half by a
 			// window boundary.
-			kept.text = render.StripDataURIs(kept.text)
+			text = render.StripDataURIs(text)
 		}
-		s.keepText(&s.export, key, kept)
+		return exported{text: text}, nil
+	})
+	if err != nil {
+		return textWindow{}, err
 	}
 	return keptWindow(kept, in.Offset, budget), nil
+}
+
+// exportAll is a Google document exported whole. The cap is Google's
+// own: an export larger than it does not arrive, so reading to the end
+// is bounded whatever the file is.
+func (s *Service) exportAll(ctx context.Context, id, mime string) (string, error) {
+	content, err := s.api.Export(ctx, id, mime)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = content.Body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(content.Body, MaxExport))
+	return string(raw), err
 }
 
 // keptWindow is one window of text held whole in memory.
@@ -197,23 +204,30 @@ func stringWindow(text string, budget int) (string, int64) {
 // MaxExport is Google's own ceiling on files.export.
 const MaxExport = 10 << 20
 
-// keptText is the text held in one slot under key, while it is inside
-// ExportTTL.
-func (s *Service) keptText(slot *exported, key string) (exported, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if slot.key != key || s.now().Sub(slot.at) > s.opts.ExportTTL {
-		return exported{}, false
+// keptText is the text held in slot under key, while it is inside
+// ExportTTL, or what compute makes, which is then held in its place, so
+// the windows after the first cost nothing. fresh skips what is held,
+// and holds what it computes. cached says the text was held.
+func (s *Service) keptText(slot *exported, key string, fresh bool, compute func() (exported, error),
+) (kept exported, cached bool, err error) {
+	if !fresh {
+		s.mu.Lock()
+		if slot.key == key && s.now().Sub(slot.at) <= s.opts.ExportTTL {
+			kept, cached = *slot, true
+		}
+		s.mu.Unlock()
+		if cached {
+			return kept, true, nil
+		}
 	}
-	return *slot, true
-}
-
-// keepText holds text in one slot under key, in place of what was there.
-func (s *Service) keepText(slot *exported, key string, kept exported) {
+	if kept, err = compute(); err != nil {
+		return exported{}, false, err
+	}
 	kept.key, kept.at = key, s.now()
 	s.mu.Lock()
 	*slot = kept
 	s.mu.Unlock()
+	return kept, false, nil
 }
 
 // renderText lays out one window under the header that says which part
@@ -320,8 +334,7 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 // image has its text read by Google's OCR, which needs a copy, and a
 // read-only server makes none.
 func (s *Service) notText(f *gdrive.File) error {
-	mime := gdrive.MimeOnly(f.MimeType)
-	ocr := mime == "application/pdf" || strings.HasPrefix(mime, "image/")
+	ocr := pdfOrImage(gdrive.MimeOnly(f.MimeType))
 	switch {
 	case s.opts.ReadOnly:
 		return Errorf(ClassUnsupported, "%s is %s, which is not text. download_file writes it to disk; reading "+

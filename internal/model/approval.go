@@ -86,6 +86,22 @@ func NewApproval(a *gdrive.Approval) *Approval {
 // Open reports whether the approval is still waiting on somebody.
 func (a *Approval) Open() bool { return a != nil && a.Status == ApprovalInProgress }
 
+// ContentChangeWords says what a change to the file's content does to
+// the approval, or is empty when Drive did not say.
+func (a *Approval) ContentChangeWords() string {
+	switch {
+	case a.LocksOnApproval:
+		// The consequence nobody expects: this is not just a record of
+		// agreement, it stops the file being edited.
+		return "Changing the content while it is open clears the answers already given, and once it is " +
+			"approved the file is LOCKED."
+	case a.IgnoresContentChanges:
+		return "Changing the content leaves the answers already given as they are, and approving does not " +
+			"lock the file."
+	}
+	return ""
+}
+
 // WaitingOnMe reports whether the signed-in person still owes an answer.
 // It is the only thing in a listing that asks the reader to do
 // something, so it is a question the model answers rather than a shape

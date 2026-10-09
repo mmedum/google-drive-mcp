@@ -723,14 +723,3 @@ func writeThrough(path string, data []byte) error {
 	}
 	return nil
 }
-
-// lastTag returns the most recent tag, or "" when there is none. Having
-// no tags is the normal state before the first release, so it is not an
-// error and this cannot fail. The staleness gate reads it.
-func lastTag() string {
-	out, err := exec.Command("git", "describe", "--tags", "--abbrev=0").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}

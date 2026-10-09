@@ -231,6 +231,49 @@ func SharingOf(shared bool, grants []Grant) Sharing {
 	return s
 }
 
+// Roles is what the people a sharing reaches may do, by count, in the
+// words a summary and a question both use: "2 can edit", "1 can view".
+func (s Sharing) Roles() []string {
+	var who []string
+	if s.Editors > 0 {
+		who = append(who, fmt.Sprintf("%d can edit", s.Editors))
+	}
+	if s.Commenters > 0 {
+		who = append(who, fmt.Sprintf("%d can comment", s.Commenters))
+	}
+	if s.Viewers > 0 {
+		who = append(who, fmt.Sprintf("%d can view", s.Viewers))
+	}
+	if s.NameOnly > 0 {
+		who = append(who, fmt.Sprintf("%d can see it but not open it", s.NameOnly))
+	}
+	return who
+}
+
+// Beyond is who a sharing reaches past the people on it: each domain,
+// then the link. name writes a domain the way the caller shows it, which
+// a question quotes.
+func (s Sharing) Beyond(name func(string) string) []string {
+	var parts []string
+	for _, d := range s.Domains {
+		line := "everyone at " + name(d.Who) + " " + d.Words()
+		if d.Discoverable {
+			line += ", and it turns up in their search"
+		} else {
+			line += " with the link"
+		}
+		parts = append(parts, line)
+	}
+	if s.Link != nil {
+		line := "anyone with the link " + s.Link.Words()
+		if s.Link.Discoverable {
+			line = "anyone on the internet " + s.Link.Words() + " and can find it by search"
+		}
+		parts = append(parts, line)
+	}
+	return parts
+}
+
 // Summary is the one-line exposure a file card shows.
 func (s Sharing) Summary() string {
 	if s.Unknown {
@@ -241,20 +284,7 @@ func (s Sharing) Summary() string {
 	}
 	var parts []string
 	if s.People > 0 {
-		var who []string
-		if s.Editors > 0 {
-			who = append(who, fmt.Sprintf("%d can edit", s.Editors))
-		}
-		if s.Commenters > 0 {
-			who = append(who, fmt.Sprintf("%d can comment", s.Commenters))
-		}
-		if s.Viewers > 0 {
-			who = append(who, fmt.Sprintf("%d can view", s.Viewers))
-		}
-		if s.NameOnly > 0 {
-			who = append(who, fmt.Sprintf("%d can see it but not open it", s.NameOnly))
-		}
-		line := fmt.Sprintf("shared with %s: %s", Plural(s.People, "person", "people"), strings.Join(who, ", "))
+		line := fmt.Sprintf("shared with %s: %s", Plural(s.People, "person", "people"), strings.Join(s.Roles(), ", "))
 		// Where the grants come from decides what can be done about
 		// them: an inherited one is removed at the drive, not here. Said
 		// as a separate count it read as a second set of people — a file
@@ -274,22 +304,7 @@ func (s Sharing) Summary() string {
 		}
 		parts = append(parts, line)
 	}
-	for _, d := range s.Domains {
-		line := "everyone at " + d.Who + " " + d.Words()
-		if !d.Discoverable {
-			line += " with the link"
-		} else {
-			line += ", and it turns up in their search"
-		}
-		parts = append(parts, line)
-	}
-	if s.Link != nil {
-		line := "anyone with the link " + s.Link.Words()
-		if s.Link.Discoverable {
-			line = "anyone on the internet " + s.Link.Words() + " and can find it by search"
-		}
-		parts = append(parts, line)
-	}
+	parts = append(parts, s.Beyond(func(domain string) string { return domain })...)
 	if len(parts) == 0 {
 		switch {
 		case s.SharedDrive != "":
@@ -353,15 +368,7 @@ func (g Grant) Key() string { return g.Type + ":" + strings.ToLower(g.Who) }
 // the people asking who can reach a file.
 func Gained(before, after Sharing, self string) []Grant {
 	had := map[string]Grant{}
-	for _, g := range before.Grants {
-		if e, ok := had[g.Key()]; ok {
-			if RoleWidens(e.Role, g.Role) {
-				e.Role = g.Role
-			}
-			e.Discoverable = e.Discoverable || g.Discoverable
-			e.NameOnly = e.NameOnly && g.NameOnly
-			g = e
-		}
+	for _, g := range MergeGrants(before.Grants...) {
 		had[g.Key()] = g
 	}
 	self = strings.TrimSpace(self)
@@ -382,6 +389,33 @@ func Gained(before, after Sharing, self string) []Grant {
 			g.Role = RoleWriter
 		}
 		out = append(out, g)
+	}
+	return out
+}
+
+// MergeGrants folds the grants to one principal into one, in the order
+// each principal first appears: the wider role wins, it turns up in
+// search when either does, it only shows the item when both only show
+// it, and it comes from above when a later one does.
+func MergeGrants(grants ...Grant) []Grant {
+	var out []Grant
+	at := map[string]int{}
+	for _, g := range grants {
+		i, ok := at[g.Key()]
+		if !ok {
+			at[g.Key()] = len(out)
+			out = append(out, g)
+			continue
+		}
+		e := &out[i]
+		if RoleWidens(e.Role, g.Role) {
+			e.Role = g.Role
+		}
+		e.Discoverable = e.Discoverable || g.Discoverable
+		e.NameOnly = e.NameOnly && g.NameOnly
+		if g.Inherited() {
+			e.InheritedFrom = g.InheritedFrom
+		}
 	}
 	return out
 }

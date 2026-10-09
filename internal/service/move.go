@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mmedum/google-drive-mcp/v2/internal/config"
@@ -89,14 +90,9 @@ func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, erro
 		}
 	}
 
-	f := res.File
-	moved, err := s.api.UpdateFile(ctx, f.ID, &gdrive.FileMeta{}, gapi.UpdateOptions{
-		WriteOptions:  gapi.WriteOptions{ResourceIDs: []string{target.ID}},
-		AddParents:    target.ID,
-		RemoveParents: p.from,
-	})
+	moved, err := s.moveTo(ctx, p)
 	if err != nil {
-		return nil, wrap(err, fmt.Sprintf("moving %s to %s", f.Name, target.Name))
+		return nil, wrap(err, fmt.Sprintf("moving %s to %s", res.File.Name, target.Name))
 	}
 	s.forget(moved, true)
 	return s.moveResult(ctx, &Resolved{File: moved}, p, s.sharingNow(ctx, moved), false), nil
@@ -213,11 +209,7 @@ func (it *movedItem) set(outcome, reason string) {
 func (s *Service) moveOne(ctx context.Context, it *movedItem) {
 	p := it.plan
 	f, target := p.res.File, p.target
-	moved, err := s.api.UpdateFile(ctx, f.ID, &gdrive.FileMeta{}, gapi.UpdateOptions{
-		WriteOptions:  gapi.WriteOptions{ResourceIDs: []string{target.ID}},
-		AddParents:    target.ID,
-		RemoveParents: p.from,
-	})
+	moved, err := s.moveTo(ctx, p)
 	late := ""
 	if err != nil {
 		failed := wrap(err, fmt.Sprintf("moving %s to %s", f.Name, target.Name)).Error()
@@ -239,6 +231,16 @@ func (s *Service) moveOne(ctx context.Context, it *movedItem) {
 	after := s.sharingNow(ctx, moved)
 	it.json.SharingAfter = after.Summary()
 	it.set(render.MovedMoved, strings.TrimSpace(late+" "+s.moveNote(ctx, p, after, false)))
+}
+
+// moveTo makes the move a plan describes: Drive allows one parent, so
+// the old one is swapped for the new.
+func (s *Service) moveTo(ctx context.Context, p *movePlan) (*gdrive.File, error) {
+	return s.api.UpdateFile(ctx, p.res.File.ID, &gdrive.FileMeta{}, gapi.UpdateOptions{
+		WriteOptions:  gapi.WriteOptions{ResourceIDs: []string{p.target.ID}},
+		AddParents:    p.target.ID,
+		RemoveParents: p.from,
+	})
 }
 
 // manyResult reports a move of several items.
@@ -304,9 +306,6 @@ type movePlan struct {
 	// unread names what could not be read, "it" or "the destination",
 	// which leaves after unknown.
 	unread string
-	// self is the signed-in account's address, read when first needed.
-	self    string
-	selfSet bool
 }
 
 // widens reports whether the move would let more people reach the item,
@@ -439,7 +438,7 @@ func (s *Service) predictMove(ctx context.Context, p *movePlan, dest reach) {
 	if p.target.DriveID != "" {
 		p.after.SharedDrive = s.Location(ctx, p.target).Drive
 	}
-	p.gained = s.gained(ctx, p, p.before, p.after)
+	p.gained = s.gained(ctx, p.before, p.after)
 	if !item.known && len(p.gained) > 0 {
 		// A copy of an original whose reach is unknown, which reaches
 		// someone besides this account: whether that is more is unknown.
@@ -452,52 +451,39 @@ func (s *Service) predictMove(ctx context.Context, p *movePlan, dest reach) {
 // gained is what after reaches that before does not, leaving out the
 // signed-in account, whose address is read only when a person is among
 // it.
-func (s *Service) gained(ctx context.Context, p *movePlan, before, after model.Sharing) []model.Grant {
-	out := model.Gained(before, after, p.self)
-	if p.selfSet {
-		return out
-	}
-	for _, g := range out {
-		if g.Type == principalUser {
-			return model.Gained(before, after, s.selfOf(ctx, p))
-		}
+func (s *Service) gained(ctx context.Context, before, after model.Sharing) []model.Grant {
+	out := model.Gained(before, after, "")
+	if slices.ContainsFunc(out, func(g model.Grant) bool { return g.Type == principalUser }) {
+		return model.Gained(before, after, s.account(ctx))
 	}
 	return out
 }
 
-// differs reports whether Drive's answer after the move reaches other
-// people, or reaches them differently, than the plan worked out,
-// leaving out the signed-in account.
-func (s *Service) differs(ctx context.Context, p *movePlan, after model.Sharing) bool {
-	if model.SameReach(p.after, after, p.self) {
-		return false
-	}
-	return p.selfSet || !model.SameReach(p.after, after, s.selfOf(ctx, p))
+// sameReach reports whether two summaries reach the same people, groups,
+// domains and links with the same access, leaving out the signed-in
+// account.
+func (s *Service) sameReach(ctx context.Context, a, b model.Sharing) bool {
+	return model.SameReach(a, b, "") || model.SameReach(a, b, s.account(ctx))
 }
 
-// selfOf reads the plan's account address once.
-func (s *Service) selfOf(ctx context.Context, p *movePlan) string {
-	if !p.selfSet {
-		p.self, p.selfSet = s.selfAddress(ctx, p.res.File, p.target), true
-	}
-	return p.self
-}
-
-// selfAddress is the signed-in account's address: read off a file it
-// owns when one is at hand, and asked of Drive otherwise. Empty when
-// neither answers, which leaves the account counted like anyone else.
-func (s *Service) selfAddress(ctx context.Context, files ...*gdrive.File) string {
-	for _, f := range files {
-		for _, o := range f.Owners {
-			if o != nil && o.Me && o.EmailAddress != "" {
-				return o.EmailAddress
-			}
-		}
+// account is the signed-in account's address, read from Drive once and
+// kept, since it does not change while the server runs. Empty when Drive
+// does not answer, which leaves the account counted like anyone else
+// and asks again the next time.
+func (s *Service) account(ctx context.Context) string {
+	s.mu.Lock()
+	addr := s.accountAddress
+	s.mu.Unlock()
+	if addr != "" {
+		return addr
 	}
 	about, err := s.api.About(ctx)
 	if err != nil || about.User == nil {
 		return ""
 	}
+	s.mu.Lock()
+	s.accountAddress = about.User.EmailAddress
+	s.mu.Unlock()
 	return about.User.EmailAddress
 }
 
@@ -511,24 +497,8 @@ func (s *Service) selfAddress(ctx context.Context, files ...*gdrive.File) string
 // errs toward showing more exposure, not less.
 func movedGrants(f, target *gdrive.File, item, dest []*gdrive.Permission) []model.Grant {
 	intoDrive := f.DriveID == "" && target.DriveID != ""
-	var out []model.Grant
-	at := map[string]int{}
-	put := func(g model.Grant) {
-		i, ok := at[g.Key()]
-		if !ok {
-			at[g.Key()] = len(out)
-			out = append(out, g)
-			return
-		}
-		e := &out[i]
-		if model.RoleWidens(e.Role, g.Role) {
-			e.Role = g.Role
-		}
-		e.Discoverable = e.Discoverable || g.Discoverable
-		if g.Inherited() {
-			e.InheritedFrom = g.InheritedFrom
-		}
-	}
+	var grants []model.Grant
+	owners := map[string]bool{}
 	for _, p := range item {
 		role, direct := model.DirectRole(p)
 		if !direct || intoDrive && role == model.RoleOwner {
@@ -536,7 +506,8 @@ func movedGrants(f, target *gdrive.File, item, dest []*gdrive.Permission) []mode
 		}
 		g := model.GrantOf(p)
 		g.Role, g.InheritedFrom = role, ""
-		put(g)
+		owners[g.Key()] = owners[g.Key()] || role == model.RoleOwner
+		grants = append(grants, g)
 	}
 	for _, p := range dest {
 		// Someone who sees a limited-access destination without opening
@@ -547,14 +518,14 @@ func movedGrants(f, target *gdrive.File, item, dest []*gdrive.Permission) []mode
 		g := model.GrantOf(p)
 		g.PermissionID, g.InheritedFrom, g.PendingOwner = "", target.Name, false
 		if g.Role == model.RoleOwner {
-			if i, ok := at[g.Key()]; ok && out[i].Role == model.RoleOwner {
+			if owners[g.Key()] {
 				continue
 			}
 			g.Role = model.RoleWriter
 		}
-		put(g)
+		grants = append(grants, g)
 	}
-	return out
+	return model.MergeGrants(grants...)
 }
 
 // moveTarget is the destination as a question names it.
@@ -602,14 +573,14 @@ func (s *Service) moveNote(ctx context.Context, p *movePlan, after model.Sharing
 			" puts that to the person first when the client can ask")
 	case dryRun, p.before.Unknown, after.Unknown:
 	default:
-		if gained := s.gained(ctx, p, p.before, after); len(gained) > 0 {
+		if gained := s.gained(ctx, p.before, after); len(gained) > 0 {
 			who := "more people can reach it now, or have more access: "
 			if p.copy {
 				who = "more people can reach the copy than reach the original, or have more access: "
 			}
 			parts = append(parts, who+render.Reach(gained))
 		}
-		if !p.after.Unknown && s.differs(ctx, p, after) {
+		if !p.after.Unknown && !s.sameReach(ctx, p.after, after) {
 			parts = append(parts, "that is not who this server worked out would reach it, which was: "+
 				p.after.Summary()+". Drive can take a moment to apply a move's sharing; list_permissions "+
 				"shows where it stands")

@@ -1,6 +1,7 @@
 package office
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 )
@@ -13,7 +14,8 @@ import (
 // time, so a long part costs a handful of requests rather than hundreds.
 //
 // Nothing is written to disk and the file is never held whole: what it
-// keeps is at most cacheBlocks blocks.
+// keeps is at most cacheBlocks blocks, each copied out of the run it
+// came in, so a block kept does not keep the rest of its run with it.
 type RangeReader struct {
 	size  int64
 	fetch func(off, n int64) ([]byte, error)
@@ -113,8 +115,7 @@ func (r *RangeReader) block(i int64) ([]byte, error) {
 	r.budget -= n
 	r.fetched += n
 	for j := int64(0); j*blockSize < n; j++ {
-		end := min((j+1)*blockSize, n)
-		r.blocks[i+j] = data[j*blockSize : end : end]
+		r.blocks[i+j] = bytes.Clone(data[j*blockSize : min((j+1)*blockSize, n)])
 		r.touch(i + j)
 	}
 	r.next = i + (n+blockSize-1)/blockSize

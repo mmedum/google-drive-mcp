@@ -99,17 +99,24 @@ func kindClause(kind string) (string, error) {
 		return "mimeType contains " + quote(prefix), nil
 	}
 	mimes := mediatype.GroupMimes(group)
-	switch len(mimes) {
-	case 0:
+	if len(mimes) == 0 {
 		return "", Errorf(ClassInvalid, "kind %q is not one of %s", group, strings.Join(Kinds(), ", "))
-	case 1:
-		return "mimeType = " + quote(mimes[0]), nil
 	}
-	clauses := make([]string, 0, len(mimes))
+	terms := make([]string, 0, len(mimes))
 	for _, mime := range mimes {
-		clauses = append(clauses, "mimeType = "+quote(mime))
+		terms = append(terms, "mimeType = "+quote(mime))
 	}
-	return "(" + strings.Join(clauses, " or ") + ")", nil
+	return anyOf(terms...), nil
+}
+
+// anyOf is a query group that matches any one of terms: the term itself
+// when there is one, and the terms joined with or, in parentheses,
+// when there are more.
+func anyOf(terms ...string) string {
+	if len(terms) == 1 {
+		return terms[0]
+	}
+	return "(" + strings.Join(terms, " or ") + ")"
 }
 
 // Kinds lists the accepted kind names, for tool descriptions and errors.
@@ -444,10 +451,7 @@ func visibilityClause(v string) (clause, words string, err error) {
 	for _, value := range vis.values {
 		terms = append(terms, "visibility = "+quote(value))
 	}
-	if len(terms) == 1 {
-		return terms[0], vis.words, nil
-	}
-	return "(" + strings.Join(terms, " or ") + ")", vis.words, nil
+	return anyOf(terms...), vis.words, nil
 }
 
 // sharedWithClause finds the files an address can open. It asks readers
@@ -458,7 +462,7 @@ func sharedWithClause(who string) (string, error) {
 		return "", Errorf(ClassInvalid, "shared_with takes one address of a person or group, like "+
 			"someone@example.com, not %q", who)
 	}
-	return "(" + quote(who) + " in readers or " + quote(who) + " in writers)", nil
+	return anyOf(quote(who)+" in readers", quote(who)+" in writers"), nil
 }
 
 // scopeClause is the query clause a scope adds and the words that

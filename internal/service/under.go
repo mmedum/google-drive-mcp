@@ -46,12 +46,15 @@ type folderSet struct {
 }
 
 // clause is the query group that keeps a search inside the set.
-func (f *folderSet) clause() string {
-	terms := make([]string, 0, len(f.ids))
-	for _, id := range f.ids {
+func (f *folderSet) clause() string { return anyOf(inParents(f.ids)...) }
+
+// inParents is a query term for each folder: what is directly inside it.
+func inParents(ids []string) []string {
+	terms := make([]string, 0, len(ids))
+	for _, id := range ids {
 		terms = append(terms, quote(id)+" in parents")
 	}
-	return "(" + strings.Join(terms, " or ") + ")"
+	return terms
 }
 
 // words describe the set in a search's title.
@@ -176,11 +179,7 @@ const folderLevelFields = "nextPageToken,files(id,name,resourceKey,capabilities(
 // given ones. A search of the trash walks trashed folders too, since
 // what is inside a trashed folder is in the trash with it.
 func folderLevelQuery(parents []string, trashed bool) string {
-	terms := make([]string, 0, len(parents))
-	for _, id := range parents {
-		terms = append(terms, quote(id)+" in parents")
-	}
-	q := "mimeType = " + quote(gdrive.MimeFolder) + " and (" + strings.Join(terms, " or ") + ")"
+	q := "mimeType = " + quote(gdrive.MimeFolder) + " and " + anyOf(inParents(parents)...)
 	if !trashed {
 		q += " and trashed = false"
 	}

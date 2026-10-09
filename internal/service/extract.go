@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"time"
@@ -88,20 +87,20 @@ func (s *Service) ExtractText(ctx context.Context, in ExtractTextInput) (string,
 	key := "extract\x00" + f.ID + "\x00" + f.HeadRevisionID + "\x00" + f.ModifiedTime + "\x00" + lang
 	notes := []string{"Google's OCR read this text. Lists, tables, columns, footnotes and endnotes are " +
 		"often not recognized, Google says, and the text comes without its layout."}
-	kept, cached := exported{}, false
-	if !in.KeepCopy {
-		kept, cached = s.keptText(&s.ocrText, key)
+	// keep_copy always makes a copy, since keeping one is what it asks.
+	made := ""
+	kept, cached, err := s.keptText(&s.ocrText, key, in.KeepCopy, func() (exported, error) {
+		text, note, err := s.ocr(ctx, f, lang, in.KeepCopy)
+		made = note
+		return exported{text: text}, err
+	})
+	if err != nil {
+		return "", err
 	}
 	if cached {
 		notes = append(notes, "This is the text read a few minutes ago, kept for paging; no copy was made this time.")
 	} else {
-		text, note, err := s.ocr(ctx, f, lang, in.KeepCopy)
-		if err != nil {
-			return "", err
-		}
-		kept = exported{text: text}
-		s.keepText(&s.ocrText, key, kept)
-		notes = append(notes, note)
+		notes = append(notes, made)
 		if in.Offset > 0 {
 			notes = append(notes, "The text read for an earlier window was no longer kept, so Google's OCR "+
 				"read the file again. A second reading can differ from the first, so this window may not "+
@@ -147,7 +146,7 @@ func (s *Service) extractable(ctx context.Context, f *gdrive.File) error {
 	case f.IsWorkspaceDoc(), office.KindOf(mime) != office.None, model.IsTextLike(mime):
 		return Errorf(ClassInvalid, "%s is %s, whose text read_file returns directly, with no copy made. "+
 			"extract_text is for a PDF or an image.", f.Name, model.KindWithArticle(f))
-	case mime != "application/pdf" && !strings.HasPrefix(mime, "image/"):
+	case !pdfOrImage(mime):
 		return Errorf(ClassUnsupported, "%s is %s, and extract_text reads a PDF or an image. download_file "+
 			"writes it to disk.", f.Name, model.KindWithArticle(f))
 	}
@@ -166,6 +165,12 @@ func (s *Service) extractable(ctx context.Context, f *gdrive.File) error {
 			"while making a copy of it. Its owner may have turned copying off for viewers and commenters.", f.Name)
 	}
 	return nil
+}
+
+// pdfOrImage reports whether a media type is the kind of file Google's
+// OCR reads: a PDF or an image.
+func pdfOrImage(mime string) bool {
+	return mime == "application/pdf" || strings.HasPrefix(mime, "image/")
 }
 
 // importsAsDoc reports whether the account's import formats turn this
@@ -252,18 +257,10 @@ func (s *Service) ocr(ctx context.Context, f *gdrive.File, lang string, keep boo
 // Google embeds beside the text it read. Google caps an export at 10 MB,
 // and a Doc holds far less than that.
 func (s *Service) copyText(ctx context.Context, copied *gdrive.File) (string, error) {
-	c, err := s.api.Export(ctx, copied.ID, "text/plain")
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = c.Body.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(c.Body, MaxExport))
-	if err != nil {
-		return "", err
-	}
+	text, err := s.exportAll(ctx, copied.ID, "text/plain")
 	// Google's plain-text export of a Doc may start with a byte-order
 	// mark, which is not text.
-	return strings.TrimPrefix(string(raw), "\ufeff"), nil
+	return strings.TrimPrefix(text, "\ufeff"), err
 }
 
 // deleteTemporary removes the copy for good. It deletes only the file

@@ -256,23 +256,17 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 	// caller can find it in before the approval exists.
 	note := fmt.Sprintf("Approval %s started on %s and %s been mailed about it. %s",
 		started.ApprovalID, f.Name, model.Plural(len(reviewers), "reviewer has", "reviewers have"),
-		contentChangeWords(started.FileContentChangeBehavior, behavior))
+		contentChangeWords(started, behavior))
 	return started, note, nil
 }
 
 // contentChangeWords says what a content change does to the approval,
 // read from Drive's answer rather than from what was asked, and says so
 // when the two differ.
-func contentChangeWords(got, asked string) string {
-	var out string
-	switch got {
-	case gdrive.ContentChangeReset:
-		out = "If the content changes while it is open, the answers already given are cleared; once it " +
-			"is approved, the file is LOCKED."
-	case gdrive.ContentChangeNoAction:
-		out = "A content change leaves the answers already given as they are, and approving does not " +
-			"lock the file."
-	default:
+func contentChangeWords(started *gdrive.Approval, asked string) string {
+	got := started.FileContentChangeBehavior
+	out := model.NewApproval(started).ContentChangeWords()
+	if out == "" {
 		return "Drive did not say what a content change does to it, which was asked to be " + asked + "."
 	}
 	if got != asked {

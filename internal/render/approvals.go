@@ -66,15 +66,8 @@ func writeApproval(b *buf, a *model.Approval, now time.Time) {
 	for _, r := range a.Reviewers {
 		b.field("  "+responseWords(r.Response), r.Person)
 	}
-	switch {
-	case a.LocksOnApproval:
-		// The consequence nobody expects: this is not just a record of
-		// agreement, it stops the file being edited.
-		b.line("Changing the content while this is open clears the approvals already given, " +
-			"and once it is approved the file is LOCKED.")
-	case a.IgnoresContentChanges:
-		b.line("Changing the content leaves the answers already given as they are, and approving " +
-			"does not lock the file.")
+	if words := a.ContentChangeWords(); words != "" {
+		b.line(words)
 	}
 }
 

@@ -212,7 +212,7 @@ func New(f *gdrive.File, o Options) *File {
 		LimitedAccess:                f.InheritedPermissionsDisabled,
 	}
 	if r := f.DownloadRestrictions; r != nil {
-		m.DownloadsOnFile = DownloadLevel(r.ItemDownloadRestriction)
+		m.DownloadsOnFile = ItemDownloads(f)
 		m.Downloads = DownloadLevel(r.EffectiveDownloadRestrictionWithContext)
 		if r.EffectiveDownloadRestrictionWithContext == nil {
 			m.Downloads = m.DownloadsOnFile
@@ -290,6 +290,15 @@ func DownloadLevel(r *gdrive.DownloadRestriction) string {
 	return DownloadsOpen
 }
 
+// ItemDownloads is the download restriction set on the file itself, as
+// a level; open when Drive gives none.
+func ItemDownloads(f *gdrive.File) string {
+	if f.DownloadRestrictions == nil {
+		return DownloadsOpen
+	}
+	return DownloadLevel(f.DownloadRestrictions.ItemDownloadRestriction)
+}
+
 // DownloadRestriction is the wire form of a level.
 func DownloadRestriction(level string) gdrive.DownloadRestrictionPatch {
 	return gdrive.DownloadRestrictionPatch{
@@ -298,15 +307,24 @@ func DownloadRestriction(level string) gdrive.DownloadRestrictionPatch {
 	}
 }
 
-// DownloadWords says who a level stops, in plain words.
-func DownloadWords(level string) string {
+// DownloadStops is who a level stops from downloading, printing and
+// copying: "nobody", "viewers and commenters", or with editors too.
+func DownloadStops(level string) string {
 	switch level {
 	case DownloadsViewers:
-		return "viewers and commenters cannot download, print or copy it"
+		return "viewers and commenters"
 	case DownloadsEditors:
-		return "viewers, commenters and editors cannot download, print or copy it"
+		return "viewers, commenters and editors"
 	}
-	return "anyone who can open it can download, print and copy it"
+	return "nobody"
+}
+
+// DownloadWords says who a level stops, in plain words.
+func DownloadWords(level string) string {
+	if level != DownloadsViewers && level != DownloadsEditors {
+		return "anyone who can open it can download, print and copy it"
+	}
+	return DownloadStops(level) + " cannot download, print or copy it"
 }
 
 // ContentLocked reports whether Drive has restricted the file's content,

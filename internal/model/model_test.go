@@ -1,6 +1,7 @@
 package model
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -639,5 +640,24 @@ func TestGainedIsWhoAChangeReachesThatItDidNot(t *testing.T) {
 	if got := Gained(SharingOf(false, nil), SharingOf(true, []Grant{{Type: "user", Role: "writer", Who: "Me@Example.com"}}),
 		"me@example.com"); len(got) != 0 {
 		t.Errorf("Gained counts the account itself in another case: %+v", got)
+	}
+}
+
+// Grants to one principal fold into one, at the widest access any of
+// them gives, where the principal first appears.
+func TestMergeGrantsKeepsTheWidestAccessEachPrincipalHas(t *testing.T) {
+	got := MergeGrants(
+		Grant{Type: "user", Role: "reader", Who: "a@example.com", NameOnly: true},
+		Grant{Type: "anyone", Role: "reader", Who: "anyone"},
+		Grant{Type: "user", Role: "writer", Who: "a@example.com", InheritedFrom: "Team"},
+		Grant{Type: "anyone", Role: "reader", Who: "anyone", Discoverable: true},
+		Grant{Type: "user", Role: "reader", Who: "a@example.com", NameOnly: true},
+	)
+	want := []Grant{
+		{Type: "user", Role: "writer", Who: "a@example.com", InheritedFrom: "Team"},
+		{Type: "anyone", Role: "reader", Who: "anyone", Discoverable: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MergeGrants =\n%+v\nwant\n%+v", got, want)
 	}
 }

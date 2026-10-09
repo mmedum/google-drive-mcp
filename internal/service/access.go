@@ -914,10 +914,6 @@ func (s *Service) outside(ctx context.Context, address string) bool {
 	if !ok || consumerDomains[theirs] {
 		return true
 	}
-	about, err := s.api.About(ctx)
-	if err != nil || about.User == nil {
-		return true
-	}
-	_, mine, _ := strings.Cut(strings.ToLower(about.User.EmailAddress), "@")
+	_, mine, _ := strings.Cut(strings.ToLower(s.account(ctx)), "@")
 	return mine == "" || mine != theirs
 }

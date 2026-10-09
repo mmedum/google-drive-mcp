@@ -168,3 +168,35 @@ func TestRangeReaderReadsAcrossBlocksAndStopsAtTheEnd(t *testing.T) {
 		t.Error("a negative offset was read")
 	}
 }
+
+// A cached block is a copy of its part of the run it came in, so the
+// run's buffer can go once its other blocks are dropped. Scribbling over
+// every buffer a fetch handed back leaves what the cache serves intact.
+func TestRangeReaderKeepsItsBlocksApartFromTheirRun(t *testing.T) {
+	data := []byte(noise(6 << 16))
+	var handed [][]byte
+	fetch := func(off, n int64) ([]byte, error) {
+		b := bytes.Clone(data[off : off+n])
+		handed = append(handed, b)
+		return b, nil
+	}
+	ra := office.NewRangeReader(int64(len(data)), fetch, 0)
+	got := make([]byte, len(data))
+	for off := 0; off < len(data); off += 1 << 16 {
+		if _, err := ra.ReadAt(got[off:off+1<<16], int64(off)); err != nil {
+			t.Fatalf("ReadAt %d: %v", off, err)
+		}
+	}
+	for _, b := range handed {
+		for i := range b {
+			b[i] = 0
+		}
+	}
+	before := ra.Requests()
+	if _, err := ra.ReadAt(got, 0); err != nil || !bytes.Equal(got, data) {
+		t.Errorf("the cache served other bytes once the runs it came in were overwritten (err %v)", err)
+	}
+	if ra.Requests() != before {
+		t.Errorf("reading the file again fetched %d more times; the blocks should be cached", ra.Requests()-before)
+	}
+}

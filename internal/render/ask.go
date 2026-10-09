@@ -346,36 +346,9 @@ func reachParts(grants []model.Grant, q func(string) string) []string {
 	s := model.SharingOf(true, grants)
 	var parts []string
 	if s.People > 0 {
-		var who []string
-		if s.Editors > 0 {
-			who = append(who, fmt.Sprintf("%d can edit", s.Editors))
-		}
-		if s.Commenters > 0 {
-			who = append(who, fmt.Sprintf("%d can comment", s.Commenters))
-		}
-		if s.Viewers > 0 {
-			who = append(who, fmt.Sprintf("%d can view", s.Viewers))
-		}
-		if s.NameOnly > 0 {
-			who = append(who, fmt.Sprintf("%d can see it but not open it", s.NameOnly))
-		}
-		parts = append(parts, model.Plural(s.People, "person", "people")+" ("+strings.Join(who, ", ")+")")
+		parts = append(parts, model.Plural(s.People, "person", "people")+" ("+strings.Join(s.Roles(), ", ")+")")
 	}
-	for _, d := range s.Domains {
-		line := "everyone at " + q(d.Who) + " " + d.Words()
-		if d.Discoverable {
-			line += ", and finds it by search"
-		}
-		parts = append(parts, line)
-	}
-	if l := s.Link; l != nil {
-		line := "anyone with the link " + l.Words()
-		if l.Discoverable {
-			line = "anyone on the internet " + l.Words() + " and can find it by search"
-		}
-		parts = append(parts, line)
-	}
-	return parts
+	return append(parts, s.Beyond(q)...)
 }
 
 // body0 is the start of a body, quoted on one line, and how much more

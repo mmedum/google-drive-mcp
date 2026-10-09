@@ -185,6 +185,8 @@ type Service struct {
 	// per conversion.
 	imports      map[string][]string
 	importsTried bool
+	// accountAddress is the signed-in account's address, read once.
+	accountAddress string
 	// downloads are the long-running download operations this process has
 	// started, by file id. An operation lives at least twelve hours and
 	// its name comes back only from the call that started it — there is

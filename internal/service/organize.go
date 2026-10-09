@@ -111,13 +111,14 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 		return nil, Errorf(ClassInvalid, "color is a folder's, and %s is %s", f.Name, model.KindWithArticle(f))
 	}
 
-	meta, changes, err := metaPatch(f, in, color, s.now())
+	p, err := metaPatch(f, in, color, s.now())
 	if err != nil {
 		return nil, err
 	}
+	meta, changes := p.meta, p.changes
 	// The sharing switches loosen a file the way a shared drive's
 	// restrictions do, and GDRIVE_SHARING=off refuses them the same way.
-	if loosened := loosening(f, meta); len(loosened) > 0 && s.opts.Sharing == config.SharingOff {
+	if loosened := p.loosening(); len(loosened) > 0 && s.opts.Sharing == config.SharingOff {
 		return nil, Errorf(ClassForbidden, "this server was started with GDRIVE_SHARING=off, and %s on %s would "+
 			"widen who can reach or pass on what is in it. Nothing was changed. Tightening is still allowed.",
 			strings.Join(loosened, " and "), f.Name)
@@ -141,92 +142,59 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 	return s.write(ctx, updated, outcome{Action: render.ActionUpdated, Changes: changes, Moved: meta.Name != ""})
 }
 
+// patch is what update_file sends, the before and after that go with
+// it, and whether it lifts the file's download restriction, which only
+// the level it asks for and the level the file has can say.
+type patch struct {
+	meta           *gdrive.FileMeta
+	changes        []render.Change
+	liftsDownloads bool
+}
+
 // loosening names what a patch does that lets more people reach or pass
 // on the file: letting viewers copy it, editors reshare it, lifting a
 // download restriction, or turning a folder's limited access off.
-func loosening(f *gdrive.File, meta *gdrive.FileMeta) []string {
+func (p *patch) loosening() []string {
 	var out []string
-	if v := meta.CopyRequiresWriterPermission; v != nil && !*v {
+	if v := p.meta.CopyRequiresWriterPermission; v != nil && !*v {
 		out = append(out, "letting viewers copy it")
 	}
-	if v := meta.WritersCanShare; v != nil && *v {
+	if v := p.meta.WritersCanShare; v != nil && *v {
 		out = append(out, "letting editors reshare it")
 	}
-	if r := meta.DownloadRestrictions; r != nil && downloadRank(downloadLevelOf(r.ItemDownloadRestriction)) <
-		downloadRank(itemDownloads(f)) {
+	if p.liftsDownloads {
 		out = append(out, "lifting its download restriction")
 	}
-	if v := meta.InheritedPermissionsDisabled; v != nil && !*v {
+	if v := p.meta.InheritedPermissionsDisabled; v != nil && !*v {
 		out = append(out, "turning its limited access off")
 	}
 	return out
 }
 
-// itemDownloads is the download restriction set on the file itself.
-func itemDownloads(f *gdrive.File) string {
-	if f.DownloadRestrictions == nil {
-		return model.DownloadsOpen
-	}
-	return model.DownloadLevel(f.DownloadRestrictions.ItemDownloadRestriction)
-}
-
-// downloadLevelOf reads a level back off the patch that sets it.
-func downloadLevelOf(p gdrive.DownloadRestrictionPatch) string {
-	r := gdrive.DownloadRestriction(p)
-	return model.DownloadLevel(&r)
-}
-
 // downloadRank orders the levels from least to most restricted.
 func downloadRank(level string) int { return slices.Index(model.DownloadLevels(), level) }
-
-// downloadWho says who a level stops, in a before-and-after line.
-func downloadWho(level string) string {
-	switch level {
-	case model.DownloadsViewers:
-		return "viewers and commenters"
-	case model.DownloadsEditors:
-		return "viewers, commenters and editors"
-	}
-	return "nobody"
-}
 
 // askOpenFolder puts it to the person before a folder's limited access
 // goes off, naming who could then open it: everyone who reaches the
 // folder above and does not reach this one now. That is what a move
-// into the folder above would give it, so it is worked out the same way.
-// A list that cannot be read asks too.
+// into the folder above would give it, so it is worked out by the same
+// prediction. A list that cannot be read asks too.
 func (s *Service) askOpenFolder(ctx context.Context, res *Resolved) error {
 	f := res.File
-	item := s.reachOf(ctx, f)
-	unread, above := "", reach{}
-	parent, err := s.Resolve(ctx, f.Parent(), ResolveOptions{FollowShortcut: false})
-	switch {
-	case !item.known:
-		unread = "it"
-	case f.Parent() == "" || err != nil:
-		unread = "the folder above it"
-	default:
-		if above = s.reachOf(ctx, parent.File); !above.known {
-			unread = "the folder above it"
-		}
+	p := &movePlan{res: res, target: &gdrive.File{ID: f.Parent(), MimeType: gdrive.MimeFolder}}
+	above := reach{}
+	if parent, err := s.Resolve(ctx, f.Parent(), ResolveOptions{FollowShortcut: false}); f.Parent() != "" && err == nil {
+		p.target, above = parent.File, s.reachOf(ctx, parent.File)
 	}
-	if unread != "" {
-		return ask(ctx, render.AskOpenFolder(f.ID, f.Name, nil, unread))
-	}
-	before := s.sharingFrom(ctx, f, item.perms, res.DriveName)
-	grants := movedGrants(f, parent.File, item.perms, above.perms)
-	after := model.SharingOf(true, grants)
-	gained := model.Gained(before, after, "")
-	for _, g := range gained {
-		if g.Type == principalUser {
-			gained = model.Gained(before, after, s.selfAddress(ctx, f, parent.File))
-			break
-		}
-	}
-	if len(gained) == 0 {
+	s.predictMove(ctx, p, above)
+	if !p.widens() {
 		return nil
 	}
-	return ask(ctx, render.AskOpenFolder(f.ID, f.Name, gained, ""))
+	unread := p.unread
+	if unread == "the destination" {
+		unread = "the folder above it"
+	}
+	return ask(ctx, render.AskOpenFolder(f.ID, f.Name, p.gained, unread))
 }
 
 // metaPatch works out the smallest patch that turns f into what the
@@ -234,8 +202,9 @@ func (s *Service) askOpenFolder(ctx context.Context, res *Resolved) error {
 // field whose value is already what was asked for is left out of both:
 // Drive would accept it, and the result would claim a change that did
 // not happen.
-func metaPatch(f *gdrive.File, in UpdateFileInput, color string, now time.Time) (*gdrive.FileMeta, []render.Change, error) {
+func metaPatch(f *gdrive.File, in UpdateFileInput, color string, now time.Time) (*patch, error) {
 	meta := &gdrive.FileMeta{}
+	p := &patch{meta: meta}
 	var changes []render.Change
 	if name := strings.TrimSpace(in.Name); name != "" && name != f.Name {
 		meta.Name = name
@@ -259,14 +228,14 @@ func metaPatch(f *gdrive.File, in UpdateFileInput, color string, now time.Time) 
 			From: yesNo(!f.CopyRequiresWriterPermission), To: yesNo(!*in.CopyRequiresWriterPermission)})
 		// The files guide: false sets both restrictedForReaders and
 		// restrictedForWriters to false, so editors are let go too.
-		if !*in.CopyRequiresWriterPermission && itemDownloads(f) == model.DownloadsEditors {
+		if !*in.CopyRequiresWriterPermission && model.ItemDownloads(f) == model.DownloadsEditors {
 			changes = append(changes, render.Change{Field: "editors may copy, print and download",
 				From: yesNo(false), To: yesNo(true)})
 		}
 	}
-	restrictionChanges, err := restrictionPatch(f, in, meta)
+	restrictionChanges, err := restrictionPatch(f, in, p)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	changes = append(changes, restrictionChanges...)
 	if in.WritersCanShare != nil && *in.WritersCanShare != f.WritersCanShare {
@@ -284,15 +253,18 @@ func metaPatch(f *gdrive.File, in UpdateFileInput, color string, now time.Time) 
 	}
 	propertyChanges, err := propertyPatch(f, in.Properties, meta)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return meta, append(changes, propertyChanges...), nil
+	changes = append(changes, propertyChanges...)
+	p.changes = changes
+	return p, nil
 }
 
 // restrictionPatch adds a download restriction and a folder's limited
-// access to meta, refusing what Drive says this account may not change
-// before Drive is asked.
-func restrictionPatch(f *gdrive.File, in UpdateFileInput, meta *gdrive.FileMeta) ([]render.Change, error) {
+// access to the patch, refusing what Drive says this account may not
+// change before Drive is asked.
+func restrictionPatch(f *gdrive.File, in UpdateFileInput, p *patch) ([]render.Change, error) {
+	meta := p.meta
 	var changes []render.Change
 	if want := strings.ToLower(strings.TrimSpace(in.RestrictDownload)); want != "" {
 		switch {
@@ -303,14 +275,15 @@ func restrictionPatch(f *gdrive.File, in UpdateFileInput, meta *gdrive.FileMeta)
 			return nil, Errorf(ClassInvalid, "pass restrict_download or the legacy copy_requires_writer_permission, "+
 				"not both: Google warns the two can conflict")
 		}
-		if was := itemDownloads(f); want != was {
+		if was := model.ItemDownloads(f); want != was {
 			if f.Capabilities != nil && !f.Capabilities.CanChangeItemDownloadRestriction {
 				return nil, Errorf(ClassForbidden, "this account cannot change who may download %s: Drive lets "+
 					"its owner, or an organizer of its shared drive, do that", f.Name)
 			}
 			meta.DownloadRestrictions = &gdrive.DownloadRestrictionsPatch{ItemDownloadRestriction: model.DownloadRestriction(want)}
+			p.liftsDownloads = downloadRank(want) < downloadRank(was)
 			changes = append(changes, render.Change{Field: "who cannot download, print or copy it, as set on the file",
-				From: downloadWho(was), To: downloadWho(want)})
+				From: model.DownloadStops(was), To: model.DownloadStops(want)})
 		}
 	}
 	if in.LimitedAccess == nil {

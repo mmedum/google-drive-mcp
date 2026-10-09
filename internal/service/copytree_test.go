@@ -338,7 +338,7 @@ func TestATreeCopyAsksAboutEachPartItWouldReachFurther(t *testing.T) {
 	}
 	want := "copy_file: copy the folder `Projects`, with everything inside it, into the folder `Shared out`?\n\n" +
 		"The copy would reach more people than these parts of the original do, or give them more access:\n\n" +
-		"the folder `Archive`, inside it, which has limited access: everyone at `example.com` can view\n"
+		"the folder `Archive`, inside it, which has limited access: everyone at `example.com` can view with the link\n"
 	if len(no.asked) != 1 || !strings.HasPrefix(no.asked[0].Text, want) {
 		t.Fatalf("questions = %+v, want one starting %q", no.asked, want)
 	}
@@ -358,7 +358,7 @@ func TestSharingOffRefusesATreeCopyThatWidensAnyPart(t *testing.T) {
 	sharedOutTree(fake)
 	_, err := svc.CopyFile(yes(t), service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture", Recursive: true})
 	want := "[forbidden] this server was started with GDRIVE_SHARING=off. Inside it, Archive has limited access, and " +
-		"the copy of it would reach more people than it does: everyone at example.com can view. Nothing was copied."
+		"the copy of it would reach more people than it does: everyone at example.com can view with the link. Nothing was copied."
 	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("err = %v, want it to start %q", err, want)
 	}

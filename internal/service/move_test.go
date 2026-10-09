@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -298,7 +299,7 @@ func TestMoveFileSaysWhenDriveAnswersOtherThanPredicted(t *testing.T) {
 	if got.JSON.SharingAfter != "everyone at example.com can view with the link" {
 		t.Errorf("sharing after = %q, want what Drive answered", got.JSON.SharingAfter)
 	}
-	want := "more people can reach it now, or have more access: everyone at example.com can view. " +
+	want := "more people can reach it now, or have more access: everyone at example.com can view with the link. " +
 		"that is not who this server worked out would reach it, which was: private to you."
 	if !strings.HasPrefix(got.JSON.Note, want) {
 		t.Errorf("note = %q, want it to start %q", got.JSON.Note, want)
@@ -450,6 +451,33 @@ func TestMoveSeveralThatMovesNothingSaysItFailed(t *testing.T) {
 	}
 	if got.JSON.Action != "unchanged" {
 		t.Errorf("a move of items already there: action %q, want unchanged", got.JSON.Action)
+	}
+}
+
+// The account's own address, which a move needs to leave the account
+// out of who it adds, is read once for the whole call.
+func TestMoveSeveralReadsTheAccountOnce(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-dana-fixture", "Dana's", fake.RootID, drivetest.Owner("Dana", "dana@example.com"))
+	fake.Grant("id-dana-fixture", &gdrive.Permission{Type: "user", Role: "reader", EmailAddress: "reader@example.com"})
+	var files []string
+	for i := range 3 {
+		id := fmt.Sprintf("id-theirs-%d-fixture", i)
+		fake.AddFile(id, fmt.Sprintf("theirs %d.txt", i), "text/plain", "id-2026-fixture", drivetest.Owner("Jane", "jane@example.com"))
+		files = append(files, id)
+	}
+	fake.Requested()
+	if _, err := svc.MoveFile(yes(t), service.MoveFileInput{Files: files, To: "id-dana-fixture"}); err != nil {
+		t.Fatalf("MoveFile: %v", err)
+	}
+	about := 0
+	for _, r := range fake.Requested() {
+		if strings.HasSuffix(r.Path, "/about") {
+			about++
+		}
+	}
+	if about != 1 {
+		t.Errorf("the account was read %d times, want once", about)
 	}
 }
 

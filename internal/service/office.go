@@ -69,13 +69,11 @@ func (s *Service) officeWindow(ctx context.Context, res *Resolved, plan readPlan
 			"in parts needs that. download_file writes it to disk.", f.Name)
 	}
 	key := "office\x00" + f.ID + "\x00" + f.HeadRevisionID + "\x00" + f.ModifiedTime + "\x00" + plan.formatName
-	kept, ok := s.keptText(&s.export, key)
-	if !ok {
-		var err error
-		if kept, err = s.extractOffice(ctx, f, size, plan); err != nil {
-			return textWindow{}, err
-		}
-		s.keepText(&s.export, key, kept)
+	kept, _, err := s.keptText(&s.export, key, false, func() (exported, error) {
+		return s.extractOffice(ctx, f, size, plan)
+	})
+	if err != nil {
+		return textWindow{}, err
 	}
 	return keptWindow(kept, in.Offset, budget), nil
 }

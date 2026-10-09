@@ -388,9 +388,9 @@ func TestStartingAnApprovalSaysWhatAContentChangeDoes(t *testing.T) {
 	for _, tc := range []struct {
 		onChange, sent, says string
 	}{
-		{"", "RESET_APPROVAL", "If the content changes while it is open, the answers already given are cleared; " +
-			"once it is approved, the file is LOCKED."},
-		{"no_action", "NO_APPROVAL_ACTION", "A content change leaves the answers already given as they are, and " +
+		{"", "RESET_APPROVAL", "Changing the content while it is open clears the answers already given, and once " +
+			"it is approved the file is LOCKED."},
+		{"no_action", "NO_APPROVAL_ACTION", "Changing the content leaves the answers already given as they are, and " +
 			"approving does not lock the file."},
 	} {
 		svc, fake := setup(t, service.Options{})
