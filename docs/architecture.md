@@ -1591,6 +1591,18 @@ Raised by the phase 7 reviews (2026-09-30) and left open on purpose:
   multi-round-trip check reads the same field, and the two must agree,
   so this follows it.
 
+Raised by the review of the change that asks once per delete
+(2026-10-09) and left open on purpose:
+
+- **A client can get neither the mark nor a question.** On protocol
+  2026-07-28 capabilities travel with each request, so a client can
+  declare form elicitation to `tools/list` and none to `tools/call`.
+  It then sees no `requiresUserInteraction` mark, and the server does
+  not ask. That gives a misbehaving client nothing it lacked: such a
+  client answers the server's question itself and can accept without a
+  person (§18, "An `accept` comes from a person").
+  `GDRIVE_REQUIRE_PROMPT=true` refuses that call.
+
 Raised by the phase-0 review passes and deliberately not done in phase 0.
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
@@ -2264,4 +2276,4 @@ live run of it found.
 | An `accept` comes from a person | **Refuted.** Claude Code's MCP documentation (<https://code.claude.com/docs/en/mcp>), read 2026-09-28: an `Elicitation` hook can answer without a dialog. Codex (`codex-rs/codex-mcp/src/elicitation.rs`, read 2026-09-29) accepts a form with no properties itself under approval policy `never` with full access, and a VS Code question the person skips resolves as `accept` | Recorded as a limit of the empty form. A required choice would stop both, and was found slower and less clear than Accept in the maintainer's check in Claude Code, 2026-09-29 |
 | A client draws a question as plain text | **Refuted.** VS Code's `mcpElicitationService.ts`, read 2026-09-29, builds a form question as an untrusted `MarkdownString` | Every value from Drive or the call stands in a code span with its backticks and quote marks folded, and links broken |
 | `\b` in a Go regular expression is a word boundary in any script | **Refuted.** `go doc regexp/syntax`, Go 1.27.1: `\b` is "at ASCII word boundary" | The link shapes in a question are unanchored, so a link after an underscore or in a non-Latin domain is broken too; a test holds both |
-| A destructive tool should carry both `requiresUserInteraction` and the server's own question | **Refuted** 2026-10-09, after the owner was asked twice for one delete in google-docs-mcp. No source recommends two hard gates for one call: the spec puts confirmation on the client, GitHub's `delete_repository` and Supabase confirm with `destructiveHint` plus a form elicitation and set no mark, and Claude Code's documentation scopes the mark to "tools whose permission prompt is itself the point" | The mark is sent per client, present only when the request declares no form elicitation, on the five tools that ask before every write (`askedEveryCall`). A typed confirmation, which would stop Codex accepting an empty form unseen, was offered and not chosen |
+| A destructive tool should carry both `requiresUserInteraction` and the server's own question | **Refuted** 2026-10-09, after the owner was asked twice for one delete in another server built the same way. No source recommends two hard gates for one call: the spec puts confirmation on the client, GitHub's `delete_repository` and Supabase confirm with `destructiveHint` plus a form elicitation and set no mark, and Claude Code's documentation scopes the mark to "tools whose permission prompt is itself the point" | The mark is sent per client, present only when the request declares no form elicitation, on the five tools that ask before every write (`askedEveryCall`). A Claude Code `Elicitation` hook that accepts now confirms these deletes alone, where the mark used to stop the call before it reached the server. A typed confirmation, which would stop Codex accepting an empty form unseen, was offered and not chosen |

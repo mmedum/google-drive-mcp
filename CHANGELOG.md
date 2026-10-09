@@ -8,7 +8,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- A delete asks once in Claude Code, not twice. In a client that can ask the person, `delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and `delete_comment` no longer carry the `requiresUserInteraction` mark; the server's own question, which shows what the delete destroys, is the confirmation. To see only that question, add the five tools to Claude Code's allow list.
+- A delete asks once in Claude Code, not twice. In a client that can ask the person, `delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and `delete_comment` no longer carry the `requiresUserInteraction` mark; the server's own question, which shows what the delete destroys, is the confirmation. To see only that question, add the five tools to Claude Code's allow list. A Claude Code `Elicitation` hook that accepts now confirms these deletes alone, where the mark used to stop the call before it reached the server.
 
 ### Security
 
