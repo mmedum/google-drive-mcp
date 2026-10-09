@@ -24,8 +24,10 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,11 +50,40 @@ import (
 // makes a miss show up as an option demanding an excuse it does not
 // need, rather than as coverage nobody has.
 func FromSource(dir string, known map[string][]string) (map[string]map[string]bool, error) {
+	steps, err := ReadSteps(dir, known)
+	if err != nil {
+		return nil, err
+	}
+	sent := map[string]map[string]bool{}
+	for tool, options := range steps {
+		sent[tool] = map[string]bool{}
+		for option := range options {
+			sent[tool][option] = true
+		}
+	}
+	return sent, nil
+}
+
+// A Gate is the driver flags one step waits for, by name and in order:
+// a step inside `if o.labels { ... }`, after `if !w.labels { return }`,
+// or in a function every caller of which waits for -labels, waits for
+// it. A step no flag gates has an empty Gate.
+type Gate []string
+
+// Steps is, per tool and option, the gate of each step that sends it.
+// It is what lets a run say which flag it lacked for each option it did
+// not send, read from the driver rather than from a list kept by hand.
+type Steps map[string]map[string][]Gate
+
+// ReadSteps reads a driver's source as FromSource does, and keeps the
+// gate of every step. The flags are the ones the driver declares with
+// the flag package; a condition names one as a field, `o.labels` or
+// `w.share != ""`.
+func ReadSteps(dir string, known map[string][]string) (Steps, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", dir, err)
 	}
-	sent := map[string]map[string]bool{}
 	fset := token.NewFileSet()
 	var files []*ast.File
 	for _, e := range entries {
@@ -69,17 +100,29 @@ func FromSource(dir string, known map[string][]string) (map[string]map[string]bo
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no Go source in %s; has the driver moved?", dir)
 	}
-	naming := toolNamingFuncs(files)
+	flags := flagNames(files)
+	r := &reader{known: known, naming: toolNamingFuncs(files), flags: flags,
+		within: callerGates(files, flags), steps: Steps{}}
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
-			readFunction(fn, known, naming, sent)
+			r.readFunction(fn)
 		}
 	}
-	return sent, nil
+	return r.steps, nil
+}
+
+// reader holds what reading one function needs from the whole driver.
+type reader struct {
+	known  map[string][]string
+	naming map[string]string
+	flags  map[string]bool
+	// within is, per function, the flags every call of it waits for.
+	within map[string]map[string]bool
+	steps  Steps
 }
 
 // toolNamingFuncs finds the functions that name a tool for their caller:
@@ -130,26 +173,56 @@ func toolNamingFuncs(files []*ast.File) map[string]string {
 // parent` is one statement's worth of meaning split over two, and
 // resolving it anywhere wider would join two functions' variables that
 // happen to share a name.
-func readFunction(fn *ast.FuncDecl, known map[string][]string, naming map[string]string,
-	sent map[string]map[string]bool) {
-	maps := mapsIn(fn)
-	assigned := naming[fn.Name.Name]
+func (r *reader) readFunction(fn *ast.FuncDecl) {
+	built := mapsIn(fn)
+	assigned := r.naming[fn.Name.Name]
+	guards := guardsIn(fn.Body, r.flags)
+	// at is a step's gate: what every call of the function waits for,
+	// what the call waits for inside it, and what the line that wrote
+	// the option waits for, which is narrower when a key is added to a
+	// map under a condition of its own.
+	at := func(call token.Pos, key keyAt) Gate {
+		set := map[string]bool{}
+		for f := range r.within[fn.Name.Name] {
+			set[f] = true
+		}
+		for _, pos := range []token.Pos{call, key.pos} {
+			for f := range guards.at(pos) {
+				set[f] = true
+			}
+		}
+		return Sorted(set)
+	}
+	record := func(tool string, call token.Pos, keys []keyAt) {
+		if _, ok := r.known[tool]; !ok || len(keys) == 0 {
+			return
+		}
+		if r.steps[tool] == nil {
+			r.steps[tool] = map[string][]Gate{}
+		}
+		for _, k := range keys {
+			gate := at(call, k)
+			if !slices.ContainsFunc(r.steps[tool][k.name], func(g Gate) bool { return slices.Equal(g, gate) }) {
+				r.steps[tool][k.name] = append(r.steps[tool][k.name], gate)
+			}
+		}
+	}
 
 	ast.Inspect(fn, func(n ast.Node) bool {
 		switch v := n.(type) {
 		case *ast.CompositeLit:
 			tool, args := callLiteral(v)
 			if tool != "" {
-				record(sent, known, tool, keysOf(args, maps))
+				record(tool, v.Pos(), keysOf(args, built))
 			}
 		case *ast.CallExpr:
 			// A helper that names the tool for its caller: the caller
 			// passes arguments and never writes the tool's name.
-			if named := namedTool(v, naming); named != "" {
+			if named := namedTool(v, r.naming); named != "" {
 				for _, arg := range v.Args {
 					if lit, ok := arg.(*ast.CompositeLit); ok {
 						if _, args := callLiteral(lit); args != nil {
-							record(sent, known, named, keysOf(args, maps))
+							record(named, v.Pos(), keysOf(args, built))
 						}
 					}
 				}
@@ -167,7 +240,7 @@ func readFunction(fn *ast.FuncDecl, known map[string][]string, naming map[string
 				return true
 			}
 			for _, arg := range v.Args {
-				record(sent, known, tool, keysOf(arg, maps))
+				record(tool, v.Pos(), keysOf(arg, built))
 			}
 		}
 		return true
@@ -184,7 +257,7 @@ func readFunction(fn *ast.FuncDecl, known map[string][]string, naming map[string
 		// recorded as options of this tool, coverage would go UP, and the
 		// rows excusing those options would be deleted as driven. A
 		// measurement that fails by growing is the worst kind.
-		record(sent, known, assigned, maps[argsField])
+		record(assigned, fn.Body.Pos(), built[argsField])
 	}
 }
 
@@ -216,10 +289,16 @@ func callLiteral(lit *ast.CompositeLit) (string, ast.Expr) {
 	return tool, args
 }
 
+// keyAt is an option name and where it was written.
+type keyAt struct {
+	name string
+	pos  token.Pos
+}
+
 // mapsIn collects every `map[string]any` a function builds, by variable
 // name, including the keys assigned into it afterwards.
-func mapsIn(fn *ast.FuncDecl) map[string][]string {
-	out := map[string][]string{}
+func mapsIn(fn *ast.FuncDecl) map[string][]keyAt {
+	out := map[string][]keyAt{}
 	ast.Inspect(fn, func(n ast.Node) bool {
 		as, ok := n.(*ast.AssignStmt)
 		if !ok {
@@ -244,9 +323,9 @@ func mapsIn(fn *ast.FuncDecl) map[string][]string {
 				}
 				switch target := idx.X.(type) {
 				case *ast.Ident:
-					out[target.Name] = append(out[target.Name], key)
+					out[target.Name] = append(out[target.Name], keyAt{key, as.Pos()})
 				case *ast.SelectorExpr:
-					out[target.Sel.Name] = append(out[target.Sel.Name], key)
+					out[target.Sel.Name] = append(out[target.Sel.Name], keyAt{key, as.Pos()})
 				}
 			}
 		}
@@ -257,7 +336,7 @@ func mapsIn(fn *ast.FuncDecl) map[string][]string {
 
 // keysOf reads the option names an argument expression carries: a map
 // literal written at the call, or a variable the function built.
-func keysOf(e ast.Expr, maps map[string][]string) []string {
+func keysOf(e ast.Expr, maps map[string][]keyAt) []keyAt {
 	switch v := e.(type) {
 	case *ast.CompositeLit:
 		if isArgMap(v) {
@@ -295,35 +374,18 @@ func isArgMap(lit *ast.CompositeLit) bool {
 	return false
 }
 
-func literalKeys(lit *ast.CompositeLit) []string {
-	var out []string
+func literalKeys(lit *ast.CompositeLit) []keyAt {
+	var out []keyAt
 	for _, elt := range lit.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok {
 			continue
 		}
 		if key, ok := stringLit(kv.Key); ok {
-			out = append(out, key)
+			out = append(out, keyAt{key, kv.Pos()})
 		}
 	}
 	return out
-}
-
-// record notes options against a tool, and only against a tool the
-// server actually publishes.
-func record(sent map[string]map[string]bool, known map[string][]string, tool string, keys []string) {
-	if len(keys) == 0 {
-		return
-	}
-	if _, ok := known[tool]; !ok {
-		return
-	}
-	if sent[tool] == nil {
-		sent[tool] = map[string]bool{}
-	}
-	for _, k := range keys {
-		sent[tool][k] = true
-	}
 }
 
 func stringLit(e ast.Expr) (string, bool) {
@@ -356,4 +418,216 @@ func namedTool(call *ast.CallExpr, naming map[string]string) string {
 		return naming[fn.Sel.Name]
 	}
 	return ""
+}
+
+// flagNames is every flag the driver declares, by the name a person
+// passes: flag.Bool("labels", ...) declares -labels.
+func flagNames(files []*ast.File) map[string]bool {
+	out := map[string]bool{}
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "flag" {
+				return true
+			}
+			if name, ok := stringLit(call.Args[0]); ok {
+				out[name] = true
+			}
+			return true
+		})
+	}
+	return out
+}
+
+// guards are the stretches of one function that wait for a flag.
+type guards []struct {
+	from, to token.Pos
+	flag     string
+}
+
+// at is the flags the code at pos waits for.
+func (g guards) at(pos token.Pos) map[string]bool {
+	out := map[string]bool{}
+	for _, s := range g {
+		if pos >= s.from && pos < s.to {
+			out[s.flag] = true
+		}
+	}
+	return out
+}
+
+// guardsIn finds the two shapes that make code wait for a flag: the body
+// of `if o.labels && ... { ... }`, and the rest of a block after
+// `if !w.labels || ... { return }`.
+func guardsIn(body *ast.BlockStmt, flags map[string]bool) guards {
+	var out guards
+	add := func(from, to token.Pos, flag string) {
+		out = append(out, struct {
+			from, to token.Pos
+			flag     string
+		}{from, to, flag})
+	}
+	afterReturn := func(stmts []ast.Stmt, end token.Pos) {
+		for _, st := range stmts {
+			is, ok := st.(*ast.IfStmt)
+			if !ok || is.Else != nil || len(is.Body.List) == 0 {
+				continue
+			}
+			if _, returns := is.Body.List[len(is.Body.List)-1].(*ast.ReturnStmt); !returns {
+				continue
+			}
+			// What follows runs only when every alternative was false.
+			for _, alt := range operands(is.Cond, token.LOR) {
+				if flag, given := flagTest(alt, flags); flag != "" && !given {
+					add(is.End(), end, flag)
+				}
+			}
+		}
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.IfStmt:
+			for _, part := range operands(v.Cond, token.LAND) {
+				if flag, given := flagTest(part, flags); flag != "" && given {
+					add(v.Body.Pos(), v.Body.End(), flag)
+				}
+			}
+		case *ast.BlockStmt:
+			afterReturn(v.List, v.End())
+		case *ast.CaseClause:
+			afterReturn(v.Body, v.End())
+		case *ast.CommClause:
+			afterReturn(v.Body, v.End())
+		}
+		return true
+	})
+	return out
+}
+
+// operands splits a chain of && or || into its parts.
+func operands(e ast.Expr, op token.Token) []ast.Expr {
+	e = ast.Unparen(e)
+	if b, ok := e.(*ast.BinaryExpr); ok && b.Op == op {
+		return append(operands(b.X, op), operands(b.Y, op)...)
+	}
+	return []ast.Expr{e}
+}
+
+// flagTest reads one condition as a test of a flag: `o.labels` and
+// `o.share != ""` are true when it was given, `!o.labels` and
+// `o.share == ""` when it was not. Anything else names no flag.
+func flagTest(e ast.Expr, flags map[string]bool) (flag string, given bool) {
+	named := func(e ast.Expr) string {
+		if sel, ok := ast.Unparen(e).(*ast.SelectorExpr); ok && flags[sel.Sel.Name] {
+			return sel.Sel.Name
+		}
+		return ""
+	}
+	e = ast.Unparen(e)
+	if f := named(e); f != "" {
+		return f, true
+	}
+	switch v := e.(type) {
+	case *ast.UnaryExpr:
+		if v.Op == token.NOT {
+			if f := named(v.X); f != "" {
+				return f, false
+			}
+		}
+	case *ast.BinaryExpr:
+		if v.Op != token.EQL && v.Op != token.NEQ {
+			return "", false
+		}
+		f, other := named(v.X), v.Y
+		if f == "" {
+			f, other = named(v.Y), v.X
+		}
+		if lit, ok := stringLit(other); f != "" && ok && lit == "" {
+			return f, v.Op == token.NEQ
+		}
+	}
+	return "", false
+}
+
+// callerGates is, per function the driver declares, the flags every
+// call of it waits for, through its callers as well: runDestructive is
+// called only under `if o.destructive`, so everything it calls waits for
+// -destructive too. A function nothing calls, main among them, waits for
+// none. Methods are matched by name, which joins two that share one, and
+// a call cycle adds nothing to what its own guards say. Both err toward
+// reporting a step as one no missing flag explains, which is the loud
+// direction.
+func callerGates(files []*ast.File, flags map[string]bool) map[string]map[string]bool {
+	type site struct {
+		caller string
+		local  map[string]bool
+	}
+	declared := map[string]bool{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
+				declared[fn.Name.Name] = true
+			}
+		}
+	}
+	sites := map[string][]site{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			g := guardsIn(fn.Body, flags)
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				var name string
+				switch f := call.Fun.(type) {
+				case *ast.Ident:
+					name = f.Name
+				case *ast.SelectorExpr:
+					name = f.Sel.Name
+				}
+				if declared[name] {
+					sites[name] = append(sites[name], site{fn.Name.Name, g.at(call.Pos())})
+				}
+				return true
+			})
+		}
+	}
+	// Start from nothing and take in what every caller waits for, until
+	// nothing changes. Each round can only add flags, so it ends.
+	out := map[string]map[string]bool{}
+	for name := range declared {
+		out[name] = map[string]bool{}
+	}
+	for changed := true; changed; {
+		changed = false
+		for name, ss := range sites {
+			var shared map[string]bool
+			for _, s := range ss {
+				here := maps.Clone(s.local)
+				maps.Copy(here, out[s.caller])
+				if shared == nil {
+					shared = here
+					continue
+				}
+				maps.DeleteFunc(shared, func(f string, _ bool) bool { return !here[f] })
+			}
+			if !maps.Equal(shared, out[name]) {
+				out[name] = shared
+				changed = true
+			}
+		}
+	}
+	return out
 }

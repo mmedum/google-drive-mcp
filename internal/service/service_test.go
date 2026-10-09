@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -495,6 +496,59 @@ func TestListFolderPaging(t *testing.T) {
 	}
 }
 
+// A folder this account can see but not list still answers a listing,
+// so an empty page must not read as an empty folder.
+func TestListFolderSaysWhenItCannotListAnEmptyPage(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-closed-fixture", "Closed", fake.RootID, drivetest.WithCapabilities(gdrive.Capabilities{}))
+	out, err := svc.ListFolder(t.Context(), service.ListFolderInput{Folder: "id-closed-fixture"})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	want := "My Drive/Closed — 0 items, folders first\n" +
+		"this account can see this folder but cannot list what is in it, so it may not be empty. " +
+		"Ask its owner for access.\n"
+	if out != want {
+		t.Errorf("got\n%s\nwant\n%s", out, want)
+	}
+}
+
+func TestListFolderSaysWhenItCannotListTheItemsShown(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-closed-fixture", "Closed", fake.RootID, drivetest.WithCapabilities(gdrive.Capabilities{}))
+	fake.AddFile("id-shown-fixture", "Shown", gdrive.MimeDocument, "id-closed-fixture")
+	out, err := svc.ListFolder(t.Context(), service.ListFolderInput{Folder: "id-closed-fixture"})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	if !strings.Contains(out, "Shown") ||
+		!strings.HasSuffix(out, "\nthis account cannot list this folder, so these may not be all of its items.\n") {
+		t.Errorf("the page does not say its items may not be all:\n%s", out)
+	}
+}
+
+// A walk reads the capability of every folder it enters, and names the
+// ones it could not list.
+func TestTreeNamesTheFoldersItCannotList(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-closed-fixture", "Closed", "id-projects-fixture", drivetest.WithCapabilities(gdrive.Capabilities{}))
+	out, err := svc.ListFolder(t.Context(), service.ListFolderInput{Folder: "/Projects", Recursive: true})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	for _, want := range []string{
+		"Closed/  [id-closed-fixture]  (0 items, this account cannot list it)",
+		"\nthis account cannot list 1 folder: Closed. They may hold more than is shown.\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the tree does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "2026/  [id-2026-fixture]  (2 items, this account cannot list it)") {
+		t.Errorf("a folder this account can list is marked:\n%s", out)
+	}
+}
+
 func TestListFolderTree(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 	out, err := svc.ListFolder(context.Background(), service.ListFolderInput{Folder: "/Projects", Recursive: true})
@@ -547,6 +601,37 @@ func TestSearchByName(t *testing.T) {
 	}
 	if !strings.Contains(out, "My Drive/Projects/2026") {
 		t.Errorf("a hit must say where it lives:\n%s", out)
+	}
+}
+
+// Google's front end refuses a search it finds too long with an HTML
+// page, before Drive reads it. The page never reaches the error; the
+// error says what the status means, and that the query was too long
+// when that is what it most likely was.
+func TestASearchGoogleRefusesWithAPageSaysWhyAndQuotesNoPage(t *testing.T) {
+	page := "<!DOCTYPE html>\n<html lang=en><title>Error 400 (Bad Request)</title></html>"
+	long := strings.Repeat("'id-root-my-drive' in parents or ", 400) + "'id-root-my-drive' in parents"
+	for _, tc := range []struct {
+		name   string
+		status int
+		raw    string
+		want   string
+	}{
+		{"a long query answered 400 with a page", http.StatusBadRequest, long,
+			"[invalid] Google refused the search before Drive read it, most likely as too long: its query is "},
+		{"a query answered 414", http.StatusRequestURITooLong, long,
+			"[invalid] Google refused the search as too long (HTTP 414): its query is "},
+		{"a short query answered 400 with a page", http.StatusBadRequest, "name = 'x'",
+			"[invalid] searching Drive failed: HTTP 400 Bad Request, answered with an error page rather than a Drive error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, fake := setup(t, service.Options{})
+			fake.Fail = drivetest.FailTimes(1, "/files", drivetest.Failure{Status: tc.status, Page: page})
+			_, err := svc.Search(t.Context(), service.SearchInput{RawQuery: tc.raw})
+			if err == nil || !strings.HasPrefix(err.Error(), tc.want) || strings.Contains(err.Error(), "<") {
+				t.Errorf("err = %v\nwant it to start %q and quote no page", err, tc.want)
+			}
+		})
 	}
 }
 
@@ -629,14 +714,219 @@ func TestSearchExcludesTrashByDefault(t *testing.T) {
 	}
 }
 
-func TestSearchNeedsAtLeastOneField(t *testing.T) {
+// A search with nothing to narrow it is every live file this account
+// can see, in the order asked for, and its title says so.
+func TestASearchWithNoFilterIsEverythingYouCanSee(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
-	_, err := svc.Search(context.Background(), service.SearchInput{})
-	if err == nil || !strings.HasPrefix(err.Error(), "[invalid]") {
-		t.Fatalf("err = %v, want invalid", err)
+	out, err := svc.Search(t.Context(), service.SearchInput{OrderBy: "name"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
 	}
-	if !strings.Contains(err.Error(), "list_folder") {
-		t.Errorf("the error should point at the alternative: %v", err)
+	if !strings.HasPrefix(out, "search: everything you can see, by name — ") {
+		t.Errorf("the title does not say what was searched:\n%s", out)
+	}
+	for _, want := range []string{"Budget.xlsx", "Meeting notes", "Q3 plan"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%s is missing:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Old plan") {
+		t.Errorf("a trashed file is in a search that did not ask for the trash:\n%s", out)
+	}
+	if out, _ := svc.Search(t.Context(), service.SearchInput{}); !strings.HasPrefix(out, "search: everything you can see, by modified — ") {
+		t.Errorf("the default order is not named:\n%s", out)
+	}
+}
+
+// order_by shared puts the files most recently shared with this account
+// first, and with no scope it is a search of those files alone.
+func TestOrderBySharedImpliesSharedWithMe(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-first-share-fixture", "Older share", gdrive.MimeDocument, "",
+		drivetest.Owner("Jane Doe", "jane@example.com"), drivetest.SharedWithMe("2026-02-01T09:00:00Z", "Jane Doe", "jane@example.com"))
+	fake.AddFile("id-second-share-fixture", "Newer share", gdrive.MimeDocument, "",
+		drivetest.Owner("John Doe", "john@example.com"), drivetest.SharedWithMe("2026-03-01T09:00:00Z", "John Doe", "john@example.com"))
+	out, err := svc.Search(t.Context(), service.SearchInput{OrderBy: "shared"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	lines := strings.Split(out, "\n")
+	if lines[0] != "search: shared with me (order_by shared implies it) — 2 hits" {
+		t.Errorf("title = %q", lines[0])
+	}
+	if len(lines) < 3 || !strings.Contains(lines[1], "Newer share") || !strings.Contains(lines[2], "Older share") {
+		t.Fatalf("the newest share is not first:\n%s", out)
+	}
+	if !strings.HasSuffix(lines[1], "; shared with you 2026-03-01 09:00Z (5 days ago) by John Doe <john@example.com>") {
+		t.Errorf("the row does not say who shared it and when: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "Shared with me") {
+		t.Errorf("a file shared with this account is not placed under Shared with me: %q", lines[1])
+	}
+}
+
+func TestOrderBySharedRefusesAnotherScope(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	_, err := svc.Search(t.Context(), service.SearchInput{OrderBy: "shared", Scope: "my_drive"})
+	want := `[invalid] order_by shared orders the files shared with you by when they were shared, so it takes ` +
+		`scope shared_with_me or no scope, not "my_drive"`
+	if err == nil || err.Error() != want {
+		t.Errorf("err = %v\nwant %s", err, want)
+	}
+}
+
+func TestFileCardSaysWhoSharedItWithYou(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-theirs-fixture", "Their plan", gdrive.MimeDocument, "",
+		drivetest.Owner("Jane Doe", "jane@example.com"), drivetest.SharedWithMe("2026-03-01T09:00:00Z", "Jane Doe", "jane@example.com"))
+	out, err := svc.GetFile(t.Context(), service.GetFileInput{File: "id-theirs-fixture"})
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if !strings.Contains(out, "\nshared with you: 2026-03-01 09:00Z (5 days ago) by Jane Doe <jane@example.com>\n") {
+		t.Errorf("the card does not say who shared it and when:\n%s", out)
+	}
+	own, err := svc.GetFile(t.Context(), service.GetFileInput{File: "id-budget-fixture"})
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if strings.Contains(own, "shared with you") {
+		t.Errorf("a file nobody shared with this account says it was:\n%s", own)
+	}
+}
+
+// A file this account shared with itself, as a shared drive's file can
+// be, names the account as "you" on the card and in a search row.
+func TestTheAccountIsMarkedWhenItSharedTheFile(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFile("id-self-shared-fixture", "Self shared", gdrive.MimeDocument, "",
+		drivetest.SharedWithMe("2026-03-01T09:00:00Z", drivetest.AccountName, drivetest.AccountEmail))
+	fake.Files["id-self-shared-fixture"].SharingUser.Me = true
+
+	card, err := svc.GetFile(t.Context(), service.GetFileInput{File: "id-self-shared-fixture"})
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	row, err := svc.Search(t.Context(), service.SearchInput{OrderBy: "shared"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	for _, out := range []string{card, row} {
+		if !strings.Contains(out, "2026-03-01 09:00Z (5 days ago) by Test Person (you)") {
+			t.Errorf("the account is not marked as the one who shared it:\n%s", out)
+		}
+	}
+}
+
+// A shared drive records who trashed an item; when it was this account,
+// the card says "you".
+func TestTheAccountIsMarkedWhenItTrashedTheFile(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	if _, err := svc.TrashFile(t.Context(), service.TrashInput{File: "id-q3-plan-fixture"}); err != nil {
+		t.Fatalf("TrashFile: %v", err)
+	}
+	card, err := svc.GetFile(t.Context(), service.GetFileInput{File: "id-q3-plan-fixture"})
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if !strings.Contains(card, "\ntrashed: yes, by Test Person (you) on ") {
+		t.Errorf("the account is not marked as the one who trashed it:\n%s", card)
+	}
+}
+
+// visibilityTree adds one file per kind of reach, each in its own way
+// open to people it does not name.
+func visibilityTree(fake *drivetest.Server) {
+	for _, f := range []struct {
+		id, name string
+		grant    *gdrive.Permission
+	}{
+		{"id-by-link-fixture", "By link", &gdrive.Permission{Type: "anyone", Role: "reader"}},
+		{"id-findable-fixture", "Findable", &gdrive.Permission{Type: "anyone", Role: "reader", AllowFileDiscovery: true}},
+		{"id-company-fixture", "Company", &gdrive.Permission{Type: "domain", Role: "reader", Domain: "example.com"}},
+		{"id-named-fixture", "Named", &gdrive.Permission{Type: "user", Role: "reader", EmailAddress: "jane@example.com"}},
+	} {
+		fake.AddFile(f.id, f.name, gdrive.MimeDocument, "id-2026-fixture")
+		fake.Grant(f.id, f.grant)
+	}
+}
+
+func TestSearchByVisibility(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	visibilityTree(fake)
+	for _, c := range []struct {
+		visibility, title string
+		want              []string
+	}{
+		{"anyone", "search: kind doc, open to anyone on the internet — 2 hits", []string{"By link", "Findable"}},
+		{"link", "search: kind doc, open to anyone with the link — 1 hit", []string{"By link"}},
+		{"domain", "search: kind doc, open to everyone in the organization — 1 hit", []string{"Company"}},
+		{"limited", "search: kind doc, open only to the people and groups it is shared with — 3 hits",
+			[]string{"Meeting notes", "Named", "Q3 plan"}},
+	} {
+		out, err := svc.Search(t.Context(), service.SearchInput{Kind: "doc", Visibility: c.visibility, OrderBy: "name"})
+		if err != nil {
+			t.Fatalf("%s: %v", c.visibility, err)
+		}
+		// The title carries the count, so the names below are all the hits.
+		if title, _, _ := strings.Cut(out, "\n"); title != c.title {
+			t.Errorf("%s: title = %q, want %q", c.visibility, title, c.title)
+		}
+		for _, name := range c.want {
+			if !strings.Contains(out, name) {
+				t.Errorf("%s: %s is missing:\n%s", c.visibility, name, out)
+			}
+		}
+	}
+}
+
+// shared_with finds a file whether the address may view, comment or
+// edit it. The fake reads readers narrowly, so a query that asked
+// readers alone would miss the editor here.
+func TestSearchSharedWithFindsViewersCommentersAndEditors(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	for _, f := range []struct{ id, name, role, address string }{
+		{"id-viewer-fixture", "Viewer", "reader", "jane@example.com"},
+		{"id-commenter-fixture", "Commenter", "commenter", "jane@example.com"},
+		{"id-editor-fixture", "Editor", "writer", "jane@example.com"},
+		{"id-someone-else-fixture", "Someone else", "writer", "john@example.com"},
+	} {
+		fake.AddFile(f.id, f.name, gdrive.MimeDocument, "id-2026-fixture")
+		fake.Grant(f.id, &gdrive.Permission{Type: "user", Role: f.role, EmailAddress: f.address})
+	}
+	out, err := svc.Search(t.Context(), service.SearchInput{SharedWith: "jane@example.com", OrderBy: "name"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.HasPrefix(out, "search: shared with jane@example.com — 3 hits\n") {
+		t.Errorf("title wrong:\n%s", out)
+	}
+	for _, want := range []string{"Viewer", "Commenter", "Editor"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%s is missing:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Someone else") {
+		t.Errorf("a file shared with another address is a hit:\n%s", out)
+	}
+}
+
+func TestSearchRefusesAVisibilityOrAddressItCannotRead(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	for _, c := range []struct {
+		in   service.SearchInput
+		want string
+	}{
+		{service.SearchInput{Visibility: "public"}, `[invalid] visibility "public" is not one of anyone, domain, limited, link`},
+		{service.SearchInput{SharedWith: "jane"}, `[invalid] shared_with takes one address of a person or group, ` +
+			`like someone@example.com, not "jane"`},
+		{service.SearchInput{SharedWith: "jane@example.com john@example.com"}, `[invalid] shared_with takes one ` +
+			`address of a person or group, like someone@example.com, not "jane@example.com john@example.com"`},
+	} {
+		_, err := svc.Search(t.Context(), c.in)
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%+v: err = %v\nwant %s", c.in, err, c.want)
+		}
 	}
 }
 

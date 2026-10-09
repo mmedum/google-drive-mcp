@@ -44,6 +44,10 @@ func sessionAndFake(t *testing.T, cfg config.Config, withCredentials bool) (*mcp
 	fake.AddComment("id-notes-fixture", "id-comment-fixture", "does this cover the second case?",
 		drivetest.WithReply("id-reply-fixture", "Someone Else", "not yet", ""))
 	fake.AddProposal("id-notes-fixture", "id-request-fixture", "alice@example.com", "writer")
+	// A scan whose bytes the fake's import hands back as the text it
+	// "read", standing in for Google's OCR.
+	fake.AddFile("id-scan-fixture", "scan.pdf", "application/pdf", fake.RootID)
+	fake.SetContent("id-scan-fixture", "Total: 42")
 
 	api := drivetest.Client(t, fake)
 	if !withCredentials {
@@ -117,7 +121,7 @@ func TestToolsListed(t *testing.T) {
 		"trash_file": false, "restore_file": false,
 		"share_file": false, "unshare_file": false, "manage_drive": false, "manage_revision": false,
 		"add_comment": false, "reply_comment": false, "resolve_access_request": false,
-		"manage_approval": false,
+		"manage_approval": false, "extract_text": false,
 	}
 	for name := range readTools {
 		want[name] = false
@@ -293,6 +297,28 @@ func TestReadToolsThroughTheProtocol(t *testing.T) {
 	}
 }
 
+func TestExtractTextReturnsTheTextAloneAndLeavesNoCopy(t *testing.T) {
+	// A write that returns text only, as read_file does: its result is a
+	// window of up to 400 000 characters, and Claude Code shows the model
+	// only the structured half when there is one (§4, §18).
+	cs, fake := sessionAndFake(t, defaultConfig(), true)
+	before := len(fake.Files)
+	res := call(t, cs, "extract_text", map[string]any{"file": "id-scan-fixture"})
+	out := resultText(t, res)
+	if res.IsError {
+		t.Fatalf("extract_text failed: %s", out)
+	}
+	if !strings.Contains(out, "Total: 42") {
+		t.Errorf("the text is missing:\n%s", out)
+	}
+	if res.StructuredContent != nil {
+		t.Errorf("extract_text returned structured content: %v", res.StructuredContent)
+	}
+	if after := len(fake.Files); after != before {
+		t.Errorf("the fake holds %d files after the call, %d before: the temporary copy was left", after, before)
+	}
+}
+
 func TestToolErrorsCarryAClass(t *testing.T) {
 	cs := session(t, defaultConfig(), true)
 	cases := []struct {
@@ -302,7 +328,7 @@ func TestToolErrorsCarryAClass(t *testing.T) {
 	}{
 		{"get_file", map[string]any{"file": "1NoSuchFileIdFixtureAAAAAAAAAAAAAAA"}, "[not_found]"},
 		{"get_file", map[string]any{"file": "https://example.com/x"}, "[invalid]"},
-		{"search_files", map[string]any{}, "[invalid]"},
+		{"search_files", map[string]any{"order_by": "relevance"}, "[invalid]"},
 		{"list_folder", map[string]any{"folder": "id-notes-fixture"}, "[invalid]"},
 	}
 	for _, c := range cases {
@@ -315,6 +341,24 @@ func TestToolErrorsCarryAClass(t *testing.T) {
 		if !strings.Contains(out, c.class) {
 			t.Errorf("%s %v: want class %s, got %q", c.tool, c.args, c.class, out)
 		}
+	}
+}
+
+// A comment with no content is the server's own [invalid] refusal, which
+// says what is missing, and not the SDK's schema error, which has no
+// class and reads like a fault.
+func TestAddCommentWithoutContentIsAnInvalidRefusal(t *testing.T) {
+	cs, fake := sessionAndFake(t, defaultConfig(), true)
+	res := call(t, cs, "add_comment", map[string]any{"file": "id-notes-fixture"})
+	if !res.IsError {
+		t.Fatal("a comment with no content was accepted")
+	}
+	want := "[invalid] content is required: a comment with nothing in it says nothing"
+	if got := resultText(t, res); got != want {
+		t.Errorf("the refusal reads %q, want %q", got, want)
+	}
+	if n := len(fake.Comments["id-notes-fixture"]); n != 1 {
+		t.Errorf("the file has %d threads, want the 1 it had", n)
 	}
 }
 
@@ -363,7 +407,7 @@ func TestDumpSchemas(t *testing.T) {
 	if out.Server != server.Name || out.SDK != server.SDKVersion {
 		t.Errorf("dump header = %+v", out)
 	}
-	const registeredTools = 31
+	const registeredTools = 32
 	if len(out.Tools) != registeredTools {
 		t.Fatalf("dumped %d tools, want %d", len(out.Tools), registeredTools)
 	}
@@ -422,9 +466,22 @@ func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	schemas := map[string]string{}
+	var orderBy, visibility string
 	for _, tool := range res.Tools {
 		raw, _ := json.Marshal(tool.InputSchema)
 		schemas[tool.Name] = string(raw)
+		if tool.Name == "search_files" {
+			var schema struct {
+				Properties map[string]struct {
+					Description string `json:"description"`
+				} `json:"properties"`
+			}
+			if err := json.Unmarshal(raw, &schema); err != nil {
+				t.Fatalf("search_files schema does not decode: %v", err)
+			}
+			orderBy = schema.Properties["order_by"].Description
+			visibility = schema.Properties["visibility"].Description
+		}
 	}
 	for _, tool := range []string{"search_files", "list_folder"} {
 		for _, kind := range service.Kinds() {
@@ -433,9 +490,16 @@ func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
 			}
 		}
 	}
+	// Read from order_by's own description: "shared" is in the schema
+	// already, in scope's, so the whole schema would pass without it.
 	for _, order := range service.OrderBys() {
-		if !strings.Contains(schemas["search_files"], order) {
-			t.Errorf("search_files does not offer the order %q that the service accepts", order)
+		if !regexp.MustCompile(`\b` + order + `\b`).MatchString(orderBy) {
+			t.Errorf("order_by does not offer the order %q that the service accepts: %q", order, orderBy)
+		}
+	}
+	for _, v := range service.Visibilities() {
+		if !regexp.MustCompile(`\b` + v + `\b`).MatchString(visibility) {
+			t.Errorf("visibility does not offer %q, which the service accepts: %q", v, visibility)
 		}
 	}
 	// The download formats are the same shape of promise: a list typed
@@ -986,7 +1050,13 @@ func toolArgs() map[string][]map[string]any {
 			{},
 			{"kind": "not-a-kind", "name": "x"},
 		},
-		"read_file":      {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
+		"read_file": {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}, {"file": "id-scan-fixture"}},
+		"extract_text": {
+			{"file": "id-scan-fixture"},
+			{"file": "id-scan-fixture", "ocr_language": "en", "offset": 2, "max_chars": 5, "keep_copy": true},
+			{"file": "id-notes-fixture"},
+			{"file": "id-projects-fixture"},
+		},
 		"download_file":  {{"file": "id-notes-fixture"}},
 		"upload_file":    {{"local_path": "notes.txt"}},
 		"create_file":    {{"name": "Notes", "kind": "doc"}, {"name": "x"}},

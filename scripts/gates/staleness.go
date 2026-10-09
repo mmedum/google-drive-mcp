@@ -334,3 +334,14 @@ func checkScopesDocumented() []string {
 
 // scopeConstant matches the Scope* constants internal/auth declares.
 var scopeConstant = regexp.MustCompile(`Scope[A-Za-z]*\s*=\s*"(https://www\.googleapis\.com/auth/[a-z.]+)"`)
+
+// lastTag returns the most recent tag, or "" when there is none. Having
+// no tags is the normal state before the first release, so it is not an
+// error and this cannot fail.
+func lastTag() string {
+	out, err := exec.Command("git", "describe", "--tags", "--abbrev=0").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}

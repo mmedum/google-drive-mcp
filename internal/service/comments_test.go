@@ -28,6 +28,40 @@ func TestListCommentsShowsThreadsRepliesAndWhatIsOpen(t *testing.T) {
 	}
 }
 
+func TestListCommentsNamesWhereEachKindPinsAComment(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	for _, tc := range []struct {
+		id, mime string
+		want     string
+	}{
+		{"id-pinneddoc-fixture", gdrive.MimeDocument, "this is a Google Doc: a comment pinned to a passage was made in the editor, " +
+			"and add_comment here makes an unpinned one, because pinning belongs to the Docs API"},
+		{"id-pinnedsheet-fixture", gdrive.MimeSheet, "this is a Google Sheet: a comment pinned to a cell was made in the editor, " +
+			"and add_comment here makes an unpinned one, because pinning belongs to the Sheets API"},
+		{"id-pinneddeck-fixture", gdrive.MimeSlides, "this is a Google Slides deck: a comment pinned to a slide or to something on one " +
+			"was made in the editor, and add_comment here makes an unpinned one, because pinning belongs to " +
+			"the Slides API"},
+		{"id-pinneddrawing-fixture", gdrive.MimeDrawing, "this is a Google Drawing: a comment pinned to a place in it was made in the " +
+			"editor, and add_comment here makes an unpinned one\n"},
+		{"id-pinnedcsv-fixture", "text/csv", ""},
+	} {
+		fake.AddFile(tc.id, "Pinned", tc.mime, "id-2026-fixture")
+		out, err := svc.ListComments(t.Context(), service.ListCommentsInput{File: tc.id})
+		if err != nil {
+			t.Fatalf("ListComments on %s: %v", tc.mime, err)
+		}
+		if tc.want == "" {
+			if strings.Contains(out, "pinned") {
+				t.Errorf("a %s, whose comments are all on the file, got a note on pinning:\n%s", tc.mime, out)
+			}
+			continue
+		}
+		if !strings.Contains(out+"\n", tc.want) {
+			t.Errorf("listing a %s does not say %q:\n%s", tc.mime, tc.want, out)
+		}
+	}
+}
+
 func TestListCommentsRefusesAFolderAndAnOversizedPage(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
 	if _, err := svc.ListComments(t.Context(), service.ListCommentsInput{File: "id-projects-fixture"}); err == nil {

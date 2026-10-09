@@ -16,18 +16,21 @@ import (
 // list so a file card never depends on which call produced the file, and
 // files.get costs the same 5 units whatever it returns.
 const FileFields = "id,name,mimeType,description,parents,starred,trashed,explicitlyTrashed," +
-	"trashedTime,trashingUser(displayName,emailAddress),createdTime,modifiedTime,modifiedByMeTime," +
+	"trashedTime,trashingUser(displayName,emailAddress,me),createdTime,modifiedTime,modifiedByMeTime," +
 	"viewedByMeTime,sharedWithMeTime,owners(displayName,emailAddress,me),lastModifyingUser(displayName,emailAddress,me)," +
-	"sharingUser(displayName,emailAddress),ownedByMe,shared,webViewLink,size,quotaBytesUsed,md5Checksum," +
+	"sharingUser(displayName,emailAddress,me),ownedByMe,shared,webViewLink,size,quotaBytesUsed,md5Checksum," +
 	"sha256Checksum,headRevisionId,version,fileExtension,originalFilename,folderColorRgb,driveId,resourceKey," +
-	"writersCanShare,copyRequiresWriterPermission,capabilities,shortcutDetails,linkShareMetadata," +
+	"writersCanShare,copyRequiresWriterPermission,downloadRestrictions,inheritedPermissionsDisabled," +
+	"capabilities,shortcutDetails,linkShareMetadata," +
 	"permissions,permissionIds,properties,appProperties,exportLinks,contentRestrictions"
 
 // ListFileFields is the leaner per-file list for search and folder
 // listings: a page of 100 files carries no capabilities or permissions,
-// because a listing shows kind, name, id, location and modification.
+// because a listing shows kind, name, id, location, modification and,
+// for a file someone shared with this account, when and by whom.
 const ListFileFields = "id,name,mimeType,parents,starred,trashed,createdTime,modifiedTime," +
 	"owners(displayName,emailAddress,me),lastModifyingUser(displayName,emailAddress,me),shared," +
+	"sharedWithMeTime,sharingUser(displayName,emailAddress,me)," +
 	"size,driveId,resourceKey,shortcutDetails,webViewLink"
 
 // MaxPageSize is Drive's hard limit for a listing page.
@@ -223,7 +226,7 @@ func (c *Client) GenerateIDs(ctx context.Context, count int) ([]string, error) {
 
 // PermissionFields is what a permission listing asks for.
 const PermissionFields = "id,type,role,emailAddress,domain,displayName,allowFileDiscovery," +
-	"expirationTime,deleted,pendingOwner,permissionDetails"
+	"expirationTime,deleted,pendingOwner,permissionDetails,view"
 
 // ListPermissions returns every grant on a file or shared drive, paging
 // to the end. A file's permissions are few; a shared drive's are the
@@ -293,6 +296,11 @@ type WriteOptions struct {
 	// since, or the check read the reference page rather than the
 	// document. It is only meaningful on files.copy.
 	CopyComments bool
+	// IgnoreDefaultVisibility makes a create or a copy skip the domain's
+	// default visibility, which an administrator can set to share every
+	// new file with the whole organization. Permissions are still
+	// inherited from the parent folder.
+	IgnoreDefaultVisibility bool
 	// ResourceIDs carry resource keys for the ids this call names.
 	ResourceIDs []string
 }
@@ -332,6 +340,9 @@ func (o WriteOptions) values() url.Values {
 	}
 	if o.CopyComments {
 		v.Set("copyComments", "true")
+	}
+	if o.IgnoreDefaultVisibility {
+		v.Set("ignoreDefaultVisibility", "true")
 	}
 	return v
 }

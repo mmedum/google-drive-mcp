@@ -201,33 +201,35 @@ the server will do at all:
 |---|---|---|
 | `GDRIVE_LOCAL_DIR` | unset | The one directory downloads are written to and uploads are read from. **Unset means no file transfer at all.** |
 | `GDRIVE_READ_ONLY` | `false` | Register only read tools, and ask for read-only scopes at login. |
-| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, and keeps a shared drive's restrictions, and a file's copy and reshare switches, from being loosened. |
+| `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, keeps a shared drive's restrictions, a file's download and reshare switches and a folder's limited access from being loosened, and refuses a move that would let more people reach an item, or a copy that more people could reach than the original. |
 | `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back. Each still needs `confirm: true` per call. |
 | `GDRIVE_REQUIRE_PROMPT` | `false` | Refuse the writes that ask the person when the client cannot ask them. |
 
 Before a write that cannot be undone, a share to anyone with the link, a
 whole domain, a new owner or someone outside your organization,
-accepting a request for access, or turning a shared drive's restriction
-off, the server asks you through your MCP client when the client
-supports elicitation. Anything but Accept stops the write.
+accepting a request for access, turning a shared drive's restriction
+off, turning a folder's limited access off, or a move or a copy into a
+folder or shared drive that more people can reach, the server asks you
+through your MCP client when the client supports elicitation. Anything but Accept stops the write.
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
 | `get_account` | Who is signed in, storage used, whether this account has shared drives, and which of this server's tools are registered |
-| `get_file` | Everything about one file: kind, location, link, size, owner, who can see it, and what you may do with it |
+| `get_file` | Everything about one file: kind, location, link, size, owner, who can see it, who cannot download it, and what you may do with it |
 | `list_folder` | One page of a folder's contents, or a budgeted tree of everything below it |
-| `search_files` | Find files across My Drive, files shared with you, and every shared drive |
-| `read_file` | The text of a file: a Doc as markdown, a Sheet as csv, a log or source file as itself, windowed with a continuation |
+| `search_files` | Find files across My Drive, files shared with you, and every shared drive, or under one folder at any depth |
+| `read_file` | The text of a file: a Doc as markdown, a Sheet as csv, a Word, Excel or PowerPoint file (or its OpenDocument counterpart) read here as text, a log or source file as itself, windowed with a continuation |
+| `extract_text` | The text in a PDF or an image, read by Google's OCR through a temporary Google Doc copy that is deleted again |
 | `download_file` | Write a file to the local directory, converting a Google document on the way out, checksum-verified |
 | `create_file` | A new empty Google file, or one written from text you have here, with optional conversion |
 | `upload_file` | Send a local file, in one request or in chunks that survive a dropped connection |
 | `update_content` | Replace what is inside a file, keeping its id, its place and everything that points at it |
 | `create_folder` | A new folder, refusing a duplicate name unless you allow it |
-| `update_file` | Rename, describe, star, color, set properties, or turn off copying and re-sharing |
-| `move_file` | Move an item to another folder or shared drive, with a dry run |
-| `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder |
+| `update_file` | Rename, describe, star, color, set properties, restrict downloads and re-sharing, or give a folder limited access |
+| `move_file` | Move an item, or up to 50, to another folder or shared drive, with who can reach each before and after, and a dry run |
+| `copy_file` | Copy a file, optionally asking Google to import it as a Doc, which reads the text out of a PDF or a scan; with `recursive`, a whole folder; with who can reach the original and the copy |
 | `create_shortcut` | A pointer to one item from another folder |
 | `trash_file` | Move an item to the trash, which is reversible |
 | `restore_file` | Take an item out of the trash, and say where it went |
@@ -245,7 +247,7 @@ supports elicitation. Anything but Accept stops the write.
 | `list_access_requests` | Who has asked to be let into a file, and what they asked for |
 | `resolve_access_request` | Accept or deny one, with who could see the file before and after |
 | `list_approvals` | The reviews on a file: who asked, who has to answer, and whether it is waiting on you |
-| `manage_approval` | Ask people to review a file, answer one, withdraw it, comment on it, or change who is asked |
+| `manage_approval` | Ask people to review a file, answer one, withdraw it, comment on it, or change who is asked, and choose whether a content change resets it |
 
 Three more are registered only when the deployer turns their feature on,
 because each needs a scope the consent screen would otherwise not carry:
@@ -293,8 +295,9 @@ Five things it does differently from the alternatives:
 
 - Edit the content of a Google Doc, Sheet or Slides deck. It reads them
   through Google's export and says so. A comment made here sits on the
-  file rather than on a passage of the document: pinning one to a place
-  in a Doc is a Docs API feature, and this server does not use that API.
+  file rather than on a place in it: pinning one in a Doc, Sheet or
+  Slides deck is a feature of that kind's own API, which this server
+  does not use.
 - Widen access without being asked. Sharing tools check
   `capabilities.canShare` first, show who can see a file before and
   after, need `allow_anyone: true` for a public link, and send no
@@ -307,7 +310,9 @@ Five things it does differently from the alternatives:
   call, because a registered tool is one a model will reach for
   eventually. There is no bulk delete and no bulk share: one item per
   call, so every removal is a visible approval. Deleting the top of a
-  drive is refused outright.
+  drive is refused outright. The one thing deleted for good without
+  either is the temporary copy `extract_text` makes and removes within
+  the same call.
 - Talk to anything but Google. Every URL is checked against an allowlist
   of Google's own hosts before credentials are attached. No telemetry, no
   update checks.

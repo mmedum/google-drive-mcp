@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"sort"
@@ -23,7 +25,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(),
 		ResourceKeys: r.Header.Get("X-Goog-Drive-Resource-Keys"),
 	})
-	fail := s.Fail
+	fail, rewrite := s.Fail, s.Rewrite
 	s.mu.Unlock()
 
 	if fail != nil {
@@ -32,7 +34,21 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if rewrite != nil {
+		rec := httptest.NewRecorder()
+		s.route(rec, r)
+		status, body := rewrite(r, rec.Code, rec.Body.Bytes())
+		maps.Copy(w.Header(), rec.Header())
+		w.Header().Del("Content-Length")
+		w.WriteHeader(status)
+		_, _ = w.Write(body)
+		return
+	}
+	s.route(w, r)
+}
 
+// route serves one request that was not failed.
+func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	if s.serveElsewhere(w, r) {
 		return
 	}
@@ -316,6 +332,12 @@ func (s *Server) injectFailure(w http.ResponseWriter, f *Failure) {
 	if f.RetryAfter != "" {
 		w.Header().Set("Retry-After", f.RetryAfter)
 	}
+	if f.Page != "" {
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		w.WriteHeader(f.Status)
+		_, _ = io.WriteString(w, f.Page)
+		return
+	}
 	msg := f.Message
 	if msg == "" {
 		msg = "injected failure"
@@ -464,11 +486,16 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid Value: "+err.Error())
 		return
 	}
+	if key, ok := unknownOrderKey(q.Get("orderBy")); !ok {
+		s.errorJSON(w, http.StatusBadRequest, "invalid", "Invalid Value: orderBy key "+key)
+		return
+	}
 	corpora := q.Get("corpora")
 	driveID := q.Get("driveId")
 	includeAll := q.Get("includeItemsFromAllDrives") == "true"
 
 	s.mu.Lock()
+	pageCap := s.FilePageCap
 	var matched []*gdrive.File
 	for _, f := range s.Files {
 		if f.ID == s.RootID {
@@ -497,6 +524,9 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	start, end, ok := s.pageWindow(w, q, len(matched), 100, MaxPageSize)
 	if !ok {
 		return
+	}
+	if pageCap > 0 {
+		end = min(end, start+pageCap)
 	}
 	page := gdrive.FileList{Files: []*gdrive.File{}}
 	for _, f := range matched[start:end] {
@@ -541,6 +571,30 @@ func (s *Server) pageWindow(w http.ResponseWriter, q url.Values, total, size, ma
 	return start, min(start+size, total), true
 }
 
+// orderKeys are the keys the files.list reference calls valid for
+// orderBy. The fake refuses any other rather than sorting as if it were
+// not there, so a misspelled key fails here and not in production.
+var orderKeys = map[string]bool{
+	"createdTime": true, "folder": true, "modifiedByMeTime": true, "modifiedTime": true, "name": true,
+	"name_natural": true, "quotaBytesUsed": true, "recency": true, "sharedWithMeTime": true, "starred": true,
+	"viewedByMeTime": true,
+}
+
+// unknownOrderKey returns the first orderBy key Drive does not document,
+// and false, or "" and true when every key is one it does.
+func unknownOrderKey(orderBy string) (string, bool) {
+	if strings.TrimSpace(orderBy) == "" {
+		return "", true
+	}
+	for _, key := range strings.Split(orderBy, ",") {
+		key = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(key), " desc"), " asc")
+		if !orderKeys[key] {
+			return key, false
+		}
+	}
+	return "", true
+}
+
 // sortFiles applies the orderBy keys Drive supports, so a listing's
 // order is deterministic here for the same reason it must be in
 // production: an unordered listing cannot be paged honestly.
@@ -563,6 +617,12 @@ func sortFiles(files []*gdrive.File, orderBy string) {
 				less, equal = a.ModifiedTime < b.ModifiedTime, a.ModifiedTime == b.ModifiedTime
 			case "createdTime":
 				less, equal = a.CreatedTime < b.CreatedTime, a.CreatedTime == b.CreatedTime
+			case "sharedWithMeTime":
+				less, equal = a.SharedWithMeTime < b.SharedWithMeTime, a.SharedWithMeTime == b.SharedWithMeTime
+			case "viewedByMeTime":
+				less, equal = a.ViewedByMeTime < b.ViewedByMeTime, a.ViewedByMeTime == b.ViewedByMeTime
+			case "modifiedByMeTime":
+				less, equal = a.ModifiedByMeTime < b.ModifiedByMeTime, a.ModifiedByMeTime == b.ModifiedByMeTime
 			case "starred":
 				less, equal = a.Starred && !b.Starred, a.Starred == b.Starred
 			case "quotaBytesUsed":
@@ -614,7 +674,15 @@ func (s *Server) project(f *gdrive.File, fields string, labelIDs []string) *gdri
 		out.ExportLinks = links
 	}
 	s.mu.Lock()
-	if perms := s.Permissions[f.ID]; len(perms) > 0 {
+	out.DownloadRestrictions = s.downloadRestrictionsLocked(f)
+	out.CopyRequiresWriterPermission = out.DownloadRestrictions.EffectiveDownloadRestrictionWithContext.RestrictedForReaders
+	perms := s.Permissions[f.ID]
+	if f.DriveID == "" {
+		// The reference calls this "The full list of permissions for the
+		// file", so a My Drive item carries what it inherits too.
+		perms = s.grantsLocked(f.ID)
+	}
+	if len(perms) > 0 {
 		out.Permissions = append([]*gdrive.Permission(nil), perms...)
 		ids := make([]string, 0, len(perms))
 		for _, p := range perms {
@@ -643,10 +711,37 @@ func (s *Server) project(f *gdrive.File, fields string, labelIDs []string) *gdri
 	return projectFields(&out, fields)
 }
 
+// downloadRestrictionsLocked is a file's download restriction as Drive
+// reports it: what is set on the file, and in effect, which counts the
+// shared drive's restriction too. The fake has no data loss prevention
+// rules to count. The caller holds the lock.
+func (s *Server) downloadRestrictionsLocked(f *gdrive.File) *gdrive.DownloadRestrictionsMetadata {
+	item := gdrive.DownloadRestriction{}
+	if f.DownloadRestrictions != nil && f.DownloadRestrictions.ItemDownloadRestriction != nil {
+		item = *f.DownloadRestrictions.ItemDownloadRestriction
+	}
+	if f.CopyRequiresWriterPermission {
+		// A test that set the legacy switch alone meant readers.
+		item.RestrictedForReaders = true
+	}
+	effective := item
+	if d := s.Drives[f.DriveID]; d != nil && d.Restrictions != nil && d.Restrictions.DownloadRestriction != nil {
+		effective.RestrictedForReaders = effective.RestrictedForReaders || d.Restrictions.DownloadRestriction.RestrictedForReaders
+		effective.RestrictedForWriters = effective.RestrictedForWriters || d.Restrictions.DownloadRestriction.RestrictedForWriters
+	}
+	effective.RestrictedForReaders = effective.RestrictedForReaders || effective.RestrictedForWriters
+	return &gdrive.DownloadRestrictionsMetadata{ItemDownloadRestriction: &item, EffectiveDownloadRestrictionWithContext: &effective}
+}
+
 // projectFields drops every field the request did not ask for. The wire
 // struct's json tags are exactly the names a fields expression uses, so
 // this goes through JSON rather than a hand-written copy per field: a
 // list of 46 assignments is a list that falls behind gdrive.File.
+//
+// A field asked for with a sub-selection, such as
+// sharingUser(displayName,emailAddress), keeps only what was named in
+// it, as Drive does. Without that, a mask missing "me" passed every test
+// while no sharer was ever marked as the account.
 func projectFields(f *gdrive.File, fields string) *gdrive.File {
 	want := map[string]bool{"id": true} // the id always comes back
 	for _, name := range splitFields(fields) {
@@ -660,9 +755,13 @@ func projectFields(f *gdrive.File, fields string) *gdrive.File {
 	if err := json.Unmarshal(raw, &all); err != nil {
 		return f
 	}
+	subs := subSelections(fields)
 	for k := range all {
-		if !want[k] {
+		switch {
+		case !want[k]:
 			delete(all, k)
+		case subs[k] != nil:
+			all[k] = keepOnly(all[k], subs[k])
 		}
 	}
 	kept, err := json.Marshal(all)
@@ -674,6 +773,55 @@ func projectFields(f *gdrive.File, fields string) *gdrive.File {
 		return f
 	}
 	return out
+}
+
+// subSelection is a field with a list of plain names after it in
+// parentheses, which is one Drive answers with those names alone.
+var subSelection = regexp.MustCompile(`(\w+)\(([\w,\s]*)\)`)
+
+// subSelections maps each field asked for with a sub-selection of plain
+// names to those names. A field whose sub-selection nests further is
+// left out and kept whole.
+func subSelections(fields string) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, m := range subSelection.FindAllStringSubmatch(fields, -1) {
+		names := map[string]bool{}
+		for _, n := range strings.Split(m[2], ",") {
+			names[strings.TrimSpace(n)] = true
+		}
+		out[m[1]] = names
+	}
+	return out
+}
+
+// keepOnly cuts an object, or each object in a list, down to the named
+// keys. Anything else it is given comes back as it was.
+func keepOnly(raw json.RawMessage, names map[string]bool) json.RawMessage {
+	cut := func(obj map[string]json.RawMessage) {
+		for k := range obj {
+			if !names[k] {
+				delete(obj, k)
+			}
+		}
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) == nil {
+		cut(obj)
+		if b, err := json.Marshal(obj); err == nil {
+			return b
+		}
+		return raw
+	}
+	var list []map[string]json.RawMessage
+	if json.Unmarshal(raw, &list) == nil {
+		for _, o := range list {
+			cut(o)
+		}
+		if b, err := json.Marshal(list); err == nil {
+			return b
+		}
+	}
+	return raw
 }
 
 // splitFields pulls the field names out of a Drive fields expression.

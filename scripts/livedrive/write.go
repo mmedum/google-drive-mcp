@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -102,7 +103,13 @@ func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o opti
 func (w *writeRun) exercise() {
 	ids := w.create()
 	w.readBack(ids)
+	w.officeFiles()
+	w.ocr()
 	w.organize(ids)
+	w.underFolder()
+	w.downloads(ids)
+	w.limitedAccess()
+	w.moveExposure()
 	w.access(ids)
 	w.history(ids)
 	w.collaboration(ids)
@@ -124,9 +131,9 @@ func (w *writeRun) exercise() {
 // The property search runs LAST of the three deliberately: it looks for
 // the key update_file set earlier in this run, so it is checking that
 // what this server wrote is what Drive indexed, not merely that a query
-// parses. Drive's index is eventually consistent, so an empty answer is
-// reported rather than counted as a failure — the same caution the
-// changes feed needed in phase 2.
+// parses. An empty answer after the wait is reported as unverified
+// rather than counted as a failure: nothing here knows how slow Drive's
+// index can be.
 func (w *writeRun) phase4Extras(m made) {
 	w.out.Say("\n--- phase 4 parameters ---")
 	// Both kinds, because the answer differs by kind and one file type is
@@ -135,14 +142,14 @@ func (w *writeRun) phase4Extras(m made) {
 	// (§18) — and a Google Doc anchors its comments to a passage rather
 	// than to a file, which is the case most likely to behave differently
 	// and the one §17a was left holding.
-	w.copyAndCheckComments(m.text, "rows with its comments.csv", "a csv")
-	w.copyAndCheckComments(m.doc, "Notes with its comments", "a Google Doc")
+	w.copyAndCheckComments(m.text, "rows with its comments.csv", "a csv", false)
+	w.copyAndCheckComments(m.doc, "Notes with its comments", "a Google Doc", true)
 	// The third kind, and the one that decides whether the split is a
 	// RULE. A Doc carried its threads and an uploaded CSV did not; the
 	// obvious reading is "Drive's own formats yes, uploaded bytes no",
 	// and a Sheet is Drive's own format that is not a Doc — so it agrees
 	// with the reading or refutes it, which two points cannot do.
-	w.copyAndCheckComments(m.sheet, "Figures with its comments", "a Google Sheet")
+	w.copyAndCheckComments(m.sheet, "Figures with its comments", "a Google Sheet", true)
 	if m.text != "" {
 		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
 	}
@@ -154,7 +161,8 @@ func (w *writeRun) phase4Extras(m made) {
 		w.needing("update_file", m.text, map[string]any{
 			"file": m.text, "properties": map[string]any{"livedrive_found": "yes"},
 		})
-		w.pollProperty("livedrive_found=yes")
+		w.pollSearch(call{tool: "search_files", args: map[string]any{"property": "livedrive_found=yes"}}, m.text,
+			"a property search finds the file this run tagged")
 	}
 	w.expecting("search_files", w.scratchID, map[string]any{"property": "=nothing"},
 		"a property clause with no key")
@@ -164,43 +172,70 @@ func (w *writeRun) phase4Extras(m made) {
 	// showing up at all.
 	w.expecting("search_files", w.scratchID, map[string]any{"property": "livedrive"},
 		"a key with no value, which Drive answers Invalid Value despite its guide")
-	w.out.Say("(an empty property search moments after the write is Drive's index catching up, " +
-		"not a defect — read the hits above against what update_file set)")
 }
 
-// pollProperty searches for a property until Drive's index has caught
-// up, or says it did not. Drive indexes a property change within seconds
-// usually, but not always — and an empty answer moments after a write
-// looks exactly like a broken query, which is what phase 2 learned about
-// the changes feed and phase 4 nearly repeated here.
-func (w *writeRun) pollProperty(property string) {
+// pollSearch searches everywhere under the scratch folder until the
+// search finds the file, and reports whether it did. Every attempt reads
+// every page, since such a search can match more files than one page
+// holds. A sharing or property change reaches Drive's search index late,
+// so an empty answer is first waited out and then reported as
+// unverified rather than as a defect.
+//
+// It searches under the scratch folder, not in it. The file these
+// searches look for is moved into a folder inside it early on, and two
+// runs searched only the scratch folder's direct children, could not
+// find it at any speed, and blamed Drive's index (§18).
+func (w *writeRun) pollSearch(search call, id, what string) bool {
+	search.args["under_folder"] = w.scratchID
 	const attempts = 10
 	for i := range attempts {
 		if i > 0 {
 			time.Sleep(3 * time.Second)
 		}
-		out := w.call(call{tool: "search_files", args: map[string]any{
-			"property": property, "in_folder": w.scratchID,
-		}})
-		if !strings.Contains(out, "0 hits") {
-			return
+		if w.searchAllPages(search, id) {
+			return true
 		}
-		w.out.Sayf("(the property index reports nothing yet; waiting — attempt %d of %d)", i+1, attempts)
+		w.out.Sayf("(the search has not found it yet; waiting — attempt %d of %d)", i+1, attempts)
 	}
-	// NOT a failure, and the difference matters. Phase 4 measured this:
-	// the file tagged in a run was still missing from the index after
-	// twelve seconds, and a direct query minutes later found it — so the
-	// query is right and the index is slow. Counting a slow index as a
-	// defect would make this run fail for something the server does not
-	// control, and a verdict that cries wolf is a verdict nobody reads.
-	//
-	// What it must not do is pass quietly, because "not indexed yet" and
-	// "the query is broken" produce the same empty page.
-	w.out.Say("UNVERIFIED THIS RUN: the property search did not find the file this run tagged, after " +
-		"30 seconds. Drive's property index is eventually consistent and has been measured slower than " +
-		"that, so this is expected often enough not to be a failure — but it means the search was not " +
-		"checked, rather than checked and passed. Run search_files with the property by hand a few " +
-		"minutes from now to close it.")
+	w.out.Sayf("UNVERIFIED THIS RUN: %s. The search did not find the file after 30 seconds, under the "+
+		"scratch folder and on every page. Drive's index is eventually consistent, so run the same search "+
+		"by hand a few minutes from now.", what)
+	return false
+}
+
+// searchAllPages runs a search and follows its page tokens to the end,
+// and reports whether any page names id.
+func (w *writeRun) searchAllPages(search call, id string) bool {
+	args := maps.Clone(search.args)
+	for range 20 {
+		out := w.call(call{tool: search.tool, args: args})
+		if strings.Contains(out, id) {
+			return true
+		}
+		token := tokenIn(out)
+		if token == "" {
+			return false
+		}
+		args = maps.Clone(search.args)
+		args["page_token"] = token
+	}
+	w.out.Say("(stopped after 20 pages)")
+	return false
+}
+
+// readersHoldWriters settles the belief shared_with is built around: the
+// reference does not say whether readers holds the people who can edit.
+// It asks readers alone for a file the -share address can edit, after
+// shared_with has shown the index knows the grant.
+func (w *writeRun) readersHoldWriters(id string) {
+	if w.searchAllPages(call{tool: "search_files", args: map[string]any{
+		"raw_query": "'" + w.share + "' in readers", "under_folder": w.scratchID,
+	}}, id) {
+		w.out.Say("(readers alone found a file the address can edit: readers holds the writers. Record it in §18.)")
+		return
+	}
+	w.out.Say("(readers alone did NOT find a file the address can edit: readers does not hold the writers. " +
+		"shared_with asks both, so it is right either way. Record it in §18.)")
 }
 
 // approvals exercises phase 4's review surface, and stops short of one
@@ -558,6 +593,14 @@ func (w *writeRun) access(m made) {
 		"file": m.text, "principal": "anyone", "role": "reader", "allow_anyone": true,
 	})
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
+	// The link grant is the one reach this run can give: visibility
+	// link and anyone must find the file, and limited must not.
+	if m.text != "" {
+		w.pollSearch(call{tool: "search_files", args: map[string]any{"visibility": "link"}}, m.text,
+			"visibility link finds a file anyone with the link can open")
+		w.pollSearch(call{tool: "search_files", args: map[string]any{"visibility": "anyone"}}, m.text,
+			"visibility anyone finds the same file")
+	}
 	w.needing("share_file", m.text, map[string]any{
 		"file": m.text, "principal": "domain:example.com", "role": "reader",
 		"allow_domain": true, "dry_run": true,
@@ -572,6 +615,10 @@ func (w *writeRun) access(m made) {
 		"file": m.text, "permission_id": "anyoneWithLink", "dry_run": true,
 	})
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true})
+	if m.text != "" {
+		w.pollSearch(call{tool: "search_files", args: map[string]any{"visibility": "limited"}}, m.text,
+			"visibility limited finds the file once its link is gone")
+	}
 
 	if w.share == "" {
 		w.out.Say("\n(pass -share SOMEONE@EXAMPLE.COM to also exercise a real grant, an expiry " +
@@ -587,6 +634,10 @@ func (w *writeRun) access(m made) {
 		"file": m.text, "principal": w.share, "role": "writer",
 	})
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
+	if m.text != "" && w.pollSearch(call{tool: "search_files", args: map[string]any{"shared_with": w.share}}, m.text,
+		"shared_with finds a file the address can edit") {
+		w.readersHoldWriters(m.text)
+	}
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "principal": w.share})
 
 	w.spikeF()
@@ -949,6 +1000,306 @@ func (w *writeRun) organize(m made) {
 	w.needing("restore_file", m.text, map[string]any{"file": m.text})
 }
 
+// moveExposure is a move that lets more people reach a file, and the
+// question that puts to the person. A folder made here is opened to
+// anyone with the link, and a file moved into it is reachable that way
+// too: the sharing guide says a move "re-evaluates and applies the new
+// parent's permissions". The server works out who can reach the file
+// after the move before making it, then reads it back, and says when the
+// two differ; a step here fails when they do, because that is the belief
+// (§18) this run exists to check. Moving it back out narrows, and must
+// ask nothing. The link is removed again before the folder is trashed.
+func (w *writeRun) moveExposure() {
+	open := w.createAndKeepID("create_folder", map[string]any{"name": "Open by link", "parent": w.scratchID})
+	file := w.createAndKeepID("create_file", map[string]any{
+		"name": "moves into the open folder.txt", "parent": w.scratchID,
+		"content": "who can reach this depends on its folder\n", "mime_type": "text/plain",
+	})
+	if open == "" || file == "" {
+		w.out.Say("\n=== move exposure: skipped, the folder or file it needs was never created ===")
+		return
+	}
+	w.needing("share_file", open, map[string]any{
+		"file": open, "principal": "anyone", "role": "reader", "allow_anyone": true,
+	})
+	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": open, "dry_run": true}}))
+	w.declining("move_file", map[string]any{"file": file, "to": open})
+	moved := w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": open}})
+	w.unpredicted(moved)
+	if !strings.Contains(moved, "anyone with the link can view") {
+		w.problem("the file moved into a folder anyone with the link can open does not say anyone with "+
+			"the link can view it", errors.New("no link in the result"))
+	}
+	asked := w.person.asked
+	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": w.scratchID}}))
+	if w.person.asked != asked {
+		w.problem("moving the file back out of the open folder asked the person, and that move only "+
+			"narrows who can reach it", errors.New("a question on a narrowing move"))
+	}
+	w.moveSeveral(open, file)
+	w.copyExposure(open, file)
+	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
+}
+
+// copyExposure is the copy's side of the same belief, which no page of
+// Google's states (§18): a copy takes on who can reach the folder it
+// lands in, and none of the grants made on the original. A copy into
+// the open folder is put to the person, and anyone with the link can
+// view it; a copy of a file shared by link on its own, into the scratch
+// folder, is private.
+func (w *writeRun) copyExposure(open, file string) {
+	in := map[string]any{"file": file, "to": open, "name": "copied into the open folder.txt"}
+	w.unpredicted(w.call(call{tool: "copy_file", args: map[string]any{
+		"file": file, "to": open, "name": in["name"], "dry_run": true}}))
+	w.declining("copy_file", in)
+	copied := w.call(call{tool: "copy_file", args: in})
+	w.unpredicted(copied)
+	if !strings.Contains(copied, "Who can reach the copy: anyone with the link can view.") {
+		w.problem("a copy into a folder anyone with the link can open does not say anyone with the link "+
+			"can view it", errors.New("no link in the result"))
+	}
+	w.needing("share_file", file, map[string]any{
+		"file": file, "principal": "anyone", "role": "reader", "allow_anyone": true,
+	})
+	private := w.call(call{tool: "copy_file", args: map[string]any{
+		"file": file, "to": w.scratchID, "name": "copy of a file shared by link.txt"}})
+	w.unpredicted(private)
+	if !strings.Contains(private, "Who can reach the copy: private to you.") {
+		w.problem("a copy took the link granted on the original, which the server says it does not",
+			errors.New("the copy is not private"))
+	}
+	w.needing("unshare_file", file, map[string]any{"file": file, "remove_link": true})
+}
+
+// downloads sets a file's download restriction each way and reads it
+// back, then checks what the legacy switch does to it. The guide says
+// false lifts the restriction on editors too; what true does to editors
+// it does not say (§18), and the card after it does.
+func (w *writeRun) downloads(m made) {
+	if m.doc == "" {
+		w.out.Say("\n=== download restrictions: skipped, the document was never created ===")
+		return
+	}
+	expect := func(args map[string]any, want, not string) {
+		args["file"] = m.doc
+		out := w.call(call{tool: "update_file", args: args})
+		switch {
+		case want != "" && !strings.Contains(out, want):
+			w.problem("the card after "+mcpstdio.Encode(args)+" does not say "+want, errors.New("restriction not read back"))
+		case not != "" && strings.Contains(out, not):
+			w.problem("the card after "+mcpstdio.Encode(args)+" still says "+not, errors.New("restriction not read back"))
+		}
+	}
+	editors := "downloads: viewers, commenters and editors cannot"
+	viewers := "downloads: viewers and commenters cannot"
+	expect(map[string]any{"restrict_download": "editors"}, editors, "")
+	// From editors down to viewers: the editors may download again and
+	// the viewers and commenters still may not.
+	expect(map[string]any{"restrict_download": "viewers"}, viewers, editors)
+	expect(map[string]any{"copy_requires_writer_permission": false}, "", "downloads:")
+	out := w.call(call{tool: "update_file", args: map[string]any{"file": m.doc, "copy_requires_writer_permission": true}})
+	switch {
+	case strings.Contains(out, editors):
+		w.out.Say("(copy_requires_writer_permission true restricted editors too. Record it in §18.)")
+	case strings.Contains(out, viewers):
+		w.out.Say("(copy_requires_writer_permission true restricted viewers and commenters only. Record it in §18.)")
+	default:
+		w.problem("the card after copy_requires_writer_permission true says nobody is restricted",
+			errors.New("restriction not read back"))
+	}
+	expect(map[string]any{"restrict_download": "none"}, "", "downloads:")
+	w.expecting("update_file", m.doc, map[string]any{
+		"file": m.doc, "restrict_download": "viewers", "copy_requires_writer_permission": true,
+	}, "the current switch and the legacy one together, which Google warns can conflict")
+}
+
+// limitedAccess gives a folder inside a link-shared folder limited
+// access, reads who it keeps out, then turns it off: once declined, once
+// accepted. It settles whether Drive lists a link grant from above as a
+// metadata view, which the access guide shows for people only (§18).
+func (w *writeRun) limitedAccess() {
+	open := w.createAndKeepID("create_folder", map[string]any{"name": "Open around a limited one", "parent": w.scratchID})
+	inner := ""
+	if open != "" {
+		inner = w.createAndKeepID("create_folder", map[string]any{"name": "Limited", "parent": open})
+	}
+	if inner == "" {
+		w.out.Say("\n=== limited access: skipped, the folders it needs were never created ===")
+		return
+	}
+	w.needing("share_file", open, map[string]any{"file": open, "principal": "anyone", "role": "reader", "allow_anyone": true})
+	card := w.call(call{tool: "update_file", args: map[string]any{"file": inner, "limited_access": true}})
+	if !strings.Contains(card, "limited access: only people added") {
+		w.problem("the card after limited_access true does not say the folder has limited access",
+			errors.New("limited access not read back"))
+	}
+	perms := w.call(call{tool: "list_permissions", args: map[string]any{"file": inner}})
+	if strings.Contains(perms, "anyone with the link can see it but not open it") {
+		w.out.Say("(Drive lists the link grant from above as a metadata view. Record it in §18.)")
+	} else {
+		w.out.Say("(Drive does NOT list the link grant from above as a metadata view; read the listing above " +
+			"and record what it shows in §18.)")
+	}
+	w.declining("update_file", map[string]any{"file": inner, "limited_access": false})
+	opened := w.call(call{tool: "update_file", args: map[string]any{"file": inner, "limited_access": false}})
+	if strings.Contains(opened, "limited access: only people added") {
+		w.problem("the card after limited_access false still says the folder has limited access",
+			errors.New("limited access not read back"))
+	}
+	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
+}
+
+// underFolder searches a folder two levels deep with under_folder, pages
+// it, and checks a page_token is refused under another folder. Then it
+// looks for where Drive refuses a long `in parents` group, which nothing
+// Google publishes says (§18).
+func (w *writeRun) underFolder() {
+	outer := w.createAndKeepID("create_folder", map[string]any{"name": "Under", "parent": w.scratchID})
+	inner := ""
+	if outer != "" {
+		inner = w.createAndKeepID("create_folder", map[string]any{"name": "Inner", "parent": outer})
+	}
+	if inner == "" {
+		w.out.Say("\n=== under_folder: skipped, the folders it needs were never created ===")
+		return
+	}
+	var files []string
+	for _, name := range []string{"found under a folder one.txt", "found under a folder two.txt"} {
+		files = append(files, w.createAndKeepID("create_file", map[string]any{
+			"name": name, "parent": inner, "content": "two levels down\n", "mime_type": "text/plain",
+		}))
+	}
+	search := map[string]any{"under_folder": outer, "name": "found", "limit": 1}
+	page := ""
+	for i := range 10 {
+		if i > 0 {
+			time.Sleep(3 * time.Second)
+		}
+		page = w.call(call{tool: "search_files", args: search})
+		if files[0] != "" && strings.Contains(page, files[0]) || files[1] != "" && strings.Contains(page, files[1]) {
+			break
+		}
+	}
+	token := tokenIn(page)
+	if token == "" {
+		w.unverified("search_files.under_folder found no page to continue: the index has not caught up with "+
+			"the two files this run made two levels down", errors.New("no page_token"))
+		return
+	}
+	w.call(call{tool: "search_files", args: map[string]any{
+		"under_folder": outer, "name": "found", "limit": 1, "page_token": token,
+	}})
+	w.expecting("search_files", outer, map[string]any{
+		"under_folder": inner, "name": "found", "limit": 1, "page_token": token,
+	}, "a page_token from a search under another folder")
+	w.queryLimit()
+}
+
+// queryLimit looks for the longest `in parents` group Drive takes, by
+// doubling one until Drive refuses it. under_folder stops at
+// service.MaxUnderFolders folders on the belief that Drive takes that
+// many (§18). It repeats the scratch folder's id, so it measures length
+// and term count, not distinct folders. Nothing here fails the run: it
+// reports the answer for §18.
+func (w *writeRun) queryLimit() {
+	w.out.Sayf("\n=== where Drive refuses a long in-parents group (under_folder stops at %d) ===",
+		service.MaxUnderFolders)
+	accepted := 0
+	for n := service.MaxUnderFolders / 2; n <= 32*service.MaxUnderFolders; n *= 2 {
+		terms := make([]string, n)
+		for i := range terms {
+			terms[i] = "'" + w.scratchID + "' in parents"
+		}
+		raw := strings.Join(terms, " or ")
+		out, isError, err := w.sess.CallTool("search_files", map[string]any{"raw_query": raw, "limit": 1})
+		if err != nil || isError {
+			answer, _, _ := strings.Cut(out, "\n")
+			if err != nil {
+				answer = err.Error()
+			}
+			w.out.Sayf("(Drive refused %d terms, %d bytes of query, and took %d. Record it in §18. HTTP status: %s. "+
+				"The answer: %s)", n, len(raw), accepted, statusOf(answer, w.sess.StderrTail(40)), answer)
+			return
+		}
+		accepted = n
+	}
+	w.out.Sayf("(Drive took %d terms. Record in §18 that it refused none tried.)", accepted)
+}
+
+// statusOf is the HTTP status of a refusal: from the tool's answer when
+// it names one, as it does for a refusal Google's front end made, or
+// else from the server's debug log of the last failed request.
+func statusOf(answer string, logs []string) string {
+	if m := statusInAnswer.FindStringSubmatch(answer); len(m) > 1 {
+		return m[1]
+	}
+	status := ""
+	for _, line := range logs {
+		if !strings.Contains(line, "drive api error") {
+			continue
+		}
+		if m := statusInLog.FindStringSubmatch(line); len(m) > 1 {
+			status = m[1]
+		}
+	}
+	if status == "" {
+		return "not in the answer, and not logged: run with GDRIVE_LOG_LEVEL=debug"
+	}
+	return status
+}
+
+var (
+	statusInAnswer = regexp.MustCompile(`HTTP (\d{3})`)
+	// The text log writes status=400, the JSON log "status":400.
+	statusInLog = regexp.MustCompile(`"?status"?[=:](\d{3})`)
+)
+
+// moveSeveral moves two files into the open folder in one call, with the
+// folder itself listed as a third item, which is refused because nothing
+// moves into itself. The person is asked once for the two that widen;
+// moving them back out asks nothing.
+func (w *writeRun) moveSeveral(open, file string) {
+	other := w.createAndKeepID("create_file", map[string]any{
+		"name": "moves with the other one.txt", "parent": w.scratchID,
+		"content": "moved in the same call\n", "mime_type": "text/plain",
+	})
+	if other == "" {
+		w.out.Say("\n=== move of several: skipped, the second file was never created ===")
+		return
+	}
+	in := map[string]any{"files": []any{file, other, open}, "to": open}
+	dry := w.call(call{tool: "move_file", args: map[string]any{"files": in["files"], "to": open, "dry_run": true}})
+	if !strings.Contains(dry, "would move 2 of 3 items") {
+		w.problem("the dry run of a move of several does not say two of three would move",
+			errors.New("unexpected dry run"))
+	}
+	asked := w.person.asked
+	moved := w.call(call{tool: "move_file", args: in})
+	w.unpredicted(moved)
+	switch {
+	case w.person.asked != asked+1:
+		w.problem(fmt.Sprintf("a move of several asked the person %d times, not once", w.person.asked-asked),
+			errors.New("one question per call"))
+	case !strings.Contains(moved, "moved 2 of 3 items"):
+		w.problem("the move of several does not say two of three moved", errors.New("unexpected result"))
+	}
+	asked = w.person.asked
+	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"files": []any{file, other}, "to": w.scratchID}}))
+	if w.person.asked != asked {
+		w.problem("moving the two files back out asked the person, and that only narrows who can reach them",
+			errors.New("a question on a narrowing move"))
+	}
+}
+
+// unpredicted fails the step when a move's result says Drive answered
+// other than the server worked out before the move.
+func (w *writeRun) unpredicted(out string) {
+	if strings.Contains(out, "that is not who this server worked out") {
+		w.problem("after the move or copy Drive reports other access than the server predicted; the "+
+			"beliefs about what a move or a copy does to sharing (§18) are wrong somewhere", errors.New("prediction missed"))
+	}
+}
+
 // refusals are the calls that must not work. A refusal that is expected
 // proves as much as a success: it is how the server says no to something
 // it should not do.
@@ -990,8 +1341,11 @@ func (w *writeRun) sharedDrive(m made) {
 		return
 	}
 	target := "drive:" + w.drive
-	w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target, "dry_run": true}})
+	// The drive's members reach whatever moves in, so when it has any
+	// besides this account the move asks the person, who accepts.
+	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target, "dry_run": true}}))
 	if out := w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target}}); out != "" {
+		w.unpredicted(out)
 		// The file is now outside the scratch folder, so trashing the
 		// scratch folder will not take it. Bringing it back is the only
 		// cleanup there is, and a failure here is the one thing this run
@@ -1009,6 +1363,7 @@ func (w *writeRun) sharedDrive(m made) {
 func (w *writeRun) recover(id string) {
 	back := w.call(call{tool: "move_file", args: map[string]any{"file": id, "to": w.scratchID}})
 	if strings.Contains(back, "moved:") {
+		w.unpredicted(back)
 		return
 	}
 	// A second attempt: the usual reason is a rate limit, and this is
@@ -1145,6 +1500,47 @@ func writeFiller(path string, n int) error {
 	return f.Close()
 }
 
+// indexableText checks that use_content_as_indexable_text makes an
+// upload's words searchable. Drive reads a text file's words on its own,
+// so the bytes go up as a type it does not read, holding a word that is
+// in no name or description under the scratch folder, and the step
+// searches for that word. The same bytes go up again without the flag:
+// only that copy staying out of the results shows the flag did it.
+func (w *writeRun) indexableText() {
+	const word = "quokkalantern"
+	path := filepath.Join(w.dir, "indexable upload.bin")
+	if err := os.WriteFile(path, []byte("the one word only this text holds is "+word+"\n"), 0o600); err != nil {
+		w.problem("writing the indexable-text fixture", err)
+		return
+	}
+	flagged := w.createAndKeepID("upload_file", map[string]any{
+		"local_path": "indexable upload.bin", "parent": w.scratchID, "name": "indexed upload.bin",
+		"mime_type": "application/octet-stream", "use_content_as_indexable_text": true, "allow_duplicate": true,
+	})
+	control := w.createAndKeepID("upload_file", map[string]any{
+		"local_path": "indexable upload.bin", "parent": w.scratchID, "name": "control upload.bin",
+		"mime_type": "application/octet-stream", "allow_duplicate": true,
+	})
+	if flagged == "" {
+		w.out.Say("\n=== indexable text: skipped, the upload it needs was never made ===")
+		return
+	}
+	if !w.pollSearch(call{tool: "search_files", args: map[string]any{"text": word}}, flagged,
+		"use_content_as_indexable_text makes an upload's words searchable") || control == "" {
+		return
+	}
+	// The index has caught up with the flagged copy, which went up first,
+	// so one search is a fair look for the control.
+	if w.searchAllPages(call{tool: "search_files", args: map[string]any{"text": word, "under_folder": w.scratchID}},
+		control) {
+		w.out.Say("(the copy uploaded without use_content_as_indexable_text was found by the same word: " +
+			"Drive reads this type on its own, so this run does not show what the flag does. Record it in §18.)")
+		return
+	}
+	w.out.Say("(the copy uploaded without use_content_as_indexable_text was not found by the same word, " +
+		"and the one with it was: the flag made the difference. Record it in §18.)")
+}
+
 // resources reads the three gdrive:// templates, which is the half of
 // phase 3's surface no tool call reaches. A resource read is a different
 // method with a different failure shape, so a driver that only calls
@@ -1200,7 +1596,12 @@ func head(text string, n int) string {
 	if len(lines) <= n {
 		return text
 	}
-	return strings.Join(lines[:n], "\n") + "\n… (" + fmt.Sprint(len(lines)-n) + " more lines)"
+	more := len(lines) - n
+	word := "lines"
+	if more == 1 {
+		word = "line"
+	}
+	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n… (%d more %s)", more, word)
 }
 
 // policyRefusal is the one check §17a has been waiting for an
@@ -1308,41 +1709,73 @@ func orUnknown(s string) string {
 }
 
 // copyAndCheckComments copies a file asking for its comment threads, and
-// then LOOKS at the copy.
+// then LOOKS at the copy. carries is what §18's rule expects of the kind:
+// Drive's own formats bring their threads along and an uploaded file
+// does not.
 //
 // The copy has been made with copy_comments since phase 4 and nobody
 // ever asked whether the threads arrived, while the server told the
 // caller they had — which `gates outcomes` found and no run here could
-// have, because the run never looked. The first run that did look found
-// none on a CSV, and none again minutes later, so that one is not
-// comments.list lagging.
+// have, because the run never looked.
+//
+// When the threads came across, a second copy is made WITHOUT
+// copy_comments, after the threads exist. Only when that one has none
+// did the flag make the difference; without it, "Drive honored
+// copy_comments" is said of a flag that may change nothing.
 //
 // It says so out loud rather than leaving it in the transcript. The
-// answer is one line among thirteen hundred, and "all calls behaved as
-// expected" is true of it either way, which is the thing this repository
-// has been caught by twice.
-func (w *writeRun) copyAndCheckComments(id, name, kind string) {
+// answer is one line among thousands, and "all calls behaved as
+// expected" is true of it either way.
+func (w *writeRun) copyAndCheckComments(id, name, kind string, carries bool) {
 	if id == "" {
 		w.out.Sayf("\n=== copy_file with its comments: skipped, the %s it needs was never created ===", kind)
 		return
 	}
-	copied := w.createAndKeepID("copy_file", map[string]any{
-		"file": id, "name": name, "to": w.scratchID,
-		"copy_comments": true, "allow_duplicate": true,
-	})
+	has, made := w.copyHasThreads(id, name, kind, true)
+	if !made {
+		return
+	}
+	if !has {
+		if carries {
+			w.out.Sayf("!! the copy of %s asked for the comment threads and has NONE, where §18's rule says "+
+				"Drive's own formats carry them. List them again in a minute; if there are still none, "+
+				"the rule has changed. Record it in §18.", kind)
+		} else {
+			w.out.Sayf("(the copy of %s has no comment threads, as §18's rule says of an uploaded file)", kind)
+		}
+		return
+	}
+	if !carries {
+		w.out.Sayf("!! the copy of %s carried its comment threads, where §18's rule says an uploaded "+
+			"file's do not. Record it in §18.", kind)
+	}
+	has, made = w.copyHasThreads(id, "control copy of "+name, kind, false)
+	if !made {
+		return
+	}
+	if has {
+		w.out.Sayf("!! a copy of %s made WITHOUT copy_comments carried the threads too, so this run cannot "+
+			"say copy_comments made the difference. Record it in §18.", kind)
+		return
+	}
+	w.out.Sayf("(the copy of %s carried its comment threads and the copy without copy_comments did not: "+
+		"Drive honored copy_comments here)", kind)
+}
+
+// copyHasThreads copies a file, with or without its comment threads, and
+// reports whether the copy lists any, and whether the copy was made.
+func (w *writeRun) copyHasThreads(id, name, kind string, withComments bool) (has, made bool) {
+	args := map[string]any{"file": id, "name": name, "to": w.scratchID, "allow_duplicate": true}
+	if withComments {
+		args["copy_comments"] = true
+	}
+	copied := w.createAndKeepID("copy_file", args)
 	if copied == "" {
 		w.out.Sayf("\n=== list_comments: skipped, the copy of %s was never made ===", kind)
-		return
+		return false, false
 	}
-	threads := w.call(call{tool: "list_comments",
-		args: map[string]any{"file": copied, "include_deleted": false}})
-	if strings.Contains(threads, "0 comment threads") {
-		w.out.Sayf("!! the copy of %s asked for the comment threads and has NONE. Check it again in a "+
-			"minute — comments.list can lag a copy — and if it is still empty then Drive did not "+
-			"carry them, whatever copy_comments was set to.", kind)
-		return
-	}
-	w.out.Sayf("(the copy of %s carried its comment threads: Drive honored copy_comments here)", kind)
+	threads := w.call(call{tool: "list_comments", args: map[string]any{"file": copied, "include_deleted": false}})
+	return !strings.Contains(threads, "0 comment threads"), true
 }
 
 // spareArguments drives the options `gates live-cover` recorded as
@@ -1383,19 +1816,19 @@ func (w *writeRun) spareArguments(m made) {
 	// none of them.
 	if w.dir != "" {
 		path := filepath.Join(w.dir, "described upload.txt")
-		if err := os.WriteFile(path, []byte("bytes Drive does not read on its own\n"), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte("bytes uploaded by the live driver\n"), 0o600); err != nil {
 			w.problem("writing the upload fixture", err)
 		} else {
 			w.needing("upload_file", w.scratchID, map[string]any{
 				"local_path": "described upload.txt", "parent": w.scratchID,
-				"description": "uploaded by the live driver", "mime_type": "text/plain",
-				"use_content_as_indexable_text": true, "allow_duplicate": true,
+				"description": "uploaded by the live driver", "mime_type": "text/plain", "allow_duplicate": true,
 			})
 			w.needing("upload_file", w.scratchID, map[string]any{
 				"local_path": "described upload.txt", "parent": w.scratchID,
 				"name": "imported as a doc", "convert_to": "doc", "allow_duplicate": true,
 			})
 		}
+		w.indexableText()
 	}
 
 	// The two sharing switches on a file, which the card prints back.
@@ -1408,12 +1841,18 @@ func (w *writeRun) spareArguments(m made) {
 
 	// A dry run in front of something reversible, and an older revision
 	// fetched by id — the one the run has just made a second one over.
+	// Drive lists the current revision first, so the older one is asked
+	// for by skipping it; the current one is fetched too, since its
+	// download is the one the server checks against Drive's checksum.
 	w.needing("restore_file", m.text, map[string]any{"file": m.text, "dry_run": true})
-	if rev := w.firstRevision(m.text); rev != "" {
+	if rev := w.revisionID(m.text, true); rev != "" {
 		w.needing("download_file", m.text, map[string]any{"file": m.text, "revision": rev})
 	} else {
-		w.unverified("download_file.revision was not exercised: no older revision is listed",
+		w.unverified("download_file.revision was not exercised on an older revision: none is listed",
 			errors.New("the revision listing lags the write that made one"))
+	}
+	if rev := w.firstRevision(m.text); rev != "" {
+		w.needing("download_file", m.text, map[string]any{"file": m.text, "revision": rev})
 	}
 
 	w.spareListings(m)

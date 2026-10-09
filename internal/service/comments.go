@@ -76,7 +76,7 @@ func (s *Service) ListComments(ctx context.Context, in ListCommentsInput) (strin
 		Location:        s.Location(ctx, f).String(),
 		Now:             s.now(),
 		CanComment:      model.CanComment(f),
-		Workspace:       f.IsWorkspaceDoc(),
+		PinNote:         model.PinNote(f),
 		NextPageToken:   page.NextPageToken,
 		IncludedDeleted: in.IncludeDeleted,
 	}), nil
@@ -118,8 +118,9 @@ type AddCommentInput struct {
 }
 
 // AddComment starts a thread. The comment is unanchored: pinning one to
-// a passage of a Google Doc means knowing where that passage is, which
-// is the Docs API's job and not this server's.
+// a passage of a Doc, a cell of a Sheet or a slide of a deck means
+// knowing where that place is, which is that kind's own API's job and
+// not this server's.
 func (s *Service) AddComment(ctx context.Context, in AddCommentInput) (*Result, error) {
 	if err := s.writable("add_comment"); err != nil {
 		return nil, err

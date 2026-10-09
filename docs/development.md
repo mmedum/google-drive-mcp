@@ -2,10 +2,10 @@
 
 ## Prerequisites
 
-- Go 1.27.1 or newer, and nothing else. `go.mod` names the exact point
+- Go 1.27.2 or newer, and nothing else. `go.mod` names the exact point
   release, so `GOTOOLCHAIN=auto` (the default) fetches it if your
   installed Go is older.
-- Optional, matching what CI pins: golangci-lint v2.13.2, govulncheck
+- Optional, matching what CI pins: golangci-lint v2.14.0, govulncheck
   v1.7.0, go-licenses v1.6.0, gitleaks v8.30.1, GoReleaser v2.18.
 
 Everything this repository runs on itself is Go, including the gates and
@@ -18,7 +18,7 @@ Install the Go-based tools with the current toolchain, so they can read
 the language version `go.mod` targets:
 
 ```
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 ```
 
@@ -46,7 +46,7 @@ make vuln
 make licenses       # allowed licenses only
 make smoke          # drive the binary over stdio, without credentials
 make schemas        # write schemas.json
-make schema-diff    # compare the tool surface with the last tag
+make schema-diff    # compare the tool surface with the newest release's
 make staleness      # docs must match the code
 make pins           # every tool a workflow installs is one exact version
 make gate-classes   # the error classes the code emits are the ones it declares
@@ -74,7 +74,7 @@ connection, which is how the retry and backoff paths are exercised.
 
 ```
 go run ./scripts/gates coverage cov.out 80    statement-coverage floor per core package
-go run ./scripts/gates schema-diff BINARY     tool surface against the last tag
+go run ./scripts/gates schema-diff BINARY     tool surface against the newest release's
 go run ./scripts/gates smoke BINARY           drive the binary over stdio, no credentials
 go run ./scripts/gates staleness BINARY       documentation must match the code
 go run ./scripts/gates pins                   workflow tool versions are exact, not ranges
@@ -156,6 +156,7 @@ Its modes, each off unless asked for:
 | `-drive NAME_OR_ID` | Moves a file into an existing shared drive and back out, and the folder-move refusal |
 | `-share ADDRESS` | The half of sharing that needs a second person, ownership transfer included |
 | `-blocked ADDRESS` | Attempts a share the organization's policy should refuse, and reports Google's reason beside this server's class |
+| `-unlistable REF` | Reads and lists a folder this account can see but not list, to show what Drive answers there |
 | `-labels` | The label tools; needs `GDRIVE_LABELS`, the Labels API enabled and its scopes granted |
 | `-activity` | `list_activity`; needs `GDRIVE_ACTIVITY`, the Drive Activity API enabled and its scope granted |
 | `-destructive` | The five tools that remove something for good — see below |
@@ -246,7 +247,12 @@ A release, once the phase's work is merged:
    CHANGED; every method it adds fails `make check` until
    `testdata/api-coverage.tsv` gives it a verdict.
 1. On a topic branch, update `CHANGELOG.md`: move `[Unreleased]` into a
-   version heading with today's date.
+   version heading with today's date, and leave an empty `[Unreleased]`
+   above it. Then run `make schema-baseline VERSION=vN.N.N` to record the
+   release's tool surface in `testdata/schema-baseline.json`;
+   `make schema-diff` fails until it is done. It refuses a build stamped
+   with another version, and a break unless the release is a new major
+   version.
 2. Update the status line and the phase table in `docs/architecture.md`,
    and add what was verified live to its evidence log.
 3. Commit as `Release N.N.N`, open a pull request, wait for CI, merge.
@@ -299,5 +305,8 @@ public the moment the repository is.
    `docs/configuration.md`, and add a `CHANGELOG.md` entry. `make
    staleness` fails until you do, in both directions: it also catches a
    documented tool that no longer exists.
-6. Run `make schema-diff`. A removed tool or field, or a new required
-   field, is a breaking change.
+6. Run `make schema-diff`. A removed tool, a removed field at any
+   depth, an input that takes fewer types or loses a listed value, an
+   output that may return another type or may now be missing, or a newly
+   required input is a breaking change, and fails it. A type change the
+   other way, such as an input that may now be null, passes.

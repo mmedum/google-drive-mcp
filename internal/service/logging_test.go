@@ -115,6 +115,8 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	_, _ = svc.CopyFile(ctx, service.CopyFileInput{File: secretFileID, Name: secretFileName + " copy"})
 	_, _ = svc.CreateShortcut(ctx, service.CreateShortcutInput{Target: secretFileID, Name: secretFileName})
 	_, _ = svc.MoveFile(ctx, service.MoveFileInput{File: secretFileID, To: "root"})
+	_, _ = svc.MoveFile(ctx, service.MoveFileInput{To: secretFolderID, DryRun: true,
+		Files: []string{secretFileID, "/" + secretFolder + "/" + secretFileName, "/" + secretFolder + "/does not exist"}})
 	_, _ = svc.TrashFile(ctx, service.TrashInput{File: secretFileID})
 	_, _ = svc.RestoreFile(ctx, service.TrashInput{File: secretFileID})
 

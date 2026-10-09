@@ -22,8 +22,12 @@ type CommentsInput struct {
 
 // AddCommentInput is a new thread.
 type AddCommentInput struct {
-	File    string `json:"file" jsonschema:"the file to comment on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
-	Content string `json:"content" jsonschema:"what the comment says, as plain text. Everybody who can see the file can see it."`
+	File string `json:"file" jsonschema:"the file to comment on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	// Not required in the schema, on purpose. The SDK checks a required
+	// field before the handler runs and answers with its own unclassed
+	// schema error; the service's [invalid] refusal says what is missing
+	// and why, as reply_comment's does.
+	Content string `json:"content,omitempty" jsonschema:"what the comment says, as plain text. Required. Everybody who can see the file can see it."`
 }
 
 // ReplyCommentInput acts on one thread.
@@ -107,8 +111,9 @@ func registerComments(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "add_comment",
 		Description: "Start a comment thread on a file. Everybody who can see the file can see the comment, " +
-			"and Drive mails the people who follow it. The comment is not pinned to any passage: pinning one to " +
-			"a place in a Google Doc is a feature of the Docs API, which this server does not use. " +
+			"and Drive mails the people who follow it. The comment is not pinned to any place in the file: " +
+			"pinning one in a Google Doc, Sheet or Slides deck is a feature of the Docs, Sheets or Slides API, " +
+			"which this server does not use. " +
 			"Use reply_comment to answer, close or reopen a thread.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in AddCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
@@ -156,7 +161,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 			"reply_comment is what closes a conversation; this removes it. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, asked(d, "delete_comment", func(ctx context.Context, in DeleteCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, askedEveryCall(d, "delete_comment", func(ctx context.Context, in DeleteCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteComment(ctx, service.DeleteCommentInput{
 			File: in.File, Comment: in.Comment, Reply: in.Reply, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))

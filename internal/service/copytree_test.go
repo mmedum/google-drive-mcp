@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mmedum/google-drive-mcp/v2/internal/config"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v2/internal/service"
@@ -31,6 +32,27 @@ func childrenNamed(fake *drivetest.Server, parent string) []string {
 		}
 	}
 	return out
+}
+
+// A subfolder this account cannot list would copy as an empty folder,
+// and the copy would look whole, so the walk refuses it before writing.
+func TestRecursiveCopyRefusesASubfolderItCannotList(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	copyTree(fake)
+	fake.Files["id-source-sub-fixture"].Capabilities = &gdrive.Capabilities{}
+	before := len(fake.Files)
+
+	_, err := svc.CopyFile(t.Context(), service.CopyFileInput{
+		File: "id-source-folder-fixture", To: "id-destination-fixture", Recursive: true,
+	})
+	want := "[forbidden] this account cannot list what is inside Detail, in Source, so it cannot copy Source whole; " +
+		"nothing has been copied."
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v\nwant %s", err, want)
+	}
+	if len(fake.Files) != before {
+		t.Errorf("the refused copy wrote %d files", len(fake.Files)-before)
+	}
 }
 
 func TestRecursiveCopyRebuildsTheWholeTree(t *testing.T) {
@@ -288,5 +310,59 @@ func TestKeepRevisionForeverReachesTheCopiedFiles(t *testing.T) {
 	}
 	if pinned != copies {
 		t.Errorf("%d of %d copies asked Drive to keep the revision", pinned, copies)
+	}
+}
+
+// sharedOutTree shares Projects with everyone at example.com, and a
+// folder outside it the same way. Archive, inside Projects, has limited
+// access, which keeps the domain out of it.
+func sharedOutTree(fake *drivetest.Server) {
+	domain := &gdrive.Permission{Type: "domain", Role: "reader", Domain: "example.com"}
+	fake.Grant("id-projects-fixture", domain)
+	fake.Files["id-archive-fixture"].InheritedPermissionsDisabled = true
+	fake.AddFolder("id-shared-out-fixture", "Shared out", fake.RootID)
+	fake.Grant("id-shared-out-fixture", &gdrive.Permission{Type: "domain", Role: "reader", Domain: "example.com"})
+}
+
+// A tree's copy reaches who the destination does, all through. The
+// folder reaching those people already widens nothing for it, while a
+// folder inside it with limited access is reached further.
+func TestATreeCopyAsksAboutEachPartItWouldReachFurther(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	sharedOutTree(fake)
+	in := service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture", Recursive: true}
+
+	no := declines()
+	if _, err := svc.CopyFile(service.WithAsker(t.Context(), no), in); err == nil || !strings.Contains(err.Error(), "[blocked]") {
+		t.Fatalf("err = %v, want the refusal the person gave", err)
+	}
+	want := "copy_file: copy the folder `Projects`, with everything inside it, into the folder `Shared out`?\n\n" +
+		"The copy would reach more people than these parts of the original do, or give them more access:\n\n" +
+		"the folder `Archive`, inside it, which has limited access: everyone at `example.com` can view with the link\n"
+	if len(no.asked) != 1 || !strings.HasPrefix(no.asked[0].Text, want) {
+		t.Fatalf("questions = %+v, want one starting %q", no.asked, want)
+	}
+	if fake.Count(http.MethodPost) != 0 {
+		t.Fatal("a copy the person declined wrote something")
+	}
+	if _, err := svc.CopyFile(yes(t), in); err != nil {
+		t.Fatalf("CopyFile: %v", err)
+	}
+	if len(childrenNamed(fake, "id-shared-out-fixture")) != 1 {
+		t.Error("an accepted tree copy was not made")
+	}
+}
+
+func TestSharingOffRefusesATreeCopyThatWidensAnyPart(t *testing.T) {
+	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
+	sharedOutTree(fake)
+	_, err := svc.CopyFile(yes(t), service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture", Recursive: true})
+	want := "[forbidden] this server was started with GDRIVE_SHARING=off. Inside it, Archive has limited access, and " +
+		"the copy of it would reach more people than it does: everyone at example.com can view with the link. Nothing was copied."
+	if err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("err = %v, want it to start %q", err, want)
+	}
+	if fake.Count(http.MethodPost) != 0 {
+		t.Error("a refused tree copy wrote something")
 	}
 }

@@ -133,6 +133,17 @@ func TestLinksAreRedactedWholeNotJustTheirIds(t *testing.T) {
 	}
 }
 
+func TestALinkEndsBeforeTheSentenceDoes(t *testing.T) {
+	r := NewRedactor(false)
+	got := r.Do("The copy is kept: https://docs.google.com/document/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit. " +
+		"read_file reads it, or https://drive.google.com/open?id=1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms, " +
+		"and https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/view?usp=sharing!")
+	want := "The copy is kept: <LINK_1>. read_file reads it, or <LINK_2>, and <LINK_3>!"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
 func TestANumericPermissionIDIsRedacted(t *testing.T) {
 	// A permission id for a person is twenty digits with no letter, so
 	// the "a capital and a digit" rule let one through in a live run. It
@@ -263,5 +274,93 @@ func TestAnAlreadyMaskedAddressIsStillRedacted(t *testing.T) {
 		if strings.Contains(got, leaked) {
 			t.Errorf("%q survived an already-masked address: %s", leaked, got)
 		}
+	}
+}
+
+// A display name beside an address is hidden whatever its case or
+// shape: a live run printed one as lowercase initials beside an address
+// it hid. The words this server prints in front of a name stay.
+func TestAnyNameBesideAnAddressIsHidden(t *testing.T) {
+	for _, tc := range []struct{ in, name, kept string }{
+		{"modified 2026-03-04 09:00Z (2 days ago) by jd <jd@example.com>; shared with you", "jd",
+			"(2 days ago) by <PERSON_1> <<EMAIL_1>>; shared"},
+		{"  access for jane doe <jane@example.com>: no access → can view", "jane doe",
+			"  access for <PERSON_1> <<EMAIL_1>>: no access"},
+		{"note: Google sent jane doe <jane@example.com> a notification email.", "jane doe",
+			"note: Google sent <PERSON_1> <<EMAIL_1>> a"},
+		{"can view  The Team (group team@example.com)  id-permission-1", "The Team",
+			"can view  <PERSON_1> (group <EMAIL_1>)"},
+	} {
+		got := NewRedactor(false).Do(tc.in)
+		if strings.Contains(got, tc.name) || !strings.Contains(got, tc.kept) {
+			t.Errorf("%q\n  out:  %s\n  want %q gone and %q kept", tc.in, got, tc.name, tc.kept)
+		}
+	}
+}
+
+// One person is one placeholder however an answer capitalizes them,
+// and every "(you)" is the signed-in account however an answer spells
+// it: a live run showed the account as two people because approvals
+// give it another display name.
+func TestOnePersonIsOnePlaceholder(t *testing.T) {
+	r := NewRedactor(false)
+	token := regexp.MustCompile(`<PERSON_\d+>`)
+	first := token.FindString(r.Do("owner: Wendell Ashgrove (you)"))
+	for _, line := range []string{
+		"asked by: Wendell A. (you)",
+		"  waiting on: wendell (you)",
+		"modified 2026-03-04 09:00Z (2 days ago) by wendell ashgrove <someone@example.com>",
+	} {
+		if got := token.FindString(r.Do(line)); got != first {
+			t.Errorf("%q got %q, want the account's %q", line, got, first)
+		}
+	}
+	if other := token.FindString(r.Do("owner: Perpetua Blackwood")); other == first {
+		t.Errorf("another person shares the account's placeholder %q", first)
+	}
+}
+
+// "by" is a person only after a time. A live run lost the file name
+// "link.txt" in "copy of a file shared by link.txt" to a placeholder.
+func TestAFileNameAfterByIsNotAPerson(t *testing.T) {
+	r := NewRedactor(false)
+	row := "text file  copy of a file shared by link.txt  <ID_1>  My Drive  modified 2026-03-04 09:00Z (just now) by first.last"
+	got := r.Do(row)
+	if !strings.Contains(got, "shared by link.txt  ") || strings.Contains(got, "first.last") {
+		t.Errorf("out: %s\nwant link.txt kept and first.last hidden", got)
+	}
+	trashed := r.Do("trashed: yes, by Perpetua Blackwood on 2026-03-04 09:00Z (2 days ago)")
+	if strings.Contains(trashed, "Perpetua") {
+		t.Errorf("who trashed it survived: %s", trashed)
+	}
+}
+
+// Drive's comment and reply ids are eleven characters, too short for
+// the id pattern, and a live transcript carried twenty of them. They are
+// hidden where this server prints them, and then wherever else they turn
+// up; a made-up id a refusal is asked for stays readable.
+func TestCommentAndReplyIDsAreHidden(t *testing.T) {
+	r := NewRedactor(false)
+	in := strings.Join([]string{
+		"AAAAcomment1  open  Wendell Ashgrove (you), 2026-03-04 09:00Z (just now)",
+		"  AAAAreply01  Wendell Ashgrove (you), 2026-03-04 09:00Z (just now)",
+		"note: reply AAAAreply01 added to comment AAAAcomment1 on rows.csv.",
+		`=== reply_comment {"comment":"AAAAcomment1","file":"<ID_1>","reply":"AAAAreply01"} ===`,
+		"  comment AAAAcomment1  open → resolved",
+		"[not_found] rows.csv has no comment a-comment-that-was-never-made that this account can see.",
+	}, "\n")
+	got := r.Do(in)
+	for _, id := range []string{"AAAAcomment1", "AAAAreply01"} {
+		if strings.Contains(got, id) {
+			t.Errorf("%s survived:\n%s", id, got)
+		}
+	}
+	if !strings.Contains(got, "a-comment-that-was-never-made") || !strings.Contains(got, "<COMMENT_1>  open") ||
+		!strings.Contains(got, "  <REPLY_1>  <PERSON_1> (you)") {
+		t.Errorf("out:\n%s", got)
+	}
+	// An id seen once is hidden where no position would find it.
+	if later := r.Do("the thread AAAAcomment1 is gone"); later != "the thread <COMMENT_1> is gone" {
+		t.Errorf("a known id survived a new position: %s", later)
 	}
 }

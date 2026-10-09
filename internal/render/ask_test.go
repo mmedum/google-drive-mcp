@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 )
 
 // Text from Drive reaches a question in one code span that it cannot
@@ -137,11 +139,44 @@ func TestAQuestionBindsWhatTheWriteDependsOn(t *testing.T) {
 		AskDeleteComment("id-1", "f", false, "x", "y", []string{"a", "b"}).Bind {
 		t.Error("a reply added to a thread is not bound")
 	}
+	to := MoveTarget{ID: "id-to", Name: "Open", Kind: "folder"}
+	one := func(id string) MoveItem { return MoveItem{ID: id, Name: "same name", Kind: "file"} }
+	if AskMove(to, []string{"id-1"}, []MoveItem{one("id-1")}).Bind == AskMove(to, []string{"id-2"}, []MoveItem{one("id-2")}).Bind {
+		t.Error("a move of two files of one name binds the same answer")
+	}
+	if AskMove(to, []string{"id-1", "id-3"}, []MoveItem{one("id-1")}).Bind ==
+		AskMove(to, []string{"id-1", "id-4"}, []MoveItem{one("id-1")}).Bind {
+		t.Error("a move of several binds the same answer whatever else moves with the item that widens")
+	}
 	a, b := AskEmptyTrash("id-1", "d", 3, true), AskEmptyTrash("id-1", "d", 4, true)
 	if a.Bind != b.Bind {
 		t.Error("the trash count is bound, so a trash that changes while the person reads is never confirmed")
 	}
 	if a.Text == b.Text || !strings.Contains(a.Text, "3 items") {
 		t.Errorf("the trash count is not shown:\n%s", a.Text)
+	}
+}
+
+// A folder's copy names each part it would reach further: the folder,
+// and a folder inside it with limited access. The answer is bound to
+// every part named.
+func TestAskCopyNamesEachPartTheCopyReachesFurther(t *testing.T) {
+	link := []model.Grant{{Type: "anyone", Role: "reader"}}
+	to := MoveTarget{ID: "id-to", Name: "Open", Kind: "folder"}
+	root := MoveItem{ID: "id-root", Name: "Reports", Kind: "folder"}
+	parts := func(inner string) []MoveItem {
+		return []MoveItem{{ID: "id-root", Name: "Reports", Kind: "folder", Gained: link},
+			{ID: inner, Name: "Board", Kind: "folder", Gained: link}}
+	}
+	q := AskCopy(to, root, parts("id-board"))
+	want := "copy_file: copy the folder `Reports`, with everything inside it, into the folder `Open`?\n\n" +
+		"The copy would reach more people than these parts of the original do, or give them more access:\n\n" +
+		"the folder `Reports`: anyone with the link can view\n\n" +
+		"the folder `Board`, inside it, which has limited access: anyone with the link can view\n\n"
+	if !strings.HasPrefix(q.Text, want) {
+		t.Errorf("question =\n%q\nwant it to start\n%q", q.Text, want)
+	}
+	if q.Bind == AskCopy(to, root, parts("id-other")).Bind {
+		t.Error("two inner folders of one name bind the same answer")
 	}
 }

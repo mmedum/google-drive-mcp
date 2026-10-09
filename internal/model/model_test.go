@@ -1,6 +1,7 @@
 package model
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -219,7 +220,7 @@ func TestSharingPublicAndInherited(t *testing.T) {
 	if s.Inherited != 1 {
 		t.Errorf("inherited = %d", s.Inherited)
 	}
-	if !strings.Contains(s.Summary(), "inherited from the shared drive") {
+	if !strings.Contains(s.Summary(), "(1 of them through a folder above it)") {
 		t.Errorf("summary = %q", s.Summary())
 	}
 	for _, g := range s.Grants {
@@ -249,6 +250,34 @@ func TestSharingPublicAndInherited(t *testing.T) {
 
 	if NewSharing(true, []*gdrive.Permission{}, true).Public() {
 		t.Error("no grants is not public")
+	}
+}
+
+// "N of them" counts people. A link, a domain and the owner can all
+// come from a folder above, and none of them is one of the people.
+func TestSharingCountsOnlyPeopleAsInheritedOnes(t *testing.T) {
+	above := []*gdrive.PermissionDetails{{Inherited: true}}
+	s := NewSharing(true, []*gdrive.Permission{
+		{Type: "user", Role: "owner", EmailAddress: "me@example.com",
+			Details: []*gdrive.PermissionDetails{{Role: "owner"}, {Role: "owner", Inherited: true}}},
+		{Type: "user", Role: "reader", EmailAddress: "a@example.com", Details: above},
+		{Type: "anyone", Role: "reader", Details: above},
+		{Type: "domain", Role: "reader", Domain: "example.com", Details: above},
+	}, true)
+	want := "shared with 1 person: 1 can view (1 of them through a folder above it); " +
+		"everyone at example.com can view with the link; anyone with the link can view"
+	if got := s.Summary(); got != want {
+		t.Errorf("summary = %q\nwant      %q", got, want)
+	}
+	// In a shared drive, a domain grant from above names the drive once,
+	// in its own clause, rather than as "that drive" with no drive named.
+	inDrive := NewSharing(true, []*gdrive.Permission{
+		{Type: "domain", Role: "reader", Domain: "example.com", Details: above},
+	}, true)
+	inDrive.SharedDrive = "Marketing"
+	want = "everyone at example.com can view with the link; plus everyone with access to the shared drive Marketing"
+	if got := inDrive.Summary(); got != want {
+		t.Errorf("summary = %q\nwant      %q", got, want)
 	}
 }
 
@@ -585,5 +614,85 @@ func TestExportFormatsAreShortNamesAndNeverLinks(t *testing.T) {
 	}
 	if ExportFormats(nil) != nil {
 		t.Error("ExportFormats(nil) should be empty")
+	}
+}
+
+func TestDirectRoleIsWhatWasGrantedOnTheItemItself(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		p      *gdrive.Permission
+		role   string
+		direct bool
+	}{
+		{"no details", &gdrive.Permission{Role: "writer"}, "writer", true},
+		{"inherited only", &gdrive.Permission{Role: "writer", Details: []*gdrive.PermissionDetails{
+			{Role: "writer", Inherited: true}}}, "", false},
+		{"both ways", &gdrive.Permission{Role: "writer", Details: []*gdrive.PermissionDetails{
+			{Role: "writer", Inherited: true}, {Role: "commenter"}, {Role: "reader"}}}, "commenter", true},
+	} {
+		role, direct := DirectRole(tc.p)
+		if role != tc.role || direct != tc.direct {
+			t.Errorf("%s: DirectRole = %q, %v; want %q, %v", tc.name, role, direct, tc.role, tc.direct)
+		}
+	}
+}
+
+func TestGainedIsWhoAChangeReachesThatItDidNot(t *testing.T) {
+	before := SharingOf(true, []Grant{
+		{Type: "user", Role: "reader", Who: "a@example.com"},
+		{Type: "anyone", Role: "reader", Who: "anyone"},
+		{Type: "user", Role: "owner", Who: "me@example.com"},
+	})
+	after := SharingOf(true, []Grant{
+		{Type: "user", Role: "writer", Who: "A@example.com"},                // more access
+		{Type: "anyone", Role: "reader", Who: "anyone", Discoverable: true}, // findable by search now
+		{Type: "domain", Role: "reader", Who: "example.com"},                // nobody there before
+		{Type: "user", Role: "owner", Who: "b@example.com"},                 // an owner counts as an editor
+		{Type: "user", Role: "writer", Who: "me@example.com"},               // the account itself
+		{Type: "user", Role: "reader", Who: "gone@example.com", Deleted: true},
+	})
+	var got []string
+	for _, g := range Gained(before, after, "ME@example.com") {
+		got = append(got, g.Type+" "+g.Who+" "+g.Role)
+	}
+	// In the order a summary lists grants: the owner first.
+	want := "user b@example.com writer|user A@example.com writer|anyone anyone reader|domain example.com reader"
+	if strings.Join(got, "|") != want {
+		t.Errorf("Gained = %q, want %q", strings.Join(got, "|"), want)
+	}
+	if !SameReach(after, after) || SameReach(before, after) {
+		t.Error("SameReach does not tell a list from a wider one")
+	}
+	// The account counts: a summary that showed it as an editor is not
+	// the one that shows it as the owner.
+	owns := SharingOf(false, []Grant{{Type: "user", Role: "owner", Who: "me@example.com"}})
+	edits := SharingOf(true, []Grant{{Type: "user", Role: "writer", Who: "me@example.com"}})
+	if SameReach(owns, edits) {
+		t.Error("SameReach leaves out the account's own access")
+	}
+	// The account is itself however Drive spells its address, even where
+	// it reached nothing before.
+	if got := Gained(SharingOf(false, nil), SharingOf(true, []Grant{{Type: "user", Role: "writer", Who: "Me@Example.com"}}),
+		"me@example.com"); len(got) != 0 {
+		t.Errorf("Gained counts the account itself in another case: %+v", got)
+	}
+}
+
+// Grants to one principal fold into one, at the widest access any of
+// them gives, where the principal first appears.
+func TestMergeGrantsKeepsTheWidestAccessEachPrincipalHas(t *testing.T) {
+	got := MergeGrants(
+		Grant{Type: "user", Role: "reader", Who: "a@example.com", NameOnly: true},
+		Grant{Type: "anyone", Role: "reader", Who: "anyone"},
+		Grant{Type: "user", Role: "writer", Who: "a@example.com", InheritedFrom: "Team"},
+		Grant{Type: "anyone", Role: "reader", Who: "anyone", Discoverable: true},
+		Grant{Type: "user", Role: "reader", Who: "a@example.com", NameOnly: true},
+	)
+	want := []Grant{
+		{Type: "user", Role: "writer", Who: "a@example.com", InheritedFrom: "Team"},
+		{Type: "anyone", Role: "reader", Who: "anyone", Discoverable: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MergeGrants =\n%+v\nwant\n%+v", got, want)
 	}
 }

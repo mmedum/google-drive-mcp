@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -39,6 +40,32 @@ func TestFirstRevisionReadsTheIDOutOfAListing(t *testing.T) {
 		if looksLikeDate(not) {
 			t.Errorf("looksLikeDate(%q) = true", not)
 		}
+	}
+}
+
+func TestHeadCountsTheLinesItLeavesOut(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{"a\nb", "a\nb"},
+		{"a\nb\nc", "a\nb\n… (1 more line)"},
+		{"a\nb\nc\nd", "a\nb\n… (2 more lines)"},
+	} {
+		if got := head(tc.text, 2); got != tc.want {
+			t.Errorf("head(%q, 2) = %q, want %q", tc.text, got, tc.want)
+		}
+	}
+}
+
+func TestAFlagIsGivenWhenItIsSetAwayFromItsDefault(t *testing.T) {
+	fs := flag.NewFlagSet("livedrive", flag.ContinueOnError)
+	fs.Bool("write", false, "")
+	fs.Bool("labels", false, "")
+	fs.String("share", "", "")
+	fs.String("bin", "./google-drive-mcp", "")
+	if err := fs.Parse([]string{"-write", "-labels=false", "-bin", "./google-drive-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := givenFlags(fs); len(got) != 1 || !got["write"] {
+		t.Errorf("given = %v, want only write", got)
 	}
 }
 
@@ -111,5 +138,27 @@ func TestEmptyTrashIsNamedInOnePlace(t *testing.T) {
 		t.Errorf("the empty_trash tool is named in %d places, and the scoping to a scratch "+
 			"shared drive only holds while it is named in one:\n%s",
 			len(found), strings.Join(found, "\n"))
+	}
+}
+
+// The query probe's status comes from the answer when Google's front end
+// refused, and from the debug log otherwise, in either log format.
+func TestTheProbeReadsTheStatusFromTheAnswerOrTheLog(t *testing.T) {
+	page := "[invalid] searching Drive failed: HTTP 400 Bad Request, answered with an error page rather than a Drive error"
+	text := `time=2026-03-06T12:00:00Z level=DEBUG msg="drive api error" method=GET path=/drive/v3/files attempt=1 status=414 class=invalid`
+	json := `{"level":"DEBUG","msg":"drive api error","method":"GET","attempt":1,"status":413,"class":"invalid"}`
+	for _, tc := range []struct {
+		answer string
+		logs   []string
+		want   string
+	}{
+		{page, []string{text}, "400"},
+		{"[invalid] Invalid Value", []string{text}, "414"},
+		{"[invalid] Invalid Value", []string{json}, "413"},
+		{"[invalid] Invalid Value", []string{`level=INFO msg="tool call" status=200`}, "not in the answer, and not logged: run with GDRIVE_LOG_LEVEL=debug"},
+	} {
+		if got := statusOf(tc.answer, tc.logs); got != tc.want {
+			t.Errorf("statusOf(%q, %q) = %q, want %q", tc.answer, tc.logs, got, tc.want)
+		}
 	}
 }

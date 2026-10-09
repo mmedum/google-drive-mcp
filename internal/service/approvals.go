@@ -113,7 +113,27 @@ type ManageApprovalInput struct {
 	LockFile bool
 	// Due is when the approval is wanted by, as a date or a timestamp.
 	Due string
+	// OnContentChange is what a content change does to a started
+	// approval: OnChangeReset, the default, or OnChangeNoAction.
+	OnContentChange string
 }
+
+// What a content change does to an approval, as on_content_change takes
+// it. reset_approval clears answers given while the approval is open
+// and locks the file once it is approved; no_action does neither.
+const (
+	OnChangeReset    = "reset_approval"
+	OnChangeNoAction = "no_action"
+)
+
+// contentChanges maps on_content_change onto Drive's values.
+var contentChanges = map[string]string{
+	OnChangeReset:    gdrive.ContentChangeReset,
+	OnChangeNoAction: gdrive.ContentChangeNoAction,
+}
+
+// OnContentChanges lists what on_content_change accepts, default first.
+func OnContentChanges() []string { return []string{OnChangeReset, OnChangeNoAction} }
 
 // ManageApproval starts a review, answers one, withdraws one, comments
 // on one, or changes who is being asked.
@@ -130,6 +150,9 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 	if f.IsFolder() {
 		return nil, Errorf(ClassUnsupported,
 			"approvals are on files, and %s is a folder", f.Name)
+	}
+	if strings.TrimSpace(in.OnContentChange) != "" && action != ApprovalStart {
+		return nil, Errorf(ClassInvalid, "on_content_change is set when an approval starts, not with %s", action)
 	}
 
 	// Read before the action, so a lock that was already there is not
@@ -159,11 +182,17 @@ func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*
 	// the FILE and not about the call, and the file has just been read
 	// back. See lockWords.
 	if action == ApprovalStart && in.LockFile {
-		note += " " + lockWords(after.File, lockedBefore, reread)
+		note += " " + lockWords(after.File, lockedBefore, reread, converted)
+	}
+	state := approvalState(converted)
+	text := note + " " + state
+	if action == ApprovalCancel {
+		// The state is the news here, and the note says who heard it.
+		text = state + " " + note
 	}
 	return s.report(ctx, after, outcome{
 		Action: approvalOutcome(action),
-		Note:   note + " " + approvalState(converted),
+		Note:   strings.TrimSpace(text),
 	}), nil
 }
 
@@ -202,8 +231,20 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 		return nil, "", Errorf(ClassForbidden,
 			"you cannot start an approval on %s: Drive does not offer one on this file", f.Name)
 	}
+	onChange := strings.ToLower(strings.TrimSpace(in.OnContentChange))
+	if onChange == "" {
+		onChange = OnChangeReset
+	}
+	behavior, ok := contentChanges[onChange]
+	if !ok {
+		return nil, "", Errorf(ClassInvalid, "on_content_change %q is not one of %s", in.OnContentChange,
+			strings.Join(OnContentChanges(), ", "))
+	}
+	// Sent even for the default, so what the result says is what was
+	// asked for rather than whatever Drive's default is that day.
 	body := &gdrive.StartApproval{
 		ReviewerEmails: reviewers, Message: in.Message, LockFile: in.LockFile,
+		FileContentChangeBehavior: behavior,
 	}
 	if due := strings.TrimSpace(in.Due); due != "" {
 		stamp, err := parseSearchDate(due)
@@ -219,9 +260,25 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 	// The id is in the note because every other verb needs it, and this
 	// is the only place it is ever handed out: there is no listing a
 	// caller can find it in before the approval exists.
-	note := fmt.Sprintf("Approval %s started on %s and %s been mailed about it.",
-		started.ApprovalID, f.Name, model.Plural(len(reviewers), "reviewer has", "reviewers have"))
+	note := fmt.Sprintf("Approval %s started on %s and %s been mailed about it. %s",
+		started.ApprovalID, f.Name, model.Plural(len(reviewers), "reviewer has", "reviewers have"),
+		contentChangeWords(started, behavior))
 	return started, note, nil
+}
+
+// contentChangeWords says what a content change does to the approval,
+// read from Drive's answer rather than from what was asked, and says so
+// when the two differ.
+func contentChangeWords(started *gdrive.Approval, asked string) string {
+	got := started.FileContentChangeBehavior
+	out := model.NewApproval(started).ContentChangeWords()
+	if out == "" {
+		return "Drive did not say what a content change does to it, which was asked to be " + asked + "."
+	}
+	if got != asked {
+		out += " Drive reports " + got + ", where " + asked + " was asked for."
+	}
+	return out
 }
 
 // lockWords says whether the lock lock_file asked for is on the file,
@@ -239,7 +296,7 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 // somebody else's lock — an earlier approval that was approved, or an
 // administrator's restriction. Claiming a cause from a state is the same
 // mistake as claiming a state from an argument, one level down.
-func lockWords(f *gdrive.File, lockedBefore, reread bool) string {
+func lockWords(f *gdrive.File, lockedBefore, reread bool, a *model.Approval) string {
 	if !reread {
 		return "lock_file was asked for. The file could not be read back, so this cannot say " +
 			"whether Drive applied it; get_file shows a lock as \"content locked\"."
@@ -252,9 +309,12 @@ func lockWords(f *gdrive.File, lockedBefore, reread bool) string {
 		return "The file is LOCKED while the approval is open: nobody can change its " +
 			"content, including you."
 	}
-	return "lock_file was asked for, and Drive reports no content restriction on the file: " +
-		"the card above is what it actually did. An approval that is APPROVED locks the file, " +
-		"and that lock does not come off."
+	out := "lock_file was asked for, and Drive reports no content restriction on the file: " +
+		"the card above is what it actually did."
+	if a != nil && a.LocksOnApproval {
+		out += " Once it is APPROVED the file is locked, and that lock does not come off."
+	}
+	return out
 }
 
 // answerApproval records this account's answer, withdraws the approval,
@@ -273,29 +333,33 @@ func (s *Service) answerApproval(ctx context.Context, f *gdrive.File, action str
 	}
 	body := &gdrive.ApprovalMessage{Message: message}
 	var (
-		out  *gdrive.Approval
-		err  error
-		note string
+		out   *gdrive.Approval
+		err   error
+		note  string
+		doing string
 	)
 	switch action {
 	case ApprovalApprove:
 		out, err = s.api.ApproveApproval(ctx, f.ID, id, body)
-		note = "Your approval is recorded."
+		note, doing = "Your approval is recorded.", "approving"
 	case ApprovalDecline:
 		out, err = s.api.DeclineApproval(ctx, f.ID, id, body)
 		// Worth stating: one decline ends it, unlike an approval, which
 		// waits for everybody.
 		note = "You declined, which completes the approval: one refusal decides it, where an approval " +
 			"waits for every reviewer."
+		doing = "declining the approval on"
 	case ApprovalCancel:
 		out, err = s.api.CancelApproval(ctx, f.ID, id, body)
-		note = "The approval is withdrawn. Everybody who was asked has been told."
+		// The state Drive reports says it is canceled; this says who knows.
+		note, doing = "Everybody who was asked has been told.", "canceling the approval on"
 	case ApprovalComment:
 		out, err = s.api.CommentApproval(ctx, f.ID, id, body)
 		note = "Your message is on the approval, and the person who asked and every reviewer have been mailed it."
+		doing = "commenting on the approval on"
 	}
 	if err != nil {
-		return nil, "", s.approvalError(err, f, action+" the approval on", id)
+		return nil, "", s.approvalError(err, f, doing, id)
 	}
 	return out, note, nil
 }

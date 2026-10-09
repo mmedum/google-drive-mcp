@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
@@ -64,7 +65,7 @@ func Account(about *gdrive.About, o AccountOptions) string {
 
 	switch o.Sharing {
 	case "off":
-		b.field("sharing", "GDRIVE_SHARING=off: no tool here can change who can see a file.")
+		b.field("sharing", "GDRIVE_SHARING=off: no tool here can widen who can see a file.")
 	default:
 		b.field("sharing", "an anyone-with-the-link grant needs allow_anyone: true on the call, and a domain-wide one allow_domain: true. "+
 			"What may actually be shared is decided by your organization's own policy, which Google enforces on every call.")
@@ -72,7 +73,15 @@ func Account(about *gdrive.About, o AccountOptions) string {
 	if o.Destructive {
 		b.field("destructive tools", "enabled (GDRIVE_ENABLE_DESTRUCTIVE=true): the tools that remove something with no way back are registered")
 	} else {
-		b.field("destructive tools", "disabled: nothing registered here removes anything permanently. Set GDRIVE_ENABLE_DESTRUCTIVE=true to change that.")
+		off := "disabled: nothing registered here removes anything permanently"
+		if slices.Contains(o.Tools, "extract_text") {
+			// The one exception, and a documented one: the temporary Doc
+			// that OCR needs is the server's own, made and removed in the
+			// same call.
+			off += ", except the temporary copy extract_text makes to read a PDF or an image, which it deletes " +
+				"for good unless keep_copy is set"
+		}
+		b.field("destructive tools", off+". Set GDRIVE_ENABLE_DESTRUCTIVE=true to change that.")
 	}
 	if o.LocalDir == "" {
 		b.field("file transfer", "off: no local directory is set, so nothing can be downloaded or uploaded. Inline text still works both ways.")

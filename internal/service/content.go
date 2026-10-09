@@ -16,6 +16,7 @@ import (
 	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v2/internal/mediatype"
 	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v2/internal/office"
 	"github.com/mmedum/google-drive-mcp/v2/internal/render"
 )
 
@@ -86,6 +87,9 @@ type textWindow struct {
 	used  int64
 	total int64
 	more  bool
+	// note is what the content itself had to say about the window, such
+	// as which sheet of a workbook it is: something only the read knows.
+	note string
 }
 
 // textWindow reads the window a caller asked for, from an export or from
@@ -95,6 +99,9 @@ func (s *Service) textWindow(ctx context.Context, res *Resolved, plan readPlan, 
 	f := res.File
 	if plan.exportMime != "" {
 		return s.exportWindow(ctx, res, plan, in, budget)
+	}
+	if plan.office != office.None {
+		return s.officeWindow(ctx, res, plan, in, budget)
 	}
 	// A blob's size does not bound this call: only the window shown is
 	// fetched, so the head of a 200 MB log is one small request, and
@@ -120,51 +127,62 @@ func (s *Service) textWindow(ctx context.Context, res *Resolved, plan readPlan, 
 	return textWindow{text: window, used: used, total: totalOf(content, f), more: more}, nil
 }
 
-// readExport returns a window of a Google-native document. Drive takes
-// no byte range on an export, so the whole document arrives whatever
-// window was asked for; it is kept for ExportTTL, and the windows after
-// the first cost nothing. The key carries the revision and the
-// modification time, so a document that changed under a paging model is
-// exported again rather than served from a stale copy.
+// exportWindow returns a window of a Google-native document. Drive
+// takes no byte range on an export, so the whole document arrives
+// whatever window was asked for; it is kept for ExportTTL, and the
+// windows after the first cost nothing. The key carries the revision and
+// the modification time, so a document that changed under a paging model
+// is exported again rather than served from a stale copy.
 func (s *Service) exportWindow(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput, budget int,
 ) (textWindow, error) {
 	f := res.File
 	key := f.ID + "\x00" + f.HeadRevisionID + "\x00" + f.ModifiedTime + "\x00" + plan.exportMime
-	text, ok := s.exportedText(key)
-	if !ok {
-		content, err := s.api.Export(ctx, f.ID, plan.exportMime)
+	kept, _, err := s.keptText(&s.export, key, false, func() (exported, error) {
+		text, err := s.exportAll(ctx, f.ID, plan.exportMime)
 		if err != nil {
-			return textWindow{}, s.contentError(err, f, "reading")
+			return exported{}, s.contentError(err, f, "reading")
 		}
-		defer func() { _ = content.Body.Close() }()
-		// The cap is Google's own: an export larger than this does not
-		// arrive, so reading to the end is bounded whatever the file is.
-		raw, err := io.ReadAll(io.LimitReader(content.Body, MaxExport))
-		if err != nil {
-			return textWindow{}, wrap(err, "reading "+f.Name)
-		}
-		text = string(raw)
 		if plan.stripDataURIs {
 			// Stripping once, before the cache, keeps every window
 			// consistent and stops a data URI being cut in half by a
 			// window boundary.
 			text = render.StripDataURIs(text)
 		}
-		s.keepExport(key, text)
+		return exported{text: text}, nil
+	})
+	if err != nil {
+		return textWindow{}, err
 	}
+	return keptWindow(kept, in.Offset, budget), nil
+}
 
-	total := int64(len(text))
-	if in.Offset >= total {
-		return textWindow{total: total}, nil
+// exportAll is a Google document exported whole. The cap is Google's
+// own: an export larger than it does not arrive, so reading to the end
+// is bounded whatever the file is.
+func (s *Service) exportAll(ctx context.Context, id, mime string) (string, error) {
+	content, err := s.api.Export(ctx, id, mime)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = content.Body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(content.Body, MaxExport))
+	return string(raw), err
+}
+
+// keptWindow is one window of text held whole in memory.
+func keptWindow(kept exported, offset int64, budget int) textWindow {
+	total := int64(len(kept.text))
+	if offset >= total {
+		return textWindow{total: total, note: kept.note}
 	}
 	// Sliced, not copied. The bytes are already a string in memory, and
 	// readWindow's job is to bound an io.Reader: putting one around this
 	// allocates the whole budget and memcpys into it, which on a resource
 	// read is 400 KB whatever the document's size — for a 200-byte Doc
 	// as much as for a long one.
-	window, used := stringWindow(text[in.Offset:], budget)
+	window, used := stringWindow(kept.text[offset:], budget)
 	return textWindow{text: window, used: used, total: total,
-		more: in.Offset+used < total}, nil
+		more: offset+used < total, note: kept.note}
 }
 
 // stringWindow returns at most budget bytes from the front of text,
@@ -186,19 +204,30 @@ func stringWindow(text string, budget int) (string, int64) {
 // MaxExport is Google's own ceiling on files.export.
 const MaxExport = 10 << 20
 
-func (s *Service) exportedText(key string) (string, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.export.key != key || s.now().Sub(s.export.at) > s.opts.ExportTTL {
-		return "", false
+// keptText is the text held in slot under key, while it is inside
+// ExportTTL, or what compute makes, which is then held in its place, so
+// the windows after the first cost nothing. fresh skips what is held,
+// and holds what it computes. cached says the text was held.
+func (s *Service) keptText(slot *exported, key string, fresh bool, compute func() (exported, error),
+) (kept exported, cached bool, err error) {
+	if !fresh {
+		s.mu.Lock()
+		if slot.key == key && s.now().Sub(slot.at) <= s.opts.ExportTTL {
+			kept, cached = *slot, true
+		}
+		s.mu.Unlock()
+		if cached {
+			return kept, true, nil
+		}
 	}
-	return s.export.text, true
-}
-
-func (s *Service) keepExport(key, text string) {
+	if kept, err = compute(); err != nil {
+		return exported{}, false, err
+	}
+	kept.key, kept.at = key, s.now()
 	s.mu.Lock()
-	s.export = exported{key: key, text: text, at: s.now()}
+	*slot = kept
 	s.mu.Unlock()
+	return kept, false, nil
 }
 
 // renderText lays out one window under the header that says which part
@@ -206,16 +235,21 @@ func (s *Service) keepExport(key, text string) {
 func (s *Service) renderText(ctx context.Context, res *Resolved, plan readPlan, in ReadFileInput,
 	w textWindow,
 ) string {
+	again := ""
+	if format := strings.ToLower(strings.TrimSpace(in.Format)); format != "" {
+		again = "format: " + format
+	}
 	return render.FileText(s.Model(ctx, res), render.FileTextOptions{
 		Now:              s.now(),
 		FollowedShortcut: res.FollowedShortcut,
 		Format:           plan.formatName,
-		Note:             plan.note,
+		Note:             strings.TrimSpace(plan.note + " " + w.note),
 		Offset:           in.Offset,
 		Bytes:            w.used,
 		Total:            w.total,
 		More:             w.more,
 		Text:             w.text,
+		Again:            again,
 	})
 }
 
@@ -230,6 +264,12 @@ type readPlan struct {
 	note string
 	// stripDataURIs removes inlined images from a markdown export.
 	stripDataURIs bool
+	// office names the Office or OpenDocument format whose text is read
+	// from the file's own bytes, here; None for anything else.
+	office office.Kind
+	// textMime is the media type of the text a read produces, where it
+	// is neither an export format nor the file's own type.
+	textMime string
 }
 
 // readPlan decides how to turn one file into text, and refuses the kinds
@@ -275,13 +315,40 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 		return readPlan{}, Errorf(ClassUnsupported, "%s is %s, which has no text form. "+
 			"download_file writes it to disk.", f.Name, model.KindWithArticle(f))
 	}
+	if kind := office.KindOf(f.MimeType); kind != office.None {
+		return officePlan(f, kind, format)
+	}
+	if to, legacy := legacyOffice[gdrive.MimeOnly(f.MimeType)]; legacy {
+		return readPlan{}, Errorf(ClassUnsupported, "%s is %s, the binary format Office used before 2007, "+
+			"which this server does not read. download_file writes it to disk, or copy_file with convert_to: %s "+
+			"makes a Google file of it that read_file reads.", f.Name, model.KindWithArticle(f), to)
+	}
 	if !model.IsTextLike(f.MimeType) {
-		return readPlan{}, Errorf(ClassUnsupported, "%s is %s, which is not text. Two ways forward: "+
-			"download_file writes it to disk, or copy_file with convert_to: doc asks Google to import it "+
-			"(which reads the text out of a PDF or an image) and then read_file works on the copy.",
-			f.Name, model.KindWithArticle(f))
+		return readPlan{}, s.notText(f)
 	}
 	return readPlan{formatName: "text"}, nil
+}
+
+// notText refuses a file that has no text of its own, with the ways
+// forward this server offers in the mode it was started in: a PDF or an
+// image has its text read by Google's OCR, which needs a copy, and a
+// read-only server makes none.
+func (s *Service) notText(f *gdrive.File) error {
+	ocr := pdfOrImage(gdrive.MimeOnly(f.MimeType))
+	switch {
+	case s.opts.ReadOnly:
+		return Errorf(ClassUnsupported, "%s is %s, which is not text. download_file writes it to disk; reading "+
+			"the text out of a PDF or an image takes a copy, which this read-only server does not make.",
+			f.Name, model.KindWithArticle(f))
+	case ocr:
+		return Errorf(ClassUnsupported, "%s is %s, which is not text. Three ways forward: extract_text reads "+
+			"its text with Google's OCR, through a temporary copy it deletes again; download_file writes it "+
+			"to disk; or copy_file with convert_to: doc keeps that copy as a Google Doc, which read_file reads.",
+			f.Name, model.KindWithArticle(f))
+	}
+	return Errorf(ClassUnsupported, "%s is %s, which is not text. download_file writes it to disk, or "+
+		"copy_file with convert_to asks Google to import it as one of its own kinds, if it imports this one.",
+		f.Name, model.KindWithArticle(f))
 }
 
 // readWindow reads at most budget bytes and returns whole characters
@@ -373,7 +440,7 @@ func (s *Service) DownloadFile(ctx context.Context, in DownloadFileInput) (strin
 	// Hashing a gigabyte is pointless when there is nothing to compare
 	// the digest against, which is the case for every export and every
 	// older revision.
-	compare := f.MD5Checksum != "" && in.Revision == ""
+	compare := f.MD5Checksum != "" && isCurrent(f, in.Revision)
 	written, sum, err := writeStream(path, content.Body, compare)
 	if err != nil {
 		return "", err
@@ -619,6 +686,13 @@ func writeStream(path string, body io.Reader, checksum bool) (int64, string, err
 	return written, hex.EncodeToString(sum.Sum(nil)), nil
 }
 
+// isCurrent says whether a download asked for the file's current
+// content: no revision, or the head one by its id. The file's checksum
+// is that content's, and no other revision's.
+func isCurrent(f *gdrive.File, revision string) bool {
+	return revision == "" || revision == f.HeadRevisionID
+}
+
 // checksumVerdict says whether the bytes on disk are the bytes Drive
 // holds — as facts, not as a sentence: internal/render decides how to
 // put it. An export and an older revision have no checksum to compare
@@ -627,7 +701,7 @@ func checksumVerdict(f *gdrive.File, revision, got string) model.Checksum {
 	switch {
 	case f.MD5Checksum == "":
 		return model.Checksum{State: model.ChecksumNotPublished}
-	case revision != "":
+	case !isCurrent(f, revision):
 		return model.Checksum{State: model.ChecksumNotComparable,
 			Why: "the file's checksum is the current version's, not this revision's"}
 	case f.MD5Checksum == got:

@@ -69,7 +69,7 @@ func (s *Service) ListPermissions(ctx context.Context, in ListPermissionsInput) 
 	}
 	o := render.PermissionsOptions{
 		Sharing: sharing, SharedDrive: isDrive,
-		CanShare: model.CanShare(f),
+		CanShare: model.CanShare(f), LimitedAccess: f.IsFolder() && f.InheritedPermissionsDisabled,
 	}
 	if isDrive {
 		o.Subject = f.Name + " — shared drive"
@@ -78,7 +78,8 @@ func (s *Service) ListPermissions(ctx context.Context, in ListPermissionsInput) 
 		o.Location = s.Location(ctx, f).String()
 	}
 	if s.opts.Sharing == config.SharingOff {
-		o.Note = "this server was started with GDRIVE_SHARING=off, so nothing here can change any of it."
+		o.Note = "this server was started with GDRIVE_SHARING=off, so nothing here can grant access, loosen a " +
+			"restriction, or move an item where more people can reach it."
 	}
 	return render.Permissions(sharing.Grants, o), nil
 }
@@ -359,7 +360,7 @@ func (s *Service) shareResult(ctx context.Context, res *Resolved, before, after 
 	changes = append(changes, render.Exposure(before, after)...)
 
 	out := outcome{Action: render.ActionShared, Changes: changes, DryRun: dryRun,
-		Note: s.shareNote(p, after)}
+		Note: s.shareNote(p, after, dryRun)}
 	result := s.report(ctx, res, out)
 	result.JSON.SharingBefore = before.Summary()
 	result.JSON.SharingAfter = after.Summary()
@@ -368,13 +369,19 @@ func (s *Service) shareResult(ctx context.Context, res *Resolved, before, after 
 
 // shareNote says the things a role and an exposure line do not: what a
 // transfer actually did, what a link grant means, and whether mail went
-// out.
-func (s *Service) shareNote(p sharePlan, after model.Sharing) string {
+// out. A dry run says what each would do, since none of it happened.
+func (s *Service) shareNote(p sharePlan, after model.Sharing, dryRun bool) string {
+	tense := func(did, would string) string {
+		if dryRun {
+			return would
+		}
+		return did
+	}
 	var parts []string
 	if p.role == model.RoleOwner {
 		if p.file.DriveID != "" {
-			parts = append(parts, "in a shared drive the drive owns its files, so this makes "+
-				p.principal.label()+" an organizer rather than an owner")
+			parts = append(parts, "in a shared drive the drive owns its files, so this "+
+				tense("makes ", "would make ")+p.principal.label()+" an organizer rather than an owner")
 		} else {
 			// What is certain is the demotion. Whether a consumer account
 			// produces a pending transfer is read off the answer rather
@@ -383,9 +390,10 @@ func (s *Service) shareNote(p sharePlan, after model.Sharing) string {
 			// what Drive does with that on a consumer account has not
 			// been seen here (spike F, §16). Describing an outcome
 			// nobody has observed is how a result becomes wrong.
-			parts = append(parts, "this account is now a writer on it rather than its owner, and cannot "+
+			parts = append(parts, tense("this account is now a writer on it rather than its owner, and cannot ",
+				"this account would become a writer on it rather than its owner, and could not ")+
 				"take that back: only the new owner can hand it on")
-			if after.PendingOwner != "" {
+			if after.PendingOwner != "" && !dryRun {
 				parts = append(parts, "the transfer is waiting for "+after.PendingOwner+
 					" to accept it, and list_permissions says pending until they do")
 			}
@@ -393,18 +401,19 @@ func (s *Service) shareNote(p sharePlan, after model.Sharing) string {
 		parts = append(parts, "Google always mails an ownership transfer; that cannot be turned off")
 	} else if p.principal.notifiable() {
 		if p.notify {
-			parts = append(parts, "Google sent "+p.principal.label()+" a notification email")
+			parts = append(parts, tense("Google sent ", "Google would send ")+p.principal.label()+" a notification email")
 		} else {
-			parts = append(parts, "no email was sent; pass notify: true if they should hear about it")
+			parts = append(parts, tense("no email was sent", "no email would be sent")+
+				"; pass notify: true if they should hear about it")
 		}
 	}
 	if p.principal.kind == principalAnyone {
 		// What the grant is now, not what this call asked for: leaving
 		// discoverable out keeps whatever the grant already had, and the
 		// exposure a person needs to read is the resulting one.
-		what := "anyone with the link can now reach it without signing in"
+		what := "anyone with the link " + tense("can now reach", "would reach") + " it without signing in"
 		if p.findable() {
-			what = "anyone on the internet can now reach it AND find it by search"
+			what = "anyone on the internet " + tense("can now reach", "would reach") + " it AND find it by search"
 		}
 		parts = append(parts, what)
 	}
@@ -492,7 +501,11 @@ func (s *Service) unshareResult(ctx context.Context, res *Resolved, before, afte
 		From: model.RoleWords(g.Role), To: "no access"})
 	changes = append(changes, render.Exposure(before, after)...)
 	note := ""
-	if g.Type == principalAnyone || g.Type == principalDomain {
+	switch {
+	case g.Type != principalAnyone && g.Type != principalDomain:
+	case dryRun:
+		note = "the link that grant made would stop working; anyone holding it would see a request-access page"
+	default:
 		note = "the link that grant made is dead; anyone holding it now sees a request-access page"
 	}
 	result := s.report(ctx, res, outcome{Action: render.ActionUnshared,
@@ -677,7 +690,7 @@ func (s *Service) sharable(tool string) error {
 	}
 	if s.opts.Sharing == config.SharingOff {
 		return Errorf(ClassForbidden, "this server was started with GDRIVE_SHARING=off, so %s is not "+
-			"available and nothing here can change who can see a file. list_permissions still shows who can.", tool)
+			"available and nothing here can widen who can see a file. list_permissions still shows who can.", tool)
 	}
 	return nil
 }
@@ -913,10 +926,6 @@ func (s *Service) outside(ctx context.Context, address string) bool {
 	if !ok || consumerDomains[theirs] {
 		return true
 	}
-	about, err := s.api.About(ctx)
-	if err != nil || about.User == nil {
-		return true
-	}
-	_, mine, _ := strings.Cut(strings.ToLower(about.User.EmailAddress), "@")
+	_, mine, _ := strings.Cut(strings.ToLower(s.account(ctx)), "@")
 	return mine == "" || mine != theirs
 }

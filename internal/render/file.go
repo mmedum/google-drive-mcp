@@ -101,6 +101,15 @@ func writeAppliedLabels(b *buf, labels []model.AppliedLabel) {
 	}
 }
 
+// changesHead heads the before-and-after lines. A dry run changed
+// nothing, and its lines sit right under the line that says so.
+func changesHead(dryRun bool) string {
+	if dryRun {
+		return "would change:"
+	}
+	return "changed:"
+}
+
 // orEmpty renders a value that was not set, so a before-and-after line
 // never reads as though a field went from nothing to nothing.
 func orEmpty(v string) string {
@@ -162,6 +171,7 @@ func FileCard(f *model.File, o FileCardOptions) string {
 	}
 	b.field("modified", modified)
 	b.field("owner", f.Owner)
+	b.field("shared with you", sharedWithYou(f, o.Now))
 	b.field("sharing", f.Sharing.Summary())
 	b.field("you can", joinOr(f.Can, ""))
 	cardState(&b, f, o.Now)
@@ -171,9 +181,7 @@ func FileCard(f *model.File, o FileCardOptions) string {
 		b.field("export formats", strings.Join(f.ExportFormats, ", "))
 	}
 	cardTags(&b, f)
-	if f.CopyRequiresWriterPermission {
-		b.line("note: viewers and commenters cannot copy, print or download this file")
-	}
+	cardRestrictions(&b, f)
 	if f.BoundaryNote != "" {
 		b.line("note: " + f.BoundaryNote)
 	}
@@ -181,7 +189,7 @@ func FileCard(f *model.File, o FileCardOptions) string {
 		b.line("NOTHING WAS CHANGED: this was a dry run. Call it again without dry_run to do it.")
 	}
 	if len(o.Changes) > 0 {
-		b.line("changed:")
+		b.line(changesHead(o.DryRun))
 		for _, c := range o.Changes {
 			b.linef("  %s: %s → %s", c.Field, orEmpty(c.From), orEmpty(c.To))
 		}
@@ -190,4 +198,39 @@ func FileCard(f *model.File, o FileCardOptions) string {
 		b.line("note: " + o.Note)
 	}
 	return b.String()
+}
+
+// cardRestrictions says who cannot download, print or copy the file,
+// and whether a folder has limited access. The restriction shown is the
+// one in effect, which counts the shared drive and the organization's
+// rules; the legacy switch reads true for viewers alone, so it says less
+// than the restriction does and is the fallback when that was not read.
+func cardRestrictions(b *buf, f *model.File) {
+	switch {
+	case f.Downloads != "" && f.Downloads != model.DownloadsOpen:
+		line := model.DownloadWords(f.Downloads)
+		if f.DownloadsOnFile != f.Downloads {
+			line += " (set by the shared drive or an organization rule, not on the file)"
+		}
+		b.field("downloads", line)
+	case f.Downloads == "" && f.CopyRequiresWriterPermission:
+		b.field("downloads", model.DownloadWords(model.DownloadsViewers))
+	}
+	if f.LimitedAccess {
+		b.field("limited access", "only people added to this folder directly can open it; others who reach "+
+			"the folder above see it without opening it")
+	}
+}
+
+// sharedWithYou says when and by whom someone shared a file with this
+// account, or nothing for a file nobody shared with it.
+func sharedWithYou(f *model.File, now time.Time) string {
+	var parts []string
+	if !f.SharedWithMeAt.IsZero() {
+		parts = append(parts, model.HumanTime(f.SharedWithMeAt, now))
+	}
+	if f.SharedBy != "" {
+		parts = append(parts, "by "+f.SharedBy)
+	}
+	return strings.Join(parts, " ")
 }

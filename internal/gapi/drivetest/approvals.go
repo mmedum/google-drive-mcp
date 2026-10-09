@@ -190,8 +190,10 @@ func (s *Server) answerLocked(a *gdrive.Approval, verb string) {
 	// update_content was refused for violating a content restriction.
 	// Starting one with lockFile did neither, which is why the lock is
 	// applied here and nowhere else.
+	// The approvals guide: under NO_APPROVAL_ACTION "the file isn't
+	// locked on final approval".
 	defer func() {
-		if a.Status != "APPROVED" {
+		if a.Status != "APPROVED" || a.FileContentChangeBehavior != gdrive.ContentChangeReset {
 			return
 		}
 		f := s.Files[a.TargetFileID]
@@ -241,11 +243,18 @@ func (s *Server) handleStartApproval(w http.ResponseWriter, r *http.Request, fil
 		s.errorJSON(w, http.StatusBadRequest, "badRequest", "reviewerEmails is required.")
 		return
 	}
+	switch body.FileContentChangeBehavior {
+	case "", "FILE_CONTENT_CHANGE_BEHAVIOR_UNSPECIFIED", gdrive.ContentChangeReset, gdrive.ContentChangeNoAction:
+	default:
+		s.errorJSON(w, http.StatusBadRequest, "badRequest",
+			"Invalid value at 'file_content_change_behavior': "+body.FileContentChangeBehavior)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextID++
 	a := s.addApprovalLocked(fileID, fmt.Sprintf("id-approval-fixture-%d", s.nextID),
-		s.me(), body.DueTime, body.ReviewerEmails)
+		s.me(), body.DueTime, body.FileContentChangeBehavior, body.ReviewerEmails)
 	// lockFile does NOT put a content restriction on the file by default.
 	// A live run asked for one and Drive applied none: the card came
 	// back unrestricted and the next update_content succeeded. Approving
@@ -260,6 +269,25 @@ func (s *Server) handleStartApproval(w http.ResponseWriter, r *http.Request, fil
 		}
 	}
 	writeJSON(w, a)
+}
+
+// resetApprovalsLocked is what a content change does to the open
+// approvals on a file. Under RESET_APPROVAL the reference says an
+// APPROVED answer "will be reset" while the approval is in progress;
+// the reviewer response values have no NO_DECISION, so it goes back to
+// NO_RESPONSE. NO_APPROVAL_ACTION leaves the answers alone. The caller
+// holds the lock.
+func (s *Server) resetApprovalsLocked(fileID string) {
+	for _, a := range s.Approvals[fileID] {
+		if a.Status != gdriveInProgress || a.FileContentChangeBehavior != gdrive.ContentChangeReset {
+			continue
+		}
+		for _, r := range a.ReviewerResponses {
+			if r.Response == "APPROVED" {
+				r.Response = "NO_RESPONSE"
+			}
+		}
+	}
 }
 
 // approval finds one approval by id.
@@ -281,25 +309,27 @@ func (s *Server) AddApproval(fileID, approvalID string, reviewers ...string) *gd
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.addApprovalLocked(fileID, approvalID,
-		&gdrive.User{DisplayName: "Other Person", EmailAddress: "other@example.com"}, "", reviewers)
+		&gdrive.User{DisplayName: "Other Person", EmailAddress: "other@example.com"}, "", "", reviewers)
 }
 
 // addApprovalLocked builds an approval and files it. Starting one and
-// placing one as a fixture differ in the id, the initiator and the due
-// time; everything else — the status, the content-change behavior that
-// locks the file once approved, and the reviewer loop that marks the
-// signed-in account as this account — is the same both ways, and was
-// written twice before it was written once. The caller holds the lock.
+// placing one as a fixture differ in the id, the initiator, the due
+// time and the content-change behavior; everything else — the status
+// and the reviewer loop that marks the signed-in account as this
+// account — is the same both ways, and was written twice before it was
+// written once. An empty behavior is the API's default, RESET_APPROVAL,
+// which the approvals guide calls the default. The caller holds the
+// lock.
 func (s *Server) addApprovalLocked(fileID, approvalID string, initiator *gdrive.User,
-	dueTime string, reviewers []string) *gdrive.Approval {
+	dueTime, behavior string, reviewers []string) *gdrive.Approval {
 	ts := s.now().UTC().Format(time.RFC3339)
+	if behavior == "" || behavior == "FILE_CONTENT_CHANGE_BEHAVIOR_UNSPECIFIED" {
+		behavior = gdrive.ContentChangeReset
+	}
 	a := &gdrive.Approval{
 		ApprovalID: approvalID, TargetFileID: fileID, Initiator: initiator,
 		Status: gdriveInProgress, CreateTime: ts, ModifyTime: ts, DueTime: dueTime,
-		// The API's default behavior, which is the one with the
-		// consequence: a content change resets the answers, and once
-		// approved the file is locked.
-		FileContentChangeBehavior: "RESET_APPROVAL",
+		FileContentChangeBehavior: behavior,
 	}
 	for _, address := range reviewers {
 		reviewer := &gdrive.User{EmailAddress: address}

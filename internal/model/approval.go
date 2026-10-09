@@ -36,6 +36,9 @@ type Approval struct {
 	// resource nobody expects, so it is carried rather than derived at
 	// the point of printing.
 	LocksOnApproval bool
+	// IgnoresContentChanges is the other behavior: answers stay when the
+	// content changes, and approving does not lock the file.
+	IgnoresContentChanges bool
 }
 
 // Reviewer is one person's answer, or the absence of one.
@@ -54,13 +57,14 @@ func NewApproval(a *gdrive.Approval) *Approval {
 		return nil
 	}
 	out := &Approval{
-		ID:              a.ApprovalID,
-		Status:          a.Status,
-		Initiator:       userWords(a.Initiator),
-		Created:         parseTime(a.CreateTime),
-		Due:             parseTime(a.DueTime),
-		Completed:       parseTime(a.CompleteTime),
-		LocksOnApproval: a.FileContentChangeBehavior == "RESET_APPROVAL",
+		ID:                    a.ApprovalID,
+		Status:                a.Status,
+		Initiator:             userWords(a.Initiator),
+		Created:               parseTime(a.CreateTime),
+		Due:                   parseTime(a.DueTime),
+		Completed:             parseTime(a.CompleteTime),
+		LocksOnApproval:       a.FileContentChangeBehavior == gdrive.ContentChangeReset,
+		IgnoresContentChanges: a.FileContentChangeBehavior == gdrive.ContentChangeNoAction,
 	}
 	for _, r := range a.ReviewerResponses {
 		if r == nil {
@@ -81,6 +85,22 @@ func NewApproval(a *gdrive.Approval) *Approval {
 
 // Open reports whether the approval is still waiting on somebody.
 func (a *Approval) Open() bool { return a != nil && a.Status == ApprovalInProgress }
+
+// ContentChangeWords says what a change to the file's content does to
+// the approval, or is empty when Drive did not say.
+func (a *Approval) ContentChangeWords() string {
+	switch {
+	case a.LocksOnApproval:
+		// The consequence nobody expects: this is not just a record of
+		// agreement, it stops the file being edited.
+		return "Changing the content while it is open clears the answers already given, and once it is " +
+			"approved the file is LOCKED."
+	case a.IgnoresContentChanges:
+		return "Changing the content leaves the answers already given as they are, and approving does not " +
+			"lock the file."
+	}
+	return ""
+}
 
 // WaitingOnMe reports whether the signed-in person still owes an answer.
 // It is the only thing in a listing that asks the reader to do

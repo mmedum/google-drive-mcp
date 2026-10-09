@@ -52,6 +52,13 @@ const (
 
 var now = time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
 
+// movedTo is who a move would add: a person, by name and address, and a
+// domain.
+func movedTo() []model.Grant {
+	return []model.Grant{{Type: "user", Role: "writer", Who: their, Name: other},
+		{Type: "domain", Role: "reader", Who: "corp.example.net"}}
+}
+
 func meUser() *gdrive.User    { return &gdrive.User{DisplayName: me, Me: true} }
 func otherUser() *gdrive.User { return &gdrive.User{DisplayName: other, EmailAddress: their} }
 
@@ -165,7 +172,30 @@ func rendered() map[string]string {
 		render.AskLoosenDrive(fixtureDriveID, "Marketing", []string{"domain_users_only"}).Text,
 		render.AskGrantRequest(fixtureID, "Budget.xlsx", "id-request-1", their, "writer", "please let me in").Text,
 		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOutside, Who: their, Role: "writer"}).Text,
+		render.AskMove(render.MoveTarget{ID: fixtureID, Name: "Team", Kind: "folder"}, []string{fixtureID},
+			[]render.MoveItem{{ID: fixtureID, Name: "Budget.xlsx", Kind: "file", Gained: movedTo()}}).Text,
+		render.AskMove(render.MoveTarget{ID: fixtureDriveID, Name: "Marketing", Kind: "shared drive"},
+			[]string{fixtureID, "id-other"}, []render.MoveItem{{ID: fixtureID, Name: "Budget.xlsx", Kind: "file",
+				Gained: movedTo()}, {ID: "id-other", Name: "Reports", Kind: "folder", Unread: "it"}}).Text,
+		render.AskOpenFolder(fixtureID, "Board", movedTo(), "").Text,
+		render.AskOpenFolder(fixtureID, "Board", nil, "the folder above it").Text,
+		render.AskCopy(render.MoveTarget{ID: fixtureID, Name: "Team", Kind: "folder"},
+			render.MoveItem{ID: fixtureID, Name: "Budget.xlsx", Kind: "file"},
+			[]render.MoveItem{{ID: fixtureID, Name: "Budget.xlsx", Kind: "file", Gained: movedTo()}}).Text,
+		render.AskCopy(render.MoveTarget{ID: fixtureDriveID, Name: "Marketing", Kind: "shared drive"},
+			render.MoveItem{ID: fixtureID, Name: "Reports", Kind: "folder"},
+			[]render.MoveItem{{ID: fixtureID, Name: "Reports", Kind: "folder", Gained: movedTo()},
+				{ID: "id-other", Name: "Board", Kind: "folder", Unread: "it"}}).Text,
 	}, "\n")
+	// A move of several prints each item's sharing, and a summary names
+	// whoever an ownership transfer waits on.
+	pending := model.SharingOf(true, []model.Grant{{Type: "user", Role: "writer", Who: their, Name: other,
+		PendingOwner: true}}).Summary()
+	out["move several"] = render.MoveMany("My Drive/Team", []render.MovedJSON{
+		{File: fixtureID, ID: fixtureID, Name: "Budget.xlsx", Outcome: render.MovedMoved, From: "My Drive",
+			SharingBefore: pending, SharingAfter: pending + "; anyone with the link can view"},
+		{File: "/Team/Notes", Outcome: render.MovedRefused, Reason: "[not_found] nothing called Notes in Team"},
+	}, false, "")
 	return out
 }
 
@@ -387,6 +417,10 @@ var renderedKey = map[string]string{
 	"AskShare":          "questions",
 	"AskLoosenDrive":    "questions",
 	"AskGrantRequest":   "questions",
+	"AskMove":           "questions",
+	"AskOpenFolder":     "questions",
+	"AskCopy":           "questions",
+	"MoveMany":          "move several",
 }
 
 // notRenderers are the exported string functions in internal/render that
@@ -398,4 +432,75 @@ var notRenderers = map[string]string{
 	"Sum":           "a SHA-256 in hex that binds an answer to a text, never shown to anyone",
 	"Activity":      "asserted by TestActivityNamesNobody, which is stronger: it prints no person at all",
 	"Labels":        "a label definition as this server models it has no person in it to print",
+	"Reach":         "who a move adds, as counts of people by role, then domains and the link: it prints no name or address, and AskMove, which carries it, is in rendered()",
+}
+
+// The names a live run reads from the account's own Drive are hidden
+// where this server lists them, and the run's own stay readable. Every
+// output is rendered by the server's own renderers, so a change to how
+// one prints a row or a path fails here rather than in a transcript.
+// The names are invented; a live one copied here would itself be the
+// leak.
+func TestNamesOutsideTheRunAreHidden(t *testing.T) {
+	const (
+		prefix   = "google-drive-mcp livedrive scratch"
+		scratch  = prefix + " 2026-03-06 12:00:00"
+		ownDrive = prefix + " drive 2026-03-06 12:00:00"
+		foreignA = "Quillfeather Holdings"
+		foreignB = "Contract with Brightwater"
+		foreignC = "Customers"
+	)
+	theirs := model.New(&gdrive.File{ID: fixtureID, Name: foreignB, MimeType: gdrive.MimeDocument,
+		ModifiedTime: "2026-03-04T09:00:00Z"}, model.Options{})
+	theirs.Location = model.Location{Drive: foreignA, SharedDrive: true, Folders: []string{foreignC}}
+	ours := model.New(&gdrive.File{ID: "1SyntheticFixtureOwnFileIdAAAAAAAAA", Name: "rows.csv", MimeType: "text/csv",
+		ModifiedTime: "2026-03-04T09:00:00Z"}, model.Options{})
+	ours.Location = model.Location{Drive: "My Drive", Folders: []string{scratch, "Reports"}}
+	folder := model.New(&gdrive.File{ID: fixtureID, Name: foreignC, MimeType: gdrive.MimeFolder}, model.Options{})
+	folder.Location = model.Location{Drive: foreignA, SharedDrive: true}
+	drive := func(name string) *model.Drive {
+		d := model.NewDrive(&gdrive.Drive{ID: fixtureDriveID, Name: name})
+		d.Restrictions = []string{"only members can download"}
+		return d
+	}
+
+	outputs := map[string]string{
+		"search": render.Listing([]*model.File{theirs, ours},
+			render.ListingOptions{Title: "search: everything — 2 hits", Now: now, ShowLocation: true}),
+		"their folder": render.Listing([]*model.File{theirs},
+			render.ListingOptions{Title: foreignA + " (shared drive)/" + foreignC + " — 1 item, folders first", Now: now}),
+		"our folder": render.Listing([]*model.File{ours},
+			render.ListingOptions{Title: "My Drive/" + scratch + "/Reports — 1 item, folders first", Now: now}),
+		"tree": render.Tree(&render.TreeNode{File: folder, Items: 1, Children: []*render.TreeNode{{File: theirs}}},
+			render.TreeOptions{Title: foreignA + " (shared drive)/" + foreignC + " — tree, depth 1, 2 items shown"}),
+		"changes": render.Changes([]*model.Change{
+			{Kind: "file", ID: fixtureID, Name: foreignB, Location: theirs.Location.String(), At: now},
+			{Kind: "file", ID: "1SyntheticFixtureOwnFileIdAAAAAAAAA", Name: "rows.csv", Location: ours.Location.String(), At: now},
+		}, render.ChangesOptions{Title: "changes in this account's Drive: 2 changes", Now: now}),
+		"their card": render.FileCard(theirs, render.FileCardOptions{Now: now}),
+		"our card":   render.FileCard(ours, render.FileCardOptions{Now: now}),
+		"account": render.Account(&gdrive.About{User: &gdrive.User{EmailAddress: "person@example.com"}},
+			render.AccountOptions{Drives: []string{foreignA, ownDrive}, DrivesKnown: true}),
+		"drives": render.Drives([]*model.Drive{drive(foreignA), drive(ownDrive)},
+			render.DrivesOptions{Title: "shared drives this account can see: 2 drives"}),
+	}
+	for what, out := range outputs {
+		r := redact.NewRedactor(false)
+		r.KeepNamesUnder(prefix)
+		got := r.Do(out)
+		for _, name := range []string{foreignA, foreignB, foreignC} {
+			if strings.Contains(got, name) {
+				t.Errorf("%s: %q survived\n%s", what, name, got)
+			}
+		}
+		for _, own := range []string{"rows.csv", scratch, ownDrive} {
+			if strings.Contains(out, own) && !strings.Contains(got, own) {
+				t.Errorf("%s: the run's own %q was hidden\n%s", what, own, got)
+			}
+		}
+	}
+	// Without the setting, nothing about a name changes.
+	if got := redact.NewRedactor(false).Do(outputs["search"]); !strings.Contains(got, foreignB) {
+		t.Errorf("a name was hidden with KeepNamesUnder unset:\n%s", got)
+	}
 }

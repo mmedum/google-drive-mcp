@@ -89,7 +89,7 @@ func DriveCard(d *model.Drive, o DriveCardOptions) string {
 		b.line("NOTHING WAS CHANGED: this was a dry run. Call it again without dry_run to do it.")
 	}
 	if len(o.Changes) > 0 {
-		b.line("changed:")
+		b.line(changesHead(o.DryRun))
 		for _, c := range o.Changes {
 			b.linef("  %s: %s → %s", c.Field, orEmpty(c.From), orEmpty(c.To))
 		}

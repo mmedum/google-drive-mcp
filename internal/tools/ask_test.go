@@ -14,6 +14,7 @@ import (
 
 	"github.com/mmedum/google-drive-mcp/v2/internal/config"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v2/internal/server"
 	"github.com/mmedum/google-drive-mcp/v2/internal/service"
 	"github.com/mmedum/google-drive-mcp/v2/internal/tools"
@@ -61,6 +62,10 @@ func fixtures(t *testing.T) *drivetest.Server {
 	fake.AddDrive("id-drive-empty", "Empty drive")
 	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
 	fake.AddProposal("id-notes-fixture", "id-request-fixture", "outsider@example.org", "writer")
+	// Anything moved into Archive can be opened by anyone with the link,
+	// and a folder in it with limited access would open to them.
+	fake.Grant("id-archive-fixture", &gdrive.Permission{Type: "anyone", Role: "reader"})
+	fake.AddFolder("id-limited-fixture", "Limited", "id-archive-fixture", drivetest.LimitedAccess())
 	return fake
 }
 
@@ -68,12 +73,24 @@ func fixtures(t *testing.T) *drivetest.Server {
 // A nil p declares no elicitation; opts adjust the client further.
 func connect(t *testing.T, cfg config.Config, protocol string, p *person, opts ...func(*mcp.ClientOptions)) (*mcp.ClientSession, *drivetest.Server) {
 	t.Helper()
+	srv, fake := askingServer(t, cfg)
+	return connectTo(t, srv, protocol, p, opts...), fake
+}
+
+// askingServer is a server over a fresh fake.
+func askingServer(t *testing.T, cfg config.Config) (*mcp.Server, *drivetest.Server) {
+	t.Helper()
 	fake := fixtures(t)
 	svc := service.New(drivetest.Client(t, fake), service.Options{
 		ReadOnly: cfg.ReadOnly, Destructive: cfg.EnableDestructive, Sharing: cfg.Sharing,
 		Now: func() time.Time { return time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC) },
 	})
-	srv := server.New(server.Deps{Service: svc, Config: cfg, Version: "test"})
+	return server.New(server.Deps{Service: svc, Config: cfg, Version: "test"}), fake
+}
+
+// connectTo connects one more client to srv, as connect does.
+func connectTo(t *testing.T, srv *mcp.Server, protocol string, p *person, opts ...func(*mcp.ClientOptions)) *mcp.ClientSession {
+	t.Helper()
 	ct, st := mcp.NewInMemoryTransports()
 	ss, err := srv.Connect(context.Background(), st, nil)
 	if err != nil {
@@ -93,7 +110,7 @@ func connect(t *testing.T, cfg config.Config, protocol string, p *person, opts .
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cs.Close() })
-	return cs, fake
+	return cs
 }
 
 // askCase is a call that clears a tool's own guards and reaches its
@@ -147,6 +164,21 @@ var askCases = map[string]askCase{
 			"restrictions": map[string]any{"domain_users_only": false}},
 		method: http.MethodPatch, path: "/drives/id-drive-marketing",
 		shows: []string{"turn off domain_users_only on the shared drive `Marketing`"},
+	},
+	"move_file": {
+		args:   map[string]any{"file": "id-budget-fixture", "to": "id-archive-fixture"},
+		method: http.MethodPatch, path: "/files/id-budget-fixture",
+		shows: []string{"move the file `Budget.xlsx` into the folder `Archive`", "anyone with the link can view"},
+	},
+	"copy_file": {
+		args:   map[string]any{"file": "id-budget-fixture", "to": "id-archive-fixture"},
+		method: http.MethodPost, path: "/files/id-budget-fixture/copy",
+		shows: []string{"copy the file `Budget.xlsx` into the folder `Archive`", "anyone with the link can view"},
+	},
+	"update_file": {
+		args:   map[string]any{"file": "id-limited-fixture", "limited_access": false},
+		method: http.MethodPatch, path: "/files/id-limited-fixture",
+		shows: []string{"turn off limited access on the folder `Limited`", "anyone with the link can view"},
 	},
 }
 
@@ -225,15 +257,16 @@ func TestEveryAskingWriteWaitsForThePerson(t *testing.T) {
 	}
 }
 
-// Every tool that takes confirm asks, as do the two that widen access;
-// the list is read from the published schemas, not typed out.
+// Every tool that takes confirm asks, as do the six that can widen
+// access; the list is read from the published schemas, not typed out.
 func TestEveryToolThatTakesConfirmAsks(t *testing.T) {
 	cs, _ := connect(t, everything(), "", nil)
 	res, err := cs.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"share_file": true, "manage_drive": true, "resolve_access_request": true}
+	want := map[string]bool{"share_file": true, "manage_drive": true, "resolve_access_request": true, "move_file": true,
+		"copy_file": true, "update_file": true}
 	registered := map[string]bool{}
 	for _, tool := range res.Tools {
 		registered[tool.Name] = true
@@ -254,6 +287,20 @@ func TestEveryToolThatTakesConfirmAsks(t *testing.T) {
 	for name := range askCases {
 		if !want[name] || !registered[name] {
 			t.Errorf("%s has an asking case and is not an asking tool", name)
+		}
+	}
+}
+
+// A move of several asks once for the whole call, on every protocol, and
+// moves each item once it is accepted.
+func TestAMoveOfSeveralAsksOnce(t *testing.T) {
+	for _, protocol := range protocols {
+		p := &person{action: "accept"}
+		cs, fake := connect(t, everything(), protocol, p)
+		res := callTool(t, cs, &mcp.CallToolParams{Name: "move_file", Arguments: map[string]any{
+			"files": []any{"id-budget-fixture", "id-notes-fixture"}, "to": "id-archive-fixture"}})
+		if res.IsError || len(p.asked()) != 1 || fake.Count(http.MethodPatch) != 2 {
+			t.Errorf("%s: asked %d times, %d writes: %s", protocol, len(p.asked()), fake.Count(http.MethodPatch), text(res))
 		}
 	}
 }
@@ -316,6 +363,8 @@ func TestWhatAsksNothing(t *testing.T) {
 		{Name: "manage_drive", Arguments: map[string]any{"action": "restrict", "drive": "Marketing",
 			"restrictions": map[string]any{"members_only": true}}},
 		{Name: "manage_drive", Arguments: map[string]any{"action": "rename", "drive": "Marketing", "name": "Brand"}},
+		{Name: "move_file", Arguments: map[string]any{"file": "id-budget-fixture", "to": "id-archive-fixture", "dry_run": true}},
+		{Name: "move_file", Arguments: map[string]any{"file": "id-notes-fixture", "to": "id-projects-fixture"}},
 	} {
 		if res := callTool(t, cs, call); res.IsError {
 			t.Errorf("%s %v: %s", call.Name, call.Arguments, text(res))
@@ -435,6 +484,53 @@ func TestALateAnswerIsRefusedOnlyWhenTheStateTravels(t *testing.T) {
 		res := callTool(t, cs, &mcp.CallToolParams{Name: "delete_file", Arguments: argsFor("delete_file", fake)})
 		if res.IsError || writes(fake, c) != 1 {
 			t.Errorf("%s: a slow accept in the process was refused: %s", protocol, text(res))
+		}
+	}
+}
+
+// A tool that asks the person before every write carries Claude Code's
+// requiresUserInteraction mark only for a client that cannot ask; with
+// both, the person would answer twice for one call. The five are every
+// tool here that both carries the mark and asks every time: a new name
+// needs a look at whether it really asks every time. Each protocol lists
+// on one server, the client that can ask first, so a mark dropped from
+// the server's own tool rather than from a copy shows for the clients
+// after it.
+func TestTheMarkIsForAClientThatCannotAsk(t *testing.T) {
+	marked := func(cs *mcp.ClientSession) string {
+		t.Helper()
+		res, err := cs.ListTools(context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, tool := range res.Tools {
+			if tool.Meta["anthropic/requiresUserInteraction"] == true {
+				out = append(out, tool.Name)
+			}
+		}
+		slices.Sort(out)
+		return strings.Join(out, " ")
+	}
+	urlAlone := func(o *mcp.ClientOptions) {
+		o.Capabilities = &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{URL: &mcp.URLElicitationCapabilities{}}}
+	}
+	const all = "delete_comment delete_drive delete_file delete_revision empty_trash"
+	for _, protocol := range protocols {
+		srv, _ := askingServer(t, everything())
+		for _, c := range []struct {
+			name string
+			p    *person
+			opts []func(*mcp.ClientOptions)
+			want string
+		}{
+			{"form", &person{action: "accept"}, nil, ""},
+			{"url alone", &person{action: "accept"}, []func(*mcp.ClientOptions){urlAlone}, all},
+			{"no elicitation", nil, nil, all},
+		} {
+			if got := marked(connectTo(t, srv, protocol, c.p, c.opts...)); got != c.want {
+				t.Errorf("%s, %s: marked %q, want %q", protocol, c.name, got, c.want)
+			}
 		}
 	}
 }

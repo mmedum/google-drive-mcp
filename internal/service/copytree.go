@@ -32,7 +32,7 @@ const (
 // same listing per folder the copy needs anyway.
 func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput) (*Result, error) {
 	source := res.File
-	if source.Capabilities != nil && !source.Capabilities.CanListChildren {
+	if cannotList(source) {
 		return nil, Errorf(ClassForbidden, "this account cannot list what is inside %s, so it cannot copy it.",
 			source.Name)
 	}
@@ -54,18 +54,11 @@ func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput)
 	if name == "" {
 		name = "Copy of " + source.Name
 	}
-	destination := source.Parent()
-	destName := ""
-	if strings.TrimSpace(in.To) != "" {
-		parent, err := s.parentFolder(ctx, in.To)
-		if err != nil {
-			return nil, err
-		}
-		destination, destName = parent.ID, parent.Name
-		if err := s.refuseDuplicate(ctx, parent, name, in.AllowDuplicate); err != nil {
-			return nil, err
-		}
+	place, err := s.copyPlace(ctx, source, in.To, name, in.AllowDuplicate)
+	if err != nil {
+		return nil, err
 	}
+	destination, destName, target := place.id, place.name, place.target
 
 	plan, err := s.planCopy(ctx, source, items)
 	if err != nil {
@@ -81,11 +74,48 @@ func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput)
 			source.Name, source.Name)
 	}
 
-	if in.DryRun {
-		return s.report(ctx, res, outcome{Action: render.ActionCopied, DryRun: true,
-			Note: plan.words(name, destName) + " Nothing was copied."}), nil
+	// Every item of the copy reaches who the destination does, while the
+	// tree it comes from may reach fewer: the folder itself, or a folder
+	// inside it with limited access.
+	parts := s.predictCopy(ctx, res, plan.items, target)
+	if err := s.copyRefused(parts); err != nil {
+		return nil, err
 	}
-	return s.runCopy(ctx, source, plan, name, destination, destName, in.KeepRevisionForever)
+	if in.DryRun {
+		note := plan.words(name, destName)
+		for _, p := range parts {
+			if p.widens() {
+				note += " " + copyWidens(p, p == parts[0])
+			}
+		}
+		return s.copyResult(ctx, res, parts[0].before, parts[0].after, outcome{Action: render.ActionCopied,
+			DryRun: true, Note: note + " Nothing was copied."}), nil
+	}
+	if err := s.askCopy(ctx, target, parts); err != nil {
+		return nil, err
+	}
+	created, note, err := s.runCopy(ctx, source, plan, name, destination, destName, in.KeepRevisionForever)
+	if err != nil {
+		return nil, err
+	}
+	s.forget(created, false)
+	after := s.sharingNow(ctx, created)
+	if gained := s.moveNote(ctx, parts[0], after, false); gained != "" {
+		note += " " + sentence(gained)
+	}
+	return s.copyResult(ctx, &Resolved{File: created}, parts[0].before, after, outcome{Action: render.ActionCopied,
+		Note: note}), nil
+}
+
+// copyWidens says, on a dry run, that one part of a tree would be
+// reached further by its copy.
+func copyWidens(p *movePlan, whole bool) string {
+	what := "The copy would reach more people than the original does, or give them more access: "
+	if !whole {
+		what = "Inside it, " + p.res.File.Name + " has limited access, and its copy would reach more people " +
+			"than it does, or give them more access: "
+	}
+	return what + copyReach(p) + ". A real copy puts that to the person first when the client can ask."
 }
 
 // treePlan is everything the walk found, in the order it has to be
@@ -154,6 +184,10 @@ func (s *Service) planCopy(ctx context.Context, root *gdrive.File, maxItems int)
 				root.Name, maxItems, MaxCopyItems)
 		}
 		for _, c := range children {
+			if c.IsFolder() && cannotList(c) {
+				return nil, Errorf(ClassForbidden, "this account cannot list what is inside %s, in %s, so it "+
+					"cannot copy %s whole; nothing has been copied.", c.Name, root.Name, root.Name)
+			}
 			plan.items = append(plan.items, c)
 			switch {
 			case c.IsFolder():
@@ -176,7 +210,7 @@ func (s *Service) planCopy(ctx context.Context, root *gdrive.File, maxItems int)
 // and say exactly what did not make it.
 func (s *Service) runCopy(ctx context.Context, source *gdrive.File, plan *treePlan,
 	name, destination, destName string, keepRevision bool,
-) (*Result, error) {
+) (*gdrive.File, string, error) {
 	ids := s.idPool(ctx, plan)
 	rootMeta := &gdrive.FileMeta{Name: name, MimeType: gdrive.MimeFolder, ID: ids.take(gdrive.MimeFolder)}
 	if destination != "" {
@@ -184,7 +218,7 @@ func (s *Service) runCopy(ctx context.Context, source *gdrive.File, plan *treePl
 	}
 	created, err := s.api.CreateFile(ctx, rootMeta, gapi.WriteOptions{ResourceIDs: []string{destination}})
 	if err != nil {
-		return nil, wrap(err, fmt.Sprintf("making the folder %s to copy %s into", name, source.Name))
+		return nil, "", wrap(err, fmt.Sprintf("making the folder %s to copy %s into", name, source.Name))
 	}
 
 	// copies maps a source folder id to the folder that now stands for it.
@@ -208,9 +242,7 @@ func (s *Service) runCopy(ctx context.Context, source *gdrive.File, plan *treePl
 			copies[item.ID] = newID
 		}
 	}
-	// s.write forgets the created folder itself.
-	return s.write(ctx, created, outcome{Action: render.ActionCopied,
-		Note: copyNote(source, plan, destName, done, failed)})
+	return created, copyNote(source, plan, destName, done, failed), nil
 }
 
 // copiedItemFields is all a tree copy reads back per item. The default

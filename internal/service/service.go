@@ -185,6 +185,8 @@ type Service struct {
 	// per conversion.
 	imports      map[string][]string
 	importsTried bool
+	// accountAddress is the signed-in account's address, read once.
+	accountAddress string
 	// downloads are the long-running download operations this process has
 	// started, by file id. An operation lives at least twelve hours and
 	// its name comes back only from the call that started it — there is
@@ -199,8 +201,18 @@ type Service struct {
 	// time was 53 exports and 28 MB on the wire to deliver 1 MB. One
 	// entry is enough, because continuation is what makes the second
 	// call happen and continuation is sequential. Google caps an export
-	// at 10 MB, which bounds what it can hold.
+	// at 10 MB, which bounds what it can hold. The text of an Office
+	// file is kept here too, under the same cap, for the same reason:
+	// reading it costs a pass over the file, whichever window is asked.
 	export exported
+	// ocrText holds the last text extract_text read, apart from export:
+	// a read_file between two of its windows would otherwise push it
+	// out, and reading it again makes another copy, whose text can
+	// differ from the first.
+	ocrText exported
+	// folders is the folder set the last search with under_folder
+	// walked, kept for its next page.
+	folders cached[*folderSet]
 	// tools are the names the server registered, for get_account.
 	tools []string
 }
@@ -210,11 +222,15 @@ type cached[T any] struct {
 	at    time.Time
 }
 
-// exported is one document's exported text, kept only long enough for a
-// model to page through it.
+// exported is one document's text, exported by Google or read out of
+// an Office file here, kept only long enough for a model to page
+// through it.
 type exported struct {
 	key  string
 	text string
+	// note is what the read had to say about the text, which every
+	// window of it repeats.
+	note string
 	at   time.Time
 }
 

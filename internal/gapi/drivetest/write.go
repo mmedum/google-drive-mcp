@@ -143,6 +143,7 @@ func (s *Server) createFile(meta *gdrive.FileMeta, contentType string, content [
 // from them. The caller holds the lock.
 func (s *Server) setContentLocked(f *gdrive.File, content []byte) {
 	s.Content[f.ID] = string(content)
+	s.resetApprovalsLocked(f.ID)
 	if f.IsWorkspaceDoc() {
 		// A converted file has no size and no checksum of its own, which
 		// is exactly the case an upload result has to describe honestly.
@@ -201,7 +202,23 @@ func applyMeta(f *gdrive.File, meta *gdrive.FileMeta) {
 		f.WritersCanShare = *meta.WritersCanShare
 	}
 	if meta.CopyRequiresWriterPermission != nil {
-		f.CopyRequiresWriterPermission = *meta.CopyRequiresWriterPermission
+		// The files guide: false sets restrictedForReaders and
+		// restrictedForWriters both to false. What true does to the
+		// writers' switch it does not say; this keeps it.
+		r := gdrive.DownloadRestriction{RestrictedForReaders: true}
+		if f.DownloadRestrictions != nil && f.DownloadRestrictions.ItemDownloadRestriction != nil {
+			r.RestrictedForWriters = f.DownloadRestrictions.ItemDownloadRestriction.RestrictedForWriters
+		}
+		if !*meta.CopyRequiresWriterPermission {
+			r = gdrive.DownloadRestriction{}
+		}
+		setItemRestriction(f, r)
+	}
+	if meta.DownloadRestrictions != nil {
+		setItemRestriction(f, gdrive.DownloadRestriction(meta.DownloadRestrictions.ItemDownloadRestriction))
+	}
+	if meta.InheritedPermissionsDisabled != nil {
+		f.InheritedPermissionsDisabled = *meta.InheritedPermissionsDisabled
 	}
 	if meta.ViewedByMeTime != "" {
 		f.ViewedByMeTime = meta.ViewedByMeTime
@@ -216,6 +233,48 @@ func applyMeta(f *gdrive.File, meta *gdrive.FileMeta) {
 		}
 		f.Properties[k] = *v
 	}
+	for k, v := range meta.AppProperties {
+		if f.AppProperties == nil {
+			f.AppProperties = map[string]string{}
+		}
+		f.AppProperties[k] = v
+	}
+}
+
+// setItemRestriction sets the download restriction on the file itself.
+// The guide says restrictedForWriters true implies restrictedForReaders,
+// and that the legacy switch reads whether readers are restricted.
+func setItemRestriction(f *gdrive.File, r gdrive.DownloadRestriction) {
+	r.RestrictedForReaders = r.RestrictedForReaders || r.RestrictedForWriters
+	f.DownloadRestrictions = &gdrive.DownloadRestrictionsMetadata{ItemDownloadRestriction: &r}
+	f.CopyRequiresWriterPermission = r.RestrictedForReaders
+}
+
+// restrictionRefusal is what Drive answers a patch of a download
+// restriction or of limited access that it does not allow: a capability
+// the account lacks, or limited access on a file, which the access guide
+// says "isn't available for files". The shape of that last answer is not
+// documented (§18).
+func restrictionRefusal(f *gdrive.File, meta *gdrive.FileMeta) error {
+	c := f.Capabilities
+	if c == nil {
+		c = &gdrive.Capabilities{}
+	}
+	if meta.DownloadRestrictions != nil && !c.CanChangeItemDownloadRestriction {
+		return &apiFailure{http.StatusForbidden, "insufficientFilePermissions",
+			"The user does not have sufficient permissions for this file."}
+	}
+	v := meta.InheritedPermissionsDisabled
+	switch {
+	case v == nil:
+		return nil
+	case !f.IsFolder():
+		return &apiFailure{http.StatusBadRequest, "invalid", "Limited access is only available for folders."}
+	case *v && !c.CanDisableInheritedPermissions, !*v && !c.CanEnableInheritedPermissions:
+		return &apiFailure{http.StatusForbidden, "insufficientFilePermissions",
+			"The user does not have sufficient permissions for this file."}
+	}
+	return nil
 }
 
 // handleUpdate serves files.update: a metadata patch, a move, or both.
@@ -230,6 +289,11 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request, id string)
 	if f == nil {
 		s.mu.Unlock()
 		s.errorJSON(w, http.StatusNotFound, "notFound", "File not found: "+id+".")
+		return
+	}
+	if err := restrictionRefusal(f, &meta); err != nil {
+		s.mu.Unlock()
+		s.writeAPIError(w, err)
 		return
 	}
 	if err := s.moveLocked(f, q.Get("addParents"), q.Get("removeParents")); err != nil {

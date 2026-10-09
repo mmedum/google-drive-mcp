@@ -64,13 +64,10 @@ func writeApproval(b *buf, a *model.Approval, now time.Time) {
 		b.field("finished", model.Ago(a.Completed, now))
 	}
 	for _, r := range a.Reviewers {
-		b.field("  "+responseWords(r.Response), r.Person)
+		b.field("  "+responseWords(r.Response, a.Open()), r.Person)
 	}
-	if a.LocksOnApproval {
-		// The consequence nobody expects: this is not just a record of
-		// agreement, it stops the file being edited.
-		b.line("Changing the content while this is open clears the approvals already given, " +
-			"and once it is approved the file is LOCKED.")
+	if words := a.ContentChangeWords(); words != "" {
+		b.line(words)
 	}
 }
 
@@ -92,14 +89,17 @@ func approvalHead(a *model.Approval) string {
 	return strings.ToLower(a.Status)
 }
 
-// responseWords labels one reviewer's answer.
-func responseWords(response string) string {
-	switch response {
-	case model.ResponseApproved:
+// responseWords labels one reviewer's answer. A reviewer who never
+// answered an approval that is over is not one it waits on.
+func responseWords(response string, open bool) string {
+	switch {
+	case response == model.ResponseApproved:
 		return "approved by"
-	case model.ResponseDeclined:
+	case response == model.ResponseDeclined:
 		return "declined by"
-	default:
+	case open:
 		return "waiting on"
+	default:
+		return "no answer from"
 	}
 }

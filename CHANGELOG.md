@@ -6,6 +6,72 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-09
+
+### Added
+
+- `move_file` takes `files`, up to 50 items, moved to one destination. Each item gets its own outcome in `items`: moved, unchanged, refused with the reason, or failed with Drive's answer, and a failure does not undo the moves before it. A call that moves none because each failed or was refused reports the action `failed`. `dry_run` lists what would happen to each. The person is asked once for the whole call, naming every item that would reach more people.
+- `search_files` takes `order_by: shared`, which puts the files most recently shared with you first. With no `scope` it searches only the files shared with you, and the title says so.
+- A file card, and a row in a search or a listing, says when a file was shared with you and by whom.
+- `search_files` takes `visibility`: `anyone` (anyone on the internet, by link or by search), `link` (anyone with the link), `domain` (everyone in the organization) or `limited` (only the people and groups it is shared with).
+- `search_files` takes `shared_with`, an address: only the files shared with that person or group, as viewer, commenter or editor.
+- `search_files` takes `under_folder`: only items in that folder or any folder below it. It walks the folders first, one listing per level, covers at most 100 folders and refuses a larger tree, and does not follow shortcuts. It names the folders it could not list. A `page_token` from such a search continues only a search under the same folder, over the same folders.
+- `update_file` takes `restrict_download`: `none`, `viewers` (viewers and commenters cannot download, print or copy the file) or `editors` (editors cannot either). It is Drive's current download restriction, which can stop editors as well. With `GDRIVE_SHARING=off`, lifting it is refused.
+- `update_file` takes `limited_access` for a folder: only the people added to it directly can open it, and those who reach it from above see it without opening it. Turning it off is put to the person first when the client can ask, naming who could then open the folder. With `GDRIVE_SHARING=off`, turning it off is refused.
+- `manage_approval` takes `on_content_change` with `start`: `reset_approval`, the default, clears answers given when the content changes and locks the file once it is approved; `no_action` does neither. The result says what Drive reports the approval will do, and a listing says it for each approval.
+- A file card says who cannot download, print or copy the file, counting the shared drive's restriction and the organization's rules, and when that is more than the file's own setting. It says when a folder has limited access.
+- `list_permissions` marks a grant a limited-access folder keeps out as one that "can see it but not open it", and the sharing summary counts those people apart from the ones who can view.
+- `extract_text` reads the text in a PDF or an image (JPEG, PNG, GIF or BMP) with Google's OCR. Drive reads such text only while converting a file into a Google Doc, so it copies the file as a Doc into the root of My Drive, exports the text and deletes the copy for good, naming its id so `get_file` can show it is gone; `keep_copy` keeps it and gives its id and link. It takes `ocr_language`, and `offset` and `max_chars` to page through the text, which is kept for a few minutes, apart from what other reads keep, so paging makes no second copy; the next window's call names `ocr_language` when it was given. A call canceled while Google makes the copy waits for Google's answer and deletes the copy. A copy Google did not confirm is reported as `[ambiguous_outcome]` with the search that finds it, and is not retried; a copy that could not be deleted is named in the result. A file this account may not copy, or one over 50 MB, is refused before anything is written, and one over the 2 MB Google asks for is read with a warning. It is not registered in read-only mode, and `get_account` names its copy as the one thing deleted for good while the destructive tools are off. 40 tools in all, 32 in a default build.
+- `read_file` reads Word, Excel and PowerPoint files, and their OpenDocument counterparts (`.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`), as text. A document reads in order, with headings, list items and table rows marked. A workbook's first sheet reads as csv, or tsv with `format: tsv`: numbers as stored, dates and times as ISO 8601, a formula as its last value. A deck reads slide by slide, under a line naming each slide. The file is read here, through byte ranges, so only its text parts are fetched; nothing is converted, copied or written to disk, and it works in read-only mode. The `gdrive://` resource returns the same text. The old `.doc`, `.xls` and `.ppt` formats are refused with the ways forward, and so is a file whose content is another kind than its type says. A file over the limits that guard against a file built to exhaust a reader is refused, and text past 10 MB is cut short with a note.
+
+### Changed
+
+- `read_file` refusing a PDF or an image names `extract_text` as the first way forward. In read-only mode it no longer suggests `copy_file`, which that mode does not register.
+- `update_file`'s `copy_requires_writer_permission` is described as Drive's legacy switch. Since July 2025 Drive turns it off for editors too, and the result now says so. It is refused together with `restrict_download`, since Google warns the two can conflict.
+- **Breaking:** a `move_file` into a folder or shared drive that more people can reach, or that gives them more access, is put to the person first when the client can ask, naming who it adds. A client that declares elicitation but has no person to answer, such as `claude -p`, can no longer make such a move.
+- **Breaking:** with `GDRIVE_SHARING=off`, `move_file` refuses a move that would let more people reach an item, or give them more access. That setting promises nothing here widens access, and such a move does. With `files`, each such item is refused with the reason and the rest move. A move whose reach cannot be read is refused too. Under that setting `list_permissions` and `get_account` now say nothing here can widen who can see a file, where they said nothing here could change it, since a move can still narrow it.
+- `search_files` with no filter at all returns everything you can see, in the order `order_by` names. It used to be refused.
+- **Breaking:** `copy_file` follows the move's rule. A copy takes on who can reach the folder it lands in and none of the original's sharing, so a copy that more people could reach than the original, or with more access, is put to the person first when the client can ask, and with `GDRIVE_SHARING=off` it is refused. A folder's copy is checked for the folder and for each folder inside it with limited access. A client that declares elicitation but has no person to answer can no longer make such a copy, and a deployment with `GDRIVE_SHARING=off` that copies into shared folders has to copy elsewhere. The result says who can reach the original and who can reach the copy. A copy only this account can reach asks nothing. `create_file` and `upload_file` are unchanged.
+- A delete asks once in Claude Code, not twice. In a client that can ask the person, `delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and `delete_comment` no longer carry the `requiresUserInteraction` mark; the server's own question, which shows what the delete destroys, is the confirmation. To see only that question, add the five tools to Claude Code's allow list. A Claude Code `Elicitation` hook that accepts now confirms these deletes alone, where the mark used to stop the call before it reached the server.
+- `search_files`' `page_token` continues only the search it came from: the same filters, order, scope and drive, and with `under_folder` the same folder over the same folders. A continuation with any of them different is refused, and so is a token this server did not give out. It used to pass Drive's token on beside whatever filters the call carried. A token from before this release is refused: search again.
+- The schema diff compares the tool surface with the newest release's, recorded in `testdata/schema-baseline.json`, and checks input and output fields at any depth with their types, in the direction a caller would notice: an input that takes fewer types or loses a listed value fails, as does an output that may return another type or may now be missing, while an input that may now be null passes. It used to rebuild the last tag and compare top-level inputs only, so a dropped output field passed. A release commit records the baseline with `make schema-baseline VERSION=vX.Y.Z`, which refuses a break unless the release is a new major version.
+
+### Fixed
+
+- `search_files` with `scope: my_drive` and `drive`, or with `under_folder` in a shared drive, searched the shared drive and called it My Drive. It is refused now.
+- `search_files` with `in_folder` sends the folder's resource key, so a folder shared by a link from before 2021 is searched rather than found empty.
+- `read_file`'s line saying how to read the next window names `format` when it was given. Without it the next window of a tsv read was cut from the csv text.
+- `move_file` says who could reach the item before the move and who can after, in `sharing_before` and `sharing_after`. A moved item takes on the destination's sharing and loses what it had through its old folder, and the result used to report only the new location. `dry_run` shows the same without moving. After the move the result reads who can reach the item from Drive, and says so when that differs from what was worked out beforehand.
+- A sharing summary for a My Drive item that people reach through a folder above it says "through a folder above it". It said "inherited from the shared drive".
+- A `share_file` or `unshare_file` dry run says what the grant would do. Under "NOTHING WAS CHANGED" it said the link was open, mail was sent or the link was dead.
+- `list_approvals` says "no answer from" a reviewer who never answered an approval that is over. It said "waiting on" for a canceled one.
+- `manage_revision` unkeeping the current revision says Drive keeps it until a newer one replaces it. It said the revision might already be discarded.
+- `list_permissions` no longer calls a My Drive owner's grant inherited, which it did when the owner also owns the folder above. `unshare_file` on the owner now points at an ownership transfer.
+- A file card marks the account as "(you)" when it trashed the item in a shared drive. It showed the account's name and address as anyone else's.
+- An error Google answers with an HTML page, or anything else that is not its error envelope, is no longer quoted. The message gives the HTTP status and what it means. A search Google refuses as too long says so, with the query's length; it read "searching Drive failed: <!DOCTYPE html>…". A 413 or 414 is `[invalid]`, where it was `[unexpected]`.
+- `copy_file` with `copy_comments` no longer says `list_comments` can lag the copy. Live runs found an uploaded file's threads missing, not late.
+- The live driver's transcript hides comment and reply ids, a display name beside an address whatever its case, and the names of files, folders and shared drives outside its scratch folder where the server lists them. The signed-in account is one placeholder however an answer spells its name, and a file name after "shared by" is no longer taken for a person.
+- A sharing summary's "N of them through a folder above it" counts only the people. It counted a link, a domain or the owner that came from above too, and could say "2 of them" of one person.
+- A search hit or listed file that someone shared with you, in a folder you cannot see, is placed under "Shared with me". It read as having no folder this account can see.
+- `manage_approval` said an approved file is locked either way. An approval started with `no_action` is not.
+- A file card said only "viewers and commenters cannot copy, print or download" when downloads were restricted, even when editors were restricted too. It now reads the restriction in effect.
+- `list_folder` says when this account can see a folder but cannot list what is in it. Such a folder used to list as empty. A recursive walk marks such folders and names them at the end. A recursive `copy_file` refuses a folder holding one, before it copies anything, where it used to copy that folder empty.
+- `download_file` of the current revision, named by its id, checks the bytes against Drive's md5. It said the file's checksum belonged to another version and could not be compared.
+- `list_comments` on a Google Sheet or a Slides deck names that kind, the place a comment pins to in it, and the Sheets or Slides API that pins it. It called every Google kind a document whose comments pin through the Docs API. `add_comment`'s description names all three APIs.
+- A dry run heads its before-and-after lines "would change:". It said "changed:", right under "NOTHING WAS CHANGED".
+- A conversion Google refuses says what it imports the file as instead, with the `convert_to` that asks for it: "Google does not import a CSV file as a Google Doc. It imports one as a Google Sheet (convert_to: sheet)." A converted copy says it was imported "as a Google Sheet", with the article.
+- `manage_approval` refused reads "approving Notes was refused", not "approve the approval on Notes". Canceling says the approval is canceled once, then who has been told.
+- `create_shortcut`'s note names what the shortcut points at and no longer repeats the card's line on what acts on the shortcut.
+- A revision Drive answers "not found" for says to try again in a few seconds when the file was just written, because Drive can list a new revision before it answers for it by id. It told the story of the live run that found this.
+- `add_comment` without `content` is refused as `[invalid]`, saying what is missing. It was the SDK's schema error, which has no class. The schema no longer marks `content` required; its description says it is.
+- The live driver names, for each option a run did not send, the flag that would have sent it, read from the driver's own source. Only an option no missing flag explains is a warning. It named `-file`, `-share` and `-drive` for all of them, which was wrong for half.
+- The live driver's transcript ends a link before the period after it, so two sentences no longer run together. A shortened resource says "1 more line".
+- The live driver checks `use_content_as_indexable_text`: it uploads bytes of a type Drive does not read on its own, searches for a word only that text holds, and says whether a copy uploaded without the flag is found too.
+
+### Security
+
+- Built with Go 1.27.2, which fixes nine advisories in `net/http`, its HTTP/2 code, `crypto/tls` and `net/textproto` that `govulncheck` found reachable from this server.
+
 ## [2.0.1] - 2026-10-01
 
 ### Fixed
@@ -2045,6 +2111,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[2.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/mmedum/google-drive-mcp/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.2.3...v1.3.0

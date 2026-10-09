@@ -63,6 +63,7 @@ func main() {
 	labels := flag.Bool("labels", false, "exercise the label tools, which need GDRIVE_LABELS and the Drive Labels API enabled with its scopes granted at login")
 	activity := flag.Bool("activity", false, "exercise list_activity, which needs GDRIVE_ACTIVITY and the Drive Activity API enabled with its scope granted at login")
 	destructive := flag.Bool("destructive", false, "also exercise the five tools that remove something for good, in a shared drive this run creates and destroys again; needs an account that may create shared drives")
+	unlistable := flag.String("unlistable", "", "a folder this account can see but not list, such as the parent of a file shared with it alone; shows what Drive answers when such a folder is listed (§18); empty skips it")
 	blocked := flag.String("blocked", "", "an address the organization's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
 	flag.Parse()
 
@@ -71,10 +72,17 @@ func main() {
 	// everything leading up to it: an error carrying a file name or an
 	// address is the last line of a session and was the one line that
 	// never went through the redactor.
-	t := transcript.New(redact.NewRedactor(*raw))
+	//
+	// Names of files, folders and drives that are not the run's own are
+	// hidden too: the read steps look at the account's whole Drive, whose
+	// names say more about an organization than its ids do.
+	red := redact.NewRedactor(*raw)
+	red.KeepNamesUnder(scratchPrefix)
+	t := transcript.New(red)
 	if err := run(options{binary: *binary, file: *file, write: *write,
-		parent: *parent, drive: *drive, share: *share, blocked: *blocked,
-		labels: *labels, activity: *activity, destructive: *destructive}, t); err != nil {
+		parent: *parent, drive: *drive, share: *share, blocked: *blocked, unlistable: *unlistable,
+		labels: *labels, activity: *activity, destructive: *destructive,
+		given: givenFlags(flag.CommandLine)}, t); err != nil {
 		t.Fail("livedrive: %v", err)
 		os.Exit(1)
 	}
@@ -123,6 +131,11 @@ type options struct {
 	// starts: the server does not register them without the variable
 	// below, and this driver does not set it without being asked.
 	destructive bool
+	// unlistable is a folder whose canListChildren is false.
+	unlistable string
+	// given is the flags this run was passed, by name, which is what
+	// tells a step behind a flag from one that did not run.
+	given map[string]bool
 	// person answers the server's questions.
 	person *person
 }
@@ -179,7 +192,6 @@ func run(o options, t *transcript.Transcript) error {
 		return err
 	}
 	defer sess.Close()
-	file := o.file
 
 	// What this run actually sends, recorded where the calls go out. The
 	// static gate reads the driver's source and cannot tell a step that
@@ -205,15 +217,28 @@ func run(o options, t *transcript.Transcript) error {
 		{tool: "search_files", args: map[string]any{"kind": "folder", "limit": 5, "order_by": "modified"}},
 		{tool: "get_file", args: map[string]any{"file": "https://example.com/not-a-drive-link"},
 			expectError: true, why: "a link that is not Drive's"},
-		{tool: "search_files", args: map[string]any{},
-			expectError: true, why: "a search with no criteria"},
+		{tool: "search_files", args: map[string]any{"limit": 3}},
+		// The newest shares first, and who shared each one and when.
+		{tool: "search_files", args: map[string]any{"order_by": "shared", "limit": 5}},
+		{tool: "search_files", args: map[string]any{"order_by": "shared", "scope": "my_drive"},
+			expectError: true, why: "order_by shared with a scope other than shared_with_me"},
 		{tool: "get_file", args: map[string]any{"file": "1SyntheticFixtureFileIdAAAAAAAAAAAA"},
 			expectError: true, why: "an id that names nothing"},
 	}
-	if file != "" {
+	if o.file != "" {
 		calls = append(calls,
-			call{tool: "get_file", args: map[string]any{"file": file}},
-			call{tool: "list_folder", args: map[string]any{"folder": file, "recursive": true, "max_depth": 2}},
+			call{tool: "get_file", args: map[string]any{"file": o.file}},
+			call{tool: "list_folder", args: map[string]any{"folder": o.file, "recursive": true, "max_depth": 2}},
+		)
+	}
+
+	if o.unlistable != "" {
+		// The card should not list "list items"; the listing shows
+		// whether Drive answers with nothing or with the items shared
+		// with this account directly, and must say it cannot list.
+		calls = append(calls,
+			call{tool: "get_file", args: map[string]any{"file": o.unlistable}},
+			call{tool: "list_folder", args: map[string]any{"folder": o.unlistable}},
 		)
 	}
 
@@ -241,8 +266,11 @@ func run(o options, t *transcript.Transcript) error {
 		}
 	}
 
-	if file == "" {
+	if o.file == "" {
 		t.Say("\n(pass -file REF to also exercise get_file and a recursive listing)")
+	}
+	if o.unlistable == "" {
+		t.Say("(pass -unlistable REF to see what Drive answers for a folder this account cannot list)")
 	}
 	if o.write {
 		failures, err := runWrites(sess, t, dir, o)
@@ -254,13 +282,13 @@ func run(o options, t *transcript.Transcript) error {
 		t.Say("(pass -write to exercise the tools that change Drive, in a scratch folder)")
 	}
 	if logs := sess.StderrTail(20); len(logs) > 0 {
-		t.Say("\n=== stderr ===")
+		t.Say("\n=== stderr: the last 20 lines the server wrote, at most ===")
 		for _, line := range logs {
 			t.Say(line)
 		}
 	}
 	t.Sayf("\n%d question(s) put to the person, %d declined", o.person.asked, o.person.declined)
-	t.Say("\n" + coverage(rec, sess))
+	t.Say("\n" + coverage(rec, sess, o.given))
 	t.Say("\n" + t.Summary())
 	if unexpected > 0 {
 		return fmt.Errorf("%d call(s) did not behave as expected", unexpected)
@@ -278,12 +306,24 @@ func run(o options, t *transcript.Transcript) error {
 // `gates live-cover` is the thing that gate cannot see — an option the
 // driver's source says it sends, on a tool this run really called, that
 // the run did not send. That is a step which exists and does not run.
-func coverage(rec *livecover.Recorder, sess *mcpstdio.Session) string {
+func coverage(rec *livecover.Recorder, sess *mcpstdio.Session, given map[string]bool) string {
 	published := sess.Options()
-	// The error is deliberately dropped, and FromSource returns a nil map
+	// The error is deliberately dropped, and ReadSteps returns a nil map
 	// with it: reading the source is a convenience here and the recording
 	// is not. A driver run from a directory without the source still
 	// knows what it sent, and should say so rather than fail.
-	believed, _ := livecover.FromSource(filepath.Join("scripts", "livedrive"), published)
-	return rec.Report(published, believed)
+	steps, _ := livecover.ReadSteps(filepath.Join("scripts", "livedrive"), published)
+	return rec.Report(published, steps, given)
+}
+
+// givenFlags is the flags a run was passed: those set to something other
+// than their default, so -write=false counts as not given.
+func givenFlags(fs *flag.FlagSet) map[string]bool {
+	given := map[string]bool{}
+	fs.VisitAll(func(f *flag.Flag) {
+		if f.Value.String() != f.DefValue {
+			given[f.Name] = true
+		}
+	})
+	return given
 }

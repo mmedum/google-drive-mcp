@@ -59,6 +59,13 @@ func KindWithArticle(f *gdrive.File) string {
 	return Article(kind) + " " + kind
 }
 
+// KindNameWithArticle is KindName ready to drop into a sentence, for a
+// media type that is not yet any file's: "imported as a Google Sheet".
+func KindNameWithArticle(mime string) string {
+	kind := KindName(mime)
+	return Article(kind) + " " + kind
+}
+
 // BoundaryNote says, for a Google-native document, where its content is
 // actually edited. This server stops at the file boundary, and a result
 // that reads a Doc without saying so invites an edit that cannot happen.
@@ -72,6 +79,31 @@ func BoundaryNote(mime string) string {
 		return "this is a Google Slides deck. Its slides are edited through the Slides API, which this server does not offer."
 	}
 	return ""
+}
+
+// PinNote says, for a Google-native document, that a comment pinned to
+// a place in it did not come from add_comment, which makes unpinned
+// ones. A Doc, a Sheet and a deck each pin through their own API, which
+// this server does not use. It is "" for every other kind, whose
+// comments are all on the file.
+func PinNote(f *gdrive.File) string {
+	if !f.IsWorkspaceDoc() {
+		return ""
+	}
+	const unpinned = "add_comment here makes an unpinned one"
+	switch f.MimeType {
+	case gdrive.MimeDocument:
+		return "this is a Google Doc: a comment pinned to a passage was made in the editor, and " +
+			unpinned + ", because pinning belongs to the Docs API"
+	case gdrive.MimeSheet:
+		return "this is a Google Sheet: a comment pinned to a cell was made in the editor, and " +
+			unpinned + ", because pinning belongs to the Sheets API"
+	case gdrive.MimeSlides:
+		return "this is a Google Slides deck: a comment pinned to a slide or to something on one was " +
+			"made in the editor, and " + unpinned + ", because pinning belongs to the Slides API"
+	}
+	return "this is " + KindWithArticle(f) + ": a comment pinned to a place in it was made in the editor, and " +
+		unpinned
 }
 
 // ReadNote is what a read of a Google-native document has to say about

@@ -104,6 +104,10 @@ type File struct {
 	ModifiedBy string
 	Owner      string
 	OwnedByMe  bool
+	// SharedWithMeAt and SharedBy are when and by whom someone shared
+	// the file with this account; both are empty for any other file.
+	SharedWithMeAt time.Time
+	SharedBy       string
 
 	Starred bool
 	Trashed bool
@@ -127,9 +131,20 @@ type File struct {
 	// were available; without them a label is still reported, by id.
 	Labels []AppliedLabel
 	// WritersCanShare and CopyRequiresWriterPermission are the two
-	// sharing switches a file carries.
+	// sharing switches a file carries. The second is Drive's legacy
+	// download switch, which reads true when viewers are restricted.
 	WritersCanShare              bool
 	CopyRequiresWriterPermission bool
+	// Downloads is who cannot download, print or copy the file in
+	// effect, counting the shared drive and the organization's rules:
+	// DownloadsOpen, DownloadsViewers or DownloadsEditors. DownloadsOnFile
+	// is the same as set on the file itself. Both are empty when Drive
+	// did not say.
+	Downloads       string
+	DownloadsOnFile string
+	// LimitedAccess is a folder's limited access: only the people added
+	// to it directly can open it.
+	LimitedAccess bool
 	// ContentLocked reports a content restriction, which makes a write
 	// fail however good the caller's role is.
 	ContentLocked       bool
@@ -194,6 +209,14 @@ func New(f *gdrive.File, o Options) *File {
 
 		WritersCanShare:              f.WritersCanShare,
 		CopyRequiresWriterPermission: f.CopyRequiresWriterPermission,
+		LimitedAccess:                f.InheritedPermissionsDisabled,
+	}
+	if r := f.DownloadRestrictions; r != nil {
+		m.DownloadsOnFile = ItemDownloads(f)
+		m.Downloads = DownloadLevel(r.EffectiveDownloadRestrictionWithContext)
+		if r.EffectiveDownloadRestrictionWithContext == nil {
+			m.Downloads = m.DownloadsOnFile
+		}
 	}
 	if f.ShortcutDetails != nil {
 		m.ShortcutTargetID = f.ShortcutDetails.TargetID
@@ -214,6 +237,8 @@ func New(f *gdrive.File, o Options) *File {
 	m.TrashedAt = parseTime(f.TrashedTime)
 	m.ModifiedBy = userWords(f.LastModifyingUser)
 	m.TrashedBy = userWords(f.TrashingUser)
+	m.SharedWithMeAt = parseTime(f.SharedWithMeTime)
+	m.SharedBy = userWords(f.SharingUser)
 	if len(f.Owners) > 0 {
 		m.Owner = userWords(f.Owners[0])
 	}
@@ -238,6 +263,68 @@ func New(f *gdrive.File, o Options) *File {
 	}
 	m.ContentLocked, m.ContentLockedReason = ContentLocked(f)
 	return m
+}
+
+// Who a download restriction stops downloading, printing and copying.
+const (
+	DownloadsOpen    = "none"
+	DownloadsViewers = "viewers"
+	DownloadsEditors = "editors"
+)
+
+// DownloadLevels lists them from least to most restricted.
+func DownloadLevels() []string { return []string{DownloadsOpen, DownloadsViewers, DownloadsEditors} }
+
+// DownloadLevel reads a restriction as one of the levels. The reference
+// says restrictedForWriters true means readers are restricted too, so
+// it decides on its own.
+func DownloadLevel(r *gdrive.DownloadRestriction) string {
+	switch {
+	case r == nil:
+		return DownloadsOpen
+	case r.RestrictedForWriters:
+		return DownloadsEditors
+	case r.RestrictedForReaders:
+		return DownloadsViewers
+	}
+	return DownloadsOpen
+}
+
+// ItemDownloads is the download restriction set on the file itself, as
+// a level; open when Drive gives none.
+func ItemDownloads(f *gdrive.File) string {
+	if f.DownloadRestrictions == nil {
+		return DownloadsOpen
+	}
+	return DownloadLevel(f.DownloadRestrictions.ItemDownloadRestriction)
+}
+
+// DownloadRestriction is the wire form of a level.
+func DownloadRestriction(level string) gdrive.DownloadRestrictionPatch {
+	return gdrive.DownloadRestrictionPatch{
+		RestrictedForReaders: level == DownloadsViewers || level == DownloadsEditors,
+		RestrictedForWriters: level == DownloadsEditors,
+	}
+}
+
+// DownloadStops is who a level stops from downloading, printing and
+// copying: "nobody", "viewers and commenters", or with editors too.
+func DownloadStops(level string) string {
+	switch level {
+	case DownloadsViewers:
+		return "viewers and commenters"
+	case DownloadsEditors:
+		return "viewers, commenters and editors"
+	}
+	return "nobody"
+}
+
+// DownloadWords says who a level stops, in plain words.
+func DownloadWords(level string) string {
+	if level != DownloadsViewers && level != DownloadsEditors {
+		return "anyone who can open it can download, print and copy it"
+	}
+	return DownloadStops(level) + " cannot download, print or copy it"
 }
 
 // ContentLocked reports whether Drive has restricted the file's content,

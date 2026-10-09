@@ -47,6 +47,10 @@ type Failure struct {
 	// Hijack cuts the connection instead of answering, the way a dropped
 	// network does.
 	Hijack bool
+	// Page, when set, is the whole body in place of Google's error
+	// envelope: an HTML page, the way Google's front end answers a
+	// request it refuses before Drive reads it.
+	Page string
 }
 
 // Recorded is one request the fake served.
@@ -136,6 +140,11 @@ type Server struct {
 	// Fail is consulted before every request; a non-nil result is served
 	// instead of the real answer.
 	Fail func(r *http.Request) *Failure
+	// Rewrite, when set, is handed every answer after the request was
+	// served, and what it returns is sent instead: an answer Drive should
+	// not give, or a failure after the work was done, which is what a
+	// client has to survive and the fake otherwise never says.
+	Rewrite func(r *http.Request, status int, body []byte) (int, []byte)
 	// Requests records everything served, for assertions.
 	Requests []Recorded
 
@@ -148,6 +157,18 @@ type Server struct {
 	// in the protocol forbids it, and a client that trusts it to make
 	// progress sends the same chunk for ever.
 	StallUploads bool
+
+	// FilePageCap, when set, is the most files one page of files.list
+	// holds, whatever pageSize asked: the reference says "partial or empty
+	// result pages are possible even before the end of the files list has
+	// been reached", and a client that stops at a short page misses the
+	// rest.
+	FilePageCap int
+
+	// IgnoreRange makes a media download answer a byte range with the
+	// whole file and a 200, as a proxy that strips the Range header
+	// does. Drive itself honors it.
+	IgnoreRange bool
 
 	// PendingDownloads is how many times a new download operation answers
 	// as unfinished before it completes. Zero finishes at once; a Vid in
@@ -205,6 +226,8 @@ func New() *Server {
 			"application/pdf":           {gdrive.MimeDocument},
 			"image/jpeg":                {gdrive.MimeDocument},
 			"image/png":                 {gdrive.MimeDocument},
+			"image/gif":                 {gdrive.MimeDocument},
+			"image/bmp":                 {gdrive.MimeDocument},
 			"text/csv":                  {gdrive.MimeSheet},
 			"text/tab-separated-values": {gdrive.MimeSheet},
 			"application/vnd.ms-excel":  {gdrive.MimeSheet},
@@ -274,6 +297,15 @@ func Owner(name, email string) FileOpt {
 	}
 }
 
+// SharedWithMe makes the file one another person shared with this
+// account, at ts and by the named person.
+func SharedWithMe(ts, name, email string) FileOpt {
+	return func(f *gdrive.File) {
+		f.SharedWithMeTime = ts
+		f.SharingUser = &gdrive.User{DisplayName: name, EmailAddress: email}
+	}
+}
+
 // Described sets the description.
 func Described(d string) FileOpt { return func(f *gdrive.File) { f.Description = d } }
 
@@ -283,6 +315,16 @@ func InDrive(driveID string) FileOpt { return func(f *gdrive.File) { f.DriveID =
 // WithResourceKey gives the file a resource key, as a link-shared file
 // under the 2021 security update has.
 func WithResourceKey(key string) FileOpt { return func(f *gdrive.File) { f.ResourceKey = key } }
+
+// LimitedAccess gives a folder limited access: only the people added to
+// it directly open it.
+func LimitedAccess() FileOpt { return func(f *gdrive.File) { f.InheritedPermissionsDisabled = true } }
+
+// DownloadsRestricted sets the download restriction on the file itself,
+// with the legacy switch reading as Drive's guide says it does.
+func DownloadsRestricted(r gdrive.DownloadRestriction) FileOpt {
+	return func(f *gdrive.File) { setItemRestriction(f, r) }
+}
 
 // WithCapabilities replaces the computed capabilities.
 func WithCapabilities(c gdrive.Capabilities) FileOpt {
@@ -501,9 +543,11 @@ func defaultCapabilities(mime string) *gdrive.Capabilities {
 		CanModifyContent: true, CanReadRevisions: true,
 		CanMoveItemWithinDrive: true, CanMoveItemOutOfDrive: true,
 		CanModifyLabels: true, CanReadLabels: true,
-		CanStartApproval: true,
+		CanStartApproval: true, CanChangeItemDownloadRestriction: true,
 	}
 	if mime == gdrive.MimeFolder {
+		c.CanDisableInheritedPermissions = true
+		c.CanEnableInheritedPermissions = true
 		c.CanListChildren = true
 		c.CanAddChildren = true
 		c.CanRemoveChildren = true

@@ -211,6 +211,146 @@ func AskLoosenDrive(id, drive string, off []string) Question {
 	return ask(lines, id)
 }
 
+// AskOpenFolder asks before update_file turns a folder's limited access
+// off, which lets everyone who reaches the folder above open it and
+// everything inside it. gained is who that adds; unread, when not empty,
+// names what could not be read, which leaves it unknown.
+func AskOpenFolder(id, name string, gained []model.Grant, unread string) Question {
+	lines := []string{
+		fmt.Sprintf("update_file: turn off limited access on the folder %s?", quoted(name, quotedLen)),
+		"Everyone who reaches the folder above it could then open it and everything inside it: " +
+			strings.Join(reachParts(gained, func(s string) string { return quoted(s, quotedLen) }), "; "),
+	}
+	if unread != "" {
+		lines[1] = "Who can reach " + unread + " could not be read, so who could then open it is unknown."
+	}
+	return ask(lines, id)
+}
+
+// MoveTarget is where a move goes.
+type MoveTarget struct {
+	ID, Name string
+	// Kind is "folder", "shared drive", or "My Drive" for its root.
+	Kind string
+}
+
+// MoveItem is one item a move would let more people reach, or reach
+// with more access.
+type MoveItem struct {
+	ID, Name string
+	// Kind is "file", "folder" or "shortcut".
+	Kind string
+	// Gained is who it would reach that it does not now.
+	Gained []model.Grant
+	// Unread names what could not be read, "it" or "the destination",
+	// when who it would reach is unknown.
+	Unread string
+}
+
+// AskMove asks before move_file puts items where more people can reach
+// them: once for the whole call, naming every item that would reach
+// further. moving is every item the call moves, in order, which the
+// answer is bound to with the destination, so an item added to the call
+// asks again.
+func AskMove(to MoveTarget, moving []string, widening []MoveItem) Question {
+	if len(moving) == 1 && len(widening) == 1 {
+		it := widening[0]
+		lines := []string{
+			fmt.Sprintf("move_file: move the %s %s into %s?", it.Kind, quoted(it.Name, quotedLen), moveWhere(to)),
+			"It would reach more people there, or give them more access: " + moveReach(it),
+		}
+		if it.Unread != "" {
+			lines[1] = "Who can reach " + it.Unread + " could not be read, so whether more people would reach it there is unknown."
+		}
+		if it.Kind == "folder" {
+			lines = append(lines, "Everything inside it moves too, and is reached the same way.")
+		}
+		return ask(lines, to.ID, it.ID)
+	}
+	lines := []string{
+		fmt.Sprintf("move_file: move %s into %s?", model.Plural(len(moving), "item", "items"), moveWhere(to)),
+		fmt.Sprintf("%d of them would reach more people there, or give them more access:", len(widening)),
+	}
+	for _, it := range widening {
+		what := fmt.Sprintf("the %s %s", it.Kind, quoted(it.Name, quotedLen))
+		if it.Kind == "folder" {
+			what += ", with everything inside it"
+		}
+		lines = append(lines, what+": "+moveReach(it))
+	}
+	return ask(lines, append([]string{to.ID}, moving...)...)
+}
+
+// AskCopy asks before copy_file puts a copy where more people can reach
+// it than reach the original. original is what is copied; widening is
+// each part of it the copy would reach further than: the original
+// itself, and for a folder any folder inside it with limited access,
+// which reaches fewer people than the folder around it. The answer is
+// bound to the destination, the original and every part named.
+func AskCopy(to MoveTarget, original MoveItem, widening []MoveItem) Question {
+	what := fmt.Sprintf("the %s %s", original.Kind, quoted(original.Name, quotedLen))
+	if original.Kind == "folder" {
+		what += ", with everything inside it,"
+	}
+	lines := []string{fmt.Sprintf("copy_file: copy %s into %s?", what, moveWhere(to))}
+	bind := []string{to.ID, original.ID}
+	if len(widening) == 1 && widening[0].ID == original.ID {
+		it := widening[0]
+		line := "The copy would reach more people than the original does, or give them more access: " + moveReach(it)
+		if it.Unread != "" {
+			line = "Who can reach " + it.Unread + " could not be read, so whether the copy would reach more " +
+				"people than the original does is unknown."
+		}
+		return ask(append(lines, line), bind...)
+	}
+	lines = append(lines, "The copy would reach more people than these parts of the original do, or give them more access:")
+	for _, it := range widening {
+		part := "the " + it.Kind + " " + quoted(it.Name, quotedLen)
+		if it.ID != original.ID {
+			part += ", inside it, which has limited access"
+		}
+		lines = append(lines, part+": "+moveReach(it))
+		bind = append(bind, it.ID)
+	}
+	return ask(lines, bind...)
+}
+
+// moveWhere names a move's destination in a question.
+func moveWhere(to MoveTarget) string {
+	switch to.Kind {
+	case "shared drive":
+		return "the shared drive " + quoted(to.Name, quotedLen)
+	case "My Drive":
+		return "My Drive"
+	}
+	return "the folder " + quoted(to.Name, quotedLen)
+}
+
+// moveReach is who one item would newly reach.
+func moveReach(it MoveItem) string {
+	if it.Unread != "" {
+		return "who can reach " + it.Unread + " could not be read"
+	}
+	return strings.Join(reachParts(it.Gained, func(s string) string { return quoted(s, quotedLen) }), "; ")
+}
+
+// Reach says who a set of grants reaches, in a sharing summary's terms:
+// how many people and what they may do, then each domain, then the link.
+func Reach(grants []model.Grant) string {
+	return strings.Join(reachParts(grants, func(s string) string { return s }), "; ")
+}
+
+// reachParts is Reach in parts; q writes a domain from Drive, which a
+// question quotes.
+func reachParts(grants []model.Grant, q func(string) string) []string {
+	s := model.SharingOf(true, grants)
+	var parts []string
+	if s.People > 0 {
+		parts = append(parts, model.Plural(s.People, "person", "people")+" ("+strings.Join(s.Roles(), ", ")+")")
+	}
+	return append(parts, s.Beyond(q)...)
+}
+
 // body0 is the start of a body, quoted on one line, and how much more
 // there is.
 func body0(body string) string {

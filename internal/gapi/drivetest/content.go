@@ -128,6 +128,11 @@ func exportBytes(f *gdrive.File, content, format string) []byte {
 func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, content []byte, contentType string) {
 	total := int64(len(content))
 	start, end, ok := parseRange(r.Header.Get("Range"), total)
+	s.mu.Lock()
+	if s.IgnoreRange {
+		ok = false
+	}
+	s.mu.Unlock()
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}

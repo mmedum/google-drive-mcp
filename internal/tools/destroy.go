@@ -57,7 +57,7 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 			"restored, and Drive clears the trash after 30 days anyway. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, asked(d, "delete_file", func(ctx context.Context, in DeleteFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, askedEveryCall(d, "delete_file", func(ctx context.Context, in DeleteFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteFile(ctx, service.DeleteFileInput{
 			File: in.File, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
@@ -71,7 +71,7 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 			"runs. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, asked(d, "empty_trash", func(ctx context.Context, in EmptyTrashInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, askedEveryCall(d, "empty_trash", func(ctx context.Context, in EmptyTrashInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.EmptyTrash(ctx, service.EmptyTrashInput{
 			Drive: in.Drive, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
@@ -84,7 +84,7 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 			"contents with it: trash what is in there first, then empty_trash. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, asked(d, "delete_drive", func(ctx context.Context, in DeleteDriveInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, askedEveryCall(d, "delete_drive", func(ctx context.Context, in DeleteDriveInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteDrive(ctx, service.DeleteDriveInput{
 			Drive: in.Drive, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
@@ -97,7 +97,7 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 			"Google Doc, Sheet or Slides deck, and never for the version the file is at now. Needs confirm: true." + asksNote,
 		Annotations: destructive,
 		Meta:        requiresUserInteraction(),
-	}, asked(d, "delete_revision", func(ctx context.Context, in DeleteRevisionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, askedEveryCall(d, "delete_revision", func(ctx context.Context, in DeleteRevisionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteRevision(ctx, service.DeleteRevisionInput{
 			File: in.File, Revision: in.Revision, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
@@ -110,7 +110,9 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 // without a person seeing it. It is a hint and nothing more — the gate
 // that actually holds is that these tools are not registered at all
 // unless the deployer asked for them — but a client that honors it
-// gives the person the look at the call that the hint is for.
+// gives the person the look at the call that the hint is for. A client
+// that can ask the person itself does not see it on these tools: the
+// server's own question is the look then (interactionHint).
 func requiresUserInteraction() mcp.Meta {
-	return mcp.Meta{"anthropic/requiresUserInteraction": true}
+	return mcp.Meta{interactionKey: true}
 }

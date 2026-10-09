@@ -179,8 +179,8 @@ func TestATextResourceIsTheContentAndNothingElse(t *testing.T) {
 }
 
 func TestSchemaDumpCarriesTheResourceTemplates(t *testing.T) {
-	// The dump is what a release diffs against the last tag, so a
-	// template leaving the surface has to show up in it.
+	// The dump is what the schema diff compares with the last release's,
+	// so a template leaving the surface has to show up in it.
 	cs := session(t, defaultConfig(), true)
 	res, err := cs.ListResourceTemplates(context.Background(), nil)
 	if err != nil {

@@ -120,11 +120,46 @@ func TestFileCardNotesAFollowedShortcut(t *testing.T) {
 	}
 }
 
-func TestFileCardWarnsAboutACopyRestriction(t *testing.T) {
-	f := &gdrive.File{ID: "id-x-fixture", Name: "Locked.pdf", MimeType: "application/pdf", CopyRequiresWriterPermission: true}
+// The card says who cannot download in effect, and where that comes
+// from when it is not the file's own setting. The legacy switch is the
+// fallback when Drive did not report the restriction.
+func TestFileCardSaysWhoCannotDownload(t *testing.T) {
+	viewers := &gdrive.DownloadRestriction{RestrictedForReaders: true}
+	editors := &gdrive.DownloadRestriction{RestrictedForReaders: true, RestrictedForWriters: true}
+	for _, tc := range []struct {
+		name string
+		f    gdrive.File
+		want string
+	}{
+		{"legacy switch alone", gdrive.File{CopyRequiresWriterPermission: true},
+			"downloads: viewers and commenters cannot download, print or copy it\n"},
+		{"editors, set on the file", gdrive.File{DownloadRestrictions: &gdrive.DownloadRestrictionsMetadata{
+			ItemDownloadRestriction: editors, EffectiveDownloadRestrictionWithContext: editors}},
+			"downloads: viewers, commenters and editors cannot download, print or copy it\n"},
+		{"viewers, from the drive", gdrive.File{CopyRequiresWriterPermission: true,
+			DownloadRestrictions: &gdrive.DownloadRestrictionsMetadata{
+				ItemDownloadRestriction: &gdrive.DownloadRestriction{}, EffectiveDownloadRestrictionWithContext: viewers}},
+			"downloads: viewers and commenters cannot download, print or copy it (set by the shared drive or an " +
+				"organization rule, not on the file)\n"},
+		{"nobody", gdrive.File{DownloadRestrictions: &gdrive.DownloadRestrictionsMetadata{
+			ItemDownloadRestriction: &gdrive.DownloadRestriction{}}}, ""},
+	} {
+		f := tc.f
+		f.ID, f.Name, f.MimeType = "id-x-fixture", "Locked.pdf", "application/pdf"
+		got := FileCard(model.New(&f, model.Options{}), FileCardOptions{Now: now})
+		_, line, found := strings.Cut(got, "downloads: ")
+		if tc.want == "" && found || tc.want != "" && !strings.Contains(got, tc.want) {
+			t.Errorf("%s: got\n%s\nwant %q (%q)", tc.name, got, tc.want, line)
+		}
+	}
+}
+
+func TestFileCardSaysAFolderHasLimitedAccess(t *testing.T) {
+	f := &gdrive.File{ID: "id-x-fixture", Name: "Board", MimeType: gdrive.MimeFolder, InheritedPermissionsDisabled: true}
 	got := FileCard(model.New(f, model.Options{}), FileCardOptions{Now: now})
-	if !strings.Contains(got, "cannot copy, print or download") {
-		t.Errorf("output does not mention the copy restriction:\n%s", got)
+	if !strings.Contains(got, "\nlimited access: only people added to this folder directly can open it; others who "+
+		"reach the folder above see it without opening it\n") {
+		t.Errorf("the card does not say the folder has limited access:\n%s", got)
 	}
 }
 
@@ -233,6 +268,19 @@ func TestAccountGolden(t *testing.T) {
 		Tools: []string{"get_account", "get_file", "list_folder", "search_files"},
 	})
 	golden(t, "account.txt", out)
+}
+
+// extract_text deletes the copy it makes for good, so the line that
+// says nothing removes anything permanently names it when it is there.
+func TestAccountNamesTheOneThingThatDeletesForGood(t *testing.T) {
+	about := &gdrive.About{User: &gdrive.User{EmailAddress: "person@example.com"}}
+	out := Account(about, AccountOptions{Tools: []string{"extract_text", "get_account"}})
+	want := "destructive tools: disabled: nothing registered here removes anything permanently, except the " +
+		"temporary copy extract_text makes to read a PDF or an image, which it deletes for good unless keep_copy " +
+		"is set. Set GDRIVE_ENABLE_DESTRUCTIVE=true to change that.\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("account output missing %q:\n%s", want, out)
+	}
 }
 
 func TestAccountLockedDown(t *testing.T) {
@@ -563,8 +611,8 @@ func TestCommentsGolden(t *testing.T) {
 }
 
 func TestCommentsSayWhenNothingCanBeAdded(t *testing.T) {
-	got := Comments(nil, CommentsOptions{Subject: "Budget.xlsx", Now: now, Workspace: true})
-	for _, want := range []string{"no comments", "cannot comment", "Docs API"} {
+	got := Comments(nil, CommentsOptions{Subject: "Budget.xlsx", Now: now, PinNote: "this is a Google Doc: pinned"})
+	for _, want := range []string{"no comments", "cannot comment", "this is a Google Doc: pinned"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("an empty listing does not say %q:\n%s", want, got)
 		}

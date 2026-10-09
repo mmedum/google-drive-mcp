@@ -66,16 +66,19 @@ type UpdateFileMetaInput struct {
 	Starred                      *bool             `json:"starred,omitempty" jsonschema:"star or unstar it"`
 	Color                        string            `json:"color,omitempty" jsonschema:"for a folder: an RGB hex color like #4986e7"`
 	Properties                   map[string]string `json:"properties,omitempty" jsonschema:"custom key-value pairs stored on the file and visible to every app. An empty value deletes that key."`
-	CopyRequiresWriterPermission *bool             `json:"copy_requires_writer_permission,omitempty" jsonschema:"true stops viewers and commenters copying, printing or downloading it"`
+	CopyRequiresWriterPermission *bool             `json:"copy_requires_writer_permission,omitempty" jsonschema:"legacy: Drive's old download switch, kept for compatibility. true stops viewers and commenters copying, printing or downloading it; false lifts every download restriction set on the file, editors' included. Use restrict_download instead; the two are refused together."`
 	WritersCanShare              *bool             `json:"writers_can_share,omitempty" jsonschema:"false stops editors changing who else can see it"`
+	RestrictDownload             string            `json:"restrict_download,omitempty" jsonschema:"who cannot download, print or copy it: none, viewers (viewers and commenters), or editors (editors as well). Only its owner, or an organizer of its shared drive, can change it. A shared drive or an organization rule can restrict more than this sets; the result shows what is in effect."`
+	LimitedAccess                *bool             `json:"limited_access,omitempty" jsonschema:"for a folder: true lets only the people added to it directly open it, and those who reach the folder above see it without opening it. false lets everyone who reaches the folder above open it and everything inside it, which is put to the person first when the client can ask."`
 	Viewed                       bool              `json:"viewed,omitempty" jsonschema:"mark the file as opened by you just now, which is what puts it at the top of Drive's Recent view. Only true does anything: Drive stores a timestamp and offers no way to say a file was never opened."`
 }
 
-// MoveFileInput moves one item somewhere else.
+// MoveFileInput moves one item, or several, somewhere else.
 type MoveFileInput struct {
-	File   string `json:"file" jsonschema:"the item to move: an id, a Drive URL, a path from My Drive, or a shared-drive path. A shortcut is moved itself, not what it points at."`
-	To     string `json:"to" jsonschema:"where it goes: a folder id, a Drive URL, the word root for My Drive, a path from My Drive like /Projects/2026, or a shared drive as drive:Marketing"`
-	DryRun bool   `json:"dry_run,omitempty" jsonschema:"report what would happen and change nothing"`
+	File   string   `json:"file,omitempty" jsonschema:"the item to move: an id, a Drive URL, a path from My Drive, or a shared-drive path. A shortcut is moved itself, not what it points at. Pass this or files."`
+	Files  []string `json:"files,omitempty" jsonschema:"several items to move to the one destination, at most 50, each as file takes it. Pass this or file, not both. Each item gets its own outcome: moved, unchanged, refused with the reason, or failed with Drive's error. A failure does not undo the moves before it."`
+	To     string   `json:"to" jsonschema:"where it goes: a folder id, a Drive URL, the word root for My Drive, a path from My Drive like /Projects/2026, or a shared drive as drive:Marketing"`
+	DryRun bool     `json:"dry_run,omitempty" jsonschema:"report what would happen to each item, who could reach it before and after included, and change nothing"`
 }
 
 // CopyFileInput describes a copy.
@@ -174,43 +177,60 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "update_file",
 		Description: "Change a file's details without touching its content: rename it, describe it, star it, " +
-			"color a folder, set custom properties, mark it as opened, or turn off copying and re-sharing. " +
-			"Only the fields you pass change, and the result shows each one before and after. " +
+			"color a folder, set custom properties, mark it as opened, stop downloads and re-sharing, or give a " +
+			"folder limited access. Only the fields you pass change, and the result shows each one before and " +
+			"after. Turning a folder's limited access off is also put to the person when the client can ask; a " +
+			"call they do not confirm is [blocked] and is not made again unless they ask. A server started with " +
+			"GDRIVE_SHARING=off refuses anything here that lets more people reach or pass on a file. " +
 			"update_content replaces what is inside a file; move_file changes where it is.",
 		Annotations: idempotentWrite,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateFileMetaInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "update_file", func(ctx context.Context, in UpdateFileMetaInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.UpdateFile(ctx, service.UpdateFileInput{
 			File: in.File, Name: in.Name, Description: in.Description, Starred: in.Starred,
 			Color: in.Color, Properties: in.Properties,
 			CopyRequiresWriterPermission: in.CopyRequiresWriterPermission,
 			WritersCanShare:              in.WritersCanShare,
+			RestrictDownload:             in.RestrictDownload,
+			LimitedAccess:                in.LimitedAccess,
 			Viewed:                       in.Viewed,
 		}))
-	})
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "move_file",
-		Description: "Move one item into another folder or into a shared drive. A file in Drive has exactly one " +
-			"parent, so this takes it out of where it was: everyone who reached it through the old folder now " +
-			"will not. A folder in My Drive cannot move into a shared drive at all: make one there with " +
-			"create_folder and move the files into it. dry_run reports the old and new locations and changes " +
-			"nothing.",
+		Description: "Move an item into another folder or into a shared drive, or up to 50 items with files. A " +
+			"file in Drive has exactly one parent, so this takes it out of where it was. A move also changes who " +
+			"can reach it: it keeps the access granted on it directly, loses what it had through the old " +
+			"folder, and gains everyone who can reach the new folder or shared drive. The result shows who " +
+			"could reach it before and who can after. A folder in My Drive cannot move into a shared drive at " +
+			"all: make one there with create_folder and move the files into it. dry_run reports the old and new " +
+			"locations and who would reach each item, and changes nothing. A move that lets more people reach " +
+			"an item, or gives them more access, is also put to the person when the client can ask, once for " +
+			"the whole call; a call they do not confirm is [blocked], nothing in it moves, and it is not made " +
+			"again unless they ask. A server started with GDRIVE_SHARING=off refuses such a move instead.",
 		Annotations: idempotentWrite,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.MoveFile(ctx, service.MoveFileInput{File: in.File, To: in.To, DryRun: in.DryRun}))
-	})
+	}, asked(d, "move_file", func(ctx context.Context, in MoveFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+		return result(d.Service.MoveFile(ctx, service.MoveFileInput{
+			File: in.File, Files: in.Files, To: in.To, DryRun: in.DryRun,
+		}))
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "copy_file",
 		Description: "Copy one file, leaving the original alone. With convert_to, Google imports the copy as one " +
-			"of its own kinds, which is the way to get readable text out of a PDF or a scanned image: copy it " +
-			"with convert_to: doc, then read_file the copy. " +
+			"of its own kinds; a PDF or a scanned image copied with convert_to: doc becomes a Google Doc with its " +
+			"text read out, which read_file then reads. extract_text does the same and deletes the copy again. " +
 			"A folder needs recursive: true, because Drive has no call that copies one — it is a listing per " +
 			"folder and a write per item, so a large tree takes a while. A tree over max_items is refused " +
 			"before anything is written rather than copied halfway; dry_run says how big it is first. " +
-			"Shortcuts inside a tree are made again pointing where they point now, not at the copies.",
+			"Shortcuts inside a tree are made again pointing where they point now, not at the copies. A copy " +
+			"takes on who can reach the folder it lands in, and none of the sharing of the original; the " +
+			"result shows who can reach each. A copy that more people can reach than the original, or with more " +
+			"access, is also put to the person when the client can ask; a call they do not confirm is [blocked], " +
+			"nothing is copied, and it is not made again unless they ask. A server started with " +
+			"GDRIVE_SHARING=off refuses such a copy instead.",
 		Annotations: write,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CopyFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, asked(d, "copy_file", func(ctx context.Context, in CopyFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.CopyFile(ctx, service.CopyFileInput{
 			File: in.File, Name: in.Name, To: in.To, ConvertTo: in.ConvertTo,
 			OCRLanguage: in.OCRLanguage, KeepRevisionForever: in.KeepRevisionForever,
@@ -218,7 +238,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			AllowDuplicate: in.AllowDuplicate, Recursive: in.Recursive, MaxItems: in.MaxItems,
 			DryRun: in.DryRun,
 		}))
-	})
+	}))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "create_shortcut",

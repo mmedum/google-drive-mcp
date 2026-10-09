@@ -3,6 +3,7 @@ package livecover
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -148,5 +149,84 @@ func caller() {
 	}
 	if sent["empty_trash"]["not_an_option"] {
 		t.Error("a map the function built for something else was recorded as this tool's options")
+	}
+}
+
+// TestAStepKnowsTheFlagsItWaitsFor holds the shapes a step can wait for
+// a flag in: inside the flag's if, after an early return when it is
+// missing, in a function only called under it, and a key added to a map
+// under it. A run reads these to say which flag it lacked for an option
+// it did not send, rather than a list kept by hand that named the wrong
+// flags for half of them.
+func TestAStepKnowsTheFlagsItWaitsFor(t *testing.T) {
+	dir := t.TempDir()
+	src := `package main
+
+func main() {
+	labels := flag.Bool("labels", false, "")
+	share := flag.String("share", "", "")
+	destructive := flag.Bool("destructive", false, "")
+	parent := flag.String("parent", "", "")
+	run(options{labels: *labels, share: *share, destructive: *destructive, parent: *parent})
+}
+
+func run(o options) {
+	w.call(call{tool: "get_file", args: map[string]any{"file": id}})
+	if o.labels && m.text != "" {
+		w.call(call{tool: "get_file", args: map[string]any{"include_labels": true}})
+	}
+	args := map[string]any{"name": "a folder"}
+	if o.parent != "" {
+		args["parent"] = o.parent
+	}
+	w.createAndKeepID("create_folder", args)
+	if o.destructive {
+		destroy()
+	}
+	w.sharing()
+}
+
+func destroy() {
+	w.call(call{tool: "empty_trash", args: map[string]any{"drive": id}})
+	d.lock()
+}
+
+func (d *destroyRun) lock() {
+	d.call(call{tool: "manage_approval", args: map[string]any{"lock_file": true}})
+}
+
+func (w *writeRun) sharing() {
+	if w.share == "" || m.text == "" {
+		return
+	}
+	w.call(call{tool: "share_file", args: map[string]any{"principal": w.share}})
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "driver.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	steps, err := ReadSteps(dir, map[string][]string{
+		"get_file": {"file", "include_labels"}, "create_folder": {"name", "parent"},
+		"empty_trash": {"drive"}, "share_file": {"principal"}, "manage_approval": {"lock_file"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		tool, option string
+		want         []Gate
+	}{
+		{"get_file", "file", []Gate{{}}},
+		{"get_file", "include_labels", []Gate{{"labels"}}},
+		{"create_folder", "name", []Gate{{}}},
+		{"create_folder", "parent", []Gate{{"parent"}}},
+		{"empty_trash", "drive", []Gate{{"destructive"}}},
+		// Called by a function only called under the flag.
+		{"manage_approval", "lock_file", []Gate{{"destructive"}}},
+		{"share_file", "principal", []Gate{{"share"}}},
+	} {
+		if got := steps[c.tool][c.option]; !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s.%s waits for %v, want %v", c.tool, c.option, got, c.want)
+		}
 	}
 }

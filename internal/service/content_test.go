@@ -287,6 +287,29 @@ func TestDownloadFileFetchesAnOldRevision(t *testing.T) {
 	}
 }
 
+func TestDownloadFileVerifiesTheHeadRevisionByID(t *testing.T) {
+	svc, fake, dir := withLocalDir(t, service.Options{})
+	fake.AddFile("id-serverlog-fixture", "server.log", "text/plain", "id-2026-fixture")
+	fake.SetContent("id-serverlog-fixture", "old content")
+	fake.SetContent("id-serverlog-fixture", "new content")
+	head := fake.Revisions["id-serverlog-fixture"][1].ID
+
+	out, err := svc.DownloadFile(t.Context(), service.DownloadFileInput{File: "id-serverlog-fixture", Revision: head})
+	if err != nil {
+		t.Fatalf("DownloadFile of the head revision: %v", err)
+	}
+	// The file's checksum is the head revision's, so there is something
+	// to compare against.
+	if !strings.Contains(out, "verified against Drive's md5") {
+		t.Errorf("the head revision was not checked against the file's checksum:\n%s", out)
+	}
+	entries, _ := os.ReadDir(dir)
+	data, _ := os.ReadFile(filepath.Join(dir, entries[0].Name()))
+	if string(data) != "new content" {
+		t.Errorf("downloaded %q, want the head revision", data)
+	}
+}
+
 func TestUploadsRefuseAPathOutsideTheLocalDirectory(t *testing.T) {
 	svc, _, dir := withLocalDir(t, service.Options{})
 	outside := filepath.Join(t.TempDir(), "secret.txt")

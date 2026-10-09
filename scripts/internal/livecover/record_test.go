@@ -19,7 +19,7 @@ func TestARunSaysWhatItActuallySent(t *testing.T) {
 		"get_file":    {"file", "include_labels"},
 		"trash_file":  {"file", "dry_run"},
 	}
-	report := rec.Report(published, nil)
+	report := rec.Report(published, nil, nil)
 	if !strings.Contains(report, "sent 1 of 4 options") {
 		t.Errorf("the count is wrong: %s", report)
 	}
@@ -43,10 +43,8 @@ func TestAStepThatExistsAndDoesNotRunIsNamed(t *testing.T) {
 	rec.Sent("search_files", map[string]any{"name": "a name"})
 
 	published := map[string][]string{"search_files": {"name", "starred", "trashed"}}
-	believed := map[string]map[string]bool{
-		"search_files": {"name": true, "starred": true},
-	}
-	report := rec.Report(published, believed)
+	steps := Steps{"search_files": {"name": {{}}, "starred": {{}}}}
+	report := rec.Report(published, steps, nil)
 	if !strings.Contains(report, "search_files.starred") {
 		t.Errorf("an option the source claims and the run did not send is not named: %s", report)
 	}
@@ -66,10 +64,8 @@ func TestAToolNeverCalledIsReportedOnce(t *testing.T) {
 		"get_file":    {"file"},
 		"empty_trash": {"confirm", "dry_run", "drive"},
 	}
-	believed := map[string]map[string]bool{
-		"empty_trash": {"confirm": true, "dry_run": true, "drive": true},
-	}
-	report := rec.Report(published, believed)
+	steps := Steps{"empty_trash": {"confirm": {{}}, "dry_run": {{}}, "drive": {{}}}}
+	report := rec.Report(published, steps, nil)
 	if strings.Count(report, "empty_trash") != 1 {
 		t.Errorf("a tool that was never called is named %d times, want 1:\n%s",
 			strings.Count(report, "empty_trash"), report)
@@ -82,11 +78,36 @@ func TestACompleteRunAddsNoWarning(t *testing.T) {
 	rec := NewRecorder()
 	rec.Sent("get_file", map[string]any{"file": "id"})
 
-	report := rec.Report(map[string][]string{"get_file": {"file"}},
-		map[string]map[string]bool{"get_file": {"file": true}})
+	report := rec.Report(map[string][]string{"get_file": {"file"}}, Steps{"get_file": {"file": {{}}}}, nil)
 	for _, warning := range []string{"!!", "were not called"} {
 		if strings.Contains(report, warning) {
 			t.Errorf("a complete run carries %q:\n%s", warning, report)
 		}
+	}
+}
+
+// An option the run did not send is named with the flag it lacked when
+// every step sending it waits for one, and is the warning otherwise —
+// including a step behind a flag the run WAS given, which should have run.
+func TestAnOptionBehindAMissingFlagIsNamedWithTheFlag(t *testing.T) {
+	rec := NewRecorder()
+	rec.Sent("get_file", map[string]any{"file": "id"})
+
+	published := map[string][]string{"get_file": {"file", "include_labels", "revision", "fields"}}
+	steps := Steps{"get_file": {
+		"file":           {{}},
+		"include_labels": {{"labels", "write"}},
+		"revision":       {{"write"}},
+		"fields":         {{"drive", "write"}, {"destructive", "write"}},
+	}}
+	report := rec.Report(published, steps, map[string]bool{"write": true})
+	want := "2 option(s) the driver sends only behind a flag this run was not given:\n" +
+		"   get_file.fields (-destructive or -drive), get_file.include_labels (-labels)\n\n" +
+		"!! 1 option(s) the driver's source says it sends were NOT sent by this run,\n" +
+		"   and no flag this run lacked explains it. It is a step that exists and does not run,\n" +
+		"   which `gates live-cover` reads as coverage because the words are there:\n" +
+		"   get_file.revision"
+	if !strings.HasSuffix(report, want) {
+		t.Errorf("report:\n%s\nwant it to end:\n%s", report, want)
 	}
 }

@@ -175,3 +175,68 @@ func TestEmptyQueryMatchesEverything(t *testing.T) {
 		t.Error("an empty query should match")
 	}
 }
+
+// The fake refuses an orderBy key the reference does not call valid,
+// rather than sorting as if it were not there.
+func TestUnknownOrderKey(t *testing.T) {
+	for orderBy, want := range map[string]string{
+		"":                                 "",
+		"folder,name_natural":              "",
+		"sharedWithMeTime desc":            "",
+		"modifiedTime desc,relevance":      "relevance",
+		"viewedByMeTime desc,sharedWithMe": "sharedWithMe",
+	} {
+		key, ok := unknownOrderKey(orderBy)
+		if key != want || ok != (want == "") {
+			t.Errorf("unknownOrderKey(%q) = %q, %t; want %q", orderBy, key, ok, want)
+		}
+	}
+}
+
+// A file's visibility is the widest grant it carries to people it does
+// not name, and the fake refuses what the reference does not document.
+func TestVisibility(t *testing.T) {
+	s := New()
+	defer s.Close()
+	f := s.AddFile("id-vis-fixture", "Vis", gdrive.MimeDocument, s.RootID)
+	if !match(t, "visibility = 'limited'", f, s) {
+		t.Error("a file with no anyone or domain grant is not limited")
+	}
+	s.Grant(f.ID, &gdrive.Permission{Type: "anyone", Role: "reader"})
+	if !match(t, "visibility = 'anyoneWithLink'", f, s) || match(t, "visibility != 'anyoneWithLink'", f, s) {
+		t.Error("an anyone grant is not anyoneWithLink")
+	}
+	s.Grant(f.ID, &gdrive.Permission{Type: "domain", Role: "reader", Domain: "example.com", AllowFileDiscovery: true})
+	if !match(t, "visibility = 'anyoneWithLink'", f, s) {
+		t.Error("a domain grant added beside an anyone grant narrowed the visibility")
+	}
+	g := s.AddFile("id-vis-domain-fixture", "Vis domain", gdrive.MimeDocument, s.RootID)
+	s.Grant(g.ID, &gdrive.Permission{Type: "domain", Role: "reader", Domain: "example.com", AllowFileDiscovery: true})
+	if !match(t, "visibility = 'domainCanFind'", g, s) {
+		t.Error("a discoverable domain grant is not domainCanFind")
+	}
+	for _, q := range []string{"visibility = 'public'", "visibility contains 'anyone'", "visibility > 'limited'"} {
+		if _, err := parseQuery(q); err == nil {
+			t.Errorf("%s is accepted", q)
+		}
+	}
+}
+
+// readers is read narrowly: an editor is a writer and not a reader.
+func TestReadersAndWritersByRole(t *testing.T) {
+	s := New()
+	defer s.Close()
+	f := s.AddFile("id-roles-fixture", "Roles", gdrive.MimeDocument, s.RootID)
+	s.Grant(f.ID, &gdrive.Permission{Type: "user", Role: "writer", EmailAddress: "jane@example.com"})
+	s.Grant(f.ID, &gdrive.Permission{Type: "user", Role: "commenter", EmailAddress: "john@example.com"})
+	for q, want := range map[string]bool{
+		"'jane@example.com' in writers": true,
+		"'jane@example.com' in readers": false,
+		"'john@example.com' in readers": true,
+		"'john@example.com' in writers": false,
+	} {
+		if got := match(t, q, f, s); got != want {
+			t.Errorf("%s = %t, want %t", q, got, want)
+		}
+	}
+}

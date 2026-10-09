@@ -28,19 +28,22 @@ type SearchInput struct {
 	Text           string `json:"text,omitempty" jsonschema:"match whole words in the file's content and name. Wrap in double quotes for an exact phrase. Not a substring match."`
 	Kind           string `json:"kind,omitempty" jsonschema:"limit to one kind: folder, doc, sheet, slides, form, drawing, pdf, image, video, audio, shortcut, office, or any (the default)"`
 	MimeType       string `json:"mime_type,omitempty" jsonschema:"limit to one exact MIME type, for kinds the kind field does not name"`
-	InFolder       string `json:"in_folder,omitempty" jsonschema:"only items DIRECTLY inside this folder; Drive cannot search a folder recursively, so this does not reach subfolders. Takes the same forms as file."`
+	InFolder       string `json:"in_folder,omitempty" jsonschema:"only items DIRECTLY inside this folder; this does not reach subfolders, under_folder does. Takes the same forms as file."`
+	UnderFolder    string `json:"under_folder,omitempty" jsonschema:"only items in this folder or in any folder below it, at any depth. Takes the same forms as file. It costs one listing per level of folders before the search, covers at most 100 folders and refuses a larger tree, and does not follow shortcuts. A page_token from such a search continues only a search under the same folder. Pass this or in_folder, not both."`
 	Drive          string `json:"drive,omitempty" jsonschema:"search one shared drive, by name or id. Without it the search covers My Drive, files shared with you, and every shared drive."`
-	Scope          string `json:"scope,omitempty" jsonschema:"all (the default), my_drive, or shared_with_me"`
+	Scope          string `json:"scope,omitempty" jsonschema:"all (the default), my_drive, or shared_with_me. my_drive is refused with drive, or with an under_folder in a shared drive."`
 	Owner          string `json:"owner,omitempty" jsonschema:"me, or an email address"`
 	Starred        bool   `json:"starred,omitempty" jsonschema:"only starred items"`
 	Trashed        bool   `json:"trashed,omitempty" jsonschema:"search the trash instead of live files"`
 	ModifiedAfter  string `json:"modified_after,omitempty" jsonschema:"only items modified after this date, as 2026-03-04 or 2026-03-04T09:00:00Z"`
 	ModifiedBefore string `json:"modified_before,omitempty" jsonschema:"only items modified before this date"`
 	CreatedAfter   string `json:"created_after,omitempty" jsonschema:"only items created after this date"`
-	OrderBy        string `json:"order_by,omitempty" jsonschema:"modified (the default), created, name, recency, viewed or size"`
+	OrderBy        string `json:"order_by,omitempty" jsonschema:"modified (the default), created, name, recency, viewed, size, or shared for the files most recently shared with you first. shared with no scope searches only the files shared with you."`
 	Limit          int    `json:"limit,omitempty" jsonschema:"how many hits to return, default 25, maximum 200"`
-	PageToken      string `json:"page_token,omitempty" jsonschema:"the page_token from a previous result, to see the next page"`
+	PageToken      string `json:"page_token,omitempty" jsonschema:"the page_token from a previous result, to see the next page. It continues only that search: pass the same filters, order, scope and drive with it."`
 	Property       string `json:"property,omitempty" jsonschema:"match a custom file property, as \"key=value\". These are the pairs update_file sets: one app tags files this way for another to find. Both halves are required — Drive cannot search for a key whatever its value, whatever its documentation says."`
+	Visibility     string `json:"visibility,omitempty" jsonschema:"who can open the file without being named on it: anyone (anyone on the internet, by link or by search), link (anyone with the link), domain (everyone in the organization, by link or by search), or limited (only the people and groups it is shared with)"`
+	SharedWith     string `json:"shared_with,omitempty" jsonschema:"one address of a person or group: only files shared with it as viewer, commenter or editor"`
 	RawQuery       string `json:"raw_query,omitempty" jsonschema:"a Drive API v3 query expression, ANDed with the other fields, for syntax these fields do not cover"`
 }
 
@@ -94,19 +97,22 @@ func registerRead(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "search_files",
 		Description: "Find files across My Drive, files shared with you, and every shared drive, by name, content, " +
-			"kind, folder, owner, star or date. Each hit shows its kind, name, id, folder and last change. " +
+			"kind, folder, owner, star, date, who it is shared with or who can open it. Each hit shows its kind, " +
+			"name, id, folder and last change. " +
 			"IMPORTANT: Drive does not do substring search. `name` matches the beginnings of words and `text` matches " +
 			"whole words, so \"udget\" will never find \"Budget\". Use list_folder when you know where something is: " +
-			"a search costs twenty times what a read does. `in_folder` reaches direct children only.",
+			"a search costs twenty times what a read does. `in_folder` reaches direct children only; `under_folder` " +
+			"reaches every folder below as well. " +
+			"With no filter at all it returns everything you can see, in the order order_by names.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, any, error) {
 		out, err := d.Service.Search(ctx, service.SearchInput{
 			Name: in.Name, Text: in.Text, Kind: in.Kind, MimeType: in.MimeType,
-			InFolder: in.InFolder, Drive: in.Drive, Scope: in.Scope, Owner: in.Owner,
+			InFolder: in.InFolder, UnderFolder: in.UnderFolder, Drive: in.Drive, Scope: in.Scope, Owner: in.Owner,
 			Starred: in.Starred, Trashed: in.Trashed,
 			ModifiedAfter: in.ModifiedAfter, ModifiedBefore: in.ModifiedBefore, CreatedAfter: in.CreatedAfter,
 			OrderBy: in.OrderBy, Property: in.Property, Limit: in.Limit, PageToken: in.PageToken,
-			RawQuery: in.RawQuery,
+			RawQuery: in.RawQuery, Visibility: in.Visibility, SharedWith: in.SharedWith,
 		})
 		if err != nil {
 			return nil, nil, fail(err)
@@ -120,7 +126,8 @@ func registerRead(s *mcp.Server, d Deps) []string {
 			"recursive: true a tree of the folders below it. Prefer this over search_files when you know where to " +
 			"look. Items in the trash are left out unless you ask for them. A recursive walk is bounded by max_depth " +
 			"and max_items and names the folders it did not enter, so a tree that stops early says so rather than " +
-			"looking complete.",
+			"looking complete. A folder this account can see but cannot list is marked, since it may hold more " +
+			"than is shown.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in FolderInput) (*mcp.CallToolResult, any, error) {
 		out, err := d.Service.ListFolder(ctx, service.ListFolderInput{

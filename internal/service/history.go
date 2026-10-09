@@ -83,7 +83,9 @@ func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*
 	if revisionID == "" {
 		return nil, Errorf(ClassInvalid, "revision is required: list_revisions shows the ids")
 	}
-	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: true})
+	// Fresh, because whether this is the current revision decides what
+	// the result says Drive will do with it.
+	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: true, Fresh: true})
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +104,12 @@ func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*
 		return nil, wrap(err, fmt.Sprintf("%s revision %s of %s", action+"ing", revisionID, f.Name))
 	}
 	note := fmt.Sprintf("revision %s of %s is %s.", revisionID, f.Name, keptWords(updated.KeepForever))
-	if !updated.KeepForever {
+	switch {
+	case updated.KeepForever:
+	case revisionID == f.HeadRevisionID:
+		note += " It is the current revision, which Drive keeps. Once a newer one replaces it, Drive " +
+			"discards it 30 days later."
+	default:
 		note += " Drive discards it 30 days after it stopped being current, which may already be past."
 	}
 	// report rather than write, so the card carries what resolving found
@@ -121,8 +128,8 @@ func (s *Service) revisionError(err error, f *gdrive.File, revisionID string) er
 		return &Error{Class: ClassNotFound, Message: fmt.Sprintf(
 			"%s has no revision %s, or not yet. list_revisions shows the ids it does have; a blob "+
 				"revision that was never pinned is gone 30 days after it stopped being current. If "+
-				"the file was written moments ago, try again: a live run had this exact revision "+
-				"listed, then answered 404 here, then deleted it successfully seconds later.",
+				"the file was written moments ago, try again in a few seconds: Drive can list a new "+
+				"revision before it answers for it by id.",
 			f.Name, revisionID), Err: err}
 	}
 	return wrap(err, fmt.Sprintf("reading revision %s of %s", revisionID, f.Name))

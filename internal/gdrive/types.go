@@ -350,6 +350,15 @@ type File struct {
 	WritersCanShare              bool `json:"writersCanShare,omitempty"`
 	CopyRequiresWriterPermission bool `json:"copyRequiresWriterPermission,omitempty"`
 	HasThumbnail                 bool `json:"hasThumbnail,omitempty"`
+	// InheritedPermissionsDisabled is a folder's limited access: only
+	// the people added to it directly can open it, and those who reach
+	// it from above see it without opening it.
+	InheritedPermissionsDisabled bool `json:"inheritedPermissionsDisabled,omitempty"`
+
+	// DownloadRestrictions is who may download, print and copy the file:
+	// as set on the file, and in effect once the shared drive and the
+	// organization's rules are counted.
+	DownloadRestrictions *DownloadRestrictionsMetadata `json:"downloadRestrictions,omitempty"`
 
 	Capabilities    *Capabilities      `json:"capabilities,omitempty"`
 	ShortcutDetails *ShortcutDetails   `json:"shortcutDetails,omitempty"`
@@ -429,7 +438,15 @@ type Permission struct {
 	Deleted            bool                 `json:"deleted,omitempty"`
 	PendingOwner       bool                 `json:"pendingOwner,omitempty"`
 	Details            []*PermissionDetails `json:"permissionDetails,omitempty"`
+	// View is "metadata" on a grant a limited-access folder keeps out:
+	// it shows the folder without opening it. "published" belongs to a
+	// published view, which this server never makes.
+	View string `json:"view,omitempty"`
 }
+
+// ViewMetadata is the view a limited-access folder gives the people who
+// reach it from above.
+const ViewMetadata = "metadata"
 
 // Inherited reports whether the grant comes from a shared-drive ancestor.
 func (p *Permission) Inherited() (bool, string) {
@@ -471,11 +488,21 @@ type DriveCapabilities struct {
 	CanTrashChildren            bool `json:"canTrashChildren,omitempty"`
 }
 
-// DownloadRestriction is who may download and copy, as a shared drive's
-// managers have set it.
+// DownloadRestriction is who may download, print and copy, on a file or
+// a shared drive. The reference says restrictedForWriters true means
+// readers are restricted too.
 type DownloadRestriction struct {
 	RestrictedForReaders bool `json:"restrictedForReaders,omitempty"`
 	RestrictedForWriters bool `json:"restrictedForWriters,omitempty"`
+}
+
+// DownloadRestrictionsMetadata is a file's download restriction twice:
+// as its owner or organizer set it on the file, and in effect, which
+// counts the shared drive's setting and the organization's data loss
+// prevention rules as well. Only the first can be written.
+type DownloadRestrictionsMetadata struct {
+	ItemDownloadRestriction                 *DownloadRestriction `json:"itemDownloadRestriction,omitempty"`
+	EffectiveDownloadRestrictionWithContext *DownloadRestriction `json:"effectiveDownloadRestrictionWithContext,omitempty"`
 }
 
 // DriveRestrictions are the switches a shared drive carries, plus the
@@ -562,6 +589,13 @@ type FileMeta struct {
 
 	WritersCanShare              *bool `json:"writersCanShare,omitempty"`
 	CopyRequiresWriterPermission *bool `json:"copyRequiresWriterPermission,omitempty"`
+	// InheritedPermissionsDisabled turns a folder's limited access on or
+	// off. Drive offers it on folders only.
+	InheritedPermissionsDisabled *bool `json:"inheritedPermissionsDisabled,omitempty"`
+	// DownloadRestrictions sets who may download, print and copy the
+	// file. The files guide says to set it with files.update and not
+	// beside copyRequiresWriterPermission, since the two may conflict.
+	DownloadRestrictions *DownloadRestrictionsPatch `json:"downloadRestrictions,omitempty"`
 
 	// ViewedByMeTime is when the signed-in person last opened the file.
 	// It is the one "output only in spirit" field the API lets a caller
@@ -574,6 +608,10 @@ type FileMeta struct {
 	// key, which is what the reference means by "entries with null values
 	// are cleared in update and copy requests".
 	Properties map[string]*string `json:"properties,omitempty"`
+	// AppProperties are private to the OAuth client that wrote them.
+	// extract_text marks its temporary copy with one, so a copy whose
+	// creation Drive never confirmed can be found again.
+	AppProperties map[string]string `json:"appProperties,omitempty"`
 
 	// ShortcutDetails carries the target of a shortcut being created.
 	ShortcutDetails *ShortcutDetails `json:"shortcutDetails,omitempty"`
@@ -683,6 +721,20 @@ type DriveRestrictionsPatch struct {
 	SharingFoldersRequiresOrganizerPermission *bool `json:"sharingFoldersRequiresOrganizerPermission,omitempty"`
 }
 
+// DownloadRestrictionsPatch is the downloadRestrictions half of a
+// files.update body. Only itemDownloadRestriction can be written; the
+// effective one is output only.
+type DownloadRestrictionsPatch struct {
+	ItemDownloadRestriction DownloadRestrictionPatch `json:"itemDownloadRestriction"`
+}
+
+// DownloadRestrictionPatch is a file's download restriction as sent:
+// both switches always, so false is sent rather than left out.
+type DownloadRestrictionPatch struct {
+	RestrictedForReaders bool `json:"restrictedForReaders"`
+	RestrictedForWriters bool `json:"restrictedForWriters"`
+}
+
 // StartPageToken is the changes.getStartPageToken response: the point in
 // the changes feed that "from now on" means.
 type StartPageToken struct {
@@ -715,8 +767,9 @@ type ChangeList struct {
 
 // QuotedFileContent is the passage a comment is pinned to. Drive fills
 // it for an anchored comment on a file it can quote from; this server
-// never sets one, because pinning a comment to a passage of a Google Doc
-// is a Docs API feature and this server stops at the file boundary.
+// never sets one, because pinning a comment in a Google Doc, Sheet or
+// Slides deck is that kind's own API's feature and this server stops at
+// the file boundary.
 type QuotedFileContent struct {
 	MimeType string `json:"mimeType,omitempty"`
 	Value    string `json:"value,omitempty"`
@@ -869,9 +922,9 @@ type Approval struct {
 	ModifyTime        string              `json:"modifyTime,omitempty"`
 	CompleteTime      string              `json:"completeTime,omitempty"`
 	// FileContentChangeBehavior is RESET_APPROVAL or NO_APPROVAL_ACTION.
-	// RESET_APPROVAL means a content change while the approval is in
-	// progress clears the approvals given — and that once approved, the
-	// file is LOCKED.
+	// RESET_APPROVAL, the default, means a content change while the
+	// approval is in progress clears the approvals given, and that once
+	// approved the file is LOCKED. NO_APPROVAL_ACTION does neither.
 	FileContentChangeBehavior string `json:"fileContentChangeBehavior,omitempty"`
 }
 
@@ -900,9 +953,15 @@ type StartApproval struct {
 	LockFile bool   `json:"lockFile,omitempty"`
 	DueTime  string `json:"dueTime,omitempty"`
 	// FileContentChangeBehavior decides what a content change does to
-	// answers already given.
+	// answers already given, and whether approving locks the file.
 	FileContentChangeBehavior string `json:"fileContentChangeBehavior,omitempty"`
 }
+
+// What a content change does to an approval, as Drive spells it.
+const (
+	ContentChangeReset    = "RESET_APPROVAL"
+	ContentChangeNoAction = "NO_APPROVAL_ACTION"
+)
 
 // ApprovalMessage is the body every other approval verb takes: approve,
 // decline, cancel and comment differ in their endpoint and in nothing
