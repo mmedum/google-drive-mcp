@@ -484,17 +484,16 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 		// File and says nothing about comments, so this cannot know: the
 		// sentence here used to be "the comment threads were copied with
 		// it", which is the lock_file mistake with somebody else's words
-		// in place of a restriction. Reading it back was the other option
-		// and was rejected: comments.list lags a copy, so an empty answer
-		// would report threads as dropped when they were merely late,
-		// which is the empty_trash mistake in the opposite direction. The
-		// caller is pointed at the one call that settles it instead.
+		// in place of a restriction. The caller is pointed at the one call
+		// that settles it. Live runs found Drive's own formats carry their
+		// threads and uploaded files do not, and an empty listing of an
+		// uploaded file's copy stayed empty minutes later (§18).
 		notes = append(notes, "Drive was asked to bring the comment threads along, and its answer "+
-			"says nothing about whether it did. It does not always: one live run found a Google "+
-			"Doc's threads came across and an uploaded CSV's did not, same run, same argument. So "+
-			"check rather than assume — list_comments on the copy shows what came across, though "+
-			"it can lag a copy by a moment. Anything that did is what other people wrote, now "+
-			"readable by everybody who can see the copy.")
+			"says nothing about whether it did. It does not always: live runs found a Google Doc's "+
+			"and a Google Sheet's threads came across and an uploaded CSV's did not, with the same "+
+			"argument. So check rather than assume: list_comments on the copy shows what came "+
+			"across. Anything that did is what other people wrote, now readable by everybody who "+
+			"can see the copy.")
 	}
 	return s.copyResult(ctx, &Resolved{File: copied}, parts[0].before, after, outcome{Action: render.ActionCopied,
 		Note: strings.Join(notes, " ")}), nil

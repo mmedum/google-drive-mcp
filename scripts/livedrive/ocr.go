@@ -21,6 +21,10 @@ var ocrWords = []string{"RECEIPT", "42"}
 // names it as `"<name>", id <id>, in the root of My Drive`.
 var keptCopyID = regexp.MustCompile(`, id ([A-Za-z0-9_\-]+), in the root of My Drive`)
 
+// deletedCopyID reads the temporary copy's id out of extract_text's
+// note, which names it as `id <id>, which was deleted for good`.
+var deletedCopyID = regexp.MustCompile(`, id ([A-Za-z0-9_\-]+), which was deleted for good`)
+
 // ocr runs Google's OCR live, which nothing here had ever done: through
 // extract_text, which makes a temporary Google Doc and deletes it, and
 // through the two imports that take an ocr_language. Every belief §18
@@ -45,15 +49,14 @@ func (w *writeRun) ocr() {
 
 	whole := w.call(call{tool: "extract_text", args: map[string]any{"file": scan}})
 	w.ocrFound("extract_text", whole)
-	if !strings.Contains(whole, "deleted for good") {
-		w.failures++
-		w.out.Say("!! the result does not say the temporary copy was deleted")
-	}
-	// A language hint, and a window of the text, then the next window,
-	// which reuses the text rather than making a second copy.
-	w.call(call{tool: "extract_text", args: map[string]any{
+	w.goneForGood(whole)
+	// A language hint, which makes a copy of its own, and a window of
+	// the text, then the next window, which reuses the text rather than
+	// making a second copy.
+	hinted := w.call(call{tool: "extract_text", args: map[string]any{
 		"file": scan, "ocr_language": "en", "max_chars": 8,
 	}})
+	w.goneForGood(hinted)
 	next := w.call(call{tool: "extract_text", args: map[string]any{
 		"file": scan, "ocr_language": "en", "offset": 8, "max_chars": 200,
 	}})
@@ -61,11 +64,6 @@ func (w *writeRun) ocr() {
 		w.failures++
 		w.out.Say("!! the second window made a second copy")
 	}
-	// Whether a temporary copy is left anywhere: the search index lags,
-	// so an empty answer is the expected one and a hit is a finding.
-	w.call(call{tool: "search_files", args: map[string]any{
-		"name": "Temporary copy of Driver receipt", "in_folder": "root",
-	}, tolerant: true})
 
 	kept := w.call(call{tool: "extract_text", args: map[string]any{"file": scan, "keep_copy": true}})
 	if m := keptCopyID.FindStringSubmatch(kept); len(m) == 2 {
@@ -92,6 +90,25 @@ func (w *writeRun) ocr() {
 	})
 	if uploaded != "" {
 		w.ocrFound("read_file of the upload_file import", w.call(call{tool: "read_file", args: map[string]any{"file": uploaded}}))
+	}
+}
+
+// goneForGood reads the temporary copy an extract_text result says it
+// deleted, by its id, and expects Drive to answer that there is no such
+// file. That is Drive's word that the copy is gone, not this server's.
+// A search would not do: the index lags, and it leaves out the trash.
+func (w *writeRun) goneForGood(result string) {
+	m := deletedCopyID.FindStringSubmatch(result)
+	if len(m) != 2 {
+		w.failures++
+		w.out.Say("!! the result does not name the temporary copy it deleted, so nothing can check it is gone")
+		return
+	}
+	out := w.call(call{tool: "get_file", args: map[string]any{"file": m[1]}, expectError: true,
+		why: "the temporary copy extract_text deleted for good"})
+	if !strings.HasPrefix(out, "[not_found]") {
+		w.failures++
+		w.out.Say("!! the temporary copy is still there, or Drive answered other than not found")
 	}
 }
 

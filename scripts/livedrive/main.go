@@ -273,7 +273,7 @@ func run(o options, t *transcript.Transcript) error {
 		t.Say("(pass -write to exercise the tools that change Drive, in a scratch folder)")
 	}
 	if logs := sess.StderrTail(20); len(logs) > 0 {
-		t.Say("\n=== stderr ===")
+		t.Say("\n=== stderr: the last 20 lines the server wrote, at most ===")
 		for _, line := range logs {
 			t.Say(line)
 		}

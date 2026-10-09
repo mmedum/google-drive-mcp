@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -130,9 +131,9 @@ func (w *writeRun) exercise() {
 // The property search runs LAST of the three deliberately: it looks for
 // the key update_file set earlier in this run, so it is checking that
 // what this server wrote is what Drive indexed, not merely that a query
-// parses. Drive's index is eventually consistent, so an empty answer is
-// reported rather than counted as a failure — the same caution the
-// changes feed needed in phase 2.
+// parses. An empty answer after the wait is reported as unverified
+// rather than counted as a failure: nothing here knows how slow Drive's
+// index can be.
 func (w *writeRun) phase4Extras(m made) {
 	w.out.Say("\n--- phase 4 parameters ---")
 	// Both kinds, because the answer differs by kind and one file type is
@@ -141,14 +142,14 @@ func (w *writeRun) phase4Extras(m made) {
 	// (§18) — and a Google Doc anchors its comments to a passage rather
 	// than to a file, which is the case most likely to behave differently
 	// and the one §17a was left holding.
-	w.copyAndCheckComments(m.text, "rows with its comments.csv", "a csv")
-	w.copyAndCheckComments(m.doc, "Notes with its comments", "a Google Doc")
+	w.copyAndCheckComments(m.text, "rows with its comments.csv", "a csv", false)
+	w.copyAndCheckComments(m.doc, "Notes with its comments", "a Google Doc", true)
 	// The third kind, and the one that decides whether the split is a
 	// RULE. A Doc carried its threads and an uploaded CSV did not; the
 	// obvious reading is "Drive's own formats yes, uploaded bytes no",
 	// and a Sheet is Drive's own format that is not a Doc — so it agrees
 	// with the reading or refutes it, which two points cannot do.
-	w.copyAndCheckComments(m.sheet, "Figures with its comments", "a Google Sheet")
+	w.copyAndCheckComments(m.sheet, "Figures with its comments", "a Google Sheet", true)
 	if m.text != "" {
 		w.needing("update_file", m.text, map[string]any{"file": m.text, "viewed": true})
 	}
@@ -160,7 +161,8 @@ func (w *writeRun) phase4Extras(m made) {
 		w.needing("update_file", m.text, map[string]any{
 			"file": m.text, "properties": map[string]any{"livedrive_found": "yes"},
 		})
-		w.pollProperty("livedrive_found=yes")
+		w.pollSearch(call{tool: "search_files", args: map[string]any{"property": "livedrive_found=yes"}}, m.text,
+			"a property search finds the file this run tagged")
 	}
 	w.expecting("search_files", w.scratchID, map[string]any{"property": "=nothing"},
 		"a property clause with no key")
@@ -170,63 +172,54 @@ func (w *writeRun) phase4Extras(m made) {
 	// showing up at all.
 	w.expecting("search_files", w.scratchID, map[string]any{"property": "livedrive"},
 		"a key with no value, which Drive answers Invalid Value despite its guide")
-	w.out.Say("(an empty property search moments after the write is Drive's index catching up, " +
-		"not a defect — read the hits above against what update_file set)")
 }
 
-// pollProperty searches for a property until Drive's index has caught
-// up, or says it did not. Drive indexes a property change within seconds
-// usually, but not always — and an empty answer moments after a write
-// looks exactly like a broken query, which is what phase 2 learned about
-// the changes feed and phase 4 nearly repeated here.
-func (w *writeRun) pollProperty(property string) {
-	const attempts = 10
-	for i := range attempts {
-		if i > 0 {
-			time.Sleep(3 * time.Second)
-		}
-		out := w.call(call{tool: "search_files", args: map[string]any{
-			"property": property, "in_folder": w.scratchID,
-		}})
-		if !strings.Contains(out, "0 hits") {
-			return
-		}
-		w.out.Sayf("(the property index reports nothing yet; waiting — attempt %d of %d)", i+1, attempts)
-	}
-	// NOT a failure, and the difference matters. Phase 4 measured this:
-	// the file tagged in a run was still missing from the index after
-	// twelve seconds, and a direct query minutes later found it — so the
-	// query is right and the index is slow. Counting a slow index as a
-	// defect would make this run fail for something the server does not
-	// control, and a verdict that cries wolf is a verdict nobody reads.
-	//
-	// What it must not do is pass quietly, because "not indexed yet" and
-	// "the query is broken" produce the same empty page.
-	w.out.Say("UNVERIFIED THIS RUN: the property search did not find the file this run tagged, after " +
-		"30 seconds. Drive's property index is eventually consistent and has been measured slower than " +
-		"that, so this is expected often enough not to be a failure — but it means the search was not " +
-		"checked, rather than checked and passed. Run search_files with the property by hand a few " +
-		"minutes from now to close it.")
-}
-
-// pollSearch runs a search_files call in the scratch folder until it
-// finds the file, and reports whether it did. A sharing change reaches Drive's
-// search index late, as a property does, so an empty answer is first
-// waited out and then reported as unverified rather than as a defect.
+// pollSearch searches everywhere under the scratch folder until the
+// search finds the file, and reports whether it did. Every attempt reads
+// every page, since such a search can match more files than one page
+// holds. A sharing or property change reaches Drive's search index late,
+// so an empty answer is first waited out and then reported as
+// unverified rather than as a defect.
+//
+// It searches under the scratch folder, not in it. The file these
+// searches look for is moved into a folder inside it early on, and two
+// runs searched only the scratch folder's direct children, could not
+// find it at any speed, and blamed Drive's index (§18).
 func (w *writeRun) pollSearch(search call, id, what string) bool {
-	search.args["in_folder"] = w.scratchID
+	search.args["under_folder"] = w.scratchID
 	const attempts = 10
 	for i := range attempts {
 		if i > 0 {
 			time.Sleep(3 * time.Second)
 		}
-		if strings.Contains(w.call(search), id) {
+		if w.searchAllPages(search, id) {
 			return true
 		}
 		w.out.Sayf("(the search has not found it yet; waiting — attempt %d of %d)", i+1, attempts)
 	}
-	w.out.Sayf("UNVERIFIED THIS RUN: %s. The search did not find the file after 30 seconds. Drive's "+
-		"index is eventually consistent, so run the same search by hand a few minutes from now.", what)
+	w.out.Sayf("UNVERIFIED THIS RUN: %s. The search did not find the file after 30 seconds, under the "+
+		"scratch folder and on every page. Drive's index is eventually consistent, so run the same search "+
+		"by hand a few minutes from now.", what)
+	return false
+}
+
+// searchAllPages runs a search and follows its page tokens to the end,
+// and reports whether any page names id.
+func (w *writeRun) searchAllPages(search call, id string) bool {
+	args := maps.Clone(search.args)
+	for range 20 {
+		out := w.call(call{tool: search.tool, args: args})
+		if strings.Contains(out, id) {
+			return true
+		}
+		token := tokenIn(out)
+		if token == "" {
+			return false
+		}
+		args = maps.Clone(search.args)
+		args["page_token"] = token
+	}
+	w.out.Say("(stopped after 20 pages)")
 	return false
 }
 
@@ -235,10 +228,9 @@ func (w *writeRun) pollSearch(search call, id, what string) bool {
 // It asks readers alone for a file the -share address can edit, after
 // shared_with has shown the index knows the grant.
 func (w *writeRun) readersHoldWriters(id string) {
-	out := w.call(call{tool: "search_files", args: map[string]any{
-		"raw_query": "'" + w.share + "' in readers", "in_folder": w.scratchID,
-	}})
-	if strings.Contains(out, id) {
+	if w.searchAllPages(call{tool: "search_files", args: map[string]any{
+		"raw_query": "'" + w.share + "' in readers", "under_folder": w.scratchID,
+	}}, id) {
 		w.out.Say("(readers alone found a file the address can edit: readers holds the writers. Record it in §18.)")
 		return
 	}
@@ -1101,6 +1093,9 @@ func (w *writeRun) downloads(m made) {
 	editors := "downloads: viewers, commenters and editors cannot"
 	viewers := "downloads: viewers and commenters cannot"
 	expect(map[string]any{"restrict_download": "editors"}, editors, "")
+	// From editors down to viewers: the editors may download again and
+	// the viewers and commenters still may not.
+	expect(map[string]any{"restrict_download": "viewers"}, viewers, editors)
 	expect(map[string]any{"copy_requires_writer_permission": false}, "", "downloads:")
 	out := w.call(call{tool: "update_file", args: map[string]any{"file": m.doc, "copy_requires_writer_permission": true}})
 	switch {
@@ -1222,14 +1217,42 @@ func (w *writeRun) queryLimit() {
 			if err != nil {
 				answer = err.Error()
 			}
-			w.out.Sayf("(Drive refused %d terms, %d bytes of query, and took %d. Record it in §18. The answer: %s)",
-				n, len(raw), accepted, answer)
+			w.out.Sayf("(Drive refused %d terms, %d bytes of query, and took %d. Record it in §18. HTTP status: %s. "+
+				"The answer: %s)", n, len(raw), accepted, statusOf(answer, w.sess.StderrTail(40)), answer)
 			return
 		}
 		accepted = n
 	}
 	w.out.Sayf("(Drive took %d terms. Record in §18 that it refused none tried.)", accepted)
 }
+
+// statusOf is the HTTP status of a refusal: from the tool's answer when
+// it names one, as it does for a refusal Google's front end made, or
+// else from the server's debug log of the last failed request.
+func statusOf(answer string, logs []string) string {
+	if m := statusInAnswer.FindStringSubmatch(answer); len(m) > 1 {
+		return m[1]
+	}
+	status := ""
+	for _, line := range logs {
+		if !strings.Contains(line, "drive api error") {
+			continue
+		}
+		if m := statusInLog.FindStringSubmatch(line); len(m) > 1 {
+			status = m[1]
+		}
+	}
+	if status == "" {
+		return "not in the answer, and not logged: run with GDRIVE_LOG_LEVEL=debug"
+	}
+	return status
+}
+
+var (
+	statusInAnswer = regexp.MustCompile(`HTTP (\d{3})`)
+	// The text log writes status=400, the JSON log "status":400.
+	statusInLog = regexp.MustCompile(`"?status"?[=:](\d{3})`)
+)
 
 // moveSeveral moves two files into the open folder in one call, with the
 // folder itself listed as a third item, which is refused because nothing
@@ -1640,41 +1663,73 @@ func orUnknown(s string) string {
 }
 
 // copyAndCheckComments copies a file asking for its comment threads, and
-// then LOOKS at the copy.
+// then LOOKS at the copy. carries is what §18's rule expects of the kind:
+// Drive's own formats bring their threads along and an uploaded file
+// does not.
 //
 // The copy has been made with copy_comments since phase 4 and nobody
 // ever asked whether the threads arrived, while the server told the
 // caller they had — which `gates outcomes` found and no run here could
-// have, because the run never looked. The first run that did look found
-// none on a CSV, and none again minutes later, so that one is not
-// comments.list lagging.
+// have, because the run never looked.
+//
+// When the threads came across, a second copy is made WITHOUT
+// copy_comments, after the threads exist. Only when that one has none
+// did the flag make the difference; without it, "Drive honored
+// copy_comments" is said of a flag that may change nothing.
 //
 // It says so out loud rather than leaving it in the transcript. The
-// answer is one line among thirteen hundred, and "all calls behaved as
-// expected" is true of it either way, which is the thing this repository
-// has been caught by twice.
-func (w *writeRun) copyAndCheckComments(id, name, kind string) {
+// answer is one line among thousands, and "all calls behaved as
+// expected" is true of it either way.
+func (w *writeRun) copyAndCheckComments(id, name, kind string, carries bool) {
 	if id == "" {
 		w.out.Sayf("\n=== copy_file with its comments: skipped, the %s it needs was never created ===", kind)
 		return
 	}
-	copied := w.createAndKeepID("copy_file", map[string]any{
-		"file": id, "name": name, "to": w.scratchID,
-		"copy_comments": true, "allow_duplicate": true,
-	})
+	has, made := w.copyHasThreads(id, name, kind, true)
+	if !made {
+		return
+	}
+	if !has {
+		if carries {
+			w.out.Sayf("!! the copy of %s asked for the comment threads and has NONE, where §18's rule says "+
+				"Drive's own formats carry them. List them again in a minute; if there are still none, "+
+				"the rule has changed. Record it in §18.", kind)
+		} else {
+			w.out.Sayf("(the copy of %s has no comment threads, as §18's rule says of an uploaded file)", kind)
+		}
+		return
+	}
+	if !carries {
+		w.out.Sayf("!! the copy of %s carried its comment threads, where §18's rule says an uploaded "+
+			"file's do not. Record it in §18.", kind)
+	}
+	has, made = w.copyHasThreads(id, "control copy of "+name, kind, false)
+	if !made {
+		return
+	}
+	if has {
+		w.out.Sayf("!! a copy of %s made WITHOUT copy_comments carried the threads too, so this run cannot "+
+			"say copy_comments made the difference. Record it in §18.", kind)
+		return
+	}
+	w.out.Sayf("(the copy of %s carried its comment threads and the copy without copy_comments did not: "+
+		"Drive honored copy_comments here)", kind)
+}
+
+// copyHasThreads copies a file, with or without its comment threads, and
+// reports whether the copy lists any, and whether the copy was made.
+func (w *writeRun) copyHasThreads(id, name, kind string, withComments bool) (has, made bool) {
+	args := map[string]any{"file": id, "name": name, "to": w.scratchID, "allow_duplicate": true}
+	if withComments {
+		args["copy_comments"] = true
+	}
+	copied := w.createAndKeepID("copy_file", args)
 	if copied == "" {
 		w.out.Sayf("\n=== list_comments: skipped, the copy of %s was never made ===", kind)
-		return
+		return false, false
 	}
-	threads := w.call(call{tool: "list_comments",
-		args: map[string]any{"file": copied, "include_deleted": false}})
-	if strings.Contains(threads, "0 comment threads") {
-		w.out.Sayf("!! the copy of %s asked for the comment threads and has NONE. Check it again in a "+
-			"minute — comments.list can lag a copy — and if it is still empty then Drive did not "+
-			"carry them, whatever copy_comments was set to.", kind)
-		return
-	}
-	w.out.Sayf("(the copy of %s carried its comment threads: Drive honored copy_comments here)", kind)
+	threads := w.call(call{tool: "list_comments", args: map[string]any{"file": copied, "include_deleted": false}})
+	return !strings.Contains(threads, "0 comment threads"), true
 }
 
 // spareArguments drives the options `gates live-cover` recorded as

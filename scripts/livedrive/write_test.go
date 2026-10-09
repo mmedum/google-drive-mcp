@@ -113,3 +113,25 @@ func TestEmptyTrashIsNamedInOnePlace(t *testing.T) {
 			len(found), strings.Join(found, "\n"))
 	}
 }
+
+// The query probe's status comes from the answer when Google's front end
+// refused, and from the debug log otherwise, in either log format.
+func TestTheProbeReadsTheStatusFromTheAnswerOrTheLog(t *testing.T) {
+	page := "[invalid] searching Drive failed: HTTP 400 Bad Request, answered with an error page rather than a Drive error"
+	text := `time=2026-03-06T12:00:00Z level=DEBUG msg="drive api error" method=GET path=/drive/v3/files attempt=1 status=414 class=invalid`
+	json := `{"level":"DEBUG","msg":"drive api error","method":"GET","attempt":1,"status":413,"class":"invalid"}`
+	for _, tc := range []struct {
+		answer string
+		logs   []string
+		want   string
+	}{
+		{page, []string{text}, "400"},
+		{"[invalid] Invalid Value", []string{text}, "414"},
+		{"[invalid] Invalid Value", []string{json}, "413"},
+		{"[invalid] Invalid Value", []string{`level=INFO msg="tool call" status=200`}, "not in the answer, and not logged: run with GDRIVE_LOG_LEVEL=debug"},
+	} {
+		if got := statusOf(tc.answer, tc.logs); got != tc.want {
+			t.Errorf("statusOf(%q, %q) = %q, want %q", tc.answer, tc.logs, got, tc.want)
+		}
+	}
+}

@@ -98,7 +98,8 @@ func (s *Service) ExtractText(ctx context.Context, in ExtractTextInput) (string,
 		return "", err
 	}
 	if cached {
-		notes = append(notes, "This is the text read a few minutes ago, kept for paging; no copy was made this time.")
+		notes = append(notes, "This is the text read "+model.Ago(kept.at, s.now())+", kept for paging; no copy "+
+			"was made this time.")
 	} else {
 		notes = append(notes, made)
 		if in.Offset > 0 {
@@ -250,7 +251,11 @@ func (s *Service) ocr(ctx context.Context, f *gdrive.File, lang string, keep boo
 	case deleteErr != nil:
 		return text, leftover(copied, deleteErr), nil
 	}
-	return text, "It came from a temporary Google Doc copy in the root of My Drive, which was deleted for good.", nil
+	// The copy is named although it is gone: it is the one file this
+	// call made in the person's Drive, and get_file on its id is how
+	// anyone checks that it is gone rather than taking this word for it.
+	return text, "It came from a temporary Google Doc copy in the root of My Drive, id " + copied.ID +
+		", which was deleted for good.", nil
 }
 
 // copyText exports the copy as plain text, which leaves out the image

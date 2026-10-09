@@ -64,8 +64,11 @@ func TestExtractTextReadsAScanAndDeletesItsCopy(t *testing.T) {
 	if got := body(out); got != "Invoice 7\nTotal: 42\n" {
 		t.Errorf("text = %q", got)
 	}
-	if !strings.Contains(out, "deleted for good") {
-		t.Errorf("the result does not say the copy was deleted:\n%s", out)
+	// The copy is named by the id it was deleted under, so get_file on
+	// it can show it is gone.
+	named := regexp.MustCompile(`copy in the root of My Drive, id (\S+), which was deleted for good\.`).FindStringSubmatch(out)
+	if len(named) != 2 || named[1] == "id-scan-fixture" || fake.Count("/files/"+named[1]) == 0 || fake.Files[named[1]] != nil {
+		t.Errorf("the result does not name the copy it deleted:\n%s", out)
 	}
 	copied, deleted, query := requests(fake)
 	if copied != 1 || deleted != 1 {
@@ -80,7 +83,8 @@ func TestExtractTextReadsAScanAndDeletesItsCopy(t *testing.T) {
 }
 
 func TestExtractTextPagesWithoutASecondCopy(t *testing.T) {
-	svc, fake := setup(t, service.Options{})
+	now := testNow
+	svc, fake := setup(t, service.Options{Now: func() time.Time { return now }})
 	addScan(fake, "id-scan-fixture", "abcdefghijklmnopqrst")
 	_ = fake.Requested()
 
@@ -91,6 +95,7 @@ func TestExtractTextPagesWithoutASecondCopy(t *testing.T) {
 	if !strings.Contains(first, "call extract_text again with offset: 10") {
 		t.Errorf("the continuation does not name this tool:\n%s", first)
 	}
+	now = now.Add(2 * time.Minute)
 	second, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-scan-fixture", Offset: 10, MaxChars: 10})
 	if err != nil {
 		t.Fatalf("second window: %v", err)
@@ -98,8 +103,8 @@ func TestExtractTextPagesWithoutASecondCopy(t *testing.T) {
 	if got := body(second); got != "klmnopqrst\n" {
 		t.Errorf("second window = %q", got)
 	}
-	if !strings.Contains(second, "no copy was made this time") {
-		t.Errorf("the second window does not say it made no copy:\n%s", second)
+	if !strings.Contains(second, "This is the text read 2 minutes ago, kept for paging; no copy was made this time.") {
+		t.Errorf("the second window does not say when the text was read and that it made no copy:\n%s", second)
 	}
 	if copied, _, _ := requests(fake); copied != 1 {
 		t.Errorf("paging made %d copies, want 1", copied)

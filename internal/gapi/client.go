@@ -402,8 +402,8 @@ func attempts[T any](c *Client, ctx context.Context, r request, event string,
 		}
 		lastErr = err
 		retry, after := retryable(r, err)
-		c.log.DebugContext(ctx, event+" error", "method", r.method, "path", path,
-			"attempt", attempt, "class", Class(err), "reason", Reason(err), "retry", retry && attempt < c.retry.MaxAttempts)
+		c.log.DebugContext(ctx, event+" error", "method", r.method, "path", path, "attempt", attempt,
+			"status", Status(err), "class", Class(err), "reason", Reason(err), "retry", retry && attempt < c.retry.MaxAttempts)
 		if !retry || attempt == c.retry.MaxAttempts {
 			break
 		}

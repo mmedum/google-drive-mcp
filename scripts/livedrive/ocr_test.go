@@ -57,3 +57,23 @@ func TestTheKeptCopysIDIsReadFromWhatExtractTextSays(t *testing.T) {
 		t.Errorf("read %v out of:\n%s", m, out)
 	}
 }
+
+func TestTheDeletedCopysIDIsReadFromWhatExtractTextSays(t *testing.T) {
+	// Matched against the service's own words, so a change to them fails
+	// here rather than leaving the live check with no id to read.
+	fake := drivetest.New()
+	t.Cleanup(fake.Close)
+	fake.AddFile("id-receipt-fixture", "receipt.pdf", "application/pdf", fake.RootID)
+	fake.SetContent("id-receipt-fixture", "TOTAL 42")
+	svc := service.New(drivetest.Client(t, fake), service.Options{Now: func() time.Time {
+		return time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
+	}})
+	out, err := svc.ExtractText(t.Context(), service.ExtractTextInput{File: "id-receipt-fixture"})
+	if err != nil {
+		t.Fatalf("ExtractText: %v", err)
+	}
+	m := deletedCopyID.FindStringSubmatch(out)
+	if len(m) != 2 || m[1] == "id-receipt-fixture" || fake.Count("/files/"+m[1]) == 0 || fake.Files[m[1]] != nil {
+		t.Errorf("read %v out of:\n%s", m, out)
+	}
+}
