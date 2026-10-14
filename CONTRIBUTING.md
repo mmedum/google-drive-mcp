@@ -11,6 +11,12 @@ people who run it against their own Drive.
   Test fixtures are synthetic. Two gates enforce this rather than trusting
   it: gitleaks for credentials, and `make leaks` for addresses, Drive ids
   and Drive links. Both run in the pre-commit hook and in CI.
+- **Commit under your GitHub no-reply address**, and credit co-authors
+  with theirs (`ID+USERNAME@users.noreply.github.com`, from GitHub's
+  email settings). The history is public and cannot be edited, and a
+  work address in it names your organization for good. `make leaks`
+  does not flag the identity git records or a `Co-authored-by:` line,
+  so this one is on you.
 - **Stdout is for JSON-RPC.** Log with `slog` to stderr only, and log
   truncated ids, counts and latencies — never names, paths, emails,
   queries or content.

@@ -23,11 +23,15 @@ import (
 // their Drive.
 
 // documentedDomains are the domains RFC 2606 reserves for documentation,
-// plus the address git commits are attributed to. Anything else that
-// looks like an address belongs to a real person.
+// plus the address git commits are attributed to, plus GitHub's no-reply
+// addresses, which exist so that a commit names nobody's real address:
+// "If you'd like to keep your email address private, you can use a
+// GitHub-provided noreply email address" (docs.github.com, Email
+// addresses reference). Anything else that looks like an address belongs
+// to a real person.
 var documentedDomains = map[string]bool{
 	"example.com": true, "example.org": true, "example.net": true,
-	"anthropic.com": true,
+	"anthropic.com": true, "users.noreply.github.com": true,
 }
 
 // isDocumented reports whether a host is one RFC 2606 reserves, or sits
@@ -110,6 +114,15 @@ var allowedIDs = map[string]string{
 	"1ZzzMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms": "that documentation id with its head changed, to have a second value",
 	"0AKl3lQ5UUqptUk9PVA":                          "a shared-drive id Google publishes in its own developer documentation",
 	"0ABcdEFghIJklMNop":                            "synthetic shared-drive id in the ref tests",
+	"GoogleAppsDriveLabelsV2":                      "the prefix of the Labels API's type names, in a commit message about the wire types",
+}
+
+// allowedBlobs are file versions in this repository's history that hold
+// an address on purpose, by their full blob hash, so that the same
+// address written anywhere else is still caught. Each carries its reason.
+var allowedBlobs = map[string]string{
+	"2a817783eeb516f2833f86cfd19c3687efa35793": "the code of conduct as first written, which gave the maintainer's " +
+		"contact address for reports; it links to their profile now",
 }
 
 // leaks scans for anything account-specific. With "history" it scans
@@ -290,7 +303,7 @@ func leaksInHistory(out io.Writer) error {
 		}
 		switch kind {
 		case "blob":
-			if path == "" || !isText(path) || skipFiles[filepath.ToSlash(path)] {
+			if path == "" || !isText(path) || skipFiles[filepath.ToSlash(path)] || allowedBlobs[hash] != "" {
 				continue
 			}
 			blobs++
@@ -334,16 +347,27 @@ func object(hash string) (kind string, body []byte, err error) {
 }
 
 // gitMessage is what a person wrote in a commit or tag: everything after
-// the headers git generates. Those headers carry the author, committer
-// and tagger identities, which are not content anyone chose to publish
-// here — they are how git records who made a commit, in every repository
-// there is.
+// the headers git generates, without the attribution trailers. Those
+// headers carry the author, committer and tagger identities, which are
+// not content anyone chose to publish here — they are how git records who
+// made a commit, in every repository there is. The trailers are the same
+// record in another place, so the lines they were on are left empty and
+// every other line keeps its number.
 func gitMessage(body string) string {
 	if _, message, ok := strings.Cut(body, "\n\n"); ok {
-		return message
+		return attribution.ReplaceAllString(message, "")
 	}
 	return ""
 }
+
+// attribution matches the trailer lines that credit a person with a
+// commit: Signed-off-by, which `git commit --signoff` adds "by the
+// committer at the end of the commit log message" (git-commit(1)) and
+// dependabot signs with, and Co-authored-by, which GitHub reads "to
+// attribute a commit to multiple authors" (docs.github.com, Creating a
+// commit with multiple authors). Only a line that starts with one; the
+// words anywhere else are prose.
+var attribution = regexp.MustCompile(`(?im)^(?:signed-off-by|co-authored-by):.*$`)
 
 // scannableFiles lists what the working-tree scan reads: everything git
 // tracks, plus everything untracked that is not ignored.

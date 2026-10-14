@@ -240,6 +240,27 @@ func TestHistoryScansMessagesAndNotTheIdentitiesGitWrites(t *testing.T) {
 		}
 	})
 
+	t.Run("an attribution trailer is not a leak", func(t *testing.T) {
+		// Signed-off-by and Co-authored-by are git's and GitHub's record of
+		// who made a commit, the same record as the header, whatever case
+		// they are written in.
+		message := "Add a file\n\nNothing disclosing here.\n\nSigned-off-by: A Bot <" + identity + ">\n" +
+			"co-authored-by: A Tester <" + identity + ">\n"
+		t.Chdir(gitRepo(t, identity, message))
+		var out strings.Builder
+		if err := leaksInHistory(&out); err != nil {
+			t.Errorf("the gate failed on attribution trailers: %v\n%s", err, out.String())
+		}
+	})
+
+	t.Run("an address after the words of a trailer, mid-line, is", func(t *testing.T) {
+		t.Chdir(gitRepo(t, identity, "Add a file\n\nThe Co-authored-by: line named "+identity+".\n"))
+		var out strings.Builder
+		if err := leaksInHistory(&out); err == nil {
+			t.Fatalf("an address in prose that mentions a trailer was not caught:\n%s", out.String())
+		}
+	})
+
 	t.Run("an id in a message is", func(t *testing.T) {
 		// Id-shaped, with the capital and the digit the pattern wants, and
 		// without the marker that says a value was invented for a test.
@@ -252,6 +273,41 @@ func TestHistoryScansMessagesAndNotTheIdentitiesGitWrites(t *testing.T) {
 	})
 }
 
+func TestAnAllowedBlobIsSkippedAndNothingElse(t *testing.T) {
+	// A file version that holds an address on purpose is allowed by its
+	// hash, so the same address in any other version is still caught.
+	address := sample("a.tester", "@", "gmail", ".com")
+	dir := gitRepo(t, sample("someone", "@", "example", ".com"), "Add a file\n")
+	t.Chdir(dir)
+	if err := os.WriteFile("contact.md", []byte("Write to "+address+".\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "contact.md"}, {"commit", "-q", "-m", "Add the contact"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=A", "GIT_AUTHOR_EMAIL=a@example.com",
+			"GIT_COMMITTER_NAME=A", "GIT_COMMITTER_EMAIL=a@example.com",
+			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	var out strings.Builder
+	if err := leaksInHistory(&out); err == nil {
+		t.Fatalf("an address in a file version nobody allowed was not caught:\n%s", out.String())
+	}
+
+	hash, err := exec.Command("git", "rev-parse", "HEAD:contact.md").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowedBlobs[strings.TrimSpace(string(hash))] = "the contact this test allows"
+	t.Cleanup(func() { delete(allowedBlobs, strings.TrimSpace(string(hash))) })
+	out.Reset()
+	if err := leaksInHistory(&out); err != nil {
+		t.Errorf("the allowed file version was still flagged: %v\n%s", err, out.String())
+	}
+}
+
 // TestASubdomainOfADocumentedDomainIsDocumented is RFC 2606 read
 // properly: it reserves example.com, .org and .net and everything under
 // them. The exact-match rule flagged someone@corp.example.net while a
@@ -261,7 +317,7 @@ func TestHistoryScansMessagesAndNotTheIdentitiesGitWrites(t *testing.T) {
 func TestASubdomainOfADocumentedDomainIsDocumented(t *testing.T) {
 	for _, safe := range []string{
 		"example.com", "example.net", "example.org",
-		"corp.example.net", "mail.corp.example.com", "anthropic.com",
+		"corp.example.net", "mail.corp.example.com", "anthropic.com", "users.noreply.github.com",
 	} {
 		if !isDocumented(safe) {
 			t.Errorf("isDocumented(%q) = false, and RFC 2606 reserves it", safe)
@@ -270,7 +326,8 @@ func TestASubdomainOfADocumentedDomainIsDocumented(t *testing.T) {
 	// The suffix must be a label boundary: notexample.net and
 	// example.net.example-of-a-real-host.com are somebody's.
 	for _, real := range []string{
-		"notexample.net", "example.net.co", "myexample.com", "example.company.com", "",
+		"notexample.net", "example.net.co", "myexample.com", "example.company.com", "", "github.com",
+		"noreply.github.com",
 	} {
 		if isDocumented(real) {
 			t.Errorf("isDocumented(%q) = true, and it is a host somebody could own", real)
