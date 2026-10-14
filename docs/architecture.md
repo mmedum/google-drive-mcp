@@ -8,10 +8,11 @@ upload is refused or named (§16). Phase 8, released as v2.1.0
 (2026-10-09), was the 2026-10-08 gap analysis, built, reviewed and run live —
 Office and OCR text, download restrictions and limited access, search
 under a folder, and a move or copy that asks before it widens who can
-reach a file (§16). v2.1.0 is verified from outside: checksums, the
-cosign signature and the provenance attestation, each also against a
-tampered copy, the version in the binary, the registry publish, and
-`go install …/cmd/google-drive-mcp@latest` resolving v2.1.0. The server asks the person before a write it cannot take back or that opens
+reach a file (§16). v2.2.0 is verified from outside: all 13
+checksums, the cosign signature against the exact tag identity, the
+provenance attestation, which a tampered copy fails, the version in the
+binary, the registry publish, and `go install
+…/cmd/google-drive-mcp@latest` resolving v2.2.0. The server asks the person before a write it cannot take back or that opens
 a file past people somebody named (§4a), and six defects are fixed, two
 of them found by its live run (§16). The Go module path is now `/v2`. A default
 build registers **32** tools; eight more exist behind a flag — the
