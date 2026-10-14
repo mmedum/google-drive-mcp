@@ -6,7 +6,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [2.2.0] - 2026-10-14
+## [2.2.0] - 2026-10-15
 
 ### Added
 

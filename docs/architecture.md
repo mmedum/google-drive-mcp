@@ -1,7 +1,7 @@
 # Architecture — google-drive-mcp
 
 **Status:** phase 9 complete (2026-10-14), released as v2.2.0
-(2026-10-14): a Markdown file that Google Docs edits in place keeps the
+(2026-10-15): a Markdown file that Google Docs edits in place keeps the
 comments its editor writes into the text, a pin on an old revision is
 described as the permanent thing it is, and a save that lands during an
 upload is refused or named (§16). Phase 8, released as v2.1.0
