@@ -365,36 +365,49 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 		return nil, wrap(err, "replacing the content of "+f.Name)
 	}
 
-	note := s.replacedNote(ctx, f, updated, beforeSize, kept)
+	var replaced []string
+	known := true
+	if mediatype.IsMarkdown(f.MimeType) && before != "" {
+		replaced, known = s.replacedSaves(ctx, f.ID, before, updated.HeadRevisionID)
+	}
+	note := replacedNote(f, updated, beforeSize, kept, replaced, known)
 	// The pin happens after the upload, not before it. Pinning first
 	// meant a failed upload left a revision kept forever that nothing
 	// had replaced and nothing would unpin; an old revision can be
 	// pinned by id just as well once it is no longer the head.
 	if in.KeepPreviousRevision && before != "" {
-		if _, pinErr := s.api.UpdateRevision(ctx, f.ID, before, true); pinErr != nil {
+		// The revision this upload replaced: a save that landed in
+		// between when there was one, and what was checked otherwise.
+		previous := before
+		if len(replaced) > 0 {
+			previous = replaced[len(replaced)-1]
+		}
+		if _, pinErr := s.api.UpdateRevision(ctx, f.ID, previous, true); pinErr != nil {
 			note += ". The content was replaced, but the previous revision could NOT be pinned (" +
 				gapi.Message(pinErr) + "), so Drive will discard it after 30 days."
 		} else {
-			note += ". The previous revision is pinned and will not be discarded. " + pinForGood
+			note += ". The previous revision, " + previous + ", is pinned and will not be discarded. " + pinForGood
 		}
 	}
 	return s.write(ctx, updated, outcome{Action: render.ActionUpdated, Note: note})
 }
 
 // guardMarkdown is what an upload to a Markdown file has to pass first:
-// the comment check, unless the caller waived it, and then a last look at
-// the head. It returns how many comments the text holds, and does
+// the comment check and then a last look at the head, unless the caller
+// waived the check. It returns how many comments the text holds, and does
 // nothing for any other file.
 func (s *Service) guardMarkdown(ctx context.Context, f *gdrive.File, allow bool, next io.Reader, sending string) (int, error) {
 	if !mediatype.IsMarkdown(f.MimeType) {
 		return 0, nil
 	}
-	kept := 0
-	if !allow {
-		var err error
-		if kept, err = s.keepComments(ctx, f, next, sending); err != nil {
-			return 0, err
-		}
+	if allow {
+		// Nothing was read since the fresh resolve, so a last look
+		// would see what that one saw.
+		return 0, nil
+	}
+	kept, err := s.keepComments(ctx, f, next, sending)
+	if err != nil {
+		return 0, err
 	}
 	return kept, s.stillAt(ctx, f)
 }
@@ -402,8 +415,8 @@ func (s *Service) guardMarkdown(ctx context.Context, f *gdrive.File, allow bool,
 // replacedNote is what an update_content result says happened: the sizes
 // and revisions before and after, a type Drive took from the upload, the
 // comments a Markdown file's text still holds, and any save the upload
-// replaced without having seen it.
-func (s *Service) replacedNote(ctx context.Context, f, updated *gdrive.File, beforeSize int64, kept int) string {
+// replaced without having seen it, or that the history could not say.
+func replacedNote(f, updated *gdrive.File, beforeSize int64, kept int, replaced []string, known bool) string {
 	note := fmt.Sprintf("replaced the content: %s → %s, revision %s → %s",
 		model.HumanSize(beforeSize), model.HumanSize(sizeOf(updated)),
 		orNone(f.HeadRevisionID), orNone(updated.HeadRevisionID))
@@ -414,8 +427,17 @@ func (s *Service) replacedNote(ctx context.Context, f, updated *gdrive.File, bef
 		note += ". Its text still holds " + model.Word(kept, "the", "all") + " " +
 			model.Plural(kept, "comment", "comments") + " made on it in Google Docs"
 	}
-	if mediatype.IsMarkdown(f.MimeType) && f.HeadRevisionID != "" {
-		note += s.replacedSaves(ctx, f.ID, f.HeadRevisionID, updated.HeadRevisionID)
+	switch {
+	case !known:
+		note += ". Whether a save landed between the check and this upload could not be read from the version history"
+	case len(replaced) == 1:
+		note += ". A save landed after the check and before this upload, which replaced it: revision " + replaced[0] +
+			". Drive keeps it 30 days unless it is pinned: manage_revision keep pins it, and download_file with " +
+			"the revision has it"
+	case len(replaced) > 1:
+		note += ". Saves landed after the check and before this upload, which replaced them: revisions " +
+			strings.Join(replaced, ", ") + ". Drive keeps each 30 days unless it is pinned: manage_revision keep " +
+			"pins one, and download_file with a revision has it"
 	}
 	return note
 }
@@ -428,6 +450,9 @@ func (s *Service) replacedNote(ctx context.Context, f, updated *gdrive.File, bef
 // Drive has no precondition to hold a write on (§18). A look that fails
 // does not stop the write, which is what was asked for.
 func (s *Service) stillAt(ctx context.Context, f *gdrive.File) error {
+	if f.HeadRevisionID == "" {
+		return nil
+	}
 	now, err := s.api.GetFile(ctx, f.ID, gapi.GetFileOptions{Fields: "id,headRevisionId"})
 	if err != nil {
 		s.log.DebugContext(ctx, "head check unavailable", "class", gapi.Class(err))
@@ -441,16 +466,15 @@ func (s *Service) stillAt(ctx context.Context, f *gdrive.File) error {
 	return nil
 }
 
-// replacedSaves says which saves an upload to a Markdown file replaced
+// replacedSaves lists the saves an upload to a Markdown file replaced
 // without having seen them: the revisions between the one it checked and
-// its own, from the version history, where they stay.
-func (s *Service) replacedSaves(ctx context.Context, fileID, checked, ours string) string {
-	const unknown = ". Whether a save landed between the check and this upload could not be read from the " +
-		"version history"
+// its own, oldest first. known is false when the version history could
+// not say.
+func (s *Service) replacedSaves(ctx context.Context, fileID, checked, ours string) (ids []string, known bool) {
 	revs, err := s.api.ListRevisions(ctx, fileID)
 	if err != nil {
 		s.log.DebugContext(ctx, "revision history unavailable", "class", gapi.Class(err))
-		return unknown
+		return nil, false
 	}
 	from, at := -1, -1
 	for i, r := range revs {
@@ -462,19 +486,12 @@ func (s *Service) replacedSaves(ctx context.Context, fileID, checked, ours strin
 		}
 	}
 	if from < 0 || at <= from {
-		return unknown
+		return nil, false
 	}
-	var ids []string
 	for _, r := range revs[from+1 : at] {
 		ids = append(ids, r.ID)
 	}
-	if len(ids) == 0 {
-		return ""
-	}
-	return fmt.Sprintf(". %s after the check and before this upload, which replaced %s: revision %s. "+
-		"%s in the file's history, and download_file with the revision has %s",
-		model.Word(len(ids), "A save landed", "Saves landed"), model.Word(len(ids), "it", "them"),
-		strings.Join(ids, ", "), model.Word(len(ids), "It stays", "They stay"), model.Word(len(ids), "it", "each"))
+	return ids, true
 }
 
 // skipCommentCheck is the way past a comment check, which every

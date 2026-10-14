@@ -92,7 +92,7 @@ func TestManageRevisionPinsAnOldRevisionForGood(t *testing.T) {
 	_, err = svc.ManageRevision(t.Context(), service.ManageRevisionInput{
 		File: "id-budget-fixture", Revision: old, Action: "unkeep",
 	})
-	if err == nil || !strings.Contains(err.Error(), "Drive does not unpin such a revision") ||
+	if err == nil || !strings.Contains(err.Error(), "Drive does not unpin a revision that is no longer current") ||
 		!strings.Contains(err.Error(), "delete_revision") {
 		t.Fatalf("err = %v, want the refusal to unpin an old revision, naming delete_revision", err)
 	}

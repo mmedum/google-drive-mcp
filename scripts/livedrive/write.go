@@ -734,10 +734,15 @@ func (w *writeRun) history(m made) {
 	// The revision keep_previous_revision pinned is no longer current,
 	// and Google documents a pin as one-way. Only the current revision
 	// has been seen to unpin (§18).
-	if old := w.revisionID(m.text, true); old != "" {
-		w.expecting("manage_revision", m.text, map[string]any{
-			"file": m.text, "revision": old, "action": "unkeep",
-		}, "a revision kept forever that is no longer current cannot be unpinned")
+	if m.text != "" {
+		if old := w.pinnedOldRevision(m.text); old == "" {
+			w.problem("no revision of the replaced file is kept forever, though keep_previous_revision pinned one",
+				errors.New("pin not read back"))
+		} else {
+			w.expecting("manage_revision", m.text, map[string]any{
+				"file": m.text, "revision": old, "action": "unkeep",
+			}, "a revision kept forever that is no longer current cannot be unpinned")
+		}
 	}
 
 	// The feed: a starting point, then the changes this run has made
@@ -784,6 +789,24 @@ func (w *writeRun) pollChanges(token string) {
 // A row of that listing is "<id>  <date> ...", and the date is what
 // identifies it: the lines around it are a subject line and prose, and
 // neither has a second field beginning with a four-digit year.
+// pinnedOldRevision is a revision of the file that is kept forever and
+// is no longer current, or "".
+func (w *writeRun) pinnedOldRevision(id string) string {
+	out, isError, err := w.sess.CallTool("list_revisions", map[string]any{"file": id})
+	if err != nil || isError {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || !looksLikeDate(fields[1]) || strings.Contains(line, "current") ||
+			!strings.Contains(line, "kept forever") {
+			continue
+		}
+		return fields[0]
+	}
+	return ""
+}
+
 func (w *writeRun) firstRevision(id string) string {
 	return w.revisionID(id, false)
 }

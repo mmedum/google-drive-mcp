@@ -103,9 +103,8 @@ func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*
 	if err != nil {
 		if !keep && gapi.IsPinnedForGood(err) {
 			return nil, &Error{Class: ClassInvalid, Message: fmt.Sprintf("revision %s of %s is kept forever and "+
-				"is no longer the current one, and Drive does not unpin such a revision. Only deleting it removes "+
-				"the pin: delete_revision, which is registered with GDRIVE_ENABLE_DESTRUCTIVE=true.",
-				revisionID, f.Name), Err: err}
+				"is no longer the current one, and %s. delete_revision deletes it, and is registered with "+
+				"GDRIVE_ENABLE_DESTRUCTIVE=true.", revisionID, f.Name, pinRule), Err: err}
 		}
 		return nil, wrap(err, fmt.Sprintf("%s revision %s of %s", action+"ing", revisionID, f.Name))
 	}
@@ -114,12 +113,14 @@ func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*
 	case updated.KeepForever && revisionID != f.HeadRevisionID:
 		note += " " + pinForGood
 	case updated.KeepForever:
-		note += " Once a newer revision replaces it, the pin is for good: Drive does not unpin a revision " +
-			"that is no longer current."
-	default:
-		// Only the current revision unpins, so this is the current one.
+		note += " Once a newer revision replaces it, the pin is for good: " + pinRule + "."
+	case revisionID == f.HeadRevisionID:
 		note += " It is the current revision, which Drive keeps. Once a newer one replaces it, Drive " +
 			"discards it 30 days later."
+	default:
+		// Drive has been seen to unpin only the current revision, but the
+		// head can move between reading it and this.
+		note += " Drive discards it 30 days after it stopped being current, which may already be past."
 	}
 	// report rather than write, so the card carries what resolving found
 	// — the shortcut that was followed, the shared drive it lives in.
@@ -130,13 +131,16 @@ func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*
 			From: yesNo(before.KeepForever), To: yesNo(updated.KeepForever)}}}), nil
 }
 
-// pinForGood is what a pin on a revision that is no longer current
-// means: Google's guide says a revision kept forever "can only be
-// downloaded or deleted", and Drive refuses to unpin one with
-// illegalKeepForeverModification (§18). Only the current revision can be
-// unpinned.
-const pinForGood = "The pin is for good: Drive does not unpin a revision that is no longer current, and only " +
-	"deleting the revision removes it."
+// pinRule is how Drive treats a revision kept forever: Google's guide
+// says such a revision "can only be downloaded or deleted", and Drive
+// refuses to unpin one that is no longer current with
+// illegalKeepForeverModification (§18). Only the current revision has
+// been seen to unpin.
+const pinRule = "Drive does not unpin a revision that is no longer current, and only deleting the revision " +
+	"removes the pin"
+
+// pinForGood is what a pin on a revision that is no longer current means.
+const pinForGood = "The pin is for good: " + pinRule + "."
 
 // revisionError explains the refusals a revision read gets, since
 // Drive's own 404 does not say which of the two things was missing.

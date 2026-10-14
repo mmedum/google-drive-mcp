@@ -349,17 +349,28 @@ func TestUpdateContentNamesASaveItReplaced(t *testing.T) {
 		return nil
 	}
 
-	got, err := svc.UpdateContent(t.Context(), service.UpdateContentInput{File: mdID, Content: "# Release notes\n"})
+	got, err := svc.UpdateContent(t.Context(), service.UpdateContentInput{
+		File: mdID, Content: "# Release notes\n", KeepPreviousRevision: true,
+	})
 	if err != nil {
 		t.Fatalf("UpdateContent: %v", err)
 	}
 	revs := fake.Revisions[mdID]
-	if len(revs) < 3 {
+	if len(revs) != 3 {
 		t.Fatalf("the fake holds %d revisions, want the checked one, the save and the upload", len(revs))
 	}
-	want := "A save landed after the check and before this upload, which replaced it: revision " +
-		revs[len(revs)-2].ID + ". It stays in the file's history, and download_file with the revision has it"
+	checked, save := revs[0], revs[1]
+	want := "A save landed after the check and before this upload, which replaced it: revision " + save.ID +
+		". Drive keeps it 30 days unless it is pinned"
 	if !strings.Contains(got.Text, want) {
 		t.Errorf("the result does not name the save it replaced:\n%s\nwant %q", got.Text, want)
+	}
+	// keep_previous_revision pins what the upload replaced, which is the
+	// person's save, not the revision that was checked.
+	if !save.KeepForever || checked.KeepForever {
+		t.Errorf("pinned: checked %v, save %v; want the save only", checked.KeepForever, save.KeepForever)
+	}
+	if !strings.Contains(got.Text, "The previous revision, "+save.ID+", is pinned") {
+		t.Errorf("the result does not name the revision it pinned:\n%s", got.Text)
 	}
 }
