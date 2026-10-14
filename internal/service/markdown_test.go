@@ -373,4 +373,10 @@ func TestUpdateContentNamesASaveItReplaced(t *testing.T) {
 	if !strings.Contains(got.Text, "The previous revision, "+save.ID+", is pinned") {
 		t.Errorf("the result does not name the revision it pinned:\n%s", got.Text)
 	}
+	// Only the order of the history matters here, so only ids are asked.
+	for _, r := range fake.Requests {
+		if strings.HasSuffix(r.Path, "/revisions") && r.Query.Get("fields") != "nextPageToken,revisions(id)" {
+			t.Errorf("the history was read with fields %q, want the ids only", r.Query.Get("fields"))
+		}
+	}
 }

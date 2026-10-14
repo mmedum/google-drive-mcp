@@ -145,7 +145,11 @@ func totalFromContentRange(v string) (int64, bool) {
 	return n, true
 }
 
-// RevisionFields is what a revision read asks Drive for.
+// RevisionIDFields asks for a revision's id and nothing else, for a
+// caller that needs only where a revision sits in the history.
+const RevisionIDFields = "id"
+
+// RevisionFields is what a revision read, or a listing, asks Drive for.
 const RevisionFields = "id,mimeType,modifiedTime,keepForever,published,size,md5Checksum," +
 	"originalFilename,lastModifyingUser(displayName,emailAddress,me),exportLinks"
 
