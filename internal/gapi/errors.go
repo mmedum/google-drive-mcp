@@ -64,6 +64,7 @@ const (
 	reasonAbuse                   = "cannotDownloadAbusiveFile"
 	reasonStorageFull             = "storageQuotaExceeded"
 	reasonActiveItemCreationLimit = "activeItemCreationLimitExceeded"
+	reasonKeptForever             = "illegalKeepForeverModification"
 )
 
 // NoCredentials is a token source that always fails with ErrNoCredentials
@@ -222,6 +223,13 @@ func IsNotOwner(err error) bool {
 func IsDailyQuota(err error) bool {
 	var e *APIError
 	return errors.As(err, &e) && sameReason(e.Reason, reasonDailyLimit)
+}
+
+// IsPinnedForGood reports whether Drive refused to unpin a revision kept
+// forever, which it does once the revision is no longer the current one.
+func IsPinnedForGood(err error) bool {
+	var e *APIError
+	return errors.As(err, &e) && sameReason(e.Reason, reasonKeptForever)
 }
 
 // rateReasons are the 403 reasons that mean "too many requests", mapped

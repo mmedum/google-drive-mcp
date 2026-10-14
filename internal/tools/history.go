@@ -77,9 +77,11 @@ func registerHistory(s *mcp.Server, d Deps) []string {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "manage_revision",
-		Description: "Pin a version of a file so Drive keeps it, or unpin one so Drive may discard it again. " +
-			"Without a pin Drive discards a version 30 days after it stops being current, so this is what to " +
-			"call before replacing content you may want back. Actions: " +
+		Description: "Pin a version of a file so Drive keeps it, or unpin the current version so Drive may " +
+			"discard it once it is replaced. Without a pin Drive discards a version 30 days after it stops being " +
+			"current, so this is what to call before replacing content you may want back. A pin on a version " +
+			"that is not current is for good: Drive refuses to unpin it, and only deleting the version removes " +
+			"the pin. A file keeps at most 200. Actions: " +
 			strings.Join(service.RevisionActions(), ", ") + ".",
 		// unkeep lets Drive purge an old revision for good, so the tool
 		// is destructive even though keep is not.

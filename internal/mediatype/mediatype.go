@@ -27,14 +27,16 @@ import (
 // the comments made on it in the file's own text (architecture §18).
 const Markdown = "text/markdown"
 
-// IsMarkdown reports whether a file of this type may be one Google Docs
+// legacyMarkdown is the type older tables give a .md, which Drive keeps
+// as sent and the Docs API reads as Markdown all the same (§18).
+const legacyMarkdown = "text/x-markdown"
+
+// IsMarkdown reports whether a file of this type is one Google Docs
 // edits in place and keeps comments in: Markdown's registered type, or
-// the text/x-markdown older tables give a .md. Only the first is
-// measured (§18); the second is treated the same, because checking a
-// file costs one read and a missed check costs its comments.
+// the older text/x-markdown.
 func IsMarkdown(mime string) bool {
 	mime = gdrive.MimeOnly(mime)
-	return mime == Markdown || mime == "text/x-markdown"
+	return mime == Markdown || mime == legacyMarkdown
 }
 
 // Entry is everything known about one media type. Every field is
@@ -159,6 +161,7 @@ var entries = []Entry{
 	{Mime: "text/csv", Name: "CSV file", Export: "csv", Extensions: []string{".csv"}},
 	{Mime: "text/tab-separated-values", Name: "TSV file", Export: "tsv", Extensions: []string{".tsv"}},
 	{Mime: Markdown, Name: "Markdown file", Export: "md", Extensions: []string{".md", ".markdown"}},
+	{Mime: legacyMarkdown, Name: "Markdown file"},
 	{Mime: "text/html", Name: "HTML file", Export: "html", Extensions: []string{".html", ".htm"}},
 	{Mime: "text/xml", Name: "XML file"},
 	{Mime: "image/svg+xml", Name: "SVG image", Export: "svg"},

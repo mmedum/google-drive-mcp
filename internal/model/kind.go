@@ -75,6 +75,10 @@ func KindNameWithArticle(mime string) string {
 // actually edited, and for a Markdown file where its comments are. This server stops at the file boundary, and a result
 // that reads a Doc without saying so invites an edit that cannot happen.
 func BoundaryNote(mime string) string {
+	if mediatype.IsMarkdown(mime) {
+		return "this is a Markdown file, which Google Docs opens and edits in place: " + markdownComments +
+			". update_content refuses new content that would lose one."
+	}
 	switch mime {
 	case gdrive.MimeDocument:
 		return "this is a Google Doc. Its text is available through Google's export; its content is edited through the Docs API, which this server does not offer."
@@ -82,9 +86,6 @@ func BoundaryNote(mime string) string {
 		return "this is a Google Sheet. Its cells are read and edited through the Sheets API, which this server does not offer."
 	case gdrive.MimeSlides:
 		return "this is a Google Slides deck. Its slides are edited through the Slides API, which this server does not offer."
-	case mediatype.Markdown:
-		return "this is a Markdown file, which Google Docs opens and edits in place: " + markdownComments +
-			". update_content refuses new content that would lose one."
 	}
 	return ""
 }
@@ -97,7 +98,7 @@ func BoundaryNote(mime string) string {
 // Google Docs are not in the listing at all. It is "" for every other
 // kind, whose comments are all on the file.
 func CommentsNote(f *gdrive.File) string {
-	if f.MimeType == mediatype.Markdown {
+	if mediatype.IsMarkdown(f.MimeType) {
 		return "this is a Markdown file: " + markdownComments
 	}
 	if !f.IsWorkspaceDoc() {

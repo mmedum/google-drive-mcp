@@ -45,7 +45,7 @@ type UpdateContentInput struct {
 	Content              string `json:"content,omitempty" jsonschema:"the new text, written inline. Pass this or local_path."`
 	LocalPath            string `json:"local_path,omitempty" jsonschema:"a file inside the server's local directory to take the new content from. Pass this or content."`
 	MimeType             string `json:"mime_type,omitempty" jsonschema:"what the new content is; by default the file keeps the type it had"`
-	KeepPreviousRevision bool   `json:"keep_previous_revision,omitempty" jsonschema:"pin the version being replaced so Drive keeps it. Without this Drive may discard it after 30 days, or sooner once the file has 100 revisions."`
+	KeepPreviousRevision bool   `json:"keep_previous_revision,omitempty" jsonschema:"pin the version being replaced so Drive keeps it. Without this Drive may discard it after 30 days, or sooner once the file has 100 revisions. The pin is for good: Drive does not unpin a version that is no longer current, only deleting it removes the pin, and a file keeps at most 200."`
 	ExpectHeadRevision   string `json:"expect_head_revision,omitempty" jsonschema:"the head revision id you last saw. The write is refused if the file has changed since. Drive has no true preconditions, so this is a check, not a lock."`
 	AllowCommentChanges  bool   `json:"allow_comment_changes,omitempty" jsonschema:"replace a Markdown file even though the new content drops, unpins or changes comments made on it in Google Docs. Without it that is refused, because those comments live only in the file's text and the replacement deletes them."`
 }
@@ -158,7 +158,8 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			"its own text, so the new text has to keep them too: a replacement that would lose one is refused " +
 			"unless allow_comment_changes is set. Someone editing that file in Google Docs saves into the same " +
 			"text, and Drive cannot hold a write until they have, so read it again just before replacing it and " +
-			"pass expect_head_revision.",
+			"pass expect_head_revision. A save that lands while the call runs is refused, and one that lands at " +
+			"the last moment is named in the result, which says the upload replaced it.",
 		Annotations: replacing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateContentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.UpdateContent(ctx, service.UpdateContentInput{

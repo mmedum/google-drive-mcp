@@ -277,6 +277,9 @@ type readPlan struct {
 // result.
 func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 	format = strings.ToLower(strings.TrimSpace(format))
+	if mediatype.IsMarkdown(f.MimeType) {
+		return readPlan{formatName: "text", note: markdownReadNote}, nil
+	}
 	// The export media type comes from internal/mediatype, so the format
 	// a read takes and the format a download defaults to are two fields
 	// of one entry rather than two tables that agree by hand. What stays
@@ -308,8 +311,6 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 			note: "the text of the slides, without their layout"}, nil
 	case gdrive.MimeScript:
 		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "JSON"}, nil
-	case mediatype.Markdown:
-		return readPlan{formatName: "text", note: markdownReadNote}, nil
 	case gdrive.MimeShortcut:
 		return readPlan{}, Errorf(ClassInvalid, "%s is a shortcut whose target could not be read", f.Name)
 	}

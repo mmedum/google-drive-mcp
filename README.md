@@ -239,7 +239,7 @@ through your MCP client when the client supports elicitation. Anything but Accep
 | `list_drives` | The shared drives this account can see, with what it may do in each |
 | `manage_drive` | Create, rename, hide, unhide or restrict a shared drive |
 | `list_revisions` | A file's version history, with Google's own caveat about what it leaves out |
-| `manage_revision` | Pin a version so Drive keeps it, or unpin it again |
+| `manage_revision` | Pin a version so Drive keeps it, or unpin the current one; a pin on an older version is for good |
 | `list_changes` | What has changed since a point in time, with the token for next time |
 | `list_comments` | The threads on a file, with their replies and whether each is still open |
 | `add_comment` | Start a thread on any file, Google document or not |

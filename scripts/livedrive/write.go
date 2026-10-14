@@ -731,6 +731,14 @@ func (w *writeRun) history(m made) {
 	w.expecting("manage_revision", m.text, map[string]any{
 		"file": m.text, "revision": "a-revision-that-was-never-current", "action": "keep",
 	}, "a revision id that names nothing")
+	// The revision keep_previous_revision pinned is no longer current,
+	// and Google documents a pin as one-way. Only the current revision
+	// has been seen to unpin (§18).
+	if old := w.revisionID(m.text, true); old != "" {
+		w.expecting("manage_revision", m.text, map[string]any{
+			"file": m.text, "revision": old, "action": "unkeep",
+		}, "a revision kept forever that is no longer current cannot be unpinned")
+	}
 
 	// The feed: a starting point, then the changes this run has made
 	// since it. Everything above happened before the token, so the

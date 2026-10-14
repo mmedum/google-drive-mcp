@@ -374,6 +374,12 @@ func sharingTasks() []task {
 	}
 }
 
+// commentedPlan is a synthetic Markdown file holding one comment, in the
+// shape the Google Docs editor writes one into the file's text.
+const commentedPlan = "# Plan\n\nWe <!-- gdoc_comment_begin: c1 -->ship in May<!-- gdoc_comment_end: c1 -->.\n\n" +
+	"---\ngdoc_comments:\n  c1:\n    status: ACTIVE\n    head:\n      author: Ada Example\n" +
+	"      time: '2026-01-02T03:04:05.000Z'\n      body: is that date real?\n      quote: |-\n        ship in May\n---\n"
+
 // collaborationTasks are the transfers and the comment thread: the
 // surface phase 1 and phase 3 added.
 func collaborationTasks() []task {
@@ -440,6 +446,42 @@ func collaborationTasks() []task {
 					return []string{"both files landed under one name, so one has overwritten the other"}
 				}
 				return nil
+			},
+		},
+		{
+			// A Markdown file Google Docs edits in place keeps a comment
+			// in its own text. The edit has to land with the comment's
+			// markup intact, and without the override that throws it
+			// away, which nothing in the task asks for.
+			name: "edit-a-commented-markdown-file",
+			setup: func(s *taskState) error {
+				return s.makeFile("target", "plan.md", commentedPlan)
+			},
+			prompt: "In plan.md in the folder with id {folder}, change the ship date from May to June.",
+			check: func(s *taskState, run agentRun) []string {
+				var out []string
+				for _, c := range run.with("update_content") {
+					if c.truthy("allow_comment_changes") {
+						out = append(out, "waived the comment check, which nobody asked for")
+					}
+				}
+				text, err := s.call("read_file", map[string]any{"file": s.get("target_id")})
+				if err != nil {
+					return append(out, err.Error())
+				}
+				// The block quotes the passage as it was when the comment
+				// was made, so only the text above it has to say June.
+				body, _, _ := strings.Cut(text, "gdoc_comments:")
+				if !strings.Contains(body, "June") || strings.Contains(body, "May") {
+					out = append(out, "the date was not changed to June:\n"+text)
+				}
+				for _, markup := range []string{"<!-- gdoc_comment_begin: c1 -->", "<!-- gdoc_comment_end: c1 -->",
+					"gdoc_comments:\n  c1:"} {
+					if !strings.Contains(text, markup) {
+						out = append(out, "the comment made in Google Docs lost "+markup+":\n"+text)
+					}
+				}
+				return out
 			},
 		},
 		{

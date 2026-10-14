@@ -115,6 +115,9 @@ func TestUpdateContentKeepsAMarkdownFilesComments(t *testing.T) {
 	if !strings.Contains(got.Text, "Its text still holds the 1 comment made on it in Google Docs") {
 		t.Errorf("the result does not say the comment survived:\n%s", got.Text)
 	}
+	if strings.Contains(got.Text, "landed") || strings.Contains(got.Text, "could not be read") {
+		t.Errorf("an update nothing raced reports a save it replaced, or a history it could not read:\n%s", got.Text)
+	}
 	if fake.Content[mdID] != revised {
 		t.Errorf("stored %q", fake.Content[mdID])
 	}
@@ -274,7 +277,14 @@ func TestUploadFileTypesAMarkdownFileTheSameOnEveryPlatform(t *testing.T) {
 }
 
 func TestAMarkdownFileSaysWhereItsGoogleDocsCommentsAre(t *testing.T) {
-	svc, _, _ := markdownSetup(t, commented)
+	for _, mime := range []string{"text/markdown", "text/x-markdown"} {
+		t.Run(mime, func(t *testing.T) { saysWhereItsCommentsAre(t, mime) })
+	}
+}
+
+func saysWhereItsCommentsAre(t *testing.T, mime string) {
+	svc, fake, _ := markdownSetup(t, commented)
+	fake.Files[mdID].MimeType = mime
 
 	card, err := svc.GetFile(t.Context(), service.GetFileInput{File: mdID})
 	if err != nil {
@@ -299,5 +309,57 @@ func TestAMarkdownFileSaysWhereItsGoogleDocsCommentsAre(t *testing.T) {
 	}
 	if !strings.Contains(read, "ship in May") {
 		t.Errorf("the read does not carry the file's text:\n%s", read)
+	}
+}
+
+func TestUpdateContentRefusesAMarkdownFileSavedWhileItWasChecked(t *testing.T) {
+	// A person saves in Google Docs while the comment check reads the
+	// file: the look just before the upload sees the head move.
+	svc, fake, _ := markdownSetup(t, commented)
+	saved := strings.Replace(commented, "# Notes", "# Notes, as the person saved them", 1)
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method == http.MethodGet && r.URL.Query().Get("alt") == "media" {
+			fake.SetContent(mdID, saved)
+		}
+		return nil
+	}
+
+	_, err := svc.UpdateContent(t.Context(), service.UpdateContentInput{
+		File: mdID, Content: strings.Replace(commented, "# Notes", "# Release notes", 1),
+	})
+	if err == nil || !strings.Contains(err.Error(), "[exists]") ||
+		!strings.Contains(err.Error(), "changed while this was being checked") {
+		t.Fatalf("err = %v, want a refusal that the file moved during the check", err)
+	}
+	if fake.Content[mdID] != saved {
+		t.Errorf("the person's save was replaced: stored %q", fake.Content[mdID])
+	}
+}
+
+func TestUpdateContentNamesASaveItReplaced(t *testing.T) {
+	// A save that lands after the last look and before the upload cannot
+	// be stopped; it can be found in the history afterwards and named.
+	svc, fake, _ := markdownSetup(t, "# Notes\n")
+	raced := false
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if !raced && strings.Contains(r.URL.Path, "/upload/") {
+			raced = true
+			fake.SetContent(mdID, "# Notes, as the person saved them\n")
+		}
+		return nil
+	}
+
+	got, err := svc.UpdateContent(t.Context(), service.UpdateContentInput{File: mdID, Content: "# Release notes\n"})
+	if err != nil {
+		t.Fatalf("UpdateContent: %v", err)
+	}
+	revs := fake.Revisions[mdID]
+	if len(revs) < 3 {
+		t.Fatalf("the fake holds %d revisions, want the checked one, the save and the upload", len(revs))
+	}
+	want := "A save landed after the check and before this upload, which replaced it: revision " +
+		revs[len(revs)-2].ID + ". It stays in the file's history, and download_file with the revision has it"
+	if !strings.Contains(got.Text, want) {
+		t.Errorf("the result does not name the save it replaced:\n%s\nwant %q", got.Text, want)
 	}
 }

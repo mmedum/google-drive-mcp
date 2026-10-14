@@ -55,7 +55,7 @@ func TestListRevisionsRefusesAFolder(t *testing.T) {
 	}
 }
 
-func TestManageRevisionPinsAndUnpins(t *testing.T) {
+func TestManageRevisionPinsAnOldRevisionForGood(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.SetContent("id-budget-fixture", "first")
 	fake.SetContent("id-budget-fixture", "second")
@@ -73,6 +73,9 @@ func TestManageRevisionPinsAndUnpins(t *testing.T) {
 	if len(got.JSON.Changes) != 1 || got.JSON.Changes[0].To != "yes" {
 		t.Errorf("changes = %+v", got.JSON.Changes)
 	}
+	if !strings.Contains(got.Text, "The pin is for good") {
+		t.Errorf("the result does not say a pin on an old revision cannot be undone:\n%s", got.Text)
+	}
 
 	// Pinning what is already pinned changes nothing, and says so.
 	again, err := svc.ManageRevision(t.Context(), service.ManageRevisionInput{
@@ -85,18 +88,16 @@ func TestManageRevisionPinsAndUnpins(t *testing.T) {
 		t.Errorf("action = %q, want unchanged", again.JSON.Action)
 	}
 
-	unpinned, err := svc.ManageRevision(t.Context(), service.ManageRevisionInput{
+	// Drive refuses to unpin it, and the refusal says the one way out.
+	_, err = svc.ManageRevision(t.Context(), service.ManageRevisionInput{
 		File: "id-budget-fixture", Revision: old, Action: "unkeep",
 	})
-	if err != nil {
-		t.Fatalf("ManageRevision: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "Drive does not unpin such a revision") ||
+		!strings.Contains(err.Error(), "delete_revision") {
+		t.Fatalf("err = %v, want the refusal to unpin an old revision, naming delete_revision", err)
 	}
-	if fake.Revisions["id-budget-fixture"][0].KeepForever {
-		t.Error("the revision is still pinned")
-	}
-	// Unpinning may mean it is already gone, which is worth saying.
-	if !strings.Contains(unpinned.Text, "may already be past") {
-		t.Errorf("the result does not warn what unpinning means:\n%s", unpinned.Text)
+	if !fake.Revisions["id-budget-fixture"][0].KeepForever {
+		t.Error("the revision was unpinned anyway")
 	}
 }
 

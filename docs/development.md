@@ -51,7 +51,7 @@ make staleness      # docs must match the code
 make pins           # every tool a workflow installs is one exact version
 make gate-classes   # the error classes the code emits are the ones it declares
 make bench          # the numbers in §11 of docs/architecture.md
-make evals          # sixteen agent tasks against the signed-in account
+make evals          # seventeen agent tasks against the signed-in account
 ```
 
 `make bench` and `make evals` are not part of `make check`: the first
@@ -184,7 +184,7 @@ make evals                                          # or:
 go run ./scripts/evals -bin ./google-drive-mcp -only share-as-commenter-quietly
 ```
 
-Sixteen tasks through `claude -p` with only this server's tools, scored
+Seventeen tasks through `claude -p` with only this server's tools, scored
 on the end state read back through the server and on the trace: an id no
 result ever handed the agent is a failure, and so is `allow_anyone` on a
 task that asked for one person. Everything happens in one scratch folder,

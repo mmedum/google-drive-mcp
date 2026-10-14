@@ -350,11 +350,9 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 		return nil, Errorf(ClassInvalid, "%s of inline content is more than update_content takes; "+
 			"write it to %s and pass local_path.", model.HumanSize(int64(len(in.Content))), s.opts.LocalDir)
 	}
-	kept := 0
-	if mediatype.IsMarkdown(f.MimeType) && !in.AllowCommentChanges {
-		if kept, err = s.keepComments(ctx, f, next, sending); err != nil {
-			return nil, err
-		}
+	kept, err := s.guardMarkdown(ctx, f, in.AllowCommentChanges, next, sending)
+	if err != nil {
+		return nil, err
 	}
 
 	var updated *gdrive.File
@@ -367,16 +365,7 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 		return nil, wrap(err, "replacing the content of "+f.Name)
 	}
 
-	note := fmt.Sprintf("replaced the content: %s → %s, revision %s → %s",
-		model.HumanSize(beforeSize), model.HumanSize(sizeOf(updated)),
-		orNone(before), orNone(updated.HeadRevisionID))
-	if updated.MimeType != f.MimeType {
-		note += ". It is now " + model.KindWithArticle(updated) + ": Drive takes the type an upload is sent as"
-	}
-	if kept > 0 {
-		note += ". Its text still holds " + model.Word(kept, "the", "all") + " " +
-			model.Plural(kept, "comment", "comments") + " made on it in Google Docs"
-	}
+	note := s.replacedNote(ctx, f, updated, beforeSize, kept)
 	// The pin happens after the upload, not before it. Pinning first
 	// meant a failed upload left a revision kept forever that nothing
 	// had replaced and nothing would unpin; an old revision can be
@@ -386,10 +375,106 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 			note += ". The content was replaced, but the previous revision could NOT be pinned (" +
 				gapi.Message(pinErr) + "), so Drive will discard it after 30 days."
 		} else {
-			note += ". The previous revision is pinned and will not be discarded."
+			note += ". The previous revision is pinned and will not be discarded. " + pinForGood
 		}
 	}
 	return s.write(ctx, updated, outcome{Action: render.ActionUpdated, Note: note})
+}
+
+// guardMarkdown is what an upload to a Markdown file has to pass first:
+// the comment check, unless the caller waived it, and then a last look at
+// the head. It returns how many comments the text holds, and does
+// nothing for any other file.
+func (s *Service) guardMarkdown(ctx context.Context, f *gdrive.File, allow bool, next io.Reader, sending string) (int, error) {
+	if !mediatype.IsMarkdown(f.MimeType) {
+		return 0, nil
+	}
+	kept := 0
+	if !allow {
+		var err error
+		if kept, err = s.keepComments(ctx, f, next, sending); err != nil {
+			return 0, err
+		}
+	}
+	return kept, s.stillAt(ctx, f)
+}
+
+// replacedNote is what an update_content result says happened: the sizes
+// and revisions before and after, a type Drive took from the upload, the
+// comments a Markdown file's text still holds, and any save the upload
+// replaced without having seen it.
+func (s *Service) replacedNote(ctx context.Context, f, updated *gdrive.File, beforeSize int64, kept int) string {
+	note := fmt.Sprintf("replaced the content: %s → %s, revision %s → %s",
+		model.HumanSize(beforeSize), model.HumanSize(sizeOf(updated)),
+		orNone(f.HeadRevisionID), orNone(updated.HeadRevisionID))
+	if updated.MimeType != f.MimeType {
+		note += ". It is now " + model.KindWithArticle(updated) + ": Drive takes the type an upload is sent as"
+	}
+	if kept > 0 {
+		note += ". Its text still holds " + model.Word(kept, "the", "all") + " " +
+			model.Plural(kept, "comment", "comments") + " made on it in Google Docs"
+	}
+	if mediatype.IsMarkdown(f.MimeType) && f.HeadRevisionID != "" {
+		note += s.replacedSaves(ctx, f.ID, f.HeadRevisionID, updated.HeadRevisionID)
+	}
+	return note
+}
+
+// stillAt refuses an upload to a Markdown file whose head revision moved
+// since it was read. A person editing the file in Google Docs saves into
+// it a few seconds after each change, and the comment check spent a
+// read; looking once more just before the upload narrows the window in
+// which an upload replaces a save it never saw. It cannot close it:
+// Drive has no precondition to hold a write on (§18). A look that fails
+// does not stop the write, which is what was asked for.
+func (s *Service) stillAt(ctx context.Context, f *gdrive.File) error {
+	now, err := s.api.GetFile(ctx, f.ID, gapi.GetFileOptions{Fields: "id,headRevisionId"})
+	if err != nil {
+		s.log.DebugContext(ctx, "head check unavailable", "class", gapi.Class(err))
+		return nil
+	}
+	if now.HeadRevisionID != "" && now.HeadRevisionID != f.HeadRevisionID {
+		return Errorf(ClassExists, "%s changed while this was being checked: it is at revision %s now, not %s. "+
+			"Someone saved it, perhaps in Google Docs; read_file it again and make the change on what is there "+
+			"now.", f.Name, now.HeadRevisionID, f.HeadRevisionID)
+	}
+	return nil
+}
+
+// replacedSaves says which saves an upload to a Markdown file replaced
+// without having seen them: the revisions between the one it checked and
+// its own, from the version history, where they stay.
+func (s *Service) replacedSaves(ctx context.Context, fileID, checked, ours string) string {
+	const unknown = ". Whether a save landed between the check and this upload could not be read from the " +
+		"version history"
+	revs, err := s.api.ListRevisions(ctx, fileID)
+	if err != nil {
+		s.log.DebugContext(ctx, "revision history unavailable", "class", gapi.Class(err))
+		return unknown
+	}
+	from, at := -1, -1
+	for i, r := range revs {
+		switch r.ID {
+		case checked:
+			from = i
+		case ours:
+			at = i
+		}
+	}
+	if from < 0 || at <= from {
+		return unknown
+	}
+	var ids []string
+	for _, r := range revs[from+1 : at] {
+		ids = append(ids, r.ID)
+	}
+	if len(ids) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(". %s after the check and before this upload, which replaced %s: revision %s. "+
+		"%s in the file's history, and download_file with the revision has %s",
+		model.Word(len(ids), "A save landed", "Saves landed"), model.Word(len(ids), "it", "them"),
+		strings.Join(ids, ", "), model.Word(len(ids), "It stays", "They stay"), model.Word(len(ids), "it", "each"))
 }
 
 // skipCommentCheck is the way past a comment check, which every
