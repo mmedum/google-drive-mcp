@@ -120,27 +120,6 @@ func CommentsNote(f *gdrive.File) string {
 		unpinned
 }
 
-// ReadNote is what a read of a Google-native document has to say about
-// the text it just returned: which part of the file it is, and what the
-// text cannot be used for. It sits beside BoundaryNote because the two
-// answer the same question at different moments — one describes a file,
-// the other describes a read of it — and a result that carried both
-// would say the same thing twice.
-func ReadNote(mime string) string {
-	switch mime {
-	case gdrive.MimeSheet:
-		return "this is the FIRST SHEET, as csv. Another sheet, or one range of cells, is a Sheets API read, " +
-			"which this server does not offer; download_file writes the whole workbook as xlsx."
-	case gdrive.MimeSlides:
-		return "the text of the slides, without their layout. Slides are edited through the Slides API, " +
-			"which this server does not offer."
-	case gdrive.MimeDocument:
-		return "Google's own markdown export of the document. Its content is edited through the Docs API, " +
-			"which this server does not offer; update_content cannot replace it."
-	}
-	return ""
-}
-
 // IsTextLike reports whether a blob's bytes are text this server will
 // return inline. Google's own kinds are not text-like: they have no
 // bytes until they are exported.

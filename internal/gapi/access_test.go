@@ -190,7 +190,7 @@ func TestRevisionsAreListedAndDeleted(t *testing.T) {
 	s.SetContent("id-budget-fixture", "two")
 	c := drivetest.Client(t, s)
 
-	revs, err := c.ListRevisions(t.Context(), "id-budget-fixture")
+	revs, err := c.ListRevisions(t.Context(), "id-budget-fixture", gapi.RevisionFields)
 	if err != nil {
 		t.Fatalf("ListRevisions: %v", err)
 	}

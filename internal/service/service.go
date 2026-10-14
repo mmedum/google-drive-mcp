@@ -64,7 +64,7 @@ type API interface {
 	DeleteDrive(ctx context.Context, driveID string) error
 
 	// History and the changes feed.
-	ListRevisions(ctx context.Context, fileID string) ([]*gdrive.Revision, error)
+	ListRevisions(ctx context.Context, fileID, fields string) ([]*gdrive.Revision, error)
 	DeleteRevision(ctx context.Context, fileID, revisionID string) error
 	StartPageToken(ctx context.Context, driveID string) (string, error)
 	ListChanges(ctx context.Context, o gapi.ListChangesOptions) (*gdrive.ChangeList, error)

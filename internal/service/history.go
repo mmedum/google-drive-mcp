@@ -32,7 +32,7 @@ func (s *Service) ListRevisions(ctx context.Context, in ListRevisionsInput) (str
 		return "", Errorf(ClassForbidden, "this account cannot read the version history of %s; that needs "+
 			"more than view access.", f.Name)
 	}
-	revs, err := s.api.ListRevisions(ctx, f.ID)
+	revs, err := s.api.ListRevisions(ctx, f.ID, gapi.RevisionFields)
 	if err != nil {
 		return "", wrap(err, "reading the version history of "+f.Name)
 	}

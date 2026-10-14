@@ -12,10 +12,12 @@ import (
 )
 
 // ListRevisions returns a file's revisions, oldest first as Drive sends
-// them, paging to the end. Drive's own documentation warns that the list
-// can be incomplete for a busy Docs editors file; the caller passes that
-// warning on rather than hiding it.
-func (c *Client) ListRevisions(ctx context.Context, fileID string) ([]*gdrive.Revision, error) {
+// them, paging to the end, carrying the fields named: RevisionFields for
+// what a listing shows, RevisionIDFields when only the order matters.
+// Drive's own documentation warns that the list can be incomplete for a
+// busy Docs editors file; the caller passes that warning on rather than
+// hiding it.
+func (c *Client) ListRevisions(ctx context.Context, fileID, fields string) ([]*gdrive.Revision, error) {
 	segment, err := fileSegment(fileID)
 	if err != nil {
 		return nil, err
@@ -24,7 +26,7 @@ func (c *Client) ListRevisions(ctx context.Context, fileID string) ([]*gdrive.Re
 	pageToken := ""
 	for {
 		v := url.Values{}
-		v.Set("fields", "nextPageToken,revisions("+RevisionFields+")")
+		v.Set("fields", "nextPageToken,revisions("+fields+")")
 		v.Set("pageSize", strconv.Itoa(maxRevisionPageSize))
 		if pageToken != "" {
 			v.Set("pageToken", pageToken)

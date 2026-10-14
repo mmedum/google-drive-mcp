@@ -471,7 +471,7 @@ func (s *Service) stillAt(ctx context.Context, f *gdrive.File) error {
 // its own, oldest first. known is false when the version history could
 // not say.
 func (s *Service) replacedSaves(ctx context.Context, fileID, checked, ours string) (ids []string, known bool) {
-	revs, err := s.api.ListRevisions(ctx, fileID)
+	revs, err := s.api.ListRevisions(ctx, fileID, gapi.RevisionIDFields)
 	if err != nil {
 		s.log.DebugContext(ctx, "revision history unavailable", "class", gapi.Class(err))
 		return nil, false
