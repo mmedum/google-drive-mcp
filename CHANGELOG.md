@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-14
+
 ### Added
 
 - `update_content` takes `allow_comment_changes`. Google Docs now opens a Markdown file stored in Drive and edits it in place, and it keeps the comments made on it there in the file's own text: a marker on each side of the passage, and an entry in a `gdoc_comments` block that ends the file. Replacing such a file with content that drops an entry or a marker, changes an entry's status, or goes on after the block, or sending it as a type that is not Markdown, is refused with `[invalid]`, naming each comment it would lose, unless `allow_comment_changes` is set. A file stored under the older type `text/x-markdown`, which the Docs API reads as Markdown too, is checked the same way. The file and the new content are each read as a stream to check them, and the result says the text still holds them. A file that cannot be read, or is too large to check, is refused too, and the refusal names `allow_comment_changes`.
