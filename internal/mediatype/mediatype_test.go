@@ -54,6 +54,42 @@ func TestNoTwoTypesShareAnExportName(t *testing.T) {
 	}
 }
 
+func TestNoTwoTypesShareAnExtension(t *testing.T) {
+	seen := map[string]string{}
+	for _, e := range mediatype.Entries() {
+		for _, ext := range e.Extensions {
+			if !strings.HasPrefix(ext, ".") || ext != strings.ToLower(ext) {
+				t.Errorf("%s lists the extension %q, which is not lowercase with its dot", e.Mime, ext)
+			}
+			if first, taken := seen[ext]; taken {
+				t.Errorf("the extension %q is claimed by both %s and %s", ext, first, e.Mime)
+			}
+			seen[ext] = e.Mime
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("no entry carries an extension, so this test is looking at nothing")
+	}
+}
+
+func TestTypeByExtensionAnswersTheSameOnEveryMachine(t *testing.T) {
+	// Go's own table has no .md, and a machine's tables may override the
+	// entries it does have, .csv and .docx among them.
+	cases := map[string]string{
+		".md":       mediatype.Markdown,
+		".MARKDOWN": mediatype.Markdown,
+		".csv":      "text/csv",
+		".docx":     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".log":      "",
+		"":          "",
+	}
+	for ext, want := range cases {
+		if got := mediatype.TypeByExtension(ext); got != want {
+			t.Errorf("TypeByExtension(%q) = %q, want %q", ext, got, want)
+		}
+	}
+}
+
 func TestEveryTypeAppearsOnce(t *testing.T) {
 	seen := map[string]bool{}
 	for _, e := range mediatype.Entries() {

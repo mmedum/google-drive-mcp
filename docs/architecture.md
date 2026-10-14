@@ -413,7 +413,8 @@ internal/auth/            loopback OAuth (127.0.0.1:<random>, PKCE), scope sets 
 internal/gdrive/          Drive API wire types (File, Permission, Revision, Comment, Reply, Drive, Change,
                           About, AccessProposal, Label, Operation), no dependencies
 internal/mediatype/       what a media type means, in one table: display name, kind filter, export
-                          name, the format a read takes, the format a download defaults to
+                          name, the format a read takes, the format a download defaults to, and the
+                          extensions that give a file the type on every machine
 internal/gapi/            raw REST client: client.go (retry, limiters, slog, host allowlist, resource
                           keys), files.go, upload.go (multipart, resumable), download.go (streaming,
                           Range, md5), permissions.go, drives.go, revisions.go, comments.go,
@@ -425,6 +426,10 @@ internal/ref/             file references: ids, every Google URL shape (with res
                           syntax; parsing only, no network
 internal/model/           the server's view of a file: kind names, location path, sharing summary,
                           capability words, sizes and times as people read them
+internal/mdcomment/       the comments Google Docs keeps in a Markdown file's own text: their markers
+                          and the gdoc_comments block, read from a stream a line at a time and
+                          bounded; what a replacement would lose of them; no imports from this
+                          repository
 internal/office/          the text of Word, Excel and PowerPoint files and their OpenDocument
                           counterparts, read with archive/zip and encoding/xml through an
                           io.ReaderAt over byte ranges, every read bounded; no network, no imports
@@ -736,8 +741,12 @@ seen to take (§18) is called most likely too long.
 
 - `create_file`: `name`, `parent` (default My Drive root), and either
   `kind` (`doc`, `sheet`, `slides`, `drawing`, `form`) for an empty
-  Workspace file, or `content` (inline text) with `mime_type` (default
-  `text/plain`) and optional `convert_to` (`doc`, `sheet`, `slides`)
+  Workspace file, or `content` (inline text) with `mime_type` (default:
+  the type `internal/mediatype` gives the name's extension when it is a
+  kind of text, so `notes.md` is `text/markdown`, otherwise `text/plain`;
+  with `convert_to`, the name's type only when Google imports it as that
+  kind, so a `rows.csv` made into a Doc goes as `text/plain`) and
+  optional `convert_to` (`doc`, `sheet`, `slides`)
   through Google's import. Plus `description`, `starred`. Multipart
   upload with a pre-generated id **where Drive takes one**: the Docs
   Editors formats refuse it (§18), so those creates are the ones that
@@ -745,21 +754,54 @@ seen to take (§18) is called most likely too long.
   double. Refuses content above 5 MB (use `upload_file`).
 - `upload_file`: `local_path` (inside `GDRIVE_LOCAL_DIR` after symlinks
   are resolved), `name` (default the file name), `parent`, `mime_type`
-  (default: by extension, then by sniffing), `convert_to`, `ocr_language`,
+  (default: by extension, then by sniffing; an extension
+  `internal/mediatype` names, such as `.md`, `.csv` or `.docx`, gives the
+  same type whatever the platform's tables say, §18),
+  `convert_to`, `ocr_language`,
   `description`. Up to 5 MB multipart, above that resumable in 8 MiB
   chunks (a multiple of 256 KiB), each chunk under its own timeout. A cut
   connection is handled inside the call: query the session with
   `Content-Range: bytes */total`, read the `Range` from the `308`,
   continue. The blob's md5 is compared with the metadata Drive returns
   (conversions have none, and the result says so). Returns the file card.
-- `update_content`: `file` plus `content` or `local_path`, `mime_type`,
-  `keep_previous_revision` (pins the current head with
-  `revisions.update keepForever` before uploading; Drive keeps it 30 days
-  anyway), `expect_head_revision` (a best-effort check, since Drive v3 has
-  no preconditions). Refused for Workspace documents (`[unsupported] this
-  is a Google Doc; its content is edited through the Docs API, or upload
-  a new file with convert_to`), folders and shortcuts. Returns old and new head revision
+- `update_content`: `file` plus `content` or `local_path`, `mime_type`
+  (default: the type the file has, local file or not, because Drive makes
+  the uploaded type the file's, §18), `keep_previous_revision` (pins the
+  replaced revision with `revisions.update keepForever` after the upload;
+  Drive keeps it 30 days anyway), `expect_head_revision` (a best-effort
+  check, since Drive v3 has no preconditions), `allow_comment_changes`.
+  Refused for Workspace documents (`[unsupported] this is a Google Doc;
+  its content is edited through the Docs API, or upload a new file with
+  convert_to`), folders and shortcuts. Returns old and new head revision
   ids and sizes.
+- **A Markdown file is not only bytes.** Google Docs opens a
+  `text/markdown` file in Drive and edits it in place, and writes the
+  comments made there into the file's own text: a
+  `<!-- gdoc_comment_begin: KEY -->` and a `<!-- gdoc_comment_end: KEY -->`
+  around the passage, and an entry under the key in a `gdoc_comments`
+  block that must end the file (§18). Drive's comments do not list them,
+  so a replacement that drops one deletes it for good. Before replacing
+  such a file, `update_content` reads it and the new content as streams
+  (`internal/mdcomment`, a line at a time, at most 4 MiB a line and
+  30 000 markers and entries) and refuses, as `[invalid]` naming each
+  comment, content that drops an entry or either marker, changes an
+  entry's status, or goes on after the block, and a `mime_type` that is
+  not Markdown, which Drive would make the file's type. A
+  `text/x-markdown` file, which Drive keeps under that older type and the
+  Docs API reads as Markdown all the same (§18), is checked and described
+  the same way. `allow_comment_changes` skips the check and the read. A
+  person editing the file in Docs saves into the same text a few seconds
+  after each change, and nothing here can hold a write until they have.
+  So for a Markdown file `update_content` looks at the head revision once
+  more just before the upload and refuses, as `[exists]`, if it moved;
+  afterwards it reads the
+  version history and names any save that landed between that look and
+  the upload, which the upload replaced and Drive keeps 30 days unless it
+  is pinned; `keep_previous_revision` pins the revision the upload
+  actually replaced, which is that save when there was one. That narrows
+  the window and names what falls in it; it does not close it. With
+  `allow_comment_changes` nothing is read between the fresh resolve and
+  the upload, so there is no last look; the history is still read.
 
 ### 7.3 Organizing
 
@@ -948,7 +990,11 @@ drive as the target. `delete_drive` is gated and needs an empty drive.
   ids, not the Docs API's revision tokens; content comes through
   `download_file` with `revision`.
 - `manage_revision`: `action: keep | unkeep` (`keepForever`).
-  `delete_revision` is gated.
+  `delete_revision` is gated. Only the current revision unpins: Google
+  documents a pin as one-way, and Drive refuses to unpin a revision that
+  is no longer current (`illegalKeepForeverModification`, §18), so a pin
+  on any other revision, `keep_previous_revision`'s included, is for
+  good, and the results say so.
 - `list_changes`: with no `page_token` it returns a start token and says
   "call again later with it"; with one it lists the changes since (file
   changes with kind, name, location, removed or trashed, time; drive
@@ -993,6 +1039,10 @@ reports "unchanged" instead of adding a second reply.
 Comment text is written by anybody who can reach the file. The renderer
 quotes every line of it, so a comment reaches a model as data and never
 as a line that could pass for this server's own.
+
+A Markdown file's comments made in Google Docs are in its text, not here
+(§7.2), so `list_comments` on one says that this list does not show them
+and that `read_file` does.
 
 ### 7.8 Access requests (built in phase 3)
 
@@ -1440,8 +1490,8 @@ honest option and the one a model can act on.
   `GDRIVE_SHARING`
   value and with `GDRIVE_ENABLE_DESTRUCTIVE` on and off before a phase is
   called done. Every `isError=True` must be an expected refusal.
-- **Agent evals** `scripts/evals` (built in phase 3, sixteen tasks as of
-  phase 4), tasks
+- **Agent evals** `scripts/evals` (built in phase 3, seventeen tasks
+  since the Markdown-file fix), tasks
   through `claude -p` with only this server's tools: find a file and say
   who can see it; build a folder structure and move a file into it; share
   with someone as commenter without emailing them; share with one person
@@ -1449,7 +1499,9 @@ honest option and the one a model can act on.
   as a Google Doc; get a starting point for the changes feed and explain
   the token; restore a trashed file; handle a duplicate name; read the
   tail of a large text file; rename and describe; comment on a file and
-  resolve the thread; copy a folder and everything in it.
+  resolve the thread; copy a folder and everything in it; change a date in
+  a Markdown file holding a comment made in Google Docs, keeping the
+  comment.
   Scored on the end state read back through the server and on the trace:
   no invented ids, ambiguity handled by asking or listing, `allow_anyone`
   and `transfer_ownership` never passed unasked. The trace half is the
@@ -2691,3 +2743,8 @@ for the next run:
 | `use_content_as_indexable_text` makes an upload of a type Drive does not read searchable by its words, and does nothing for a type it reads (what the tool's description says) | **Confirmed live 2026-10-09 for a type Drive does not read**, on the third run. The same 51 bytes went up twice as `application/octet-stream`, once with the flag. A search for a word only those bytes hold found the flagged copy on the first try, and the other copy on neither of two searches. The `files.create` and `files.update` parameters in the discovery document fetched 2026-10-09 (revision 20261005) say only "Whether to use the uploaded content as indexable text." **Unverified** for a type Drive reads: the first two runs sent the flag on a text file and checked nothing | The description stands. The live driver keeps the step: it uploads the same bytes with and without the flag, searches for the word, and says so when the copy without the flag is found too. An empty search after 30 s is reported as unverified, as the other searches are |
 | A download by the current revision's id can be checked against the file's `md5Checksum` (what `download_file` assumes since 2026-10-09; before, a download with any `revision` went unchecked) | **Confirmed live 2026-10-09** on the third run. A CSV downloaded by its head revision's id read "verified against Drive's md5", as did plain downloads of a CSV and of a 6 MiB binary. The same file's older revision read "not compared". The discovery document (revision 20261005) calls `md5Checksum` "The MD5 checksum for the content of the file" and `headRevisionId` "The ID of the file's head revision"; it does not say the two describe the same bytes | `download_file` compares the bytes when `revision` is empty or is the head revision's id. An older revision is not compared, and the result says so |
 | The live driver can read from its own source which flag each option it did not send waits for (what its end-of-run report assumes since 2026-10-09; before, it said every such option sat behind `-file`, `-share` or `-drive`) | **Confirmed live 2026-10-09** on the third run, the first with the new report. It passed `-write` alone and sent 147 of 170 options in 267 calls. It named the eight options its source sends and the run did not, each with the flag it lacked: `-labels` for one, `-destructive` for four, `-share` for two, and "`-blocked` or `-share`" for `unshare_file.principal`. None fell to the warning kept for an option no missing flag explains | The report names each unsent option with the flag the run lacked, so the owed list at the head of this block names modes rather than options. A tool the run never called, here `list_drives` and `manage_drive`, is named once rather than by option |
+| A Markdown file in Drive is a blob like any other, whose bytes `update_content` may replace whole (what this server assumed until 2026-10-14) | **Changed by Google on 2026-10-05.** The launch post, <https://workspaceupdates.googleblog.com/2026/10/preview-edit-and-collaborate-on-Markdown-files-natively-across-Drive-and-Docs.html>: people "view, edit, and collaborate on Markdown (.md or .markdown) files directly in Google Docs" and "without changing the file type". The Help Center, <https://support.google.com/docs/answer/18289341>, read 2026-10-14: "Work with others right away using comments". Where those comments are kept is published nowhere. **Measured live 2026-10-13 and 2026-10-14:** a comment made in the Docs editor is written into the file's text, as `<!-- gdoc_comment_begin: KEY -->` and `<!-- gdoc_comment_end: KEY -->` around the passage and an entry under the key in a `gdoc_comments` block that has to end the file, and `comments.list` does not return it. Text after the block made the editor show the block as body text. A `RESOLVED` status written into the text, on an entry without the token the editor gives its own, made the Docs API fail to read the file until it was put back | `update_content` on a `text/markdown` file refuses content that loses one of those comments unless `allow_comment_changes` (§7.2), and `read_file`, `get_file` and `list_comments` say where they are (§7.7). The live driver writes a comment into a file's text the way the editor does and checks the refusal, the override and the notes |
+| Replacing a file's bytes keeps the file's type (what `update_content` from a local file assumed, sending the type the local file's name gave it) | **Refuted live 2026-10-13:** the uploaded media's Content-Type becomes the file's type. A Markdown file replaced with bytes sent as `text/plain` became a `text/plain` file, which the Docs API then refused to read (400); a metadata `mimeType` change answered 200 and was ignored; only another upload sent as `text/markdown` undid it. The live driver measures the change and the undoing on every `-write` run | `update_content` sends the file's own type unless `mime_type` names another, from inline content and a local file alike, which is what its schema already said |
+| A file name's extension gives the same type wherever the server runs (what `upload_file`'s "by extension" assumed) | **Refuted** in the Go 1.27.2 source, `mime/type.go`, `type_unix.go` and `type_windows.go`, read 2026-10-14: the built-in table has no `.md` or `.markdown`, and the system's own tables are loaded over it, on unix `/usr/share/mime/globs2`, `/etc/mime.types` and four other paths, and on Windows the registry's "Content Type"; `setExtensionType` stores over a built-in entry, so even `.csv` and `.docx` answer what the machine says. Without a mapping the bytes were sniffed, and `http.DetectContentType` answers `text/plain`. RFC 7763, <https://www.rfc-editor.org/rfc/rfc7763> (March 2016), registers `text/markdown` with "File extension(s): .md, .markdown" | `internal/mediatype` names the extensions of the types this server reads or converts, and is asked before the platform: `.md` and `.markdown` are `text/markdown`, `.csv` is `text/csv`, and so on, everywhere. `upload_file` uses it, and so does `create_file`, whose inline text now takes a text type from its name instead of always `text/plain` |
+| Google Docs treats only `text/markdown` as a Markdown file (what this server assumed while building the check) | **Refuted live 2026-10-14.** A file created as `text/x-markdown` kept that type in Drive, and the Docs API read it exactly as it read a `text/markdown` control made the same minute from the same bytes: two paragraphs, `# Probe` as `HEADING_1`, the same named styles. A media update sent as `text/x-markdown` kept that type and the Docs API read the new text. A `text/plain` `.md` is refused by the Docs API (400, measured 2026-10-13), and so is `text/x-web-markdown` (400 `INVALID_ARGUMENT`, 2026-10-14), so that alias is not one | `mediatype.IsMarkdown` takes both types, for the comment check and for every note; the registry names `text/x-markdown` a Markdown file |
+| A revision kept forever can be unpinned again (what `manage_revision`'s description said: "or unpin one so Drive may discard it again") | **Refuted for every revision but the current one.** <https://developers.google.com/workspace/drive/api/guides/manage-revisions>, updated 2026-09-03: "Once a blob file revision is set to "Keep Forever", it can only be downloaded or deleted." <https://developers.google.com/workspace/drive/api/guides/handle-errors>, same date: `illegalKeepForeverModification`, 400, "occurs when trying to set a blob file revision marked as "Keep Forever" to `false`", fixed by deleting the revision. Measured live 2026-10-13: unpinning the current revision answered 200, an older pinned one 400. The live driver unpins the current revision and expects the refusal for the one `keep_previous_revision` pinned | `manage_revision` says a pin on a revision that is not current is for good and explains the refusal, naming `delete_revision`; `keep_previous_revision`'s description and result say the same, and the fake refuses as Drive does |

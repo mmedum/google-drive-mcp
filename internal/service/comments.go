@@ -76,7 +76,7 @@ func (s *Service) ListComments(ctx context.Context, in ListCommentsInput) (strin
 		Location:        s.Location(ctx, f).String(),
 		Now:             s.now(),
 		CanComment:      model.CanComment(f),
-		PinNote:         model.PinNote(f),
+		CommentsNote:    model.CommentsNote(f),
 		NextPageToken:   page.NextPageToken,
 		IncludedDeleted: in.IncludeDeleted,
 	}), nil

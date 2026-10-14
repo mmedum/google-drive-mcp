@@ -203,6 +203,9 @@ func TestUpdateContentReplacesBytesAndKeepsTheOldRevision(t *testing.T) {
 	if !strings.Contains(got.Text, "pinned") {
 		t.Errorf("keep_previous_revision was not reported:\n%s", got.Text)
 	}
+	if !strings.Contains(got.Text, "The pin is for good") {
+		t.Errorf("the result does not say a pin on the replaced revision cannot be undone:\n%s", got.Text)
+	}
 	if !fake.Revisions["id-serverlog-fixture"][0].KeepForever {
 		t.Error("the previous revision was not pinned")
 	}

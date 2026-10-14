@@ -201,6 +201,14 @@ func (s *Server) handleRevision(w http.ResponseWriter, r *http.Request, fileID, 
 		if !s.decodeJSON(w, r, &body) {
 			return
 		}
+		// Drive unpins only the current revision. Google documents a pin
+		// as one-way, and a revision that is no longer current refuses
+		// it (§18).
+		if body.KeepForever != nil && !*body.KeepForever && rev.KeepForever && rev.ID != f.HeadRevisionID {
+			s.errorJSON(w, http.StatusBadRequest, "illegalKeepForeverModification",
+				"Bad Request. Cannot update a revision to false that is marked as keepForever.")
+			return
+		}
 		if body.KeepForever != nil {
 			rev.KeepForever = *body.KeepForever
 		}

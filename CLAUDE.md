@@ -75,8 +75,10 @@ Google Doc, Sheet or Slides deck is out of scope.
 - `internal/gdrive/` wire types; `internal/gapi/` raw REST client, with
   `drivetest/` the in-memory fake Drive for tests.
 - `internal/office/` Office and OpenDocument text, parsed locally;
+  `internal/mdcomment/` the comments Google Docs keeps in a Markdown
+  file's text;
   `internal/mediatype/` what each file type is called, filtered and
-  exported as.
+  exported as, and which extensions name it.
 - `internal/ref/` file references and paths (no network);
   `internal/model/` the server's view of a file; `internal/render/` text
   output; `internal/service/` orchestration and policy;

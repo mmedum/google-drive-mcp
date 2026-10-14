@@ -106,6 +106,7 @@ func (w *writeRun) exercise() {
 	w.officeFiles()
 	w.ocr()
 	w.organize(ids)
+	w.markdownFile()
 	w.underFolder()
 	w.downloads(ids)
 	w.limitedAccess()
@@ -730,6 +731,19 @@ func (w *writeRun) history(m made) {
 	w.expecting("manage_revision", m.text, map[string]any{
 		"file": m.text, "revision": "a-revision-that-was-never-current", "action": "keep",
 	}, "a revision id that names nothing")
+	// The revision keep_previous_revision pinned is no longer current,
+	// and Google documents a pin as one-way. Only the current revision
+	// has been seen to unpin (§18).
+	if m.text != "" {
+		if old := w.pinnedOldRevision(m.text); old == "" {
+			w.problem("no revision of the replaced file is kept forever, though keep_previous_revision pinned one",
+				errors.New("pin not read back"))
+		} else {
+			w.expecting("manage_revision", m.text, map[string]any{
+				"file": m.text, "revision": old, "action": "unkeep",
+			}, "a revision kept forever that is no longer current cannot be unpinned")
+		}
+	}
 
 	// The feed: a starting point, then the changes this run has made
 	// since it. Everything above happened before the token, so the
@@ -775,6 +789,24 @@ func (w *writeRun) pollChanges(token string) {
 // A row of that listing is "<id>  <date> ...", and the date is what
 // identifies it: the lines around it are a subject line and prose, and
 // neither has a second field beginning with a four-digit year.
+// pinnedOldRevision is a revision of the file that is kept forever and
+// is no longer current, or "".
+func (w *writeRun) pinnedOldRevision(id string) string {
+	out, isError, err := w.sess.CallTool("list_revisions", map[string]any{"file": id})
+	if err != nil || isError {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || !looksLikeDate(fields[1]) || strings.Contains(line, "current") ||
+			!strings.Contains(line, "kept forever") {
+			continue
+		}
+		return fields[0]
+	}
+	return ""
+}
+
 func (w *writeRun) firstRevision(id string) string {
 	return w.revisionID(id, false)
 }
@@ -1298,6 +1330,76 @@ func (w *writeRun) unpredicted(out string) {
 		w.problem("after the move or copy Drive reports other access than the server predicted; the "+
 			"beliefs about what a move or a copy does to sharing (§18) are wrong somewhere", errors.New("prediction missed"))
 	}
+}
+
+// commentedMarkdown is a Markdown file holding one comment, written the
+// way the Google Docs editor writes one into the file's text: a marker
+// on each side of the passage and an entry in the block ending the file.
+// Synthetic, like every fixture.
+const commentedMarkdown = "# Notes\n\n<!-- gdoc_comment_begin: c1 -->Ship in May<!-- gdoc_comment_end: c1 -->.\n\n" +
+	"---\ngdoc_comments:\n  c1:\n    status: ACTIVE\n    head:\n      author: Live Driver\n" +
+	"      time: '2026-01-02T03:04:05.000Z'\n      body: is May real?\n      quote: |-\n        Ship in May\n---\n"
+
+// markdownFile is a Markdown file Google Docs edits in place, which keeps
+// the comments made on it there in its own text (§7.2). What is checked
+// is what this server does with the bytes Drive holds: the type a .md is
+// given and keeps, what a read and a listing say, and a replacement that
+// would lose the comment refused until it is asked for.
+func (w *writeRun) markdownFile() {
+	id := w.createAndKeepID("create_file", map[string]any{
+		"name": "commented notes.md", "parent": w.scratchID, "content": commentedMarkdown,
+	})
+	if id == "" {
+		w.out.Say("\n=== markdown file: skipped, the file was never created ===")
+		return
+	}
+	kindIs := func(kind, after string) {
+		card := w.call(call{tool: "get_file", args: map[string]any{"file": id}})
+		if !strings.Contains(card, kind) {
+			w.problem("after "+after+" the file is not a "+kind, errors.New("type not as expected"))
+		}
+	}
+	kindIs("Markdown file", "create_file with no mime_type")
+	if out := w.call(call{tool: "read_file", args: map[string]any{"file": id}}); !strings.Contains(out, "gdoc_comments block") {
+		w.problem("read_file of a Markdown file does not say where its comments are", errors.New("note missing"))
+	}
+	if out := w.call(call{tool: "list_comments", args: map[string]any{"file": id}}); !strings.Contains(out, "kept in the file's own text") {
+		w.problem("list_comments of a Markdown file does not say its Google Docs comments are not listed",
+			errors.New("note missing"))
+	}
+	w.expecting("update_content", id, map[string]any{"file": id, "content": "# Notes\n\nShip in May.\n"},
+		"the new content would delete the comment kept in the file's text")
+	kept := strings.Replace(commentedMarkdown, "# Notes", "# Release notes", 1)
+	if out := w.call(call{tool: "update_content", args: map[string]any{"file": id, "content": kept}}); !strings.Contains(out, "still holds") {
+		w.problem("a replacement that keeps the comment does not say the text still holds it", errors.New("note missing"))
+	}
+	// A local file whose name gives another type: the file keeps its
+	// own, which is the type Drive would otherwise take from the upload.
+	local := filepath.Join(w.dir, "livedrive-notes.txt")
+	if err := os.WriteFile(local, []byte(kept+"\n"), 0o600); err != nil {
+		w.problem("could not write the local Markdown file", err)
+	} else {
+		defer func() { _ = os.Remove(local) }()
+		w.call(call{tool: "update_content", args: map[string]any{"file": id, "local_path": "livedrive-notes.txt"}})
+		kindIs("Markdown file", "update_content from a .txt file")
+		w.expecting("update_content", id, map[string]any{
+			"file": id, "local_path": "livedrive-notes.txt", "mime_type": "text/plain",
+		}, "sent as text/plain, the file stops being Markdown and its comment is lost")
+		// What that keeps from happening, measured: Drive takes the
+		// uploaded type as the file's, and gives the type back only to
+		// another upload (§18).
+		w.call(call{tool: "update_content", args: map[string]any{
+			"file": id, "local_path": "livedrive-notes.txt", "mime_type": "text/plain", "allow_comment_changes": true,
+		}})
+		kindIs("text file", "an upload sent as text/plain")
+		w.call(call{tool: "update_content", args: map[string]any{
+			"file": id, "local_path": "livedrive-notes.txt", "mime_type": "text/markdown",
+		}})
+		kindIs("Markdown file", "an upload sent as text/markdown")
+	}
+	w.call(call{tool: "update_content", args: map[string]any{
+		"file": id, "content": "# Notes\n\nThe comment is gone.\n", "allow_comment_changes": true,
+	}})
 }
 
 // refusals are the calls that must not work. A refusal that is expected

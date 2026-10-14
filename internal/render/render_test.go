@@ -611,7 +611,7 @@ func TestCommentsGolden(t *testing.T) {
 }
 
 func TestCommentsSayWhenNothingCanBeAdded(t *testing.T) {
-	got := Comments(nil, CommentsOptions{Subject: "Budget.xlsx", Now: now, PinNote: "this is a Google Doc: pinned"})
+	got := Comments(nil, CommentsOptions{Subject: "Budget.xlsx", Now: now, CommentsNote: "this is a Google Doc: pinned"})
 	for _, want := range []string{"no comments", "cannot comment", "this is a Google Doc: pinned"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("an empty listing does not say %q:\n%s", want, got)

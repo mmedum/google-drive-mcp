@@ -12,6 +12,11 @@ import (
 	"github.com/mmedum/google-drive-mcp/v2/internal/mediatype"
 )
 
+// markdownComments says where a comment made on a Markdown file in
+// Google Docs is, which is not where Drive keeps comments.
+const markdownComments = "a comment made on it in Google Docs is kept in the file's own text, not among Drive's " +
+	"comments, so list_comments does not show it and read_file does"
+
 // KindName describes a media type in the words the Drive interface
 // uses. The table behind it is internal/mediatype, which is also where
 // the export names and the kind filters come from: one media type, one
@@ -67,9 +72,13 @@ func KindNameWithArticle(mime string) string {
 }
 
 // BoundaryNote says, for a Google-native document, where its content is
-// actually edited. This server stops at the file boundary, and a result
+// actually edited, and for a Markdown file where its comments are. This server stops at the file boundary, and a result
 // that reads a Doc without saying so invites an edit that cannot happen.
 func BoundaryNote(mime string) string {
+	if mediatype.IsMarkdown(mime) {
+		return "this is a Markdown file, which Google Docs opens and edits in place: " + markdownComments +
+			". update_content refuses new content that would lose one."
+	}
 	switch mime {
 	case gdrive.MimeDocument:
 		return "this is a Google Doc. Its text is available through Google's export; its content is edited through the Docs API, which this server does not offer."
@@ -81,12 +90,17 @@ func BoundaryNote(mime string) string {
 	return ""
 }
 
-// PinNote says, for a Google-native document, that a comment pinned to
+// CommentsNote is what a listing of a file's comments has to add about
+// where they come from. For a Google-native document, a comment pinned to
 // a place in it did not come from add_comment, which makes unpinned
-// ones. A Doc, a Sheet and a deck each pin through their own API, which
-// this server does not use. It is "" for every other kind, whose
-// comments are all on the file.
-func PinNote(f *gdrive.File) string {
+// ones: a Doc, a Sheet and a deck each pin through their own API, which
+// this server does not use. For a Markdown file, the comments made in
+// Google Docs are not in the listing at all. It is "" for every other
+// kind, whose comments are all on the file.
+func CommentsNote(f *gdrive.File) string {
+	if mediatype.IsMarkdown(f.MimeType) {
+		return "this is a Markdown file: " + markdownComments
+	}
 	if !f.IsWorkspaceDoc() {
 		return ""
 	}

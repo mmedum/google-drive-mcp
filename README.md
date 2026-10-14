@@ -225,7 +225,7 @@ through your MCP client when the client supports elicitation. Anything but Accep
 | `download_file` | Write a file to the local directory, converting a Google document on the way out, checksum-verified |
 | `create_file` | A new empty Google file, or one written from text you have here, with optional conversion |
 | `upload_file` | Send a local file, in one request or in chunks that survive a dropped connection |
-| `update_content` | Replace what is inside a file, keeping its id, its place and everything that points at it |
+| `update_content` | Replace what is inside a file, keeping its id, its place and everything that points at it, and refusing to lose the comments Google Docs keeps in a Markdown file |
 | `create_folder` | A new folder, refusing a duplicate name unless you allow it |
 | `update_file` | Rename, describe, star, color, set properties, restrict downloads and re-sharing, or give a folder limited access |
 | `move_file` | Move an item, or up to 50, to another folder or shared drive, with who can reach each before and after, and a dry run |
@@ -239,7 +239,7 @@ through your MCP client when the client supports elicitation. Anything but Accep
 | `list_drives` | The shared drives this account can see, with what it may do in each |
 | `manage_drive` | Create, rename, hide, unhide or restrict a shared drive |
 | `list_revisions` | A file's version history, with Google's own caveat about what it leaves out |
-| `manage_revision` | Pin a version so Drive keeps it, or unpin it again |
+| `manage_revision` | Pin a version so Drive keeps it, or unpin the current one; a pin on an older version is for good |
 | `list_changes` | What has changed since a point in time, with the token for next time |
 | `list_comments` | The threads on a file, with their replies and whether each is still open |
 | `add_comment` | Start a thread on any file, Google document or not |
@@ -298,6 +298,11 @@ Five things it does differently from the alternatives:
   file rather than on a place in it: pinning one in a Doc, Sheet or
   Slides deck is a feature of that kind's own API, which this server
   does not use.
+- Delete the comments Google Docs keeps in a Markdown file. Docs edits a
+  `.md` stored in Drive in place and writes the comments made there into
+  the file's own text, where Drive's comments do not list them.
+  `update_content` refuses new content that would lose one unless
+  `allow_comment_changes` is set.
 - Widen access without being asked. Sharing tools check
   `capabilities.canShare` first, show who can see a file before and
   after, need `allow_anyone: true` for a public link, and send no

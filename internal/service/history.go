@@ -101,15 +101,25 @@ func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*
 	}
 	updated, err := s.api.UpdateRevision(ctx, f.ID, revisionID, keep)
 	if err != nil {
+		if !keep && gapi.IsPinnedForGood(err) {
+			return nil, &Error{Class: ClassInvalid, Message: fmt.Sprintf("revision %s of %s is kept forever and "+
+				"is no longer the current one, and %s. delete_revision deletes it, and is registered with "+
+				"GDRIVE_ENABLE_DESTRUCTIVE=true.", revisionID, f.Name, pinRule), Err: err}
+		}
 		return nil, wrap(err, fmt.Sprintf("%s revision %s of %s", action+"ing", revisionID, f.Name))
 	}
 	note := fmt.Sprintf("revision %s of %s is %s.", revisionID, f.Name, keptWords(updated.KeepForever))
 	switch {
+	case updated.KeepForever && revisionID != f.HeadRevisionID:
+		note += " " + pinForGood
 	case updated.KeepForever:
+		note += " Once a newer revision replaces it, the pin is for good: " + pinRule + "."
 	case revisionID == f.HeadRevisionID:
 		note += " It is the current revision, which Drive keeps. Once a newer one replaces it, Drive " +
 			"discards it 30 days later."
 	default:
+		// Drive has been seen to unpin only the current revision, but the
+		// head can move between reading it and this.
 		note += " Drive discards it 30 days after it stopped being current, which may already be past."
 	}
 	// report rather than write, so the card carries what resolving found
@@ -120,6 +130,17 @@ func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*
 		Changes: []render.Change{{Field: "revision " + revisionID + " kept forever",
 			From: yesNo(before.KeepForever), To: yesNo(updated.KeepForever)}}}), nil
 }
+
+// pinRule is how Drive treats a revision kept forever: Google's guide
+// says such a revision "can only be downloaded or deleted", and Drive
+// refuses to unpin one that is no longer current with
+// illegalKeepForeverModification (§18). Only the current revision has
+// been seen to unpin.
+const pinRule = "Drive does not unpin a revision that is no longer current, and only deleting the revision " +
+	"removes the pin"
+
+// pinForGood is what a pin on a revision that is no longer current means.
+const pinForGood = "The pin is for good: " + pinRule + "."
 
 // revisionError explains the refusals a revision read gets, since
 // Drive's own 404 does not say which of the two things was missing.

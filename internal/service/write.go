@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"os"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v2/internal/mdcomment"
+	"github.com/mmedum/google-drive-mcp/v2/internal/mediatype"
 	"github.com/mmedum/google-drive-mcp/v2/internal/model"
 	"github.com/mmedum/google-drive-mcp/v2/internal/render"
 )
@@ -126,11 +129,11 @@ func (s *Service) CreateFile(ctx context.Context, in CreateFileInput) (*Result, 
 		}
 		f, err = s.api.CreateFile(ctx, meta, gapi.WriteOptions{ResourceIDs: []string{parent.ID}})
 	} else {
-		var sending string
-		if sending, err = contentType(in.MimeType, "text/plain"); err != nil {
+		if meta.MimeType, err = convertTarget(in.ConvertTo); err != nil {
 			return nil, err
 		}
-		if meta.MimeType, err = convertTarget(in.ConvertTo); err != nil {
+		var sending string
+		if sending, err = contentType(in.MimeType, s.inlineType(ctx, name, meta.MimeType)); err != nil {
 			return nil, err
 		}
 		if err := s.checkConversion(ctx, sending, meta.MimeType); err != nil {
@@ -281,6 +284,9 @@ type UpdateContentInput struct {
 	// ExpectHeadRevision refuses the write when the file has moved on.
 	// Drive v3 has no preconditions, so this is a check, not a lock.
 	ExpectHeadRevision string
+	// AllowCommentChanges replaces a Markdown file even though the new
+	// content loses comments Google Docs keeps in its text.
+	AllowCommentChanges bool
 }
 
 // UpdateContent replaces what is in a file, keeping its id, its place
@@ -318,54 +324,239 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 	before := f.HeadRevisionID
 	beforeSize := sizeOf(f)
 
-	explicit, err := contentType(in.MimeType, "")
+	// The file keeps its type unless the caller names another, local
+	// file or not. Drive makes the uploaded bytes' type the file's, so a
+	// Markdown file sent as text/plain becomes a plain text file, and
+	// setting the type back afterwards is ignored (§18).
+	sending, err := contentType(in.MimeType, f.MimeType)
 	if err != nil {
 		return nil, err
 	}
-	sending := explicit
-	if sending == "" {
-		sending = f.MimeType
-	}
 	req := gapi.UploadRequest{FileID: f.ID, ContentType: sending}
 
-	var updated *gdrive.File
+	var local *os.File
+	var size int64
+	next := io.Reader(strings.NewReader(in.Content))
 	if localPath != "" {
 		file, info, openErr := s.openLocal(localPath)
 		if openErr != nil {
 			return nil, openErr
 		}
 		defer func() { _ = file.Close() }()
-		if explicit == "" {
-			req.ContentType = sniffType(file.Name(), file)
-		}
-		updated, err = s.send(ctx, req, file, info.Size())
+		local, size = file, info.Size()
+		// Read by offset, which leaves the file where send starts.
+		next = io.NewSectionReader(file, 0, math.MaxInt64)
+	} else if len(in.Content) > gapi.MaxMultipartUpload {
+		return nil, Errorf(ClassInvalid, "%s of inline content is more than update_content takes; "+
+			"write it to %s and pass local_path.", model.HumanSize(int64(len(in.Content))), s.opts.LocalDir)
+	}
+	kept, err := s.guardMarkdown(ctx, f, in.AllowCommentChanges, next, sending)
+	if err != nil {
+		return nil, err
+	}
+
+	var updated *gdrive.File
+	if local != nil {
+		updated, err = s.send(ctx, req, local, size)
 	} else {
-		if len(in.Content) > gapi.MaxMultipartUpload {
-			return nil, Errorf(ClassInvalid, "%s of inline content is more than update_content takes; "+
-				"write it to %s and pass local_path.", model.HumanSize(int64(len(in.Content))), s.opts.LocalDir)
-		}
 		updated, err = s.api.UploadMultipart(ctx, req, []byte(in.Content))
 	}
 	if err != nil {
 		return nil, wrap(err, "replacing the content of "+f.Name)
 	}
 
-	note := fmt.Sprintf("replaced the content: %s → %s, revision %s → %s",
-		model.HumanSize(beforeSize), model.HumanSize(sizeOf(updated)),
-		orNone(before), orNone(updated.HeadRevisionID))
+	var replaced []string
+	known := true
+	if mediatype.IsMarkdown(f.MimeType) && before != "" {
+		replaced, known = s.replacedSaves(ctx, f.ID, before, updated.HeadRevisionID)
+	}
+	note := replacedNote(f, updated, beforeSize, kept, replaced, known)
 	// The pin happens after the upload, not before it. Pinning first
 	// meant a failed upload left a revision kept forever that nothing
 	// had replaced and nothing would unpin; an old revision can be
 	// pinned by id just as well once it is no longer the head.
 	if in.KeepPreviousRevision && before != "" {
-		if _, pinErr := s.api.UpdateRevision(ctx, f.ID, before, true); pinErr != nil {
+		// The revision this upload replaced: a save that landed in
+		// between when there was one, and what was checked otherwise.
+		previous := before
+		if len(replaced) > 0 {
+			previous = replaced[len(replaced)-1]
+		}
+		if _, pinErr := s.api.UpdateRevision(ctx, f.ID, previous, true); pinErr != nil {
 			note += ". The content was replaced, but the previous revision could NOT be pinned (" +
 				gapi.Message(pinErr) + "), so Drive will discard it after 30 days."
 		} else {
-			note += ". The previous revision is pinned and will not be discarded."
+			note += ". The previous revision, " + previous + ", is pinned and will not be discarded. " + pinForGood
 		}
 	}
 	return s.write(ctx, updated, outcome{Action: render.ActionUpdated, Note: note})
+}
+
+// guardMarkdown is what an upload to a Markdown file has to pass first:
+// the comment check and then a last look at the head, unless the caller
+// waived the check. It returns how many comments the text holds, and does
+// nothing for any other file.
+func (s *Service) guardMarkdown(ctx context.Context, f *gdrive.File, allow bool, next io.Reader, sending string) (int, error) {
+	if !mediatype.IsMarkdown(f.MimeType) {
+		return 0, nil
+	}
+	if allow {
+		// Nothing was read since the fresh resolve, so a last look
+		// would see what that one saw.
+		return 0, nil
+	}
+	kept, err := s.keepComments(ctx, f, next, sending)
+	if err != nil {
+		return 0, err
+	}
+	return kept, s.stillAt(ctx, f)
+}
+
+// replacedNote is what an update_content result says happened: the sizes
+// and revisions before and after, a type Drive took from the upload, the
+// comments a Markdown file's text still holds, and any save the upload
+// replaced without having seen it, or that the history could not say.
+func replacedNote(f, updated *gdrive.File, beforeSize int64, kept int, replaced []string, known bool) string {
+	note := fmt.Sprintf("replaced the content: %s → %s, revision %s → %s",
+		model.HumanSize(beforeSize), model.HumanSize(sizeOf(updated)),
+		orNone(f.HeadRevisionID), orNone(updated.HeadRevisionID))
+	if updated.MimeType != f.MimeType {
+		note += ". It is now " + model.KindWithArticle(updated) + ": Drive takes the type an upload is sent as"
+	}
+	if kept > 0 {
+		note += ". Its text still holds " + model.Word(kept, "the", "all") + " " +
+			model.Plural(kept, "comment", "comments") + " made on it in Google Docs"
+	}
+	switch {
+	case !known:
+		note += ". Whether a save landed between the check and this upload could not be read from the version history"
+	case len(replaced) == 1:
+		note += ". A save landed after the check and before this upload, which replaced it: revision " + replaced[0] +
+			". Drive keeps it 30 days unless it is pinned: manage_revision keep pins it, and download_file with " +
+			"the revision has it"
+	case len(replaced) > 1:
+		note += ". Saves landed after the check and before this upload, which replaced them: revisions " +
+			strings.Join(replaced, ", ") + ". Drive keeps each 30 days unless it is pinned: manage_revision keep " +
+			"pins one, and download_file with a revision has it"
+	}
+	return note
+}
+
+// stillAt refuses an upload to a Markdown file whose head revision moved
+// since it was read. A person editing the file in Google Docs saves into
+// it a few seconds after each change, and the comment check spent a
+// read; looking once more just before the upload narrows the window in
+// which an upload replaces a save it never saw. It cannot close it:
+// Drive has no precondition to hold a write on (§18). A look that fails
+// does not stop the write, which is what was asked for.
+func (s *Service) stillAt(ctx context.Context, f *gdrive.File) error {
+	if f.HeadRevisionID == "" {
+		return nil
+	}
+	now, err := s.api.GetFile(ctx, f.ID, gapi.GetFileOptions{Fields: "id,headRevisionId"})
+	if err != nil {
+		s.log.DebugContext(ctx, "head check unavailable", "class", gapi.Class(err))
+		return nil
+	}
+	if now.HeadRevisionID != "" && now.HeadRevisionID != f.HeadRevisionID {
+		return Errorf(ClassExists, "%s changed while this was being checked: it is at revision %s now, not %s. "+
+			"Someone saved it, perhaps in Google Docs; read_file it again and make the change on what is there "+
+			"now.", f.Name, now.HeadRevisionID, f.HeadRevisionID)
+	}
+	return nil
+}
+
+// replacedSaves lists the saves an upload to a Markdown file replaced
+// without having seen them: the revisions between the one it checked and
+// its own, oldest first. known is false when the version history could
+// not say.
+func (s *Service) replacedSaves(ctx context.Context, fileID, checked, ours string) (ids []string, known bool) {
+	revs, err := s.api.ListRevisions(ctx, fileID)
+	if err != nil {
+		s.log.DebugContext(ctx, "revision history unavailable", "class", gapi.Class(err))
+		return nil, false
+	}
+	from, at := -1, -1
+	for i, r := range revs {
+		switch r.ID {
+		case checked:
+			from = i
+		case ours:
+			at = i
+		}
+	}
+	if from < 0 || at <= from {
+		return nil, false
+	}
+	for _, r := range revs[from+1 : at] {
+		ids = append(ids, r.ID)
+	}
+	return ids, true
+}
+
+// skipCommentCheck is the way past a comment check, which every
+// refusal of one names.
+const skipCommentCheck = " To replace it without that check, pass allow_comment_changes."
+
+// keepComments refuses new content for a Markdown file that would lose a
+// comment Google Docs keeps in the file's text, and returns how many it
+// holds. Nothing else carries those comments: Drive's comments do not
+// list them, so content that drops one deletes it (§7.2), and so does
+// sending the file as a type that is not Markdown, which Drive makes the
+// file's own. The file and the new content are each read as a stream,
+// never held whole.
+func (s *Service) keepComments(ctx context.Context, f *gdrive.File, next io.Reader, sending string) (int, error) {
+	c, err := s.api.Download(ctx, f.ID, gapi.DownloadOptions{})
+	if err != nil {
+		err = wrap(err, "reading "+f.Name+" to check the comments Google Docs keeps in it")
+		var e *Error
+		if errors.As(err, &e) {
+			e.Message = strings.TrimSuffix(e.Message, ".") + "." + skipCommentCheck
+		}
+		return 0, err
+	}
+	old, err := mdcomment.Scan(c.Body)
+	_ = c.Body.Close()
+	if err != nil {
+		if !errors.Is(err, mdcomment.ErrUncheckable) {
+			// The download began and broke off: Drive's side, not the
+			// caller's, and worth trying again.
+			return 0, &Error{Class: ClassNetwork, Message: "reading " + f.Name + " to check the comments Google " +
+				"Docs keeps in it broke off: " + err.Error() + "." + skipCommentCheck, Err: err}
+		}
+		return 0, scanError(err, f.Name+" as it is now")
+	}
+	n := old.Comments()
+	if n == 0 {
+		return 0, nil
+	}
+	if !mediatype.IsMarkdown(sending) {
+		return 0, Errorf(ClassInvalid, "%s holds %s made in Google Docs, kept in its own text, and sending it as %s "+
+			"makes it %s, which Google Docs does not read as Markdown, so %s would be lost."+
+			skipCommentCheck, f.Name, model.Plural(n, "comment", "comments"), sending, model.KindNameWithArticle(sending),
+			model.Word(n, "the comment", "the comments"))
+	}
+	nextMarkup, err := mdcomment.Scan(next)
+	if err != nil {
+		return 0, scanError(err, "the new content")
+	}
+	if lost := old.Lost(nextMarkup); len(lost) > 0 {
+		return 0, Errorf(ClassInvalid, "%s holds %s made in Google Docs, kept in its own text, and the new content "+
+			"would lose %s: %s. Keep every gdoc_comment_begin and gdoc_comment_end marker around its passage and "+
+			"the gdoc_comments block at the end of the file, and read_file it again if it changed since you read it."+
+			skipCommentCheck, f.Name, model.Plural(n, "comment", "comments"), model.Word(n, "it", "them"),
+			strings.Join(lost, "; "))
+	}
+	return n, nil
+}
+
+// scanError is a read of what for comments that could not finish.
+func scanError(err error, what string) error {
+	if errors.Is(err, mdcomment.ErrUncheckable) {
+		return Errorf(ClassUnsupported, "cannot check %s for the comments Google Docs keeps in its text: %s."+
+			skipCommentCheck, what, err)
+	}
+	return Errorf(ClassInvalid, "cannot read %s to check it for comments: %s", what, err)
 }
 
 // contentType is what the caller says their bytes are. Drive's own
@@ -488,12 +679,44 @@ func convertName(mime string) string {
 	return ""
 }
 
+// typeByName is the type a file's name gives it, or "" when its
+// extension says nothing: the registry's answer first, because the
+// platform's differs from machine to machine (§18), and the platform's
+// for the long tail.
+func typeByName(name string) string {
+	ext := filepath.Ext(name)
+	if t := mediatype.TypeByExtension(ext); t != "" {
+		return t
+	}
+	return gdrive.MimeOnly(mime.TypeByExtension(ext))
+}
+
+// inlineType is what inline text named name is sent as when the caller
+// does not say: the type the registry gives its name when that is a kind
+// of text, so that a notes.md is a Markdown file, and plain text
+// otherwise. Only the registry is asked, so the answer is the same on
+// every machine. A conversion keeps the name's type only when Google
+// imports it as the kind asked for: a rows.csv made into a Doc goes as
+// plain text, which a Doc imports, where csv imports only as a Sheet.
+func (s *Service) inlineType(ctx context.Context, name, convertTo string) string {
+	t := mediatype.TypeByExtension(filepath.Ext(name))
+	if !model.IsTextLike(t) {
+		return "text/plain"
+	}
+	if convertTo != "" {
+		if targets, ok := s.importTargets(ctx, t); ok && !slices.Contains(targets, convertTo) {
+			return "text/plain"
+		}
+	}
+	return t
+}
+
 // sniffType decides what a local file is: its extension first, because
 // that is what the person who named it meant, and its first bytes when
 // the extension says nothing.
 func sniffType(path string, f io.ReadSeeker) string {
-	if t := mime.TypeByExtension(filepath.Ext(path)); t != "" {
-		return gdrive.MimeOnly(t)
+	if t := typeByName(path); t != "" {
+		return t
 	}
 	head := make([]byte, 512)
 	n, err := f.Read(head)

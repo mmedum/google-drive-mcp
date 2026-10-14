@@ -19,7 +19,7 @@ type RevisionsInput struct {
 type ManageRevisionInput struct {
 	File     string `json:"file" jsonschema:"the file the revision belongs to: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
 	Revision string `json:"revision" jsonschema:"the revision id, from list_revisions"`
-	Action   string `json:"action" jsonschema:"keep to pin it so Drive never discards it, or unkeep to let Drive discard it again"`
+	Action   string `json:"action" jsonschema:"keep to pin it so Drive never discards it, or unkeep to unpin the current revision so Drive may discard it once it is replaced. A pin on any other revision cannot be undone."`
 }
 
 // ChangesInput asks for a start token or for the changes since one.
@@ -77,12 +77,14 @@ func registerHistory(s *mcp.Server, d Deps) []string {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "manage_revision",
-		Description: "Pin a version of a file so Drive keeps it, or unpin one so Drive may discard it again. " +
-			"Without a pin Drive discards a version 30 days after it stops being current, so this is what to " +
-			"call before replacing content you may want back. Actions: " +
+		Description: "Pin a version of a file so Drive keeps it, or unpin the current version so Drive may " +
+			"discard it once it is replaced. Without a pin Drive discards a version 30 days after it stops being " +
+			"current, so this is what to call before replacing content you may want back. A pin on a version " +
+			"that is not current is for good: Drive refuses to unpin it, and only deleting the version removes " +
+			"the pin. A file keeps at most 200. Actions: " +
 			strings.Join(service.RevisionActions(), ", ") + ".",
-		// unkeep lets Drive purge an old revision for good, so the tool
-		// is destructive even though keep is not.
+		// unkeep lets Drive purge the current revision once it is
+		// replaced, so the tool is destructive even though keep is not.
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true), IdempotentHint: true, OpenWorldHint: new(false)},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageRevisionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ManageRevision(ctx, service.ManageRevisionInput{
