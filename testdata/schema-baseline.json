@@ -1,6 +1,6 @@
 {
   "server": "google-drive-mcp",
-  "version": "v2.1.0",
+  "version": "v2.2.0",
   "sdk": "v1.8.0",
   "tools": [
     {
@@ -589,7 +589,7 @@
             "type": "string"
           },
           "mime_type": {
-            "description": "what the inline content is, default text/plain",
+            "description": "what the inline content is. By default the name's extension decides when it names a kind of text, so notes.md is a Markdown file and data.csv is csv; otherwise text/plain.",
             "type": "string"
           },
           "name": {
@@ -4006,12 +4006,12 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Pin a version of a file so Drive keeps it, or unpin one so Drive may discard it again. Without a pin Drive discards a version 30 days after it stops being current, so this is what to call before replacing content you may want back. Actions: keep, unkeep.",
+      "description": "Pin a version of a file so Drive keeps it, or unpin the current version so Drive may discard it once it is replaced. Without a pin Drive discards a version 30 days after it stops being current, so this is what to call before replacing content you may want back. A pin on a version that is not current is for good: Drive refuses to unpin it, and only deleting the version removes the pin. A file keeps at most 200. Actions: keep, unkeep.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "keep to pin it so Drive never discards it, or unkeep to let Drive discard it again",
+            "description": "keep to pin it so Drive never discards it, or unkeep to unpin the current revision so Drive may discard it once it is replaced. A pin on any other revision cannot be undone.",
             "type": "string"
           },
           "file": {
@@ -6315,10 +6315,14 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Replace what is inside a file, keeping its id, its place, its sharing and every link and shortcut that points at it. Drive keeps the old version as a revision for about 30 days, and sooner drops it once a file has 100 revisions, unless keep_previous_revision pins it. A Google Doc, Sheet or Slides deck is refused: their content belongs to the Docs, Sheets and Slides APIs, which this server does not offer. To edit a text file, read_file it, change the text, and pass the whole new text back here.",
+      "description": "Replace what is inside a file, keeping its id, its place, its sharing and every link and shortcut that points at it. Drive keeps the old version as a revision for about 30 days, and sooner drops it once a file has 100 revisions, unless keep_previous_revision pins it. A Google Doc, Sheet or Slides deck is refused: their content belongs to the Docs, Sheets and Slides APIs, which this server does not offer. To edit a text file, read_file it, change the text, and pass the whole new text back here. A Markdown file keeps the comments made on it in Google Docs in its own text, so the new text has to keep them too: a replacement that would lose one is refused unless allow_comment_changes is set. Someone editing that file in Google Docs saves into the same text, and Drive cannot hold a write until they have, so read it again just before replacing it and pass expect_head_revision. A save that lands while the call runs is refused, and one that lands at the last moment is named in the result, which says the upload replaced it.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "allow_comment_changes": {
+            "description": "replace a Markdown file even though the new content drops, unpins or changes comments made on it in Google Docs. Without it that is refused, because those comments live only in the file's text and the replacement deletes them.",
+            "type": "boolean"
+          },
           "content": {
             "description": "the new text, written inline. Pass this or local_path.",
             "type": "string"
@@ -6332,7 +6336,7 @@
             "type": "string"
           },
           "keep_previous_revision": {
-            "description": "pin the version being replaced so Drive keeps it. Without this Drive may discard it after 30 days, or sooner once the file has 100 revisions.",
+            "description": "pin the version being replaced so Drive keeps it. Without this Drive may discard it after 30 days, or sooner once the file has 100 revisions. The pin is for good: Drive does not unpin a version that is no longer current, only deleting it removes the pin, and a file keeps at most 200.",
             "type": "boolean"
           },
           "local_path": {

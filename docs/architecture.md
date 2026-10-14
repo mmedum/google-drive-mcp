@@ -1,7 +1,11 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 8 complete (2026-10-09), released as v2.1.0
-(2026-10-09): the 2026-10-08 gap analysis, built, reviewed and run live —
+**Status:** phase 9 complete (2026-10-14), released as v2.2.0
+(2026-10-15): a Markdown file that Google Docs edits in place keeps the
+comments its editor writes into the text, a pin on an old revision is
+described as the permanent thing it is, and a save that lands during an
+upload is refused or named (§16). Phase 8, released as v2.1.0
+(2026-10-09), was the 2026-10-08 gap analysis, built, reviewed and run live —
 Office and OCR text, download restrictions and limited access, search
 under a folder, and a move or copy that asks before it widens who can
 reach a file (§16). v2.1.0 is verified from outside: checksums, the
@@ -1917,6 +1921,23 @@ Two reviews (correctness and quality) and three live runs, the last on
 the code released as v2.1.0, found and settled what the unit suite
 could not.
 Their verdicts are in §18, with what the next run still owes.
+
+**Phase 9 — Markdown files Google Docs edits in place (v2.2.0). Done
+2026-10-14.** Google Docs began opening a `.md` stored in Drive and
+editing it in place on 2026-10-05, writing the comments made there into
+the file's own text, where Drive's comments do not list them. This
+server treated such a file as a blob. `update_content` now refuses to
+lose those comments (`internal/mdcomment`, a bounded streaming scan),
+keeps the file's own type, looks at the head once more before
+uploading and names any save it replaced; the type registry names the
+extensions it reads or converts, so a `.md` is Markdown on every
+machine; `get_file`, `read_file` and `list_comments` say where the
+comments are. `manage_revision` and `keep_previous_revision` say a pin
+on an old revision is for good, which Drive enforces. The history leak
+scan, failing unnoticed since mid-September, reads attribution trailers
+as the header and is a step in closing a phase. Three live runs, the
+evals (16 of 17, the label task unreachable), and two rounds of
+`/simplify` and `/code-review high`; the verdicts are in §18.
 
 ## 17. Open decisions
 
