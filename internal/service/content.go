@@ -308,6 +308,8 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 			note: "the text of the slides, without their layout"}, nil
 	case gdrive.MimeScript:
 		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "JSON"}, nil
+	case mediatype.Markdown:
+		return readPlan{formatName: "text", note: markdownReadNote}, nil
 	case gdrive.MimeShortcut:
 		return readPlan{}, Errorf(ClassInvalid, "%s is a shortcut whose target could not be read", f.Name)
 	}
@@ -328,6 +330,15 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 	}
 	return readPlan{formatName: "text"}, nil
 }
+
+// markdownReadNote is what a read of a Markdown file has to say: Google
+// Docs edits it in place and keeps its comments in this text, which a
+// write that passes the whole text back has to carry (§7.2).
+const markdownReadNote = "a Markdown file, which Google Docs opens and edits in place. A comment made on it there " +
+	"is part of this text: a gdoc_comment_begin and a gdoc_comment_end marker around its passage, and an entry " +
+	"in the gdoc_comments block that ends the file. Keep both when you write the text back; update_content " +
+	"refuses new content that would lose one. A person editing it in Google Docs saves into this same text, " +
+	"so read it again just before replacing it."
 
 // notText refuses a file that has no text of its own, with the ways
 // forward this server offers in the mode it was started in: a PDF or an

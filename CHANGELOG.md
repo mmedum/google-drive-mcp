@@ -6,6 +6,21 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `update_content` takes `allow_comment_changes`. Google Docs now opens a Markdown file stored in Drive and edits it in place, and it keeps the comments made on it there in the file's own text: a marker on each side of the passage, and an entry in a `gdoc_comments` block that ends the file. Replacing such a file with content that drops an entry or a marker, changes an entry's status, or goes on after the block, or sending it as a type that is not Markdown, is refused with `[invalid]`, naming each comment it would lose, unless `allow_comment_changes` is set. A file stored as `text/x-markdown` is checked the same way. The file and the new content are each read as a stream to check them, and the result says the text still holds them. A file that cannot be read, or is too large to check, is refused too, and the refusal names `allow_comment_changes`.
+- `update_content` says when an upload changed the file's type, which Drive takes from the type the upload is sent as.
+- `read_file`, `get_file` and `list_comments` on a Markdown file say that the comments made on it in Google Docs are in its text, and that `list_comments` does not show them.
+
+### Changed
+
+- `create_file` without `mime_type` takes the type from the name when its extension is one this server knows as a kind of text: `notes.md` is a Markdown file and `rows.csv` is csv, the same on every machine. With `convert_to`, the name's type is used only when Google imports it as the kind asked for, so `rows.csv` made into a Doc still goes as plain text. Inline text was always plain text, so a `notes.md` written here was not a Markdown file.
+
+### Fixed
+
+- `update_content` from `local_path` without `mime_type` keeps the file's type, as its description said. It took the type from the local file's name instead, and Drive makes the uploaded type the file's: a Markdown file replaced from a `.txt` became a plain text file, and Drive ignores setting the type back.
+- `upload_file` gives a file the same type on every machine for the extensions of the types this server reads or converts, such as `.md`, `.csv`, `.docx` and `.pdf`. Go's own type table has no `.md`, and a machine's tables can override the entries it has, so the type depended on the machine, and one without a mapping for `.md` sent Markdown as plain text.
+
 ## [2.1.0] - 2026-10-09
 
 ### Added

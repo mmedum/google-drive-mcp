@@ -22,6 +22,21 @@ import (
 	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
 )
 
+// Markdown is a Markdown file's type, as RFC 7763 registers it. Google
+// Docs opens a file of this type in Drive and edits it in place, keeping
+// the comments made on it in the file's own text (architecture §18).
+const Markdown = "text/markdown"
+
+// IsMarkdown reports whether a file of this type may be one Google Docs
+// edits in place and keeps comments in: Markdown's registered type, or
+// the text/x-markdown older tables give a .md. Only the first is
+// measured (§18); the second is treated the same, because checking a
+// file costs one read and a missed check costs its comments.
+func IsMarkdown(mime string) bool {
+	mime = gdrive.MimeOnly(mime)
+	return mime == Markdown || mime == "text/x-markdown"
+}
+
 // Entry is everything known about one media type. Every field is
 // optional except the type itself: most types have a name and nothing
 // else, and the ones Google owns have the most to say.
@@ -47,6 +62,14 @@ type Entry struct {
 	// DownloadAs is the short export name a download uses when the caller
 	// names none. Only Google's own kinds have one.
 	DownloadAs string
+	// Extensions are the file name extensions, lowercase with the dot,
+	// that give a file this type wherever the server runs. Go's
+	// mime.TypeByExtension answers from the platform's own tables, which
+	// differ: Go's built-in table has no .md, and a system's tables may
+	// override the built-in entries, so the same name could be uploaded
+	// as two types on two machines (§18). Only the types this server
+	// reads or converts by type carry them.
+	Extensions []string
 	// OperationAs is the file extension a kind gets when its bytes come
 	// only through the long-running files.download. Non-empty says both
 	// things at once: that this kind cannot be exported at all — Drive
@@ -87,7 +110,7 @@ var entries = []Entry{
 	{Mime: gdrive.MimeFolder, Name: "folder", Group: "folder"},
 	{Mime: gdrive.MimeShortcut, Name: "shortcut", Group: "shortcut"},
 	{Mime: gdrive.MimeDocument, Name: "Google Doc", Group: "doc",
-		ReadAs: "text/markdown", DownloadAs: "docx"},
+		ReadAs: Markdown, DownloadAs: "docx"},
 	{Mime: gdrive.MimeSheet, Name: "Google Sheet", Group: "sheet",
 		ReadAs: "text/csv", DownloadAs: "xlsx"},
 	{Mime: gdrive.MimeSlides, Name: "Google Slides", Group: "slides",
@@ -107,50 +130,56 @@ var entries = []Entry{
 
 	// The formats a file arrives as, and the formats Drive exports to.
 	// Many types are both, which is the reason for one table.
-	{Mime: "application/pdf", Name: "PDF", Group: "pdf", Export: "pdf"},
+	{Mime: "application/pdf", Name: "PDF", Group: "pdf", Export: "pdf", Extensions: []string{".pdf"}},
 	{Mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		Name: "Word document", Group: "office", Export: "docx"},
+		Name: "Word document", Group: "office", Export: "docx", Extensions: []string{".docx"}},
 	{Mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		Name: "Excel spreadsheet", Group: "office", Export: "xlsx"},
+		Name: "Excel spreadsheet", Group: "office", Export: "xlsx", Extensions: []string{".xlsx"}},
 	{Mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-		Name: "PowerPoint presentation", Group: "office", Export: "pptx"},
-	{Mime: "application/msword", Name: "Word document (legacy)", Group: "office"},
-	{Mime: "application/vnd.ms-excel", Name: "Excel spreadsheet (legacy)", Group: "office"},
-	{Mime: "application/vnd.ms-powerpoint", Name: "PowerPoint presentation (legacy)", Group: "office"},
-	{Mime: "application/vnd.oasis.opendocument.text", Name: "OpenDocument text", Export: "odt"},
-	{Mime: "application/vnd.oasis.opendocument.spreadsheet", Name: "OpenDocument spreadsheet", Export: "ods"},
-	{Mime: "application/vnd.oasis.opendocument.presentation", Name: "OpenDocument presentation", Export: "odp"},
+		Name: "PowerPoint presentation", Group: "office", Export: "pptx", Extensions: []string{".pptx"}},
+	{Mime: "application/msword", Name: "Word document (legacy)", Group: "office", Extensions: []string{".doc"}},
+	{Mime: "application/vnd.ms-excel", Name: "Excel spreadsheet (legacy)", Group: "office", Extensions: []string{".xls"}},
+	{Mime: "application/vnd.ms-powerpoint", Name: "PowerPoint presentation (legacy)", Group: "office",
+		Extensions: []string{".ppt"}},
+	{Mime: "application/vnd.oasis.opendocument.text", Name: "OpenDocument text", Export: "odt",
+		Extensions: []string{".odt"}},
+	{Mime: "application/vnd.oasis.opendocument.spreadsheet", Name: "OpenDocument spreadsheet", Export: "ods",
+		Extensions: []string{".ods"}},
+	{Mime: "application/vnd.oasis.opendocument.presentation", Name: "OpenDocument presentation", Export: "odp",
+		Extensions: []string{".odp"}},
 	{Mime: "application/rtf", Name: "rich text file", Export: "rtf"},
 	{Mime: "application/zip", Name: "zip archive", Export: "zip"},
 	{Mime: "application/gzip", Name: "gzip archive"},
 	{Mime: "application/x-tar", Name: "tar archive"},
-	{Mime: "application/json", Name: "JSON file"},
+	{Mime: "application/json", Name: "JSON file", Extensions: []string{".json"}},
 	{Mime: "application/xml", Name: "XML file"},
 	{Mime: "application/epub+zip", Name: "EPUB book", Export: "epub"},
 	{Mime: "application/octet-stream", Name: "binary file"},
-	{Mime: "text/plain", Name: "text file", Export: "txt"},
-	{Mime: "text/csv", Name: "CSV file", Export: "csv"},
-	{Mime: "text/tab-separated-values", Name: "TSV file", Export: "tsv"},
-	{Mime: "text/markdown", Name: "Markdown file", Export: "md"},
-	{Mime: "text/html", Name: "HTML file", Export: "html"},
+	{Mime: "text/plain", Name: "text file", Export: "txt", Extensions: []string{".txt"}},
+	{Mime: "text/csv", Name: "CSV file", Export: "csv", Extensions: []string{".csv"}},
+	{Mime: "text/tab-separated-values", Name: "TSV file", Export: "tsv", Extensions: []string{".tsv"}},
+	{Mime: Markdown, Name: "Markdown file", Export: "md", Extensions: []string{".md", ".markdown"}},
+	{Mime: "text/html", Name: "HTML file", Export: "html", Extensions: []string{".html", ".htm"}},
 	{Mime: "text/xml", Name: "XML file"},
 	{Mime: "image/svg+xml", Name: "SVG image", Export: "svg"},
 	// These two carry no name of their own: "JPEG image" and "PNG image"
 	// are what the fallback already derives, and a second spelling of a
 	// name is a second thing to keep in step.
-	{Mime: "image/jpeg", Export: "jpg"},
-	{Mime: "image/png", Export: "png"},
+	{Mime: "image/jpeg", Export: "jpg", Extensions: []string{".jpg", ".jpeg"}},
+	{Mime: "image/png", Export: "png", Extensions: []string{".png"}},
 	// The export target of an Apps Script project, which is not a type
 	// anything is stored as.
 	{Mime: "application/vnd.google-apps.script+json", Export: "json"},
 }
 
-// byMime, byExport and groups are the indexes the lookups use. They are
-// built once from entries, so entries stays the only thing to edit.
+// byMime, byExport, byExtension and groups are the indexes the lookups
+// use. They are built once from entries, so entries stays the only thing
+// to edit.
 var (
-	byMime   = map[string]Entry{}
-	byExport = map[string]string{}
-	groups   = map[string][]string{}
+	byMime      = map[string]Entry{}
+	byExport    = map[string]string{}
+	byExtension = map[string]string{}
+	groups      = map[string][]string{}
 )
 
 func init() {
@@ -164,6 +193,13 @@ func init() {
 				byExport[e.Export] = e.Mime
 			}
 		}
+		for _, ext := range e.Extensions {
+			// The first entry wins here too; TestNoTwoTypesShareAnExtension
+			// catches a second.
+			if _, taken := byExtension[ext]; !taken {
+				byExtension[ext] = e.Mime
+			}
+		}
 		if e.Group != "" {
 			groups[e.Group] = append(groups[e.Group], e.Mime)
 		}
@@ -172,6 +208,11 @@ func init() {
 		slices.Sort(mimes)
 	}
 }
+
+// TypeByExtension is the type a file name's extension gives it here,
+// ignoring case, or "" for an extension the registry does not name. Ask
+// it before mime.TypeByExtension, whose answer depends on the machine.
+func TypeByExtension(ext string) string { return byExtension[strings.ToLower(ext)] }
 
 // Name is what the Drive interface calls this media type. Everything not
 // in the registry is described from the type itself rather than shown as
