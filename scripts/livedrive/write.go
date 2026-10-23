@@ -1419,7 +1419,10 @@ func (w *writeRun) moveSeveral(open, file string) {
 	switch {
 	case !strings.Contains(moved, "moved 1 of 3 items"):
 		w.problem("the move of several does not say one of three moved", errors.New("unexpected result"))
-	case !strings.Contains(moved, "anyone with the link"):
+	case !strings.Contains(moved, "inside this account's organization: anyone with the link"):
+		// The refusal's own clause: the file that moved is shared by link
+		// too, and its sharing line says "anyone with the link" whatever
+		// the refusal says.
 		w.problem("the item a move of several refused does not name who it would reach",
 			errors.New("unexpected result"))
 	}

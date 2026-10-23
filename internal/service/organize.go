@@ -197,7 +197,7 @@ func (s *Service) openFolderRefused(ctx context.Context, res *Resolved) error {
 		// before this with its own words.
 		return nil
 	}
-	return Errorf(r.class, "%s Nothing was changed on %s. %s", r.why, f.Name, p.instead(r.class))
+	return Errorf(r.class, "%s Nothing was changed on %s. %s", r.why, f.Name, r.advice)
 }
 
 // metaPatch works out the smallest patch that turns f into what the
@@ -566,7 +566,7 @@ func (s *Service) predictCopy(ctx context.Context, res *Resolved, inside []*gdri
 // refused. GDRIVE_SHARING=off is a setting of the server, so every part
 // is refused for the same reason.
 func (s *Service) copyRefused(ctx context.Context, parts []*movePlan) error {
-	var why []string
+	var why, advice []string
 	class, whole := "", false
 	for i, p := range parts {
 		r := s.widensPast(ctx, p)
@@ -580,6 +580,10 @@ func (s *Service) copyRefused(ctx context.Context, parts []*movePlan) error {
 				"more people than it does: %s.", p.res.File.Name, r.who))
 		}
 		class = r.class
+		// Each part refused says what to do about it, once.
+		if !slices.Contains(advice, r.advice) {
+			advice = append(advice, r.advice)
+		}
 	}
 	if len(why) == 0 {
 		return nil
@@ -589,7 +593,7 @@ func (s *Service) copyRefused(ctx context.Context, parts []*movePlan) error {
 	if class == ClassForbidden && !whole {
 		why[0] = "this server was started with GDRIVE_SHARING=off. " + why[0]
 	}
-	return Errorf(class, "%s Nothing was copied. %s", strings.Join(why, " "), parts[0].instead(class))
+	return Errorf(class, "%s Nothing was copied. %s", strings.Join(why, " "), strings.Join(advice, " "))
 }
 
 // sentence starts s with a capital letter, for a note that follows

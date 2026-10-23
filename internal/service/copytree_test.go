@@ -344,6 +344,27 @@ func TestATreeCopyIsRefusedForAPartItWouldOpenToADomain(t *testing.T) {
 	}
 }
 
+// A refusal's advice follows the part refused: an inner folder whose
+// reach cannot be read is told to read it again, not to share first.
+func TestATreeCopyAdvisesForThePartItRefused(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	sharedOutTree(fake)
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.HasSuffix(r.URL.Path, "/files/id-archive-fixture/permissions") {
+			return &drivetest.Failure{Status: http.StatusForbidden, Reason: "insufficientFilePermissions", Message: "no"}
+		}
+		return nil
+	}
+	_, err := svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture",
+		Recursive: true})
+	want := "[blocked] Inside it, Archive has limited access, and the copy of it would reach more people than it " +
+		"does: who can reach it could not be read. Nothing was copied. list_permissions shows whether who can " +
+		"reach each can be read now."
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v\nwant %s", err, want)
+	}
+}
+
 func TestSharingOffRefusesATreeCopyThatWidensAnyPart(t *testing.T) {
 	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
 	sharedOutTree(fake)

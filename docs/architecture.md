@@ -356,8 +356,14 @@ an argument rides along unseen once its tool is always allowed.
    included, when what it would add includes anyone with the link, a
    domain, or a person or group outside the organization, naming each
    by address, domain or link, and when who it would reach cannot be
-   read. A gain only to people and groups inside the organization is an
-   ordinary write, with before and after in the result. There is no
+   read. A domain counts whichever it is, the account's own included:
+   it is not a person or a group named one by one. A copy reaches only
+   who its destination reaches, so a copy of an original whose sharing
+   cannot be read is judged by everyone the copy would reach. When the
+   account's own address cannot be read, a person cannot be told inside
+   from outside, and the refusal says that rather than calling them
+   outside. A gain only to people and groups inside the organization is
+   an ordinary write, with before and after in the result. There is no
    "wide move" tool: sharing the item with them first, through the wide
    tool, leaves the move nothing to add. `GDRIVE_SHARING=off` still
    refuses any widening at all, `[forbidden]`, as before.

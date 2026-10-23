@@ -38,7 +38,7 @@ func main() {
 	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
 	only := flag.String("only", "", "run only these tasks, by name, comma-separated")
 	model := flag.String("model", "", "the model to run the tasks with; empty uses the CLI's default")
-	share := flag.String("share", "", "an address to share with, for the half of the sharing task that needs one Google will accept. Without it that task scores the call and says the grant went unchecked, because Drive refuses the reserved example.com domain.")
+	share := flag.String("share", "", "an address inside the signed-in account's organization to share with, for the half of the sharing task that needs one Google will accept; share_file grants nobody outside it. Without it that task scores the call and says the grant went unchecked, because example.com is outside every organization.")
 	keep := flag.Bool("keep", false, "leave the scratch folder behind, to look at what happened")
 	raw := flag.Bool("raw", false, "print results without redaction (never in a shared terminal)")
 	timeout := flag.Duration("timeout", 5*time.Minute, "how long one task may take")

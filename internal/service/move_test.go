@@ -97,7 +97,7 @@ func TestAMoveThatReachesAnyoneIsRefusedNamingThem(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	linkShared(fake)
 
-	want := "[blocked] the move would let more people reach it past the people inside this account's " +
+	want := "[blocked] the move would let more people reach it beyond the people and groups named inside this account's " +
 		"organization: anyone with the link can view. Nothing was moved. Share it with them first, with " +
 		"share_by_link or share_outside_organization when GDRIVE_ENABLE_DESTRUCTIVE=true, and the move then " +
 		"gains them nothing. One that gains only people inside the organization is allowed."
@@ -175,7 +175,7 @@ func TestMoveFileIntoASharedDriveIsRefusedForADomainAmongItsMembers(t *testing.T
 	fake.Grant("id-drive-marketing", &gdrive.Permission{Type: "domain", Role: "reader", Domain: "example.com"})
 
 	_, err := svc.MoveFile(t.Context(), service.MoveFileInput{File: "id-budget-fixture", To: "drive:Marketing"})
-	want := "[blocked] the move would let more people reach it past the people inside this account's " +
+	want := "[blocked] the move would let more people reach it beyond the people and groups named inside this account's " +
 		"organization: everyone at example.com can view. Nothing was moved."
 	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Fatalf("err = %v\nwant it to start %s", err, want)
@@ -193,7 +193,7 @@ func TestAMoveThatReachesSomeoneOutsideIsRefused(t *testing.T) {
 	fake.Grant("id-archive-fixture", &gdrive.Permission{Type: "group", Role: "writer", EmailAddress: "team@example.org"})
 
 	_, err := svc.MoveFile(t.Context(), service.MoveFileInput{File: "id-budget-fixture", To: "id-archive-fixture"})
-	want := "[blocked] the move would let more people reach it past the people inside this account's " +
+	want := "[blocked] the move would let more people reach it beyond the people and groups named inside this account's " +
 		"organization: group team@example.org can edit. Nothing was moved."
 	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Fatalf("err = %v\nwant it to start %s", err, want)
@@ -240,7 +240,7 @@ func TestAMoveWhoseReachCannotBeReadIsRefused(t *testing.T) {
 
 	_, err := svc.MoveFile(t.Context(), service.MoveFileInput{File: "id-budget-fixture", To: "id-archive-fixture"})
 	want := "[blocked] who can reach the destination could not be read, so whether the move would let more " +
-		"people reach it past the people inside this account's organization is unknown. Nothing was moved. " +
+		"people reach it beyond the people and groups named inside this account's organization is unknown. Nothing was moved. " +
 		"list_permissions shows whether who can reach each can be read now."
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v\nwant %s", err, want)
@@ -471,6 +471,30 @@ func TestMoveSeveralReadsTheAccountOnce(t *testing.T) {
 	}
 }
 
+// When this account's own address cannot be read, a colleague cannot be
+// told from an outsider. The move is refused, saying so, rather than
+// calling the colleague outside the organization.
+func TestAMoveIsRefusedWithoutCallingAColleagueOutsideWhenTheAccountCannotBeRead(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Grant("id-archive-fixture", &gdrive.Permission{Type: "user", Role: "writer", EmailAddress: "alice@example.com"})
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.HasSuffix(r.URL.Path, "/about") {
+			return &drivetest.Failure{Status: http.StatusInternalServerError, Message: "no"}
+		}
+		return nil
+	}
+	_, err := svc.MoveFile(t.Context(), service.MoveFileInput{File: "id-budget-fixture", To: "id-archive-fixture"})
+	want := "[blocked] this account's own address could not be read, so whether the move would let more people " +
+		"reach it beyond the people and groups named inside this account's organization cannot be told: " +
+		"alice@example.com can edit. Nothing was moved. get_account shows whether the address can be read now."
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v\nwant %s", err, want)
+	}
+	if fake.Files["id-budget-fixture"].Parent() != "id-2026-fixture" {
+		t.Error("the move was made")
+	}
+}
+
 // In a move of several, an item the destination would open to anyone
 // with the link is refused on its own, naming who, and the rest move.
 func TestMoveSeveralRefusesEachItemThatReachesPastTheOrganization(t *testing.T) {
@@ -488,7 +512,7 @@ func TestMoveSeveralRefusesEachItemThatReachesPastTheOrganization(t *testing.T) 
 	if got := outcomes(got); got != "refused moved" {
 		t.Errorf("outcomes = %q", got)
 	}
-	want := "the move would let more people reach it past the people inside this account's organization: " +
+	want := "the move would let more people reach it beyond the people and groups named inside this account's organization: " +
 		"anyone with the link can view. Share it with them first"
 	if r := got.JSON.Items[0]; !strings.HasPrefix(r.Reason, want) || !r.Widens || r.To != "" {
 		t.Errorf("refused item = %+v\nwant a reason starting %s", r, want)

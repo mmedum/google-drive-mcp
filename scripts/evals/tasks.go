@@ -325,11 +325,12 @@ func sharingTasks() []task {
 						out = append(out, "asked Google to send mail, which the task said not to")
 					}
 				}
-				// The end state is only checkable with an address Google
-				// will accept. example.com is IANA's reserved
-				// documentation domain and Drive refuses it, so without
-				// -share this task scores the trace — the role and the
-				// silence — and says which half it could not see.
+				// The end state is only checkable with an address inside
+				// the account's organization, which is all share_file
+				// grants. example.com, IANA's reserved documentation
+				// domain, is outside every one, so without -share this
+				// task scores the trace — the role and the silence — and
+				// says which half it could not see.
 				if !s.realAddress {
 					s.out.Say("   (no -share ADDRESS: the grant itself was not verified, only the call)")
 					return out
@@ -339,7 +340,8 @@ func sharingTasks() []task {
 					return append(out, err.Error())
 				}
 				if !strings.Contains(perms, s.get("address")) {
-					out = append(out, "the grant is not on the file:\n"+perms)
+					out = append(out, "the grant is not on the file (is -share inside this account's "+
+						"organization?):\n"+perms)
 				}
 				return out
 			},

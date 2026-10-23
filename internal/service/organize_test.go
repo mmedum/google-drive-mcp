@@ -130,7 +130,7 @@ func TestACopyThatReachesAnyoneIsRefused(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	linkShared(fake)
 	fake.SetContent("id-budget-fixture", "a,b\n")
-	want := "[blocked] the copy would reach more people than the original does past the people inside this " +
+	want := "[blocked] the copy would reach more people than the original does beyond the people and groups named inside this " +
 		"account's organization: anyone with the link can view. Nothing was copied. Share it with them first, " +
 		"with share_by_link or share_outside_organization when GDRIVE_ENABLE_DESTRUCTIVE=true, and the copy " +
 		"then gains them nothing. One that gains only people inside the organization is allowed."
@@ -250,7 +250,7 @@ func TestACopyBesideTheOriginalTakesOnItsFolder(t *testing.T) {
 	fake.Grant("id-projects-fixture", &gdrive.Permission{Type: "domain", Role: "reader", Domain: "example.com"})
 	fake.Files["id-archive-fixture"].InheritedPermissionsDisabled = true
 	_, err := svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-archive-fixture", Recursive: true})
-	want := "[blocked] the copy would reach more people than the original does past the people inside this " +
+	want := "[blocked] the copy would reach more people than the original does beyond the people and groups named inside this " +
 		"account's organization: everyone at example.com can view. Nothing was copied."
 	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("err = %v\nwant it to start %s", err, want)
@@ -294,9 +294,30 @@ func TestACopyOnlyThisAccountReachesGoesWhoeverReachesTheOriginal(t *testing.T) 
 	}
 	_, err := svc.CopyFile(ctx, service.CopyFileInput{File: "id-budget-fixture", To: "id-archive-fixture"})
 	want := "[blocked] who can reach it could not be read, so whether the copy would reach more people than the " +
-		"original does past the people inside this account's organization is unknown. Nothing was copied."
+		"original does beyond the people and groups named inside this account's organization is unknown. Nothing was copied."
 	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("err = %v\nwant it to start %s", err, want)
+	}
+}
+
+// A copy's reach is the destination's, so it is known when the
+// original's is not: a copy that reaches only people inside the
+// organization goes, as for a file this account may only view.
+func TestACopyOfAnUnreadableOriginalReachingOnlyPeopleInsideGoes(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Grant("id-archive-fixture", &gdrive.Permission{Type: "user", Role: "writer", EmailAddress: "alice@example.com"})
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.HasSuffix(r.URL.Path, "/files/id-budget-fixture/permissions") {
+			return &drivetest.Failure{Status: http.StatusForbidden, Reason: "insufficientFilePermissions", Message: "no"}
+		}
+		return nil
+	}
+	if _, err := svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-budget-fixture",
+		To: "id-archive-fixture"}); err != nil {
+		t.Fatalf("a copy reaching only a colleague was refused: %v", err)
+	}
+	if fake.Count(http.MethodPost) != 1 {
+		t.Error("the copy was not made")
 	}
 }
 

@@ -168,8 +168,8 @@ func TestTurningLimitedAccessOffToAnyoneIsRefused(t *testing.T) {
 	boardInArchive(fake, drivetest.LimitedAccess())
 
 	_, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{File: "id-board-fixture", LimitedAccess: new(false)})
-	want := "[blocked] turning its limited access off would let more people open it and everything inside it past " +
-		"the people inside this account's organization: anyone with the link can view. Nothing was changed on " +
+	want := "[blocked] turning its limited access off would let more people open it and everything inside it beyond " +
+		"the people and groups named inside this account's organization: anyone with the link can view. Nothing was changed on " +
 		"Board. Share it with them first, with share_by_link or share_outside_organization when " +
 		"GDRIVE_ENABLE_DESTRUCTIVE=true, and turning limited access off then gains them nothing. One that gains " +
 		"only people inside the organization is allowed."
