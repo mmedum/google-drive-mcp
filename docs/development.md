@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.27.2 or newer, and nothing else. `go.mod` names the exact point
+- Go 1.27.3 or newer, and nothing else. `go.mod` names the exact point
   release, so `GOTOOLCHAIN=auto` (the default) fetches it if your
   installed Go is older.
 - Optional, matching what CI pins: golangci-lint v2.14.0, govulncheck

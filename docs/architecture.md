@@ -1,27 +1,41 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 9 complete (2026-10-14), released as v2.2.0
-(2026-10-15): a Markdown file that Google Docs edits in place keeps the
-comments its editor writes into the text, a pin on an old revision is
-described as the permanent thing it is, and a save that lands during an
-upload is refused or named (§16). Phase 8, released as v2.1.0
-(2026-10-09), was the 2026-10-08 gap analysis, built, reviewed and run live —
-Office and OCR text, download restrictions and limited access, search
-under a folder, and a move or copy that asks before it widens who can
-reach a file (§16). v2.2.0 is verified from outside: all 13
-checksums, the cosign signature against the exact tag identity, the
-provenance attestation, which a tampered copy fails, the version in the
-binary, the registry publish, and `go install
-…/cmd/google-drive-mcp@latest` resolving v2.2.0.
-
-**Phase 10, unreleased, is 3.0.0 (§16).** The server asks the person
-nothing; the client approves each call. A link for anyone, a domain,
-someone outside the organization, a new owner and lifting a shared
-drive's domain restriction are each their own tool behind
+**Status:** phase 10 complete (2026-10-23), released as v3.0.0
+(2026-10-23), built with Go 1.27.3: the server asks the person nothing,
+and the client approves each call. A link for anyone, a domain, someone
+outside the organization, a new owner and lifting a shared drive's
+domain restriction are each their own tool behind
 `GDRIVE_ENABLE_DESTRUCTIVE`, approving is its own tool, and a move or a
 copy never reaches past the organization by omission (§4a). The Go
-module path is now `/v3`. It waits on a live run, and one decision on a
-probe (§17). A default build registers **33** tools; twelve more exist
+module path is now `/v3`. A live run with `-write -destructive` passed,
+its transcript read: 366 calls, every one as expected, and no question
+put to the person (§16). Verification from outside is owed after the
+tag. Phase 9, released as v2.2.0 (2026-10-15), keeps the comments Google
+Docs writes into a Markdown file's text, and is verified from outside:
+all 13 checksums, the cosign signature against the exact tag identity,
+the provenance attestation, which a tampered copy fails, the version in
+the binary, the registry publish, and `go install
+…/cmd/google-drive-mcp@latest` resolving v2.2.0.
+
+**What 3.0.0 does not close.**
+
+- **The `-share` half of the live run.** A real grant to a second
+  account, its expiry, role change and removal, the `shared_with`
+  search and `-blocked` were not driven: `share_file` ran only as
+  refusals, and `share_outside_organization` as a dry run. The real
+  ownership transfer also needs `-transfer`, to an account the
+  maintainer controls; this run drove its refusals and a dry run.
+- **The group probe** (§17): whether anything this server can read
+  shows that a group admits outside members. Until it runs, a grant to
+  such a group at the organization's domain is an ordinary `share_file`,
+  and the result says who a group reaches.
+- **The `members_only` probe** (§17): until it runs, turning
+  `members_only` off is an ordinary `manage_drive` switch.
+- **What the reviews left** (§17a), the security review's one low
+  finding among them: a personal account on an address at another mail
+  provider counts that provider's addresses as inside.
+
+A default build registers **33** tools; twelve more exist
 behind a flag — the nine `GDRIVE_ENABLE_DESTRUCTIVE` registers, plus
 `list_labels` and `manage_labels` under `GDRIVE_LABELS` and
 `list_activity` under `GDRIVE_ACTIVITY`. Those last three each need a
@@ -517,8 +531,9 @@ every later commit passes through the same gates (§12, §13). The
 repository is self-contained: it imports no code from any other project
 and refers to none.
 
-Toolchain, newest as of 2026-09-05: Go 1.27.2 (since 2026-10-09, for
-advisories govulncheck found reachable; `go 1.27.2` in go.mod, see §17), go-sdk v1.8.0 (since 2026-09, through Dependabot), golangci-lint v2.14.0 (since 2026-10-09: v2.13.2 cannot read the export data Go 1.27.2 writes), govulncheck v1.7.0, go-licenses
+Toolchain, newest as of 2026-09-05: Go 1.27.3 (since 2026-10-23, for
+GO-2026-6809 in `crypto/x509`, which govulncheck found reachable under
+1.27.2; `go 1.27.3` in go.mod, see §17), go-sdk v1.8.0 (since 2026-09, through Dependabot), golangci-lint v2.14.0 (since 2026-10-09: v2.13.2 cannot read the export data Go 1.27.2 writes), govulncheck v1.7.0, go-licenses
 v1.6.0, gitleaks v8.30.1, GoReleaser v2.18.
 
 ## 6. Addressing: file references and paths (`internal/ref`)
@@ -2001,8 +2016,8 @@ as the header and is a step in closing a phase. Three live runs, the
 evals (16 of 17, the label task unreachable), and two rounds of
 `/simplify` and `/code-review high`; the verdicts are in §18.
 
-**Phase 10 — the client decides (3.0.0). Built 2026-10-23, not yet run
-live.** The family standard moved per-call approval to the client on
+**Phase 10 — the client decides (v3.0.0). Done 2026-10-23.** The
+family standard moved per-call approval to the client on
 2026-10-22, and the maintainer approved this server's port on
 2026-10-23 (§4a, §14). The question to the person is gone, with
 `internal/tools/ask.go`, `internal/service/ask.go`, the question
@@ -2017,9 +2032,25 @@ its own tool. The link, domain and ownership shares became tools too,
 tools for every client, and `reply_comment` and `manage_labels` became
 destructive. The schema diff now lets through a break the
 `[Unreleased]` CHANGELOG declares under `**Breaking:**`, naming the
-tool. It waits for a live run with `-write -destructive -share`, its
-transcript read, before release; the ownership transfer also needs
-`-transfer` to an account the maintainer controls.
+tool.
+
+`/simplify`, `/code-review high` and a security review ran; what they
+left is in §17a. The live run with `-write -destructive`, its
+transcript read, made 366 calls, all as expected, and put no question
+to the person. It drove the new refusals in `share_file`, `move_file`,
+`copy_file`, `update_file`, `manage_drive` and `manage_approval`; the
+`confirm` and `[stale]` refusals of `share_by_link`,
+`transfer_ownership` and `lift_drive_restriction`; a dry run of each
+wide tool; a real link share; the shared drive's `domain_users_only`
+lifted and read back; and `approve_file`
+locking a file in a scratch shared drive while a `no_action` approval
+left one open. The runs before it found two things the tests could
+not: Drive drops a file's own link grant on a move into a folder open
+by link and back out, and Drive's reply ids carry a dot, which the
+driver's parser missed (§18). Still owed: the `-share` half, the real
+ownership transfer with `-transfer`, and the two probes in §17. Built
+with Go 1.27.3, which fixes GO-2026-6809 in `crypto/x509`; govulncheck
+found it reachable under 1.27.2.
 
 ## 17. Open decisions
 
@@ -2075,7 +2106,7 @@ here so they are not reopened.
 4. **Sheets in `read_file`.** The first sheet as csv, and the output says
    so. Per-sheet and per-range reads are a Sheets API feature and belong
    to a server built on that API; this one does not add the scope.
-5. **Go directive.** `go 1.27.2`, the current point release.
+5. **Go directive.** `go 1.27.3`, the current point release.
    `GOTOOLCHAIN=auto` fetches it where an older 1.27 is installed.
 
 ## 17b. Deviations from the shared Go MCP server standard
@@ -2094,6 +2125,35 @@ difference is a decision rather than a drift.
 | Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Fifteen classes, including `ambiguous`, `blocked`, `rate_limited`, `ambiguous_outcome`, `pending` and `stale` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organization's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 4 added `pending`: work Google has begun and not finished, which is a long-running download whose operation is still running. It is not `server`, which says something went wrong, and not `rate_limited`, which says you asked too often — nothing is wrong and nothing needs backing off from, and the same call in a minute picks up the finished render. A model told `server` would report a failure that did not happen.)* *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* *(Phase 10: `blocked` also covers this server's own refusal of a wide form in an ordinary tool — a share, a move or a copy past the organization, an outside access request, `domain_users_only` off — each naming the tool that does it behind the destructive flag. Both meanings say "not this way, and no argument here changes that": the organization's policy, or this server's rule.)* *(Phase 10 added `stale`: a wide share's `file_name` or `lift_drive_restriction`'s `drive_name` is not the name Drive has. It is the word the sibling servers use for a witness that does not match; `exists`, which `expect_head_revision` has used since phase 4, says something is already there.)* |
 
 ## 17a. Deferred cleanups
+
+Raised by the phase 10 reviews (2026-10-23), and left for the
+maintainer:
+
+- **A personal account on an address at another mail provider** (the
+  security review's one low finding, 7 of 10). Google also makes
+  personal accounts on existing addresses, and `consumerDomains` knows
+  only Gmail's. For such an account every address at the same provider
+  counts as inside, so accepting an access request, a widening move or
+  copy, and turning limited access off go through for them, where 2.2.0
+  asked when the client could. §4a and the README say a personal
+  account counts every address as outside. Deciding "personal" from
+  `about.get`, by `canCreateDrives: false`, would close it and
+  over-refuse a Workspace tenant without shared-drive creation, the safe
+  direction; an operator setting naming the organization's domain is
+  the other way. Either wants a test on all three paths.
+- **Narrowing a wide grant**, or giving it an expiry, takes the wide
+  tool and so the destructive flag; a default server can only remove
+  one with `unshare_file`.
+- **The schema diff exempts a tool wholesale**: a tool named on a
+  `**Breaking:**` line lets every break of that tool through.
+- **`transfer_ownership` carries no mark**, though it cannot be undone.
+  It is flag-gated and needs `confirm`, as decided.
+- **The simplify pass's design suggestions**: one per-tool descriptor in
+  `share()`, and one rule for reaching past the organization shared by
+  `shareToolTakes`, `wideGrants` and access requests; the gated tool
+  lists derived from registration rather than typed out in the server
+  tests, the evals and the staleness gate; one helper for "X does it,
+  when GDRIVE_ENABLE_DESTRUCTIVE=true".
 
 Raised by the phase 7 reviews (2026-09-30), and how phase 10 left them:
 
@@ -2881,9 +2941,9 @@ for the next run:
 
 **Phase 10 additions (2026-10-23).** The family standard's re-check of
 2026-10-23 read every source below again, with the quotes, against the
-110 most-used MCP servers and the clients that run them. Nothing here
-was probed live from this repository; each row says what its verdict
-rests on.
+110 most-used MCP servers and the clients that run them. Those rows
+were not probed live from this repository; each says what its verdict
+rests on. The last row was found by the live runs of the same day.
 
 | Convention | Verdict | Effect |
 |---|---|---|
@@ -2892,3 +2952,4 @@ rests on.
 | A remembered approval can be scoped to an argument value, so a wide form may be an argument of an ordinary tool (what `allow_anyone`, `allow_domain`, `transfer_ownership` and `approve` in `manage_approval` assumed) | **Refuted.** claude.ai, Codex, VS Code and Copilot remember "always allow" per tool or per server; Claude Code's permission rules match an MCP argument only in a command-line deny rule. Argument-level control exists only where an operator writes it (hooks; Gemini CLI's policy rules). Notion, Slack, Canva, Figma, Asana and Airtable's servers offer no sharing tool; Box's sharing tools are off until an admin enables them | Each wide form is its own tool, behind the destructive flag (§4a) |
 | `requiresUserInteraction` is one more prompt a client may show | **Refined.** Claude Code, v2.1.199 or later, prompts on every call of a marked tool in every interactive mode, whatever the allow rules; from v2.1.246 it offers no "don't ask again"; where no prompt can be drawn (`dontAsk`, `-p` without a permission host) it denies the call, and only an Agent SDK host's `canUseTool` can approve it. Anthropic documents it for "tools whose permission prompt is itself the point". GitLab's own server calls the same mark "advisory" (MR !252995: "Only Claude Code 2.1.199 and later honour the annotation"). No other client reads it | The mark on four tools whose prompt is the point, for every client, and the destructive flag still the control (§4a) |
 | Turning a shared drive's `members_only` off restores access already granted to non-members | **Unverified.** The drives reference describes `driveMembersOnly` as restricting access to the drive's items to its members, and says nothing of what happens to a grant made to a non-member while it was on | `members_only` off stays an ordinary `manage_drive` switch until the probe §17 records |
+| A comment or reply id uses only letters, digits, `-` and `_` (what the live driver's listing parser assumed) | **Refuted live 2026-10-23.** Every reply id a run listed carried a dot, so the parser read none of them, and the run sent neither `reply_comment`'s nor `delete_comment`'s `reply` | The driver's patterns accept the dot. The server passes a reply id to Drive as given; the next run edited three replies and deleted one by such ids |

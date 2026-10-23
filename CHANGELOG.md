@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-23
+
 ### Added
 
 - `share_by_link`, `share_outside_organization`, `transfer_ownership` and `lift_drive_restriction`, registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true` (and `GDRIVE_SHARING=all`), each needing `confirm: true`: a link for anyone or a whole domain, a person or group outside the organization, a new owner, and turning a shared drive's `domain_users_only` off. Each also needs the item's name, `file_name` or `drive_name`, so the call you approve names what it opens up; a name that is not the one Drive has is refused with the new error class `[stale]`, dry run included.
@@ -26,6 +28,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `reply_comment` and `manage_labels` are marked destructive, since an edit replaces a comment's text and a set replaces a label field's value, so a client that prompts by `destructiveHint` prompts for them.
 - The schema diff lets through a break that a `**Breaking:**` entry under `[Unreleased]` names, with its tool in backticks; recording the baseline still takes a new major version.
 - `update_content` on a Markdown file reads only the revision ids from the version history when it looks for a save its upload replaced. It asked for every field of every revision, which on a file with a long history is most of the response for nothing.
+
+### Security
+
+- Built with Go 1.27.3, which fixes GO-2026-6809 in `crypto/x509`, which `govulncheck` found reachable: intermediate certificates known to be compromised are no longer trusted.
 
 ## [2.2.0] - 2026-10-15
 
@@ -2152,6 +2158,8 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[3.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.2.0...v3.0.0
+[2.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/mmedum/google-drive-mcp/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v1.3.0...v2.0.0
