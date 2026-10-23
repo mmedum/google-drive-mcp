@@ -163,6 +163,13 @@ func rendered() map[string]string {
 			SharingBefore: pending, SharingAfter: pending + "; anyone with the link can view"},
 		{File: "/Team/Notes", Outcome: render.MovedRefused, Reason: "[not_found] nothing called Notes in Team"},
 	}, false, "")
+	// A move, a copy or a folder opened past the organization is refused
+	// naming who, and Drive gives a person and a group a display name.
+	out["wide reach"] = render.WideReach([]model.Grant{
+		{Type: "user", Role: "writer", Who: their, Name: other},
+		{Type: "group", Role: "reader", Who: "team@corp.example.net", Name: me},
+		{Type: "anyone", Role: "reader"},
+	})
 	return out
 }
 
@@ -199,6 +206,7 @@ var noPersonToday = map[string]string{
 	"changes":         "a change says which file changed and when, not who changed it: the feed's own File carries a last modifier, and this server does not print it",
 	"file text":       "the text of a file, headed by its name and size — the people who touched it are on the file card, not here",
 	"download":        "where the bytes went and whether the checksum matched; no people",
+	"wide reach":      "a refusal names a person or a group by address, which share_outside_organization takes, and drops the display name Drive attached",
 }
 
 // TestTheFixturesReallyCarrySomethingToHide is the floor. Three of these
@@ -375,6 +383,7 @@ var renderedKey = map[string]string{
 	"FileText":       "file text",
 	"Download":       "download",
 	"MoveMany":       "move several",
+	"WideReach":      "wide reach",
 }
 
 // notRenderers are the exported string functions in internal/render that

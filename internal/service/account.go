@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 	"github.com/mmedum/google-drive-mcp/v3/internal/render"
@@ -27,8 +26,7 @@ func (s *Service) GetAccount(ctx context.Context) (string, error) {
 		Tools:       s.RegisteredTools(),
 	}
 	if about.User != nil {
-		_, domain, _ := strings.Cut(strings.ToLower(about.User.EmailAddress), "@")
-		o.Personal = consumerDomains[domain]
+		o.Personal = consumerDomains[domainOf(about.User.EmailAddress)]
 	}
 	if o.Sharing == "" {
 		o.Sharing = string(config.SharingAll)

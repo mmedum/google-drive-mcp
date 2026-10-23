@@ -1,6 +1,8 @@
 package service
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,18 +39,16 @@ func TestAPersonalAccountSharesWithNobodyThroughShareFile(t *testing.T) {
 	t.Cleanup(fake.Close)
 	drivetest.SmallTree(fake)
 	s := New(drivetest.Client(t, fake), Options{})
-	for domain := range consumerDomains {
-		fake.About.User.EmailAddress = "person@" + domain
-		_, err := s.ShareFile(t.Context(), ShareFileInput{File: "id-budget-fixture", Principal: "someone@" + domain,
-			Role: "reader"})
-		want := "[blocked] someone@" + domain + " is outside this account's organization, and share_file grants only " +
-			"people and groups inside it. Nothing was changed. share_outside_organization does it, when " +
-			"GDRIVE_ENABLE_DESTRUCTIVE=true. This is a personal Google account, which has no organization, so " +
-			"every address is outside it."
-		if err == nil || err.Error() != want {
-			t.Errorf("%s: err = %v\nwant %s", domain, err, want)
-		}
-		break
+	domain := aPersonalDomain(t)
+	fake.About.User.EmailAddress = "person@" + domain
+	_, err := s.ShareFile(t.Context(), ShareFileInput{File: "id-budget-fixture", Principal: "someone@" + domain,
+		Role: "reader"})
+	want := "[blocked] someone@" + domain + " is outside this account's organization, and share_file grants only " +
+		"people and groups inside it. Nothing was changed. share_outside_organization does it, when " +
+		"GDRIVE_ENABLE_DESTRUCTIVE=true. This is a personal Google account, which has no organization, so " +
+		"every address is outside it."
+	if err == nil || err.Error() != want {
+		t.Errorf("err = %v\nwant %s", err, want)
 	}
 	if len(fake.Permissions["id-budget-fixture"]) != 0 {
 		t.Error("the refusal still wrote a permission")
@@ -61,10 +61,7 @@ func TestGetAccountSaysAPersonalAccountHasNoOrganization(t *testing.T) {
 	fake := drivetest.New()
 	t.Cleanup(fake.Close)
 	s := New(drivetest.Client(t, fake), Options{})
-	for domain := range consumerDomains {
-		fake.About.User.EmailAddress = "person@" + domain
-		break
-	}
+	fake.About.User.EmailAddress = "person@" + aPersonalDomain(t)
 	out, err := s.GetAccount(t.Context())
 	if err != nil {
 		t.Fatalf("GetAccount: %v", err)
@@ -74,4 +71,15 @@ func TestGetAccountSaysAPersonalAccountHasNoOrganization(t *testing.T) {
 	if !strings.Contains(out, want) {
 		t.Errorf("get_account does not say %q:\n%s", want, out)
 	}
+}
+
+// aPersonalDomain is one of consumerDomains, the same one on every run.
+// It is taken from the list so that no real address is written here.
+func aPersonalDomain(t *testing.T) string {
+	t.Helper()
+	domains := slices.Sorted(maps.Keys(consumerDomains))
+	if len(domains) == 0 {
+		t.Fatal("no personal domains listed")
+	}
+	return domains[0]
 }

@@ -192,10 +192,8 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 // template, no **Breaking:** line in the CHANGELOG's [Unreleased]
 // section names in backticks.
 func undeclaredBreaks(breaking []string, changelog string) []string {
-	_, unreleased, _ := strings.Cut(changelog, "## [Unreleased]")
-	unreleased, _, _ = strings.Cut(unreleased, "\n## [")
 	named := map[string]bool{}
-	for line := range strings.Lines(unreleased) {
+	for line := range strings.Lines(sectionFor(changelog, "Unreleased")) {
 		if !strings.Contains(line, "**Breaking:**") {
 			continue
 		}

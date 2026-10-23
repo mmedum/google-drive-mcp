@@ -182,7 +182,7 @@ func downloadRank(level string) int { return slices.Index(model.DownloadLevels()
 // above would give it, so it is worked out by the same prediction.
 func (s *Service) openFolderRefused(ctx context.Context, res *Resolved) error {
 	f := res.File
-	p := &movePlan{res: res, target: &gdrive.File{ID: f.Parent(), MimeType: gdrive.MimeFolder}}
+	p := &movePlan{res: res, target: &gdrive.File{ID: f.Parent(), MimeType: gdrive.MimeFolder}, opening: true}
 	above := reach{}
 	if parent, err := s.Resolve(ctx, f.Parent(), ResolveOptions{FollowShortcut: false}); f.Parent() != "" && err == nil {
 		p.target, above = parent.File, s.reachOf(ctx, parent.File)
@@ -191,15 +191,13 @@ func (s *Service) openFolderRefused(ctx context.Context, res *Resolved) error {
 	if p.unread == "the destination" {
 		p.unread = "the folder above it"
 	}
-	class, why := s.widensPast(ctx, p)
-	if why == "" || class == ClassForbidden {
-		// GDRIVE_SHARING=off refused it before this, with its own words.
+	r := s.widensPast(ctx, p)
+	if r.class != ClassBlocked {
+		// Nothing refuses it, or GDRIVE_SHARING=off, which refused it
+		// before this with its own words.
 		return nil
 	}
-	why = strings.Replace(why, "the move would let more people reach it", "turning its limited access off "+
-		"would let more people open it and everything inside it", 1)
-	return Errorf(class, "%s Nothing was changed on %s. %s", why, f.Name,
-		insteadOfWide("turning limited access off", p.unread != ""))
+	return Errorf(r.class, "%s Nothing was changed on %s. %s", r.why, f.Name, p.instead(r.class))
 }
 
 // metaPatch works out the smallest patch that turns f into what the
@@ -569,24 +567,26 @@ func (s *Service) predictCopy(ctx context.Context, res *Resolved, inside []*gdri
 // is refused for the same reason.
 func (s *Service) copyRefused(ctx context.Context, parts []*movePlan) error {
 	var why []string
-	class := ""
+	class, whole := "", false
 	for i, p := range parts {
-		c, w := s.widensPast(ctx, p)
+		r := s.widensPast(ctx, p)
 		switch {
-		case w == "":
+		case r.class == "":
 			continue
 		case i == 0:
-			why = append(why, w)
+			why, whole = append(why, r.why), true
 		default:
 			why = append(why, fmt.Sprintf("Inside it, %s has limited access, and the copy of it would reach "+
-				"more people than it does: %s.", p.res.File.Name, s.copyReach(ctx, p, c)))
+				"more people than it does: %s.", p.res.File.Name, r.who))
 		}
-		class = c
+		class = r.class
 	}
 	if len(why) == 0 {
 		return nil
 	}
-	if class == ClassForbidden && !strings.HasPrefix(why[0], "this server") {
+	// The original's own refusal names the setting; an inner part's does
+	// not, so it is said once in front.
+	if class == ClassForbidden && !whole {
 		why[0] = "this server was started with GDRIVE_SHARING=off. " + why[0]
 	}
 	return Errorf(class, "%s Nothing was copied. %s", strings.Join(why, " "), parts[0].instead(class))
@@ -600,18 +600,6 @@ func sentence(s string) string {
 	}
 	r, n := utf8.DecodeRuneInString(s)
 	return string(unicode.ToUpper(r)) + s[n:]
-}
-
-// copyReach is who one part of a copy would newly reach: everyone, or,
-// for a refusal of reaching past the organization, who past it.
-func (s *Service) copyReach(ctx context.Context, p *movePlan, class string) string {
-	switch {
-	case p.unread != "":
-		return "who can reach " + p.unread + " could not be read"
-	case class == ClassBlocked:
-		return wideWords(s.wideGrants(ctx, p.gained))
-	}
-	return render.Reach(p.gained)
 }
 
 // copyResult reports a copy, or what one would do, with who can reach

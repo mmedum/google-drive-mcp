@@ -238,7 +238,7 @@ func SharingOf(shared bool, grants []Grant) Sharing {
 }
 
 // Roles is what the people a sharing reaches may do, by count, in the
-// words a summary and a question both use: "2 can edit", "1 can view".
+// words a summary and a refusal both use: "2 can edit", "1 can view".
 func (s Sharing) Roles() []string {
 	var who []string
 	if s.Editors > 0 {

@@ -78,8 +78,8 @@ func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, erro
 			Note: "it is already in " + target.Name + "."}), nil
 	}
 	s.predictMove(ctx, p, s.reachOf(ctx, target))
-	if class, why := s.widensPast(ctx, p); why != "" {
-		return nil, Errorf(class, "%s Nothing was moved. %s", why, p.instead(class))
+	if r := s.widensPast(ctx, p); r.class != "" {
+		return nil, Errorf(r.class, "%s Nothing was moved. %s", r.why, p.instead(r.class))
 	}
 	if in.DryRun {
 		return s.moveResult(ctx, res, p, p.after, true), nil
@@ -144,8 +144,8 @@ func (s *Service) moveMany(ctx context.Context, in MoveFileInput) (*Result, erro
 		}
 		s.predictMove(ctx, p, *dest)
 		it.json.From, it.json.Widens, it.json.SharingBefore = p.oldPath, p.widens(), p.before.Summary()
-		if class, why := s.widensPast(ctx, p); why != "" {
-			it.set(render.MovedRefused, why+" "+p.instead(class))
+		if r := s.widensPast(ctx, p); r.class != "" {
+			it.set(render.MovedRefused, r.why+" "+p.instead(r.class))
 			continue
 		}
 		it.plan = p
@@ -269,6 +269,9 @@ type movePlan struct {
 	// copy marks a copy: the grants made on the original stay with the
 	// original, so the copy reaches only who reaches the destination.
 	copy bool
+	// opening marks a folder's limited access turned off, which reaches
+	// who the folder above reaches, as a move into it would.
+	opening bool
 	// from is the folder it leaves. here says it is already in target,
 	// and nothing else is filled in.
 	from string
@@ -289,9 +292,16 @@ type movePlan struct {
 // or cannot tell: a refusal too many rather than one too few.
 func (p *movePlan) widens() bool { return p.unread != "" || len(p.gained) > 0 }
 
-// widensPast says why the move or the copy is refused for who it would
-// let reach the item, with the class to refuse it as, or is empty when
-// nothing refuses it.
+// pastReach is widensPast's verdict on a move, a copy or a folder
+// opened: the class to refuse it as, empty when nothing refuses it; the
+// refusal's sentence; and the part of it that says who it would newly
+// reach, or that who could not be read.
+type pastReach struct {
+	class, why, who string
+}
+
+// widensPast says why the move, the copy or the opening is refused for
+// who it would let reach the item, or nothing when it is not.
 //
 // A move, a copy, and a folder's limited access turned off all reach
 // who the destination reaches, and that is nowhere in the call: never
@@ -303,65 +313,49 @@ func (p *movePlan) widens() bool { return p.unread != "" || len(p.gained) > 0 }
 // gain only to people and groups inside the organization is an ordinary
 // write, with before and after in the result. GDRIVE_SHARING=off keeps
 // access from being widened at all, so there any gain is refused.
-func (s *Service) widensPast(ctx context.Context, p *movePlan) (class, why string) {
+func (s *Service) widensPast(ctx context.Context, p *movePlan) pastReach {
+	if !p.widens() {
+		return pastReach{}
+	}
+	unread := "who can reach " + p.unread + " could not be read"
 	switch {
-	case !p.widens():
-		return "", ""
 	case s.opts.Sharing == config.SharingOff && p.unread != "":
-		return ClassForbidden, "this server was started with GDRIVE_SHARING=off, and who can reach " + p.unread +
-			" could not be read, so " + p.may() + "."
+		return pastReach{ClassForbidden, "this server was started with GDRIVE_SHARING=off, and " + unread +
+			", so " + p.may() + ".", unread}
 	case s.opts.Sharing == config.SharingOff:
-		return ClassForbidden, "this server was started with GDRIVE_SHARING=off, and " + p.would() +
-			", or give them more access: " + render.Reach(p.gained) + "."
+		who := render.Reach(p.gained)
+		return pastReach{ClassForbidden, "this server was started with GDRIVE_SHARING=off, and " + p.would() +
+			", or give them more access: " + who + ".", who}
 	case p.unread != "":
-		return ClassBlocked, "who can reach " + p.unread + " could not be read, so whether " + p.would() +
-			" past the people inside this account's organization is unknown."
+		return pastReach{ClassBlocked, unread + ", so whether " + p.would() + " past the people inside this " +
+			"account's organization is unknown.", unread}
 	}
 	wide := s.wideGrants(ctx, p.gained)
 	if len(wide) == 0 {
-		return "", ""
+		return pastReach{}
 	}
-	return ClassBlocked, p.would() + " past the people inside this account's organization: " + wideWords(wide) + "."
+	who := render.WideReach(wide)
+	return pastReach{ClassBlocked, p.would() + " past the people inside this account's organization: " + who + ".", who}
 }
 
-// wideWords names each grant and what it may do. A person or a group is
-// named by address, which is what share_outside_organization takes, and
-// never by a display name Drive attached.
-func wideWords(grants []model.Grant) string {
-	words := make([]string, 0, len(grants))
-	for _, g := range grants {
-		who := g.Label()
-		switch {
-		case g.Type == principalUser && g.Who != "":
-			who = g.Who
-		case g.Type == principalGroup && g.Who != "":
-			who = "group " + g.Who
-		}
-		words = append(words, who+" "+g.Words())
-	}
-	return strings.Join(words, "; ")
-}
-
-// instead is what to do about a move or a copy widensPast refused.
+// instead is what to do about a move, a copy or an opening widensPast
+// refused. For a refusal of reaching past the organization: share with
+// them first, explicitly, through the tool that does that, and what was
+// refused then gains them nothing.
 func (p *movePlan) instead(class string) string {
 	what := "the move"
-	if p.copy {
+	switch {
+	case p.copy:
 		what = "the copy"
+	case p.opening:
+		what = "turning limited access off"
 	}
 	switch {
 	case class == ClassForbidden && p.copy:
 		return "A copy into a folder that nobody new can reach is still allowed."
 	case class == ClassForbidden:
 		return "Moving it where nobody new can reach it is still allowed."
-	}
-	return insteadOfWide(what, p.unread != "")
-}
-
-// insteadOfWide is what to do about a write refused for reaching past
-// the organization: share with them first, explicitly, through the tool
-// that does that, and what refused then gains them nothing.
-func insteadOfWide(what string, unread bool) string {
-	if unread {
+	case p.unread != "":
 		return "list_permissions shows whether who can reach each can be read now."
 	}
 	return "Share it with them first, with share_by_link or share_outside_organization when " + config.EnvPrefix +
@@ -374,12 +368,18 @@ func insteadOfWide(what string, unread bool) string {
 // group outside it (outside).
 func (s *Service) wideGrants(ctx context.Context, grants []model.Grant) []model.Grant {
 	var out []model.Grant
+	// The account is read once, when a person or a group needs it: a
+	// read that failed is not tried again for every grant.
+	mine, read := "", false
 	for _, g := range grants {
 		switch g.Type {
 		case principalAnyone, principalDomain:
 			out = append(out, g)
 		case principalUser, principalGroup:
-			if s.outside(ctx, g.Who) {
+			if !read {
+				mine, read = domainOf(s.account(ctx)), true
+			}
+			if outsideOf(mine, g.Who) {
 				out = append(out, g)
 			}
 		default:
@@ -391,19 +391,25 @@ func (s *Service) wideGrants(ctx context.Context, grants []model.Grant) []model.
 	return out
 }
 
-// would says what the move or the copy would do to who can reach the
-// content.
+// would says what the move, the copy or the opening would do to who can
+// reach the content.
 func (p *movePlan) would() string {
-	if p.copy {
+	switch {
+	case p.copy:
 		return "the copy would reach more people than the original does"
+	case p.opening:
+		return "turning its limited access off would let more people open it and everything inside it"
 	}
 	return "the move would let more people reach it"
 }
 
 // may is would, when whether it would is unknown.
 func (p *movePlan) may() string {
-	if p.copy {
+	switch {
+	case p.copy:
 		return "the copy may reach more people than the original does"
+	case p.opening:
+		return "turning its limited access off may let more people open it and everything inside it"
 	}
 	return "the move may let more people reach it"
 }

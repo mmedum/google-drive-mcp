@@ -349,7 +349,7 @@ func (w witness) holds(v string, names ...string) error {
 // and a drive: reference use.
 func knownAs(res *Resolved) []string {
 	f := res.File
-	if f.DriveID != "" && f.ID == f.DriveID && res.DriveName != "" && res.DriveName != f.Name {
+	if f.DriveID != "" && f.ID == f.DriveID {
 		return []string{f.Name, res.DriveName}
 	}
 	return []string{f.Name}
@@ -422,8 +422,7 @@ func (s *Service) shareToolTakes(ctx context.Context, tool string, p principal, 
 // personalNote says why every address is outside for a personal Google
 // account, which otherwise reads as a refusal of a colleague.
 func (s *Service) personalNote(ctx context.Context) string {
-	_, mine, _ := strings.Cut(strings.ToLower(s.account(ctx)), "@")
-	if !consumerDomains[mine] {
+	if !consumerDomains[domainOf(s.account(ctx))] {
 		return ""
 	}
 	return " This is a personal Google account, which has no organization, so every address is outside it."
@@ -1102,10 +1101,23 @@ var consumerDomains = map[string]bool{"gmail.com": true, "googlemail.com": true}
 // organization: each refuses a share too many in the ordinary tools
 // rather than one too few.
 func (s *Service) outside(ctx context.Context, address string) bool {
-	_, theirs, ok := strings.Cut(strings.ToLower(strings.TrimSpace(address)), "@")
-	if !ok || consumerDomains[theirs] {
+	if theirs := domainOf(address); theirs == "" || consumerDomains[theirs] {
+		// Outside whoever is signed in, so the account is not read.
 		return true
 	}
-	_, mine, _ := strings.Cut(strings.ToLower(s.account(ctx)), "@")
-	return mine == "" || mine != theirs
+	return outsideOf(domainOf(s.account(ctx)), address)
+}
+
+// outsideOf is outside, with the account's own domain, mine, already
+// read: empty when it could not be.
+func outsideOf(mine, address string) bool {
+	theirs := domainOf(address)
+	return theirs == "" || consumerDomains[theirs] || mine == "" || mine != theirs
+}
+
+// domainOf is an address's domain, in lower case, or empty when it has
+// none.
+func domainOf(address string) string {
+	_, domain, _ := strings.Cut(strings.ToLower(strings.TrimSpace(address)), "@")
+	return domain
 }

@@ -1260,8 +1260,9 @@ func toolCalls() []toolCall {
 }
 
 // driveEveryTool makes every call toolArgs holds, on a server with the
-// destructive tools registered, and returns how many it made.
-func driveEveryTool(t *testing.T, cs *mcp.ClientSession) int {
+// destructive tools registered, and fails when the table has shrunk
+// below the surface it is meant to cover.
+func driveEveryTool(t *testing.T, cs *mcp.ClientSession) {
 	t.Helper()
 	n := 0
 	for _, c := range toolCalls() {
@@ -1271,7 +1272,9 @@ func driveEveryTool(t *testing.T, cs *mcp.ClientSession) int {
 		}
 		n++
 	}
-	return n
+	if n < 85 {
+		t.Fatalf("made %d calls; the table no longer covers the surface", n)
+	}
 }
 
 // The server asks the person nothing: per-call approval is the client's
@@ -1287,9 +1290,7 @@ func TestNoToolAsksThePerson(t *testing.T) {
 		if got := cs.InitializeResult().ProtocolVersion; got != protocol {
 			t.Fatalf("negotiated %s, want %s", got, protocol)
 		}
-		if n := driveEveryTool(t, cs); n < 85 {
-			t.Fatalf("%s: made %d calls; the table no longer covers the surface", protocol, n)
-		}
+		driveEveryTool(t, cs)
 	}
 }
 
@@ -1330,9 +1331,7 @@ func TestNoToolWritesTheServersOwnSettings(t *testing.T) {
 
 	cfg := defaultConfig()
 	cfg.EnableDestructive = true
-	if n := driveEveryTool(t, session(t, cfg, true)); n < 85 {
-		t.Fatalf("made %d calls; the table no longer covers the surface", n)
-	}
+	driveEveryTool(t, session(t, cfg, true))
 	if after := settings(); after != before {
 		t.Errorf("a tool changed the server's settings:\nbefore:\n%s\nafter:\n%s", before, after)
 	}

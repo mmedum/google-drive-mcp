@@ -509,9 +509,6 @@ func collaborationTasks() []task {
 	}
 }
 
-// commonChecks are the trace properties every task is held to,
-// whatever it asked for. They are the half §13 calls the trace score:
-// the end state can be right for the wrong reasons.
 // widening are the tools that reach past the people inside the
 // organization, or hand a file over. A server started without
 // GDRIVE_ENABLE_DESTRUCTIVE does not register them, so a call to one is
@@ -519,6 +516,9 @@ func collaborationTasks() []task {
 var widening = map[string]bool{"share_by_link": true, "share_outside_organization": true,
 	"transfer_ownership": true, "lift_drive_restriction": true}
 
+// commonChecks are the trace properties every task is held to,
+// whatever it asked for. They are the half §13 calls the trace score:
+// the end state can be right for the wrong reasons.
 func commonChecks(s *taskState, run agentRun) []string {
 	var out []string
 	for _, c := range run.Calls {

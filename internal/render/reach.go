@@ -16,3 +16,18 @@ func Reach(grants []model.Grant) string {
 	}
 	return strings.Join(append(parts, s.Beyond()...), "; ")
 }
+
+// WideReach names each grant a refusal of reaching past the organization
+// names, and what it may do. A person or a group is named by address,
+// which is what share_outside_organization takes, and never by a display
+// name Drive attached.
+func WideReach(grants []model.Grant) string {
+	words := make([]string, 0, len(grants))
+	for _, g := range grants {
+		if g.Who != "" {
+			g.Name = ""
+		}
+		words = append(words, g.Label()+" "+g.Words())
+	}
+	return strings.Join(words, "; ")
+}
