@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -160,5 +161,83 @@ func TestTheProbeReadsTheStatusFromTheAnswerOrTheLog(t *testing.T) {
 		if got := statusOf(tc.answer, tc.logs); got != tc.want {
 			t.Errorf("statusOf(%q, %q) = %q, want %q", tc.answer, tc.logs, got, tc.want)
 		}
+	}
+}
+
+// Drive drops a file's own link grant when the file moves into a folder
+// open to anyone with the link and back out (§18). After that, a move of
+// several, a copy into the folder and removing the link each need the
+// file shared by link, and have it only because the driver shares it
+// again first. This plays Drive's part: share_by_link gives the grant and
+// a move back to the scratch folder takes it.
+func TestTheFileSharedByLinkHasItsGrantAtEachStepThatNeedsIt(t *testing.T) {
+	f := newFakeDrive()
+	w, _ := testRun(t, f, options{destructive: true})
+	w.scratchID = w.createAndKeepID("create_folder", map[string]any{"name": scratchPrefix + " 2026-03-06 12:00:00"})
+	w.moveExposure()
+
+	var file, open string
+	for _, c := range f.calls {
+		if c.tool != "share_by_link" {
+			continue
+		}
+		switch c.text("file_name") {
+		case "moves into the open folder.txt":
+			file = c.text("file")
+		case "Open by link":
+			open = c.text("file")
+		}
+	}
+	if file == "" || open == "" {
+		t.Fatalf("the file (%q) or the folder (%q) was never shared by link", file, open)
+	}
+	names := func(c sentCall) bool {
+		files, _ := c.args["files"].([]any)
+		return c.text("file") == file || slices.Contains(files, any(file))
+	}
+	linked := false
+	steps := map[string]int{}
+	for _, c := range f.calls {
+		step := ""
+		switch {
+		case c.tool == "share_by_link" && names(c) && c.flag("confirm") && !c.flag("dry_run"):
+			linked = true
+		case c.tool == "move_file" && names(c) && c.text("to") == w.scratchID && !c.flag("dry_run"):
+			linked = false
+		case c.tool == "move_file" && c.args["files"] != nil && names(c) && c.text("to") == open:
+			step = "the move of several"
+		case c.tool == "copy_file" && names(c) && c.text("to") == open:
+			step = "the copy into the open folder"
+		case c.tool == "unshare_file" && names(c) && c.flag("remove_link"):
+			step = "removing the link"
+		}
+		if step == "" {
+			continue
+		}
+		steps[step]++
+		if !linked {
+			t.Errorf("%s ran while the file had no link grant: %v", step, c.args)
+		}
+	}
+	for _, step := range []string{"the move of several", "the copy into the open folder", "removing the link"} {
+		if steps[step] == 0 {
+			t.Errorf("%s never ran", step)
+		}
+	}
+}
+
+// Only share_by_link opens a folder to anyone with the link, and it is
+// registered only with -destructive. Without it the steps make no call
+// and say why.
+func TestWithoutDestructiveTheLinkStepsSayWhyTheyDidNotRun(t *testing.T) {
+	f := newFakeDrive()
+	w, out := testRun(t, f, options{})
+	w.scratchID = "id-scratch-fixture"
+	w.moveExposure()
+	if len(f.calls) != 0 {
+		t.Errorf("without -destructive the run made %d calls, the first %s %v", len(f.calls), f.calls[0].tool, f.calls[0].args)
+	}
+	if want := "(pass -destructive to check that a move or a copy that would reach anyone with the link is refused"; !strings.Contains(out.String(), want) {
+		t.Errorf("the transcript does not say why the steps did not run:\n%s", out.String())
 	}
 }

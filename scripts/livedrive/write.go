@@ -1242,6 +1242,10 @@ func (w *writeRun) organize(m made) {
 // says when the two differ; a step here fails when they do, because that
 // is the belief (§18) this run exists to check. Every link is removed
 // again before the folder is trashed.
+//
+// Moving the file into the open folder and back out leaves it private:
+// Drive drops its own link grant along with the folder's (§18). So it is
+// shared by link again before each step that needs it shared.
 func (w *writeRun) moveExposure() {
 	if !w.destructive {
 		w.out.Say("\n(pass -destructive to check that a move or a copy that would reach anyone with the " +
@@ -1258,14 +1262,10 @@ func (w *writeRun) moveExposure() {
 		w.out.Say("\n=== move exposure: skipped, the folder or file it needs was never created ===")
 		return
 	}
-	w.needing("share_by_link", open, map[string]any{
-		"file": open, "file_name": openName, "principal": "anyone", "role": "reader", "confirm": true,
-	})
+	w.shareByLink(open, openName)
 	w.refusing("move_file", file, map[string]any{"file": file, "to": open, "dry_run": true}, "anyone with the link")
 	w.refusing("move_file", file, map[string]any{"file": file, "to": open}, "anyone with the link")
-	w.needing("share_by_link", file, map[string]any{
-		"file": file, "file_name": fileName, "principal": "anyone", "role": "reader", "confirm": true,
-	})
+	w.shareByLink(file, fileName)
 	moved := w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": open}})
 	w.unpredicted(moved)
 	if !strings.Contains(moved, "anyone with the link can view") {
@@ -1273,10 +1273,20 @@ func (w *writeRun) moveExposure() {
 			"the link can view it", errors.New("no link in the result"))
 	}
 	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": w.scratchID}}))
+	w.shareByLink(file, fileName)
 	w.moveSeveral(open, file)
+	w.shareByLink(file, fileName)
 	w.copyExposure(open, file)
 	w.needing("unshare_file", file, map[string]any{"file": file, "remove_link": true})
 	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
+}
+
+// shareByLink opens id to anyone with the link. Only share_by_link does
+// that, so only a run with -destructive can.
+func (w *writeRun) shareByLink(id, name string) {
+	w.needing("share_by_link", id, map[string]any{
+		"file": id, "file_name": name, "principal": "anyone", "role": "reader", "confirm": true,
+	})
 }
 
 // copyExposure is the copy's side of the same belief, which no page of
@@ -1375,9 +1385,7 @@ func (w *writeRun) limitedAccess() {
 		return
 	}
 	if w.destructive {
-		w.needing("share_by_link", open, map[string]any{
-			"file": open, "file_name": openName, "principal": "anyone", "role": "reader", "confirm": true,
-		})
+		w.shareByLink(open, openName)
 	}
 	card := w.call(call{tool: "update_file", args: map[string]any{"file": inner, "limited_access": true}})
 	if !strings.Contains(card, "limited access: only people added") {

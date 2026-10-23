@@ -43,10 +43,12 @@ func FirstLine(s string) string {
 // The patterns are anchored on internal/render's own shape, and a test
 // renders a real listing through it rather than describing one. That is
 // the same guard the id reader above needed: the renderer decides these,
-// and nothing else here would notice it changing them.
+// and nothing else here would notice it changing them. Drive's comment
+// and reply ids can carry a dot: every reply in a live run was "doco."
+// and an id, and patterns without the dot read none of them.
 var (
-	threadIDLine = regexp.MustCompile(`(?m)^([A-Za-z0-9_\-]+)  \S`)
-	replyIDLine  = regexp.MustCompile(`(?m)^  ([A-Za-z0-9_\-]+)  \S`)
+	threadIDLine = regexp.MustCompile(`(?m)^([A-Za-z0-9_.\-]+)  \S`)
+	replyIDLine  = regexp.MustCompile(`(?m)^  ([A-Za-z0-9_.\-]+)  \S`)
 )
 
 // ThreadIDs are the comment threads a listing shows, in the order it
