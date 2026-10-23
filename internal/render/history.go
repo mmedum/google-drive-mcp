@@ -6,7 +6,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
 // RevisionsOptions tune a revision listing.

@@ -3,7 +3,7 @@ package ref_test
 import (
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/ref"
+	"github.com/mmedum/google-drive-mcp/v3/internal/ref"
 )
 
 // Every shape a reference can take, so a change to the parser is

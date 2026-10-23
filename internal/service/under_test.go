@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // deepTree adds a folder two levels under Projects with a document in

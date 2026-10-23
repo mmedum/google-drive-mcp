@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
 // GetAccount renders who is signed in, what their Drive holds, and what

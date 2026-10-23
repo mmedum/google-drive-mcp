@@ -6,9 +6,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // CommentsInput selects a file's threads.

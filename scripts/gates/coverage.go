@@ -14,7 +14,7 @@ import (
 
 // modulePath is this repository's module, the prefix every covered file
 // carries in a coverage profile.
-const modulePath = "github.com/mmedum/google-drive-mcp/v2"
+const modulePath = "github.com/mmedum/google-drive-mcp/v3"
 
 // exemptPackages are the packages under internal/ that carry no rules of
 // their own, and so no floor. Each has to earn its place here by name:

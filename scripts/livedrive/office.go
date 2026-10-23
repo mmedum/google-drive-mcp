@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/office/officetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office/officetest"
 )
 
 // padTo is how far padded moves the parts after the padding: past the

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
 // A Redactor replaces account-specific values with stable placeholders,

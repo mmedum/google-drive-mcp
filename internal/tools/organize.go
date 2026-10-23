@@ -5,8 +5,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // The file argument's accepted forms are spelled out in each schema: a

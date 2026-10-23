@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
 // Text from Drive reaches a question in one code span that it cannot

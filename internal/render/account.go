@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
 // AccountOptions carry the settings a person needs to see alongside the

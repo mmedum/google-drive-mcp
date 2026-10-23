@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/redact"
 )
 
 // A redactor tested against lines somebody typed out is a redactor that

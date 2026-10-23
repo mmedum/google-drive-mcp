@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/office"
-	"github.com/mmedum/google-drive-mcp/v2/internal/office/officetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office/officetest"
 )
 
 // extract reads a file held in memory.

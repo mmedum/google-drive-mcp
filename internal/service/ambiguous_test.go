@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // A write that is not repeatable and fails after it may have reached

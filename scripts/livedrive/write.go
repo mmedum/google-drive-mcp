@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/mcpstdio"
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/transcript"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/transcript"
 )
 
 // writeRun exercises every tool that changes Drive, inside one scratch

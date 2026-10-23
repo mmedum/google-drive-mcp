@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/mcpstdio"
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/transcript"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/transcript"
 )
 
 // harness is one run: a session with the server for setting a task up

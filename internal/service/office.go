@@ -7,10 +7,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/office"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office"
 )
 
 // legacyOffice are the binary formats Office used before 2007, which

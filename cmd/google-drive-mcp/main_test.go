@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/userconfig"
+	"github.com/mmedum/google-drive-mcp/v3/internal/userconfig"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )

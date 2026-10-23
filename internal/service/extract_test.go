@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // addScan puts a PDF in the 2026 folder whose bytes the fake's import

@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // A person's Drive is personal data: the names of their files, who they

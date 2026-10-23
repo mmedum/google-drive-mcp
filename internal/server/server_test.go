@@ -15,13 +15,13 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/mediatype"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
-	"github.com/mmedum/google-drive-mcp/v2/internal/server"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/mediatype"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/server"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // session connects an in-memory client to a server over a fake Drive,

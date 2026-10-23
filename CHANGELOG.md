@@ -8,6 +8,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** the Go module path is now `github.com/mmedum/google-drive-mcp/v3`, as Go requires from v3; install with `go install github.com/mmedum/google-drive-mcp/v3/cmd/google-drive-mcp@latest`.
 - `update_content` on a Markdown file reads only the revision ids from the version history when it looks for a save its upload replaced. It asked for every field of every revision, which on a file with a long history is most of the response for nothing.
 
 ## [2.2.0] - 2026-10-15

@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/redact"
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/transcript"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/transcript"
 )
 
 func main() {

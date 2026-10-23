@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 )
 
 // files.download is a long-running operation, and it is the only way to

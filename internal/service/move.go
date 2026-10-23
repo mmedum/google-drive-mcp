@@ -6,11 +6,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
 // MaxMoveFiles is how many items one move_file call takes. Every one is

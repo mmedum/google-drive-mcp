@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/credentials"
-	"github.com/mmedum/google-drive-mcp/v2/internal/userconfig"
-	"github.com/mmedum/google-drive-mcp/v2/internal/version"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/credentials"
+	"github.com/mmedum/google-drive-mcp/v3/internal/userconfig"
+	"github.com/mmedum/google-drive-mcp/v3/internal/version"
 )
 
 // storedToken is a keyring that holds one token, for the case where a

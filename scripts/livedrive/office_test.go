@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/v2/internal/office/officetest"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office/officetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // The padding moves the second slide past the first 64 KiB block, so a

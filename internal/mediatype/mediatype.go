@@ -19,7 +19,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 )
 
 // Markdown is a Markdown file's type, as RFC 7763 registers it. Google

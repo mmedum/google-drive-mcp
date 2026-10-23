@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 )
 
 // Roles as Drive names them, in order of how much they allow.

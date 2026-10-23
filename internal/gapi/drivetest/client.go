@@ -9,7 +9,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/time/rate"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
 )
 
 // Client returns a Drive client wired to this fake, with the limiters

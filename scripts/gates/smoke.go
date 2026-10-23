@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // smokeTimeout bounds one session with the server.

@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 )
 
 // ListRevisions returns a file's revisions, oldest first as Drive sends

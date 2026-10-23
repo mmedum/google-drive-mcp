@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
 )
 
 // A personal Google address is outside whoever holds another one: two
