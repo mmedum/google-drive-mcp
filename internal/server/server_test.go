@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -22,6 +23,8 @@ import (
 	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 	"github.com/mmedum/google-drive-mcp/v3/internal/server"
 	"github.com/mmedum/google-drive-mcp/v3/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/tools"
+	"github.com/mmedum/google-drive-mcp/v3/internal/userconfig"
 )
 
 // session connects an in-memory client to a server over a fake Drive,
@@ -36,6 +39,13 @@ func session(t *testing.T, cfg config.Config, withCredentials bool) *mcp.ClientS
 // that check what a call actually did rather than what it printed.
 func sessionAndFake(t *testing.T, cfg config.Config, withCredentials bool) (*mcp.ClientSession, *drivetest.Server) {
 	t.Helper()
+	return sessionOn(t, cfg, withCredentials, "")
+}
+
+// sessionOn is sessionAndFake on one protocol revision, or the newest
+// both sides speak when it is empty.
+func sessionOn(t *testing.T, cfg config.Config, withCredentials bool, protocol string) (*mcp.ClientSession, *drivetest.Server) {
+	t.Helper()
 	fake := drivetest.New()
 	t.Cleanup(fake.Close)
 	fake.SetNow(func() time.Time { return time.Date(2026, 3, 4, 9, 0, 0, 0, time.UTC) })
@@ -44,6 +54,7 @@ func sessionAndFake(t *testing.T, cfg config.Config, withCredentials bool) (*mcp
 	fake.AddComment("id-notes-fixture", "id-comment-fixture", "does this cover the second case?",
 		drivetest.WithReply("id-reply-fixture", "Someone Else", "not yet", ""))
 	fake.AddProposal("id-notes-fixture", "id-request-fixture", "alice@example.com", "writer")
+	fake.AddProposal("id-notes-fixture", "id-outside-fixture", "outsider@example.org", "reader")
 	// A scan whose bytes the fake's import hands back as the text it
 	// "read", standing in for Google's OCR.
 	fake.AddFile("id-scan-fixture", "scan.pdf", "application/pdf", fake.RootID)
@@ -66,13 +77,27 @@ func sessionAndFake(t *testing.T, cfg config.Config, withCredentials bool) (*mcp
 		t.Fatalf("connect server: %v", err)
 	}
 	t.Cleanup(func() { _ = ss.Close() })
-	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-	cs, err := client.Connect(context.Background(), ct, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, &mcp.ClientOptions{
+		ElicitationHandler: asksNobody(t),
+	})
+	cs, err := client.Connect(context.Background(), ct, &mcp.ClientSessionOptions{ProtocolVersion: protocol})
 	if err != nil {
 		t.Fatalf("connect client: %v", err)
 	}
 	t.Cleanup(func() { _ = cs.Close() })
 	return cs, fake
+}
+
+// asksNobody is the client's answer to a question the server puts to
+// the person: it fails the test. The client declares that it can ask, so
+// a server that still asked would ask here, and every call in this
+// package is held to asking nobody. Per-call approval is the client's
+// (§4a).
+func asksNobody(t *testing.T) func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+	return func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		t.Errorf("the server asked the person: %q", req.Params.Message)
+		return &mcp.ElicitResult{Action: "decline"}, nil
+	}
 }
 
 func defaultConfig() config.Config {
@@ -121,7 +146,7 @@ func TestToolsListed(t *testing.T) {
 		"trash_file": false, "restore_file": false,
 		"share_file": false, "unshare_file": false, "manage_drive": false, "manage_revision": false,
 		"add_comment": false, "reply_comment": false, "resolve_access_request": false,
-		"manage_approval": false, "extract_text": false,
+		"manage_approval": false, "approve_file": false, "extract_text": false,
 	}
 	for name := range readTools {
 		want[name] = false
@@ -407,7 +432,7 @@ func TestDumpSchemas(t *testing.T) {
 	if out.Server != server.Name || out.SDK != server.SDKVersion {
 		t.Errorf("dump header = %+v", out)
 	}
-	const registeredTools = 32
+	const registeredTools = 33
 	if len(out.Tools) != registeredTools {
 		t.Fatalf("dumped %d tools, want %d", len(out.Tools), registeredTools)
 	}
@@ -572,13 +597,21 @@ func TestGetAccountReportsTheToolsThatExist(t *testing.T) {
 var notYetRegistered = []string{"list_labels", "manage_labels"}
 
 // gatedByDefault are the tools a default build leaves out on purpose:
-// they destroy without a way back, and GDRIVE_ENABLE_DESTRUCTIVE has to
-// be set for them to exist. A default build's output must not name one
-// either — the advice would be as unfollowable as advice naming a tool
-// nobody has written — so they are checked the same way, and separately,
-// because these do exist in some builds and the two reasons are not the
-// same reason.
-var gatedByDefault = []string{"delete_file", "empty_trash", "delete_drive", "delete_revision", "delete_comment"}
+// they destroy without a way back, or reach past the people inside the
+// organization, and GDRIVE_ENABLE_DESTRUCTIVE has to be set for them to
+// exist. A default build's output may name one only in the sentence that
+// names that setting, since advice to call it is otherwise as
+// unfollowable as advice naming a tool nobody has written. They are
+// checked separately from notYetRegistered, because these do exist in
+// some builds and the two reasons are not the same reason.
+var gatedByDefault = append(append([]string(nil), destroying...), widening...)
+
+// destroying are the gated tools that remove something for good.
+var destroying = []string{"delete_file", "empty_trash", "delete_drive", "delete_revision", "delete_comment"}
+
+// widening are the gated tools that reach past the people inside the
+// organization, or hand a file over.
+var widening = []string{"share_by_link", "share_outside_organization", "transfer_ownership", "lift_drive_restriction"}
 
 func TestNothingAModelReadsNamesAToolThatDoesNotExist(t *testing.T) {
 	cs := session(t, defaultConfig(), true)
@@ -619,13 +652,25 @@ func TestNothingAModelReadsNamesAToolThatDoesNotExist(t *testing.T) {
 			t.Errorf("%q is registered; take it off notYetRegistered", absent)
 			continue
 		}
+		gated := slices.Contains(gatedByDefault, absent)
 		for _, text := range texts {
-			if strings.Contains(text, absent) {
-				t.Errorf("output names %q, which this build does not register:\n%s", absent, text)
+			if sentence, ok := namedWithout(text, absent, gated); ok {
+				t.Errorf("output names %q, which this build does not register: %q", absent, sentence)
 				break
 			}
 		}
 	}
+}
+
+// namedWithout finds a sentence in text that names tool, and for a
+// gated tool one that does not also name GDRIVE_ENABLE_DESTRUCTIVE.
+func namedWithout(text, tool string, gated bool) (string, bool) {
+	for _, sentence := range regexp.MustCompile(`[.:;] |\n`).Split(text, -1) {
+		if strings.Contains(sentence, tool) && (!gated || !strings.Contains(sentence, "GDRIVE_ENABLE_DESTRUCTIVE")) {
+			return sentence, true
+		}
+	}
+	return "", false
 }
 
 func TestOverlappingToolsPointAtEachOther(t *testing.T) {
@@ -935,12 +980,12 @@ func TestDestructiveToolsExistOnlyWhenAskedFor(t *testing.T) {
 		if tool.Annotations == nil || tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint {
 			t.Errorf("%s is not annotated as destructive", name)
 		}
-		// The hint a client may act on to put the call in front of a
-		// person before it runs.
-		if tool.Meta["anthropic/requiresUserInteraction"] != true {
-			t.Errorf("%s does not ask for user interaction: %v", name, tool.Meta)
+		if !strings.Contains(tool.Description, "confirm: true") {
+			t.Errorf("%s does not say it needs confirm: %s", name, tool.Description)
 		}
-		if !strings.Contains(tool.Description, "NO UNDO") {
+	}
+	for _, name := range destroying {
+		if tool := found[name]; tool != nil && !strings.Contains(tool.Description, "NO UNDO") {
 			t.Errorf("%s does not say it cannot be undone: %s", name, tool.Description)
 		}
 	}
@@ -953,6 +998,11 @@ func TestDestructiveToolsExistOnlyWhenAskedFor(t *testing.T) {
 	if fake.Files["id-notes-fixture"] == nil {
 		t.Fatal("the file was deleted without confirm")
 	}
+	out = resultText(t, call(t, cs, "share_by_link", map[string]any{"file": "id-notes-fixture", "principal": "anyone",
+		"role": "reader"}))
+	if !strings.Contains(out, "confirm: true") || len(fake.Permissions["id-notes-fixture"]) != 0 {
+		t.Errorf("share_by_link ran without confirm:\n%s", out)
+	}
 	if res := call(t, cs, "delete_file", map[string]any{
 		"file": "id-notes-fixture", "confirm": true,
 	}); res.IsError {
@@ -963,9 +1013,40 @@ func TestDestructiveToolsExistOnlyWhenAskedFor(t *testing.T) {
 	}
 }
 
+// TestTheMarkSitsOnlyWhereItsPromptIsThePoint holds §4a's list: Claude
+// Code's requiresUserInteraction goes on a permanent delete that skips
+// the trash, an unrecoverable delete of a whole container, and a share
+// to anyone with the link or a whole domain, and nowhere else. A mark on
+// a delete done many times in a row, one revision or one comment of
+// many, makes a person answer a prompt per item. The client here
+// declares that it can ask, and the mark stays: it no longer depends on
+// the client.
+func TestTheMarkSitsOnlyWhereItsPromptIsThePoint(t *testing.T) {
+	cs := session(t, tools.FullSurface(defaultConfig()), true)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	var marked []string
+	for _, tool := range res.Tools {
+		if tool.Meta["anthropic/requiresUserInteraction"] == true {
+			marked = append(marked, tool.Name)
+		}
+	}
+	sort.Strings(marked)
+	want := []string{"delete_drive", "delete_file", "empty_trash", "share_by_link"}
+	if !slices.Equal(marked, want) {
+		t.Errorf("marked %v, want %v", marked, want)
+	}
+	if len(res.Tools) < 40 {
+		t.Fatalf("listed %d tools; this is not the whole surface", len(res.Tools))
+	}
+}
+
 func TestSharingOffRemovesOnlyTheToolsThatWiden(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Sharing = config.SharingOff
+	cfg.EnableDestructive = true
 	cs := session(t, cfg, true)
 	res, err := cs.ListTools(context.Background(), nil)
 	if err != nil {
@@ -975,10 +1056,13 @@ func TestSharingOffRemovesOnlyTheToolsThatWiden(t *testing.T) {
 	for _, tool := range res.Tools {
 		registered[tool.Name] = true
 	}
-	for _, gone := range []string{"share_file", "unshare_file"} {
+	for _, gone := range append([]string{"share_file", "unshare_file", "resolve_access_request"}, widening...) {
 		if registered[gone] {
 			t.Errorf("%s is registered with GDRIVE_SHARING=off", gone)
 		}
+	}
+	if !registered["delete_file"] {
+		t.Error("GDRIVE_SHARING=off removed a tool that does not share")
 	}
 	// Seeing who can reach a file is not widening access, so the read
 	// stays: a server that hides exposure is worse than one that cannot
@@ -1075,8 +1159,26 @@ func toolArgs() map[string][]map[string]any {
 		"share_file": {
 			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "reader"},
 			{"file": "id-notes-fixture", "principal": "anyone", "role": "reader"},
+			{"file": "id-notes-fixture", "principal": "someone@example.org", "role": "reader"},
 			{"file": "id-notes-fixture", "principal": "not-an-address", "role": "reader"},
 			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "owner"},
+		},
+		"share_by_link": {
+			{"file": "id-notes-fixture", "principal": "anyone", "role": "reader", "dry_run": true},
+			{"file": "id-notes-fixture", "principal": "domain:example.com", "role": "reader", "confirm": true},
+			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "reader", "confirm": true},
+		},
+		"share_outside_organization": {
+			{"file": "id-notes-fixture", "principal": "someone@example.org", "role": "reader", "confirm": true},
+			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "reader", "confirm": true},
+		},
+		"transfer_ownership": {
+			{"file": "id-notes-fixture", "to": "alice@example.com", "dry_run": true},
+			{"file": "id-notes-fixture", "to": "alice@example.com"},
+		},
+		"lift_drive_restriction": {
+			{"drive": "Research", "restriction": "domain_users_only", "dry_run": true},
+			{"drive": "Research", "restriction": "members_only", "confirm": true},
 		},
 		"unshare_file": {
 			{"file": "id-notes-fixture", "remove_link": true},
@@ -1086,6 +1188,8 @@ func toolArgs() map[string][]map[string]any {
 		"manage_drive": {
 			{"action": "create", "name": "Research"},
 			{"action": "restrict", "drive": "Research"},
+			{"action": "restrict", "drive": "Research", "restrictions": map[string]any{"domain_users_only": true}},
+			{"action": "restrict", "drive": "Research", "restrictions": map[string]any{"domain_users_only": false}},
 			{"action": "not-an-action"},
 		},
 		"list_revisions":  {{"file": "id-notes-fixture"}, {"file": "id-projects-fixture"}},
@@ -1109,12 +1213,15 @@ func toolArgs() map[string][]map[string]any {
 		"manage_approval": {
 			{"file": "id-notes-fixture", "action": "start", "reviewers": []any{"reviewer@example.com"}},
 			{"file": "id-notes-fixture", "action": "approve", "approval": "id-nothing"},
+			{"file": "id-notes-fixture", "action": "decline", "approval": "id-nothing"},
 			{"file": "id-notes-fixture", "action": "comment", "approval": "id-nothing"},
 			{"file": "id-notes-fixture", "action": "start"},
 			{"file": "id-notes-fixture", "action": "not-an-action"},
 		},
+		"approve_file": {{"file": "id-notes-fixture", "approval": "id-nothing"}},
 		"resolve_access_request": {
 			{"file": "id-notes-fixture", "request": "id-request-fixture", "action": "accept", "dry_run": true},
+			{"file": "id-notes-fixture", "request": "id-outside-fixture", "action": "accept"},
 			{"file": "id-notes-fixture", "request": "id-nothing", "action": "deny"},
 			{"file": "id-notes-fixture", "request": "id-request-fixture", "action": "maybe"},
 		},
@@ -1149,6 +1256,85 @@ func toolCalls() []toolCall {
 		}
 	}
 	return out
+}
+
+// driveEveryTool makes every call toolArgs holds, on a server with the
+// destructive tools registered, and returns how many it made.
+func driveEveryTool(t *testing.T, cs *mcp.ClientSession) int {
+	t.Helper()
+	n := 0
+	for _, c := range toolCalls() {
+		res := call(t, cs, c.name, c.args)
+		if res.NeedsInput() {
+			t.Errorf("%s %v came back asking for input: %+v", c.name, c.args, res.InputRequests)
+		}
+		n++
+	}
+	return n
+}
+
+// The server asks the person nothing: per-call approval is the client's
+// (§4a). The client declares that it can ask (asksNobody), and every
+// call toolArgs holds is made, the writes that used to ask among them,
+// on a protocol where a server asks with elicitation/create and on one
+// where it returns the question as an input request.
+func TestNoToolAsksThePerson(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.EnableDestructive = true
+	for _, protocol := range []string{"2025-11-25", "2026-07-28"} {
+		cs, _ := sessionOn(t, cfg, true, protocol)
+		if got := cs.InitializeResult().ProtocolVersion; got != protocol {
+			t.Fatalf("negotiated %s, want %s", got, protocol)
+		}
+		if n := driveEveryTool(t, cs); n < 85 {
+			t.Fatalf("%s: made %d calls; the table no longer covers the surface", protocol, n)
+		}
+	}
+}
+
+// The model never widens its own reach (§4a): no tool writes the
+// server's own settings. Those are the GDRIVE_ variables, read once at
+// start, and the profile file login writes. Every call toolArgs holds is
+// made, and neither changes.
+func TestNoToolWritesTheServersOwnSettings(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(userconfig.EnvDir, dir)
+	t.Setenv("GDRIVE_SHARING", "all")
+	t.Setenv("GDRIVE_ENABLE_DESTRUCTIVE", "true")
+	if err := userconfig.Save(userconfig.DefaultProfile, userconfig.Config{AccountEmail: drivetest.AccountEmail,
+		TokenStore: "keyring"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	settings := func() string {
+		var b strings.Builder
+		for _, kv := range os.Environ() {
+			if strings.HasPrefix(kv, "GDRIVE_") {
+				b.WriteString(kv + "\n")
+			}
+		}
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			raw, err := os.ReadFile(path)
+			b.WriteString(path + "\n" + string(raw) + "\n")
+			return err
+		})
+		return b.String()
+	}
+	before := settings()
+	if !strings.Contains(before, "config.json") {
+		t.Fatalf("the profile file was not written where this test looks:\n%s", before)
+	}
+
+	cfg := defaultConfig()
+	cfg.EnableDestructive = true
+	if n := driveEveryTool(t, session(t, cfg, true)); n < 85 {
+		t.Fatalf("made %d calls; the table no longer covers the surface", n)
+	}
+	if after := settings(); after != before {
+		t.Errorf("a tool changed the server's settings:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
 }
 
 func TestEveryRegisteredToolIsExercised(t *testing.T) {

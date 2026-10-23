@@ -21,10 +21,16 @@
 //	go run ./scripts/livedrive -bin ./google-drive-mcp -write -parent /Scratch
 //
 // -share SOMEONE@EXAMPLE.COM adds the sharing calls that need a second
-// person, including the ownership transfer of spike F. The transfer is
-// made on a file created for it, and it CANNOT be undone from this
-// account: trashing the scratch folder does not take back a file whose
-// owner is now somebody else.
+// person, and with -destructive the ownership transfer of spike F. The
+// transfer is made on a file created for it, and it CANNOT be undone
+// from this account: trashing the scratch folder does not take back a
+// file whose owner is now somebody else.
+//
+// -destructive registers what GDRIVE_ENABLE_DESTRUCTIVE does: the five
+// tools that remove something for good, run in a shared drive this run
+// creates and destroys again, and the shares that reach past the
+// organization, run on files in the scratch folder and taken back
+// before it is trashed.
 //
 // -blocked PARTNER@EXAMPLE.ORG is the check §17a has been waiting
 // for a Workspace administrator to make possible: a share the
@@ -62,7 +68,7 @@ func main() {
 	share := flag.String("share", "", "an address to grant access to, for the half of sharing that needs a second person (spike F included); empty skips it")
 	labels := flag.Bool("labels", false, "exercise the label tools, which need GDRIVE_LABELS and the Drive Labels API enabled with its scopes granted at login")
 	activity := flag.Bool("activity", false, "exercise list_activity, which needs GDRIVE_ACTIVITY and the Drive Activity API enabled with its scope granted at login")
-	destructive := flag.Bool("destructive", false, "also exercise the five tools that remove something for good, in a shared drive this run creates and destroys again; needs an account that may create shared drives")
+	destructive := flag.Bool("destructive", false, "also exercise the tools GDRIVE_ENABLE_DESTRUCTIVE registers: the five that remove something for good, in a shared drive this run creates and destroys again, which needs an account that may create shared drives, and the shares that reach past the organization")
 	unlistable := flag.String("unlistable", "", "a folder this account can see but not list, such as the parent of a file shared with it alone; shows what Drive answers when such a folder is listed (§18); empty skips it")
 	blocked := flag.String("blocked", "", "an address the organization's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
 	flag.Parse()
@@ -126,43 +132,35 @@ type options struct {
 	blocked  string
 	labels   bool
 	activity bool
-	// destructive turns on the five tools that remove something for
-	// good, and the shared drive they run inside. Off is where every run
-	// starts: the server does not register them without the variable
-	// below, and this driver does not set it without being asked.
+	// destructive turns on the tools GDRIVE_ENABLE_DESTRUCTIVE
+	// registers: the five that remove something for good, with the
+	// shared drive they run inside, and the shares that reach past the
+	// organization. Off is where every run starts: the server does not
+	// register them without the variable below, and this driver does not
+	// set it without being asked.
 	destructive bool
 	// unlistable is a folder whose canListChildren is false.
 	unlistable string
 	// given is the flags this run was passed, by name, which is what
 	// tells a step behind a flag from one that did not run.
 	given map[string]bool
-	// person answers the server's questions.
-	person *person
+	// asker catches a question the server puts to the person.
+	asker *asker
 }
 
-// person is who the server asks before a write it cannot take back.
-type person struct {
-	out *transcript.Transcript
-	// next is the answer to the next question, accept when empty; it is
-	// spent by that question.
-	next     string
-	asked    int
-	declined int
+// asker is the person a server would ask before a write. This one never
+// answers yes: the server asks nobody, and per-call approval is the
+// client's (§4a). The driver declares that it can be asked, so a server
+// that still asked would ask here, and every question fails the run.
+type asker struct {
+	out   *transcript.Transcript
+	asked int
 }
 
-func (p *person) answer(message string) string {
-	p.asked++
-	p.out.Say("(the server asked the person:)\n" + message)
-	a := p.next
-	p.next = ""
-	if a == "" {
-		a = "accept"
-	}
-	if a != "accept" {
-		p.declined++
-	}
-	p.out.Say("(the person answered: " + a + ")")
-	return a
+func (a *asker) answer(message string) string {
+	a.asked++
+	a.out.Say("!! the server asked the person, which it must not:\n" + message)
+	return "decline"
 }
 
 func run(o options, t *transcript.Transcript) error {
@@ -198,11 +196,10 @@ func run(o options, t *transcript.Transcript) error {
 	// runs from one that merely exists; this can, and says so at the end.
 	rec := livecover.NewRecorder()
 	sess.OnCall(rec.Sent)
-	// The driver is the person the server asks before a write it cannot
-	// take back: it prints every question into the transcript, accepts,
-	// and declines once where a step says so.
-	o.person = &person{out: t}
-	sess.OnElicit(o.person.answer)
+	// The driver can be asked, and fails the run on any question: the
+	// server asks nobody.
+	o.asker = &asker{out: t}
+	sess.OnElicit(o.asker.answer)
 
 	proto, tools, err := sess.Initialize("livedrive")
 	if err != nil {
@@ -287,7 +284,8 @@ func run(o options, t *transcript.Transcript) error {
 			t.Say(line)
 		}
 	}
-	t.Sayf("\n%d question(s) put to the person, %d declined", o.person.asked, o.person.declined)
+	t.Sayf("\n%d question(s) put to the person; the server asks nobody, so the right number is 0", o.asker.asked)
+	unexpected += o.asker.asked
 	t.Say("\n" + coverage(rec, sess, o.given))
 	t.Say("\n" + t.Summary())
 	if unexpected > 0 {

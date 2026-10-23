@@ -32,13 +32,13 @@ func TestANonRepeatableWriteThatFailsAfterSendingIsAmbiguous(t *testing.T) {
 		call func(*service.Service, *testing.T) error
 	}{
 		{"share_file (permissions.create)", "/permissions", func(svc *service.Service, t *testing.T) error {
-			_, err := svc.ShareFile(yes(t), service.ShareFileInput{
+			_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
 				File: "id-budget-fixture", Principal: "robin.sample@example.com", Role: "writer",
 			})
 			return err
 		}},
 		{"add_comment (comments.create)", "/comments", func(svc *service.Service, t *testing.T) error {
-			_, err := svc.AddComment(yes(t), service.AddCommentInput{File: "id-budget-fixture", Content: "a remark"})
+			_, err := svc.AddComment(t.Context(), service.AddCommentInput{File: "id-budget-fixture", Content: "a remark"})
 			return err
 		}},
 	}
@@ -115,7 +115,7 @@ func TestARetriedDeleteThatFindsNothingIsAmbiguous(t *testing.T) {
 		}
 		return &drivetest.Failure{Status: http.StatusNotFound, Reason: "notFound", Message: "Comment not found"}
 	}
-	_, err := svc.DeleteComment(yes(t), service.DeleteCommentInput{
+	_, err := svc.DeleteComment(t.Context(), service.DeleteCommentInput{
 		File: "id-budget-fixture", Comment: "id-comment-1", Confirm: true,
 	})
 	var se *service.Error
@@ -141,7 +141,7 @@ func TestACreateWhoseRepeatFindsItsOwnIDIsAmbiguous(t *testing.T) {
 		}
 		return &drivetest.Failure{Status: http.StatusConflict, Reason: "duplicate", Message: "A file with that id already exists"}
 	}
-	_, err := svc.CreateFolder(yes(t), service.CreateFolderInput{Name: "Reports", AllowDuplicate: true})
+	_, err := svc.CreateFolder(t.Context(), service.CreateFolderInput{Name: "Reports", AllowDuplicate: true})
 	var se *service.Error
 	if !errors.As(err, &se) || se.Class != service.ClassAmbiguousIO {
 		t.Fatalf("err = %v, want [%s]", err, service.ClassAmbiguousIO)
@@ -166,7 +166,7 @@ func TestARefusedThenMissingDeleteIsNotFound(t *testing.T) {
 		}
 		return &drivetest.Failure{Status: http.StatusNotFound, Reason: "notFound", Message: "Comment not found"}
 	}
-	_, err := svc.DeleteComment(yes(t), service.DeleteCommentInput{
+	_, err := svc.DeleteComment(t.Context(), service.DeleteCommentInput{
 		File: "id-budget-fixture", Comment: "id-comment-1", Confirm: true,
 	})
 	var se *service.Error

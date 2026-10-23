@@ -173,8 +173,8 @@ func TestALockThatWasAlreadyThereIsNotCredited(t *testing.T) {
 func TestApprovingLocksTheFile(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddApproval("id-budget-fixture", "id-approval-yes", "person@example.com")
-	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
-		File: "id-budget-fixture", Action: "approve", Approval: "id-approval-yes",
+	res, err := svc.ApproveFile(t.Context(), service.ApproveFileInput{
+		File: "id-budget-fixture", Approval: "id-approval-yes",
 	})
 	if err != nil {
 		t.Fatalf("approve: %v", err)
@@ -187,14 +187,31 @@ func TestApprovingLocksTheFile(t *testing.T) {
 	}
 }
 
+// Approving is approve_file's: manage_approval refuses it, naming the
+// tool, before anything reaches Drive, because a client remembers an
+// approval per tool and approving can lock the file for good (§4a).
+func TestManageApprovalLeavesApprovingToApproveFile(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddApproval("id-budget-fixture", "id-approval-yes", "person@example.com")
+	_, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
+		File: "id-budget-fixture", Action: " Approve ", Approval: "id-approval-yes",
+	})
+	if err == nil || !strings.HasPrefix(err.Error(), "[invalid] manage_approval does not approve; approve_file does.") {
+		t.Fatalf("err = %v, want a refusal naming approve_file", err)
+	}
+	if fake.Count(http.MethodPost) != 0 || len(fake.Files["id-budget-fixture"].ContentRestrictions) != 0 {
+		t.Fatal("the refused approval reached Drive")
+	}
+}
+
 // One decline decides an approval; an approval waits for everybody. The
 // asymmetry is the thing a caller most needs told.
 func TestDecliningCompletesTheApprovalAndApprovingWaits(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 
 	fake.AddApproval("id-notes-fixture", "id-approval-wait", "person@example.com", "other@example.com")
-	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
-		File: "id-notes-fixture", Action: "approve", Approval: "id-approval-wait",
+	res, err := svc.ApproveFile(t.Context(), service.ApproveFileInput{
+		File: "id-notes-fixture", Approval: "id-approval-wait",
 	})
 	if err != nil {
 		t.Fatalf("approve: %v", err)
@@ -337,8 +354,8 @@ func TestAnsweringAFinishedApprovalSaysThatIsPossible(t *testing.T) {
 		return nil
 	}
 
-	_, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
-		File: "id-notes-fixture", Action: "approve", Approval: "id-approval-gone",
+	_, err := svc.ApproveFile(t.Context(), service.ApproveFileInput{
+		File: "id-notes-fixture", Approval: "id-approval-gone",
 	})
 	if err == nil {
 		t.Fatal("answering a refused approval succeeded")
@@ -444,8 +461,8 @@ func TestNoActionLeavesAnswersWhenTheContentChanges(t *testing.T) {
 	_, reset := startOn(t, svc, fake, "id-notes-fixture", "reset_approval")
 	_, kept := startOn(t, svc, fake, "id-budget-fixture", "no_action")
 	for file, id := range map[string]string{"id-notes-fixture": reset, "id-budget-fixture": kept} {
-		if _, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
-			File: file, Action: "approve", Approval: id,
+		if _, err := svc.ApproveFile(t.Context(), service.ApproveFileInput{
+			File: file, Approval: id,
 		}); err != nil {
 			t.Fatalf("approve: %v", err)
 		}
@@ -479,8 +496,8 @@ func TestAnApprovalStartedWithNoActionIsNotLockedOnceApproved(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	id := fake.Approvals["id-budget-fixture"][0].ApprovalID
-	res, err := svc.ManageApproval(t.Context(), service.ManageApprovalInput{
-		File: "id-budget-fixture", Action: "approve", Approval: id,
+	res, err := svc.ApproveFile(t.Context(), service.ApproveFileInput{
+		File: "id-budget-fixture", Approval: id,
 	})
 	if err != nil {
 		t.Fatalf("approve: %v", err)
@@ -500,8 +517,8 @@ func TestOnContentChangeIsAStartsAndTakesTwoValues(t *testing.T) {
 	}{
 		{service.ManageApprovalInput{File: "id-notes-fixture", Action: "start", Reviewers: []string{"one@example.com"},
 			OnContentChange: "lock"}, `[invalid] on_content_change "lock" is not one of reset_approval, no_action`},
-		{service.ManageApprovalInput{File: "id-notes-fixture", Action: "approve", Approval: "id-approval-1",
-			OnContentChange: "no_action"}, "[invalid] on_content_change is set when an approval starts, not with approve"},
+		{service.ManageApprovalInput{File: "id-notes-fixture", Action: "decline", Approval: "id-approval-1",
+			OnContentChange: "no_action"}, "[invalid] on_content_change is set when an approval starts, not with decline"},
 	} {
 		if _, err := svc.ManageApproval(t.Context(), tc.in); err == nil || !strings.HasPrefix(err.Error(), tc.want) {
 			t.Errorf("%+v: err = %v, want it to start %q", tc.in, err, tc.want)

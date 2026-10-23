@@ -86,9 +86,9 @@ func registerContent(s *mcp.Server, d Deps) []string {
 // Its annotations are a write's: it adds a file and takes away only that
 // same file, so it destroys nothing that was there before it ran, which
 // is what destructiveHint asks about. Two calls make two copies, so it
-// is not idempotent. It asks the person nothing: the only thing it
+// is not idempotent. It needs no destructive flag: the only thing it
 // removes for good is the copy it made a moment earlier, which nobody
-// else has seen, and §4a asks before a write that cannot be undone on
+// else has seen, and §4a gates a write that cannot be undone on
 // something that was already there.
 //
 // Like read_file it returns text only. Its result is a window of up to

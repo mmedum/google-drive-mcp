@@ -42,4 +42,6 @@ resolve_access_request.dry_run	undrivable	it needs a pending access request, whi
 resolve_access_request.notify	undrivable	the same pending request, and it would put mail in that person's inbox
 resolve_access_request.role	undrivable	the same pending request
 share_file.message	undrivable	it is only used when notify is true, which see
+share_outside_organization.message	undrivable	as share_file.message
+share_outside_organization.notify	undrivable	as share_file.notify
 share_file.notify	undrivable	it puts Google's mail in a real person's inbox on every run, which a driver may not do. The ownership transfer of spike F mails anyway, because Drive forces it

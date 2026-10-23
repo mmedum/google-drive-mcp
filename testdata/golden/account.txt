@@ -4,6 +4,6 @@ shared drives: this account can create them
 drives you can see: Marketing, Engineering
 this server: read and write
 tools registered: get_account, get_file, list_folder, search_files
-sharing: an anyone-with-the-link grant needs allow_anyone: true on the call, and a domain-wide one allow_domain: true. What may actually be shared is decided by your organization's own policy, which Google enforces on every call.
+sharing: share_file grants named people and groups inside this account's organization, which is addresses at example.com; a link for anyone, a whole domain, someone outside the organization and a new owner need GDRIVE_ENABLE_DESTRUCTIVE=true. What may actually be shared is decided by Google, under your organization's own policy where there is one.
 destructive tools: disabled: nothing registered here removes anything permanently. Set GDRIVE_ENABLE_DESTRUCTIVE=true to change that.
 file transfer: /home/person/drive-files (downloads land there, uploads are read from there; at most 1.0 GiB per download)

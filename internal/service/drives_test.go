@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
@@ -50,7 +51,7 @@ func TestHiddenDrivesAreLeftOutUnlessAskedFor(t *testing.T) {
 
 func TestCreateDriveRefusesASecondOfTheSameName(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
-	_, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	_, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "create", Name: "Marketing",
 	})
 	if err == nil {
@@ -63,7 +64,7 @@ func TestCreateDriveRefusesASecondOfTheSameName(t *testing.T) {
 
 func TestCreateDriveMakesOneAndSaysWhatItMeans(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
-	got, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	got, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "create", Name: "Research",
 	})
 	if err != nil {
@@ -89,7 +90,7 @@ func TestCreateDriveMakesOneAndSaysWhatItMeans(t *testing.T) {
 func TestRenameHideAndUnhideADrive(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 
-	if _, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	if _, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "rename", Drive: "Marketing", Name: "Marketing and comms",
 	}); err != nil {
 		t.Fatalf("rename: %v", err)
@@ -98,7 +99,7 @@ func TestRenameHideAndUnhideADrive(t *testing.T) {
 		t.Errorf("name = %q", fake.Drives["id-drive-marketing"].Name)
 	}
 
-	got, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	got, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "hide", Drive: "id-drive-marketing",
 	})
 	if err != nil {
@@ -112,7 +113,7 @@ func TestRenameHideAndUnhideADrive(t *testing.T) {
 	}
 
 	// Hiding what is already hidden changes nothing, and says so.
-	again, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	again, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "hide", Drive: "id-drive-marketing",
 	})
 	if err != nil {
@@ -122,7 +123,7 @@ func TestRenameHideAndUnhideADrive(t *testing.T) {
 		t.Errorf("action = %q, want unchanged", again.JSON.Action)
 	}
 
-	if _, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	if _, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "unhide", Drive: "id-drive-marketing",
 	}); err != nil {
 		t.Fatalf("unhide: %v", err)
@@ -136,13 +137,13 @@ func TestRestrictKeepsTheSwitchesItWasNotAskedToChange(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	// Drive replaces the whole restrictions object, so a patch that sent
 	// only the switch being changed would silently clear the rest.
-	if _, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	if _, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "restrict", Drive: "Marketing",
 		Restrictions: map[string]bool{"members_only": true, "domain_users_only": true},
 	}); err != nil {
 		t.Fatalf("restrict: %v", err)
 	}
-	if _, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	if _, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "restrict", Drive: "Marketing",
 		Restrictions: map[string]bool{"copy_requires_writer_permission": true},
 	}); err != nil {
@@ -156,7 +157,7 @@ func TestRestrictKeepsTheSwitchesItWasNotAskedToChange(t *testing.T) {
 
 func TestRestrictReportsOnlyWhatActuallyChanged(t *testing.T) {
 	svc, _ := setup(t, service.Options{})
-	got, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	got, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "restrict", Drive: "Marketing",
 		Restrictions: map[string]bool{"members_only": true, "domain_users_only": false},
 	})
@@ -170,7 +171,7 @@ func TestRestrictReportsOnlyWhatActuallyChanged(t *testing.T) {
 		t.Errorf("change = %+v", got.JSON.Changes[0])
 	}
 
-	unchanged, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	unchanged, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "restrict", Drive: "Marketing",
 		Restrictions: map[string]bool{"members_only": true},
 	})
@@ -189,7 +190,7 @@ func TestRestrictReportsOnlyWhatActuallyChanged(t *testing.T) {
 func TestRestrictTurnsASwitchOffAndSendsOnlyWhatChanges(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	for _, on := range []bool{true, false} {
-		got, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+		got, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 			Action: "restrict", Drive: "Marketing",
 			Restrictions: map[string]bool{"copy_requires_writer_permission": on},
 		})
@@ -208,6 +209,93 @@ func TestRestrictTurnsASwitchOffAndSendsOnlyWhatChanges(t *testing.T) {
 	}
 }
 
+// Turning domain_users_only off lets a drive's content reach people
+// outside the organization, so manage_drive refuses it, dry run
+// included, naming lift_drive_restriction; the same call with it on is
+// fine, and so is turning members_only off, which waits on a live probe
+// (§17).
+func TestManageDriveLeavesDomainUsersOnlyOffToItsOwnTool(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
+	fake.Drives["id-drive-marketing"].Restrictions.DriveMembersOnly = true
+
+	for _, dry := range []bool{true, false} {
+		_, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
+			Action: "restrict", Drive: "Marketing", DryRun: dry,
+			Restrictions: map[string]bool{"domain_users_only": false, "members_only": false},
+		})
+		want := "[blocked] manage_drive does not turn off domain_users_only on Marketing: that lets its content " +
+			"reach people outside the organization. Nothing was changed. lift_drive_restriction does it, when " +
+			"GDRIVE_ENABLE_DESTRUCTIVE=true."
+		if err == nil || err.Error() != want {
+			t.Errorf("dry run %v: err = %v\nwant %s", dry, err, want)
+		}
+	}
+	if fake.Count(http.MethodPatch) != 0 {
+		t.Fatal("the refused change reached Drive")
+	}
+	if _, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
+		Action: "restrict", Drive: "Marketing", Restrictions: map[string]bool{"members_only": false},
+	}); err != nil {
+		t.Fatalf("turning members_only off: %v", err)
+	}
+	if r := fake.Drives["id-drive-marketing"].Restrictions; r.DriveMembersOnly || !r.DomainUsersOnly {
+		t.Errorf("restrictions = %+v, want members_only off and domain_users_only still on", r)
+	}
+}
+
+// lift_drive_restriction turns domain_users_only off, on the flag and
+// confirm: true, and nothing else.
+func TestLiftDriveRestriction(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
+	in := service.LiftDriveRestrictionInput{Drive: "Marketing", Restriction: "domain_users_only", Confirm: true}
+	if _, err := svc.LiftDriveRestriction(t.Context(), in); err == nil ||
+		!strings.HasPrefix(err.Error(), "[forbidden] lift_drive_restriction opens a file or a shared drive past") {
+		t.Fatalf("without the destructive flag: err = %v", err)
+	}
+
+	svc, fake = setup(t, service.Options{Destructive: true})
+	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
+	for _, tc := range []struct {
+		in   service.LiftDriveRestrictionInput
+		want string
+	}{
+		{service.LiftDriveRestrictionInput{Drive: "Marketing", Restriction: "domain_users_only"},
+			"[forbidden] lift_drive_restriction would turn off domain_users_only on the shared drive Marketing, " +
+				"which lets what is in it be shared with people outside the organization. Pass confirm: true"},
+		{service.LiftDriveRestrictionInput{Drive: "Marketing", Restriction: "members_only", Confirm: true},
+			"[invalid] lift_drive_restriction turns off only domain_users_only; manage_drive with action restrict " +
+				"turns members_only off."},
+		{service.LiftDriveRestrictionInput{Drive: "Marketing", Restriction: "everything", Confirm: true},
+			`[invalid] restriction "everything" is not one of domain_users_only`},
+		{service.LiftDriveRestrictionInput{Restriction: "domain_users_only", Confirm: true},
+			"[invalid] drive is required"},
+	} {
+		if _, err := svc.LiftDriveRestriction(t.Context(), tc.in); err == nil || !strings.HasPrefix(err.Error(), tc.want) {
+			t.Errorf("%+v: err = %v\nwant it to start %q", tc.in, err, tc.want)
+		}
+	}
+	if fake.Count(http.MethodPatch) != 0 {
+		t.Fatal("a refused lift reached Drive")
+	}
+
+	got, err := svc.LiftDriveRestriction(t.Context(), in)
+	if err != nil {
+		t.Fatalf("LiftDriveRestriction: %v", err)
+	}
+	if fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly {
+		t.Error("domain_users_only is still on")
+	}
+	if len(got.JSON.Changes) != 1 || got.JSON.Changes[0].Field != "restriction domain_users_only" {
+		t.Errorf("changes = %+v", got.JSON.Changes)
+	}
+	again, err := svc.LiftDriveRestriction(t.Context(), in)
+	if err != nil || again.JSON.Action != "unchanged" {
+		t.Errorf("lifting it again: action %v, err %v; want unchanged", again, err)
+	}
+}
+
 // TestSharingOffKeepsRestrictionsOn holds GDRIVE_SHARING=off to its
 // word for shared drives: turning a restriction off widens who can reach
 // what is inside, and turning one on is still allowed.
@@ -215,7 +303,7 @@ func TestSharingOffKeepsRestrictionsOn(t *testing.T) {
 	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
 	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
 
-	_, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	_, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "restrict", Drive: "Marketing",
 		Restrictions: map[string]bool{"domain_users_only": false},
 	})
@@ -225,7 +313,7 @@ func TestSharingOffKeepsRestrictionsOn(t *testing.T) {
 	if !fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly {
 		t.Error("the refusal still turned the restriction off")
 	}
-	if _, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	if _, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "restrict", Drive: "Marketing",
 		Restrictions: map[string]bool{"members_only": true},
 	}); err != nil {
@@ -273,7 +361,7 @@ func TestManageDriveRefusesWhatItCannotDo(t *testing.T) {
 		{"a drive that is not there", service.ManageDriveInput{Action: "rename", Drive: "Nope", Name: "x"}, "no shared drive \"Nope\""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := svc.ManageDrive(yes(t), tc.in)
+			_, err := svc.ManageDrive(t.Context(), tc.in)
 			if err == nil {
 				t.Fatalf("%+v was accepted", tc.in)
 			}
@@ -286,7 +374,7 @@ func TestManageDriveRefusesWhatItCannotDo(t *testing.T) {
 
 func TestDryRunChangesNoDrive(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
-	got, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	got, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "rename", Drive: "Marketing", Name: "Renamed", DryRun: true,
 	})
 	if err != nil {
@@ -305,7 +393,7 @@ func TestDryRunChangesNoDrive(t *testing.T) {
 
 func TestManageDriveIsNotAvailableReadOnly(t *testing.T) {
 	svc, _ := setup(t, service.Options{ReadOnly: true})
-	if _, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	if _, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "create", Name: "Research",
 	}); err == nil {
 		t.Fatal("manage_drive worked on a read-only server")
@@ -321,7 +409,7 @@ func TestRestrictWithNothingToRestrictSaysSo(t *testing.T) {
 	// value" when none had been passed at all — a falsehood in the shape
 	// of a reassurance.
 	svc, _ := setup(t, service.Options{})
-	_, err := svc.ManageDrive(yes(t), service.ManageDriveInput{
+	_, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "restrict", Drive: "Marketing",
 	})
 	if err == nil {
@@ -358,7 +446,7 @@ func TestAFreshlyCreatedDriveIsReachableByID(t *testing.T) {
 		fake.UnlistedDrives[id] = true
 	}
 
-	out, err := svc.EmptyTrash(yes(t), service.EmptyTrashInput{
+	out, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{
 		Drive: "id-drive-fresh", Confirm: true,
 	})
 	if err != nil {
@@ -371,7 +459,7 @@ func TestAFreshlyCreatedDriveIsReachableByID(t *testing.T) {
 	// A name still cannot be found that way, because only the listing
 	// carries names — and the refusal must not claim it looked for a
 	// name when it was handed something else.
-	_, err = svc.EmptyTrash(yes(t), service.EmptyTrashInput{
+	_, err = svc.EmptyTrash(t.Context(), service.EmptyTrashInput{
 		Drive: "Fresh campaigns", Confirm: true,
 	})
 	if err == nil {
@@ -390,7 +478,7 @@ func TestANameStillNeedsTheListing(t *testing.T) {
 	fake.AddDrive("id-drive-fresh", "Fresh campaigns")
 	fake.UnlistedDrives = map[string]bool{"id-drive-fresh": true}
 
-	_, err := svc.EmptyTrash(yes(t), service.EmptyTrashInput{
+	_, err := svc.EmptyTrash(t.Context(), service.EmptyTrashInput{
 		Drive: "Nowhere", Confirm: true,
 	})
 	if err == nil {

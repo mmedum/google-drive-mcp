@@ -70,7 +70,7 @@ func registerLabels(s *mcp.Server, d Deps) []string {
 			"organization can attach rules to a label — retention, or a data classification — so a label " +
 			"may mean the file is kept, or handled, differently. Setting a field REPLACES its value. " +
 			"The result is the file as it stands afterwards, with every label on it.",
-		Annotations: write,
+		Annotations: replacing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageLabelsInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ManageLabels(ctx, service.ManageLabelsInput{
 			File: in.File, Label: in.Label, Action: in.Action, Field: in.Field, Values: in.Values,

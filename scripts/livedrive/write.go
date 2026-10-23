@@ -24,8 +24,6 @@ import (
 // changes anything in a real account.
 type writeRun struct {
 	sess *mcpstdio.Session
-	// person answers the server's questions.
-	person *person
 	// out is the only way this run prints anything; see the transcript
 	// package, and `gates transcript`, which is what makes that true.
 	out *transcript.Transcript
@@ -49,6 +47,10 @@ type writeRun struct {
 	// registered at all.
 	labels   bool
 	activity bool
+	// destructive says whether the server was started with
+	// GDRIVE_ENABLE_DESTRUCTIVE, which is what registers the shares that
+	// reach past the organization.
+	destructive bool
 	// started is when this run began, in the form Drive's date filters
 	// take. Everything the run makes is created after it, which is what
 	// makes a date filter checkable rather than merely accepted.
@@ -67,8 +69,8 @@ const scratchPrefix = "google-drive-mcp livedrive scratch"
 // runWrites drives the whole write surface and reports how many calls
 // behaved unexpectedly.
 func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o options) (int, error) {
-	w := &writeRun{sess: s, person: o.person, out: t, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
-		labels: o.labels, activity: o.activity}
+	w := &writeRun{sess: s, out: t, dir: dir, drive: o.drive, share: o.share, blocked: o.blocked,
+		labels: o.labels, activity: o.activity, destructive: o.destructive}
 	now := time.Now().UTC()
 	w.started = now.Format(time.RFC3339)
 	w.dueDate = now.AddDate(0, 0, 7).Format(time.RFC3339)
@@ -89,7 +91,8 @@ func runWrites(s *mcpstdio.Session, t *transcript.Transcript, dir string, o opti
 		runDestructive(w, driveScratchName(stamp))
 	} else {
 		w.out.Say("\n(pass -destructive to also exercise the five tools that remove things for " +
-			"good, in a shared drive this run creates and destroys again)")
+			"good, in a shared drive this run creates and destroys again, and the shares that reach past " +
+			"the organization)")
 	}
 	w.trashScratch()
 	return w.failures, nil
@@ -296,8 +299,11 @@ func (w *writeRun) approvals(m made) {
 	w.needing("manage_approval", m.doc, map[string]any{
 		"file": m.doc, "action": "cancel", "approval": id,
 	})
-	w.expecting("manage_approval", m.doc, map[string]any{
+	w.refusing("manage_approval", m.doc, map[string]any{
 		"file": m.doc, "action": "approve", "approval": id,
+	}, "approve_file does")
+	w.expecting("approve_file", m.doc, map[string]any{
+		"file": m.doc, "approval": id, "message": "too late",
 	}, "answering an approval that is already finished")
 }
 
@@ -555,43 +561,128 @@ var addressInAccount = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-
 // before the folder is trashed: a share that outlived the run would be
 // the one thing trashing the folder does not undo.
 //
-// -share NAME@EXAMPLE.COM adds the half that needs a second person: a
-// real grant to a real address, and the ownership transfer of spike F.
-// Without it the run still covers the refusals, the link grant and a
-// dry run of a domain grant, which is most of the policy.
+// share_file takes named people and groups inside the organization, and
+// refuses every wider grant, naming the tool that makes it (§4a). Those
+// tools exist only with -destructive. -share NAME@EXAMPLE.COM adds the
+// half that needs a second person: a real grant to a real address, and
+// with -destructive the ownership transfer of spike F.
 func (w *writeRun) access(m made) {
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
 
-	// The acknowledgments. Both must be refused without their flag, and
-	// a refusal here proves as much as a success.
-	w.expecting("share_file", m.text, map[string]any{
+	// The wide grants share_file refuses, each naming its own tool.
+	w.refusing("share_file", m.text, map[string]any{
 		"file": m.text, "principal": "anyone", "role": "reader",
-	}, "a public link without allow_anyone")
-	w.expecting("share_file", m.text, map[string]any{
+	}, "share_by_link does it")
+	w.refusing("share_file", m.text, map[string]any{
 		"file": m.text, "principal": "domain:example.com", "role": "reader",
-	}, "a domain-wide grant without allow_domain")
-	w.expecting("share_file", m.text, map[string]any{
-		"file": m.text, "principal": "someone@example.com", "role": "owner",
-	}, "an ownership transfer without transfer_ownership")
+	}, "share_by_link does it")
+	w.refusing("share_file", m.text, map[string]any{
+		"file": m.text, "principal": "someone@example.org", "role": "reader",
+	}, "share_outside_organization does it")
+	w.refusing("share_file", m.text, map[string]any{
+		"file": m.text, "principal": "someone@example.org", "role": "owner",
+	}, "transfer_ownership does it")
 	w.expecting("share_file", m.text, map[string]any{
 		"file": m.text, "principal": "not-an-address", "role": "reader",
 	}, "a principal that is not one")
-	w.expecting("share_file", m.text, map[string]any{
-		"file": m.text, "principal": "someone@example.com", "role": "organizer",
-	}, "a shared-drive role on a file in My Drive")
-	w.expecting("share_file", m.text, map[string]any{
-		"file": m.text, "principal": "anyone", "role": "reader",
-		"allow_anyone": true, "expires": "30d", "discoverable": false,
-	}, "an expiry on a link grant, which Drive allows only for people and groups")
+	if domain := w.accountDomain(); domain != "" {
+		// An address at the account's own domain is inside, so the role
+		// is what is refused, before anything is written. On a personal
+		// account the address is outside and refused for that instead.
+		w.expecting("share_file", m.text, map[string]any{
+			"file": m.text, "principal": "nobody-livedrive@" + domain, "role": "organizer",
+		}, "a shared-drive role on a file in My Drive")
+	}
 
-	// The link grant, which is the exposure worth seeing before and
-	// after, then removed again.
-	w.needing("share_file", m.text, map[string]any{
+	if w.destructive {
+		w.linkShare(m)
+	} else {
+		w.out.Say("\n(pass -destructive to also exercise share_by_link, share_outside_organization and " +
+			"transfer_ownership, which only GDRIVE_ENABLE_DESTRUCTIVE registers)")
+	}
+
+	if w.share == "" {
+		w.out.Say("\n(pass -share SOMEONE@EXAMPLE.COM to also exercise a real grant, an expiry " +
+			"and the ownership transfer of spike F)")
+		return
+	}
+	// Granting again to the same principal changes the role rather than
+	// adding a second grant, which is Drive's one-per-principal rule.
+	switch w.shareToolFor(m.text) {
+	case "share_file":
+		w.needing("share_file", m.text, map[string]any{
+			"file": m.text, "principal": w.share, "role": "reader", "expires": "7d",
+		})
+		w.needing("share_file", m.text, map[string]any{"file": m.text, "principal": w.share, "role": "writer"})
+	case "share_outside_organization":
+		w.needing("share_outside_organization", m.text, map[string]any{
+			"file": m.text, "principal": w.share, "role": "reader", "expires": "7d", "confirm": true,
+		})
+		w.needing("share_outside_organization", m.text, map[string]any{
+			"file": m.text, "principal": w.share, "role": "writer", "confirm": true,
+		})
+	default:
+		return
+	}
+	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
+	if m.text != "" && w.pollSearch(call{tool: "search_files", args: map[string]any{"shared_with": w.share}}, m.text,
+		"shared_with finds a file the address can edit") {
+		w.readersHoldWriters(m.text)
+	}
+	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "principal": w.share})
+
+	if w.destructive {
+		w.spikeF()
+	} else {
+		w.out.Say("\n(pass -destructive as well to make the ownership transfer of spike F)")
+	}
+}
+
+// shareToolFor is the tool that grants -share's address access: share_file
+// when it is inside the organization, and share_outside_organization when
+// share_file refuses it as outside, which needs -destructive. A dry run of
+// share_file decides, so nothing is granted by asking. Empty when no tool
+// this run has can grant it.
+func (w *writeRun) shareToolFor(file string) string {
+	if file == "" {
+		return ""
+	}
+	out := w.call(call{tool: "share_file", args: map[string]any{
+		"file": file, "principal": w.share, "role": "reader", "dry_run": true,
+	}, tolerant: true})
+	switch {
+	case !strings.Contains(out, "share_outside_organization does it"):
+		return "share_file"
+	case w.destructive:
+		w.out.Say("(the address is outside this account's organization, so share_outside_organization grants it)")
+		return "share_outside_organization"
+	}
+	w.out.Say("(the address is outside this account's organization; pass -destructive to grant it with " +
+		"share_outside_organization)")
+	return ""
+}
+
+// accountDomain is the signed-in account's email domain, or empty.
+func (w *writeRun) accountDomain() string {
+	_, domain, _ := strings.Cut(w.accountAddress(), "@")
+	return domain
+}
+
+// linkShare is the link grant, the exposure worth seeing before and
+// after, then removed again; and a domain grant's dry run. Both are
+// share_by_link's, which needs confirm.
+func (w *writeRun) linkShare(m made) {
+	w.refusing("share_by_link", m.text, map[string]any{
 		"file": m.text, "principal": "anyone", "role": "reader",
-		"allow_anyone": true, "dry_run": true,
+	}, "confirm: true")
+	w.refusing("share_by_link", m.text, map[string]any{
+		"file": m.text, "principal": "someone@example.org", "role": "reader", "confirm": true,
+	}, "not an address")
+	w.needing("share_by_link", m.text, map[string]any{
+		"file": m.text, "principal": "anyone", "role": "reader", "dry_run": true,
 	})
-	w.needing("share_file", m.text, map[string]any{
-		"file": m.text, "principal": "anyone", "role": "reader", "allow_anyone": true,
+	w.needing("share_by_link", m.text, map[string]any{
+		"file": m.text, "principal": "anyone", "role": "reader", "discoverable": false, "confirm": true,
 	})
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
 	// The link grant is the one reach this run can give: visibility
@@ -602,9 +693,8 @@ func (w *writeRun) access(m made) {
 		w.pollSearch(call{tool: "search_files", args: map[string]any{"visibility": "anyone"}}, m.text,
 			"visibility anyone finds the same file")
 	}
-	w.needing("share_file", m.text, map[string]any{
-		"file": m.text, "principal": "domain:example.com", "role": "reader",
-		"allow_domain": true, "dry_run": true,
+	w.needing("share_by_link", m.text, map[string]any{
+		"file": m.text, "principal": "domain:example.com", "role": "reader", "dry_run": true,
 	})
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true, "dry_run": true})
 	// By id rather than by principal, which is the path for a grant with
@@ -620,28 +710,9 @@ func (w *writeRun) access(m made) {
 		w.pollSearch(call{tool: "search_files", args: map[string]any{"visibility": "limited"}}, m.text,
 			"visibility limited finds the file once its link is gone")
 	}
-
-	if w.share == "" {
-		w.out.Say("\n(pass -share SOMEONE@EXAMPLE.COM to also exercise a real grant, an expiry " +
-			"and the ownership transfer of spike F)")
-		return
-	}
-	w.needing("share_file", m.text, map[string]any{
-		"file": m.text, "principal": w.share, "role": "reader", "expires": "7d",
+	w.needing("share_outside_organization", m.text, map[string]any{
+		"file": m.text, "principal": "someone@example.org", "role": "reader", "dry_run": true,
 	})
-	// Granting again to the same principal changes the role rather than
-	// adding a second grant, which is Drive's one-per-principal rule.
-	w.needing("share_file", m.text, map[string]any{
-		"file": m.text, "principal": w.share, "role": "writer",
-	})
-	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
-	if m.text != "" && w.pollSearch(call{tool: "search_files", args: map[string]any{"shared_with": w.share}}, m.text,
-		"shared_with finds a file the address can edit") {
-		w.readersHoldWriters(m.text)
-	}
-	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "principal": w.share})
-
-	w.spikeF()
 }
 
 // spikeF is the ownership transfer, and the only call in this run whose
@@ -668,9 +739,10 @@ func (w *writeRun) spikeF() {
 	}
 	before := ownerFromResult(w.call(call{tool: "get_file", args: map[string]any{"file": transfer}}))
 
+	w.needing("transfer_ownership", transfer, map[string]any{"file": transfer, "to": w.share, "dry_run": true})
 	w.out.Say("\n!! the next call hands this file to " + w.share + " for good.")
-	w.needing("share_file", transfer, map[string]any{
-		"file": transfer, "principal": w.share, "role": "owner", "transfer_ownership": true,
+	w.needing("transfer_ownership", transfer, map[string]any{
+		"file": transfer, "to": w.share, "message": "a scratch file from the live driver", "confirm": true,
 	})
 
 	// The proof. A transfer that answers 200 and leaves the owner where
@@ -684,8 +756,8 @@ func (w *writeRun) spikeF() {
 		w.problem("the file could not be read back after the transfer, so whether ownership actually "+
 			"moved is unknown. Open it in Drive and look", errors.New("no owner line in the result"))
 	case before:
-		w.problem("share_file reported an ownership transfer and the owner DID NOT CHANGE. That is the "+
-			"failure reading it back exists to catch", errors.New("the owner is the same as before"))
+		w.problem("transfer_ownership reported an ownership transfer and the owner DID NOT CHANGE. That is "+
+			"the failure reading it back exists to catch", errors.New("the owner is the same as before"))
 	default:
 		w.out.Say("\n(spike F: the owner changed, so the transfer really happened. " +
 			"This account is a writer on it now.)")
@@ -1032,16 +1104,21 @@ func (w *writeRun) organize(m made) {
 	w.needing("restore_file", m.text, map[string]any{"file": m.text})
 }
 
-// moveExposure is a move that lets more people reach a file, and the
-// question that puts to the person. A folder made here is opened to
-// anyone with the link, and a file moved into it is reachable that way
-// too: the sharing guide says a move "re-evaluates and applies the new
-// parent's permissions". The server works out who can reach the file
-// after the move before making it, then reads it back, and says when the
-// two differ; a step here fails when they do, because that is the belief
-// (§18) this run exists to check. Moving it back out narrows, and must
-// ask nothing. The link is removed again before the folder is trashed.
+// moveExposure is a move that would let anyone with the link reach a
+// file, which is refused naming them (§4a), and the same move once the
+// file is shared by link itself, which then gains nobody and goes. A
+// folder made here is opened to anyone with the link, which needs
+// share_by_link and so -destructive. The server works out who can reach
+// the file after the move before making it, then reads it back, and
+// says when the two differ; a step here fails when they do, because that
+// is the belief (§18) this run exists to check. Every link is removed
+// again before the folder is trashed.
 func (w *writeRun) moveExposure() {
+	if !w.destructive {
+		w.out.Say("\n(pass -destructive to check that a move or a copy that would reach anyone with the " +
+			"link is refused: opening a folder by link is share_by_link's)")
+		return
+	}
 	open := w.createAndKeepID("create_folder", map[string]any{"name": "Open by link", "parent": w.scratchID})
 	file := w.createAndKeepID("create_file", map[string]any{
 		"name": "moves into the open folder.txt", "parent": w.scratchID,
@@ -1051,56 +1128,60 @@ func (w *writeRun) moveExposure() {
 		w.out.Say("\n=== move exposure: skipped, the folder or file it needs was never created ===")
 		return
 	}
-	w.needing("share_file", open, map[string]any{
-		"file": open, "principal": "anyone", "role": "reader", "allow_anyone": true,
+	w.needing("share_by_link", open, map[string]any{
+		"file": open, "principal": "anyone", "role": "reader", "confirm": true,
 	})
-	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": open, "dry_run": true}}))
-	w.declining("move_file", map[string]any{"file": file, "to": open})
+	w.refusing("move_file", file, map[string]any{"file": file, "to": open, "dry_run": true}, "anyone with the link")
+	w.refusing("move_file", file, map[string]any{"file": file, "to": open}, "anyone with the link")
+	w.needing("share_by_link", file, map[string]any{
+		"file": file, "principal": "anyone", "role": "reader", "confirm": true,
+	})
 	moved := w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": open}})
 	w.unpredicted(moved)
 	if !strings.Contains(moved, "anyone with the link can view") {
 		w.problem("the file moved into a folder anyone with the link can open does not say anyone with "+
 			"the link can view it", errors.New("no link in the result"))
 	}
-	asked := w.person.asked
 	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": w.scratchID}}))
-	if w.person.asked != asked {
-		w.problem("moving the file back out of the open folder asked the person, and that move only "+
-			"narrows who can reach it", errors.New("a question on a narrowing move"))
-	}
 	w.moveSeveral(open, file)
 	w.copyExposure(open, file)
+	w.needing("unshare_file", file, map[string]any{"file": file, "remove_link": true})
 	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
 }
 
 // copyExposure is the copy's side of the same belief, which no page of
 // Google's states (§18): a copy takes on who can reach the folder it
-// lands in, and none of the grants made on the original. A copy into
-// the open folder is put to the person, and anyone with the link can
-// view it; a copy of a file shared by link on its own, into the scratch
-// folder, is private.
+// lands in, and none of the grants made on the original. A copy of a
+// private file into the open folder is refused; a copy of a file shared
+// by link into it gains nobody, goes, and anyone with the link can view
+// it; and a copy of that file into the scratch folder is private.
 func (w *writeRun) copyExposure(open, file string) {
-	in := map[string]any{"file": file, "to": open, "name": "copied into the open folder.txt"}
-	w.unpredicted(w.call(call{tool: "copy_file", args: map[string]any{
-		"file": file, "to": open, "name": in["name"], "dry_run": true}}))
-	w.declining("copy_file", in)
-	copied := w.call(call{tool: "copy_file", args: in})
+	private := w.createAndKeepID("create_file", map[string]any{
+		"name": "private original.txt", "parent": w.scratchID,
+		"content": "nobody but this account can reach this\n", "mime_type": "text/plain",
+	})
+	if private != "" {
+		w.refusing("copy_file", private, map[string]any{
+			"file": private, "to": open, "name": "copied into the open folder.txt", "dry_run": true,
+		}, "anyone with the link")
+		w.refusing("copy_file", private, map[string]any{
+			"file": private, "to": open, "name": "copied into the open folder.txt",
+		}, "anyone with the link")
+	}
+	copied := w.call(call{tool: "copy_file", args: map[string]any{
+		"file": file, "to": open, "name": "a link-shared file copied into the open folder.txt"}})
 	w.unpredicted(copied)
 	if !strings.Contains(copied, "Who can reach the copy: anyone with the link can view.") {
 		w.problem("a copy into a folder anyone with the link can open does not say anyone with the link "+
 			"can view it", errors.New("no link in the result"))
 	}
-	w.needing("share_file", file, map[string]any{
-		"file": file, "principal": "anyone", "role": "reader", "allow_anyone": true,
-	})
-	private := w.call(call{tool: "copy_file", args: map[string]any{
+	alone := w.call(call{tool: "copy_file", args: map[string]any{
 		"file": file, "to": w.scratchID, "name": "copy of a file shared by link.txt"}})
-	w.unpredicted(private)
-	if !strings.Contains(private, "Who can reach the copy: private to you.") {
+	w.unpredicted(alone)
+	if !strings.Contains(alone, "Who can reach the copy: private to you.") {
 		w.problem("a copy took the link granted on the original, which the server says it does not",
 			errors.New("the copy is not private"))
 	}
-	w.needing("unshare_file", file, map[string]any{"file": file, "remove_link": true})
 }
 
 // downloads sets a file's download restriction each way and reads it
@@ -1145,10 +1226,13 @@ func (w *writeRun) downloads(m made) {
 	}, "the current switch and the legacy one together, which Google warns can conflict")
 }
 
-// limitedAccess gives a folder inside a link-shared folder limited
-// access, reads who it keeps out, then turns it off: once declined, once
-// accepted. It settles whether Drive lists a link grant from above as a
-// metadata view, which the access guide shows for people only (§18).
+// limitedAccess gives a folder limited access, reads who it keeps out,
+// and turns it off again. With -destructive the folder around it is
+// opened by link first: Drive's listing then settles whether a link
+// grant from above shows as a metadata view, which the access guide
+// shows for people only (§18), and turning limited access off is
+// refused while the link would open it, naming anyone with the link
+// (§4a). Off goes once the link is gone.
 func (w *writeRun) limitedAccess() {
 	open := w.createAndKeepID("create_folder", map[string]any{"name": "Open around a limited one", "parent": w.scratchID})
 	inner := ""
@@ -1159,26 +1243,30 @@ func (w *writeRun) limitedAccess() {
 		w.out.Say("\n=== limited access: skipped, the folders it needs were never created ===")
 		return
 	}
-	w.needing("share_file", open, map[string]any{"file": open, "principal": "anyone", "role": "reader", "allow_anyone": true})
+	if w.destructive {
+		w.needing("share_by_link", open, map[string]any{"file": open, "principal": "anyone", "role": "reader", "confirm": true})
+	}
 	card := w.call(call{tool: "update_file", args: map[string]any{"file": inner, "limited_access": true}})
 	if !strings.Contains(card, "limited access: only people added") {
 		w.problem("the card after limited_access true does not say the folder has limited access",
 			errors.New("limited access not read back"))
 	}
 	perms := w.call(call{tool: "list_permissions", args: map[string]any{"file": inner}})
-	if strings.Contains(perms, "anyone with the link can see it but not open it") {
-		w.out.Say("(Drive lists the link grant from above as a metadata view. Record it in §18.)")
-	} else {
-		w.out.Say("(Drive does NOT list the link grant from above as a metadata view; read the listing above " +
-			"and record what it shows in §18.)")
+	if w.destructive {
+		if strings.Contains(perms, "anyone with the link can see it but not open it") {
+			w.out.Say("(Drive lists the link grant from above as a metadata view. Record it in §18.)")
+		} else {
+			w.out.Say("(Drive does NOT list the link grant from above as a metadata view; read the listing above " +
+				"and record what it shows in §18.)")
+		}
+		w.refusing("update_file", inner, map[string]any{"file": inner, "limited_access": false}, "anyone with the link")
+		w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
 	}
-	w.declining("update_file", map[string]any{"file": inner, "limited_access": false})
 	opened := w.call(call{tool: "update_file", args: map[string]any{"file": inner, "limited_access": false}})
 	if strings.Contains(opened, "limited access: only people added") {
 		w.problem("the card after limited_access false still says the folder has limited access",
 			errors.New("limited access not read back"))
 	}
-	w.needing("unshare_file", open, map[string]any{"file": open, "remove_link": true})
 }
 
 // underFolder searches a folder two levels deep with under_folder, pages
@@ -1287,9 +1375,10 @@ var (
 )
 
 // moveSeveral moves two files into the open folder in one call, with the
-// folder itself listed as a third item, which is refused because nothing
-// moves into itself. The person is asked once for the two that widen;
-// moving them back out asks nothing.
+// folder itself listed as a third item. The file shared by link gains
+// nobody and moves; the private one would reach anyone with the link
+// and is refused, naming them; the folder is refused because nothing
+// moves into itself. Each gets its own outcome.
 func (w *writeRun) moveSeveral(open, file string) {
 	other := w.createAndKeepID("create_file", map[string]any{
 		"name": "moves with the other one.txt", "parent": w.scratchID,
@@ -1301,26 +1390,20 @@ func (w *writeRun) moveSeveral(open, file string) {
 	}
 	in := map[string]any{"files": []any{file, other, open}, "to": open}
 	dry := w.call(call{tool: "move_file", args: map[string]any{"files": in["files"], "to": open, "dry_run": true}})
-	if !strings.Contains(dry, "would move 2 of 3 items") {
-		w.problem("the dry run of a move of several does not say two of three would move",
+	if !strings.Contains(dry, "would move 1 of 3 items") {
+		w.problem("the dry run of a move of several does not say one of three would move",
 			errors.New("unexpected dry run"))
 	}
-	asked := w.person.asked
 	moved := w.call(call{tool: "move_file", args: in})
 	w.unpredicted(moved)
 	switch {
-	case w.person.asked != asked+1:
-		w.problem(fmt.Sprintf("a move of several asked the person %d times, not once", w.person.asked-asked),
-			errors.New("one question per call"))
-	case !strings.Contains(moved, "moved 2 of 3 items"):
-		w.problem("the move of several does not say two of three moved", errors.New("unexpected result"))
+	case !strings.Contains(moved, "moved 1 of 3 items"):
+		w.problem("the move of several does not say one of three moved", errors.New("unexpected result"))
+	case !strings.Contains(moved, "anyone with the link"):
+		w.problem("the item a move of several refused does not name who it would reach",
+			errors.New("unexpected result"))
 	}
-	asked = w.person.asked
-	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"files": []any{file, other}, "to": w.scratchID}}))
-	if w.person.asked != asked {
-		w.problem("moving the two files back out asked the person, and that only narrows who can reach them",
-			errors.New("a question on a narrowing move"))
-	}
+	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"files": []any{file}, "to": w.scratchID}}))
 }
 
 // unpredicted fails the step when a move's result says Drive answered
@@ -1443,10 +1526,17 @@ func (w *writeRun) sharedDrive(m made) {
 		return
 	}
 	target := "drive:" + w.drive
-	// The drive's members reach whatever moves in, so when it has any
-	// besides this account the move asks the person, who accepts.
-	w.unpredicted(w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target, "dry_run": true}}))
-	if out := w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target}}); out != "" {
+	// The drive's members reach whatever moves in. Members inside the
+	// organization make an ordinary move; a domain or someone outside it
+	// among them refuses the move, naming who, and then nothing moved
+	// and there is nothing to bring back (§4a). Either is correct.
+	dry := w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target, "dry_run": true},
+		tolerant: true})
+	if strings.HasPrefix(dry, "[blocked]") {
+		w.out.Say("(the drive reaches past the organization, so the move is refused, naming who)")
+		w.refusing("move_file", m.small, map[string]any{"file": m.small, "to": target}, "[blocked]")
+	} else if out := w.call(call{tool: "move_file", args: map[string]any{"file": m.small, "to": target}}); out != "" {
+		w.unpredicted(dry)
 		w.unpredicted(out)
 		// The file is now outside the scratch folder, so trashing the
 		// scratch folder will not take it. Bringing it back is the only
@@ -1504,20 +1594,17 @@ func (w *writeRun) needing(tool, id string, args map[string]any) {
 	w.call(call{tool: tool, args: args})
 }
 
-// declining is a call the person is asked about and declines, which
-// must be refused with nothing changed. A call that asks nothing fails
-// the step: the question is what is being checked.
-func (w *writeRun) declining(tool string, args map[string]any) {
-	before := w.person.asked
-	w.person.next = "decline"
-	out := w.call(call{tool: tool, args: args, expectError: true, why: "the person declines"})
-	w.person.next = ""
-	if w.person.asked == before {
+// refusing is a call that ought to be refused, saying want. The refusal
+// is what is being checked, so one that does not say it fails the step.
+func (w *writeRun) refusing(tool, id string, args map[string]any, want string) {
+	if id == "" {
+		w.out.Sayf("\n=== %s: skipped, the file it needs was never created ===", tool)
+		return
+	}
+	out := w.call(call{tool: tool, args: args, expectError: true, why: want})
+	if !strings.Contains(out, want) {
 		w.failures++
-		w.out.Say("!! the server did not ask the person")
-	} else if !strings.Contains(out, "not confirmed by the person") {
-		w.failures++
-		w.out.Say("!! the refusal does not say the person did not confirm it")
+		w.out.Say("!! the refusal does not say " + want)
 	}
 }
 
@@ -1729,8 +1816,13 @@ func (w *writeRun) policyRefusal(m made) {
 	}
 	w.out.Say("\n--- the policy refusal of §17a ---")
 	w.out.Say("(expecting a refusal: the organization's sharing policy, not Drive's own rules)")
-	out, isError, err := w.sess.CallTool("share_file", map[string]any{
-		"file": m.text, "principal": w.blocked, "role": "reader",
+	if !w.destructive {
+		w.out.Say("(pass -destructive as well: share_file refuses an address outside the organization " +
+			"itself, so the organization's refusal is reached through share_outside_organization)")
+		return
+	}
+	out, isError, err := w.sess.CallTool("share_outside_organization", map[string]any{
+		"file": m.text, "principal": w.blocked, "role": "reader", "confirm": true,
 	})
 	if err != nil {
 		w.out.Sayf("!! transport failure: %v", err)

@@ -172,9 +172,6 @@ func (d *destroyRun) deleteAFile() {
 		d.out.Say("\n=== delete_file: skipped, the file it needs was never created ===")
 		return
 	}
-	// Declined first: the file must still be there afterwards.
-	d.declining("delete_file", map[string]any{"file": id, "confirm": true})
-	d.needing("get_file", id, map[string]any{"file": id})
 	d.destroyFile(id, false)
 	d.call(call{tool: "get_file", args: map[string]any{"file": id},
 		expectError: true, why: "a permanently deleted file is not there any more"})
@@ -347,8 +344,8 @@ func (d *destroyRun) approvalLock() {
 
 	// And the approved state, which has never run: approving completes
 	// the approval and locks the file for good, with no way to reopen it.
-	d.call(call{tool: "manage_approval", args: map[string]any{
-		"file": id, "action": "approve", "approval": locked,
+	d.call(call{tool: "approve_file", args: map[string]any{
+		"file": id, "approval": locked,
 	}})
 	d.call(call{tool: "list_approvals", args: map[string]any{"file": id}})
 	d.call(call{tool: "get_file", args: map[string]any{"file": id}})
@@ -388,7 +385,7 @@ func (d *destroyRun) approvalNoAction() {
 		d.destroyFile(id, false)
 		return
 	}
-	d.call(call{tool: "manage_approval", args: map[string]any{"file": id, "action": "approve", "approval": approval}})
+	d.call(call{tool: "approve_file", args: map[string]any{"file": id, "approval": approval}})
 	if card := d.call(call{tool: "get_file", args: map[string]any{"file": id}}); strings.Contains(card, "content locked") {
 		d.problem("an approval started with no_action locked the file once approved", errors.New("locked"))
 	}
@@ -508,9 +505,41 @@ func (d *destroyRun) driveScopedArguments() {
 		"action": "restrict", "drive": d.driveID,
 		"restrictions": map[string]any{"copy_requires_writer_permission": true},
 	})
-	// Turning it off again loosens the drive, which is put to the person.
+	// Turning it off again loosens the drive, and is an ordinary write.
 	d.needing("manage_drive", d.driveID, map[string]any{
 		"action": "restrict", "drive": d.driveID,
 		"restrictions": map[string]any{"copy_requires_writer_permission": false},
 	})
+	d.liftDomainUsersOnly()
+}
+
+// liftDomainUsersOnly turns domain_users_only on with manage_drive, then
+// off again, which manage_drive refuses naming lift_drive_restriction
+// (§4a): with it off, what is in the drive can be shared outside the
+// organization. lift_drive_restriction refuses without confirm, dry runs,
+// and lifts it, read back from the drive. members_only off stays
+// manage_drive's until the probe §17 records says whether it restores
+// access already granted.
+func (d *destroyRun) liftDomainUsersOnly() {
+	d.needing("manage_drive", d.driveID, map[string]any{
+		"action": "restrict", "drive": d.driveID,
+		"restrictions": map[string]any{"domain_users_only": true},
+	})
+	d.refusing("manage_drive", d.driveID, map[string]any{
+		"action": "restrict", "drive": d.driveID,
+		"restrictions": map[string]any{"domain_users_only": false},
+	}, "lift_drive_restriction does it")
+	d.refusing("lift_drive_restriction", d.driveID, map[string]any{
+		"drive": d.driveID, "restriction": "domain_users_only",
+	}, "confirm: true")
+	d.needing("lift_drive_restriction", d.driveID, map[string]any{
+		"drive": d.driveID, "restriction": "domain_users_only", "dry_run": true,
+	})
+	lifted := d.call(call{tool: "lift_drive_restriction", args: map[string]any{
+		"drive": d.driveID, "restriction": "domain_users_only", "confirm": true,
+	}})
+	if !strings.Contains(lifted, "restriction domain_users_only: yes → no") {
+		d.problem("lift_drive_restriction does not report domain_users_only going from on to off",
+			errors.New("the change was not read back"))
+	}
 }

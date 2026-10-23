@@ -19,9 +19,6 @@ type Deps struct {
 	Service *service.Service
 	Config  config.Config
 	Logger  *slog.Logger
-
-	// asking is this server's way to the person, made by Register.
-	asking *asking
 }
 
 // FullSurface is the configuration under which every tool registers.
@@ -67,8 +64,6 @@ func Register(s *mcp.Server, d Deps) []string {
 	if d.Logger == nil {
 		d.Logger = slog.New(slog.DiscardHandler)
 	}
-	d.asking = newAsking(d.Logger)
-	s.AddReceivingMiddleware(askFailures(d.asking), interactionHint(d.asking))
 	names := registerRead(s, d)
 	names = append(names, registerContent(s, d)...)
 	if !d.Config.ReadOnly {
@@ -114,9 +109,25 @@ func fail(err error) error {
 	return errors.New("[unexpected] " + err.Error())
 }
 
-// asksNote closes the description of every tool that asks the person.
-const asksNote = " When the client can, the server also asks the person before the write; a call they do not " +
-	"confirm is [blocked], and is not made again unless they ask."
+// interactionKey is Claude Code's mark for a tool whose permission
+// prompt is itself the point: it prompts on every call, whatever the
+// operator's allow rules say, and refuses the call where no prompt can
+// be drawn. No other client reads it.
+const interactionKey = "anthropic/requiresUserInteraction"
+
+// requiresUserInteraction marks one of the few tools whose prompt is the
+// point (§4a): a permanent delete that skips the trash, an unrecoverable
+// delete of a whole container, and a share to anyone with the link or a
+// whole domain. It is a hint and nothing more. The gate that holds is
+// that these tools are not registered at all unless the deployer asked
+// for them, so a client that ignores the mark changes nothing about what
+// can run. It is on for every client: the server asks nobody itself.
+// Nowhere else: a mark on a delete done many times in a row (one
+// revision, one comment) makes a person answer a prompt per item, and
+// people stop reading prompts they see that often.
+func requiresUserInteraction() mcp.Meta {
+	return mcp.Meta{interactionKey: true}
+}
 
 var (
 	readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)}
@@ -129,12 +140,22 @@ var (
 	// written out.
 	idempotentWrite = &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}
 	// replacing overwrites what is there. The old content survives only
-	// as a revision Drive may purge, so it is destructive.
+	// as a revision Drive may purge, or, for a comment's text or a
+	// label's field, not at all, so it is destructive.
 	replacing = &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)}
 	// localWrite reads Drive and writes a new local file. It is not
 	// read-only, and it never overwrites a local file, so it is not
 	// destructive either.
 	localWrite = &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}
+	// widening reaches past the people inside the organization, or hands
+	// a file over. A grant can be taken back, but not what was read
+	// meanwhile, and only a new owner can hand a file back, so a client
+	// that prompts by destructiveHint prompts for it.
+	widening = &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)}
+	// final records something that cannot be taken back: an approval,
+	// which Drive has no call to withdraw and which can lock a file for
+	// good.
+	final = &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)}
 	// destructive removes something with no way back. Calling it twice is
 	// harmless only because the second call finds nothing left, which is
 	// not what idempotent is for, so it is not marked as such.

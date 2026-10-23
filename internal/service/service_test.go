@@ -11,7 +11,6 @@ import (
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
 	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
@@ -36,19 +35,6 @@ func setup(t testing.TB, o service.Options) (*service.Service, *drivetest.Server
 	}
 	return service.New(drivetest.Client(t, fake), o), fake
 }
-
-// yes is a context whose asking writes are put to a person who
-// accepts every question, for the tests of what a write does rather
-// than of asking.
-func yes(t testing.TB) context.Context {
-	return service.WithAsker(t.Context(), accepting{})
-}
-
-type accepting struct{}
-
-func (accepting) Ask(context.Context, render.Question) error { return nil }
-func (accepting) Asks() bool                                 { return true }
-func (accepting) Shows() bool                                { return true }
 
 // hitCount reads the count out of a rendered listing head without
 // keeping any of the names in it. The integration tests need the same

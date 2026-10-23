@@ -257,12 +257,11 @@ func (s Sharing) Roles() []string {
 }
 
 // Beyond is who a sharing reaches past the people on it: each domain,
-// then the link. name writes a domain the way the caller shows it, which
-// a question quotes.
-func (s Sharing) Beyond(name func(string) string) []string {
+// then the link.
+func (s Sharing) Beyond() []string {
 	var parts []string
 	for _, d := range s.Domains {
-		line := "everyone at " + name(d.Who) + " " + d.Words()
+		line := "everyone at " + d.Who + " " + d.Words()
 		if d.Discoverable {
 			line += ", and it turns up in their search"
 		} else {
@@ -308,7 +307,7 @@ func (s Sharing) Summary() string {
 		}
 		parts = append(parts, line)
 	}
-	parts = append(parts, s.Beyond(func(domain string) string { return domain })...)
+	parts = append(parts, s.Beyond()...)
 	if len(parts) == 0 {
 		switch {
 		case s.SharedDrive != "":

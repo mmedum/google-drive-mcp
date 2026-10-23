@@ -33,10 +33,10 @@ const (
 )
 
 // ApprovalActions lists what manage_approval accepts, so the tool
-// description offers the words the code takes.
+// description offers the words the code takes. Approving is
+// approve_file's (ApproveFile).
 func ApprovalActions() []string {
-	return []string{ApprovalStart, ApprovalApprove, ApprovalDecline,
-		ApprovalCancel, ApprovalComment, ApprovalReassign}
+	return []string{ApprovalStart, ApprovalDecline, ApprovalCancel, ApprovalComment, ApprovalReassign}
 }
 
 // ListApprovalsInput selects a file's approvals.
@@ -135,10 +135,36 @@ var contentChanges = map[string]string{
 // OnContentChanges lists what on_content_change accepts, default first.
 func OnContentChanges() []string { return []string{OnChangeReset, OnChangeNoAction} }
 
-// ManageApproval starts a review, answers one, withdraws one, comments
+// ManageApproval starts a review, declines one, withdraws one, comments
 // on one, or changes who is being asked.
 func (s *Service) ManageApproval(ctx context.Context, in ManageApprovalInput) (*Result, error) {
-	if err := s.writable("manage_approval"); err != nil {
+	if strings.EqualFold(strings.TrimSpace(in.Action), ApprovalApprove) {
+		return nil, Errorf(ClassInvalid, "manage_approval does not approve; approve_file does. Approving is "+
+			"your sign-off, and it can lock the file for good, so it is a tool of its own.")
+	}
+	return s.approval(ctx, "manage_approval", in)
+}
+
+// ApproveFileInput is this account's approval of one review.
+type ApproveFileInput struct {
+	File     string
+	Approval string
+	Message  string
+}
+
+// ApproveFile records this account's approval. It is its own tool, apart
+// from manage_approval, because a client remembers an approval per tool:
+// approving is the person's sign-off, and once every reviewer has, an
+// approval started with reset_approval locks the file for good (§4a).
+func (s *Service) ApproveFile(ctx context.Context, in ApproveFileInput) (*Result, error) {
+	return s.approval(ctx, "approve_file", ManageApprovalInput{File: in.File, Approval: in.Approval,
+		Action: ApprovalApprove, Message: in.Message})
+}
+
+// approval is the one path every approval action takes, under the name
+// of the tool that called it.
+func (s *Service) approval(ctx context.Context, tool string, in ManageApprovalInput) (*Result, error) {
+	if err := s.writable(tool); err != nil {
 		return nil, err
 	}
 	action := strings.ToLower(strings.TrimSpace(in.Action))

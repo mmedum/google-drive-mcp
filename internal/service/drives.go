@@ -227,19 +227,84 @@ func (s *Service) changeDrive(ctx context.Context, action string, in ManageDrive
 		return driveResult(model.NewDrive(d), outcome{Action: render.ActionUnchanged,
 			Note: "every restriction passed already had that value."}), nil
 	}
-	if len(off) > 0 {
-		if s.opts.Sharing == config.SharingOff {
-			return nil, Errorf(ClassForbidden, "this server was started with GDRIVE_SHARING=off, and turning off %s "+
-				"on %s would widen who can reach or pass on what is in it. Nothing was changed. Turning a "+
-				"restriction on is still allowed.", strings.Join(off, ", "), d.Name)
-		}
-		if !in.DryRun {
-			if err := ask(ctx, render.AskLoosenDrive(d.ID, d.Name, off)); err != nil {
-				return nil, err
-			}
+	if len(off) > 0 && s.opts.Sharing == config.SharingOff {
+		return nil, Errorf(ClassForbidden, "this server was started with GDRIVE_SHARING=off, and turning off %s "+
+			"on %s would widen who can reach or pass on what is in it. Nothing was changed. Turning a "+
+			"restriction on is still allowed.", strings.Join(off, ", "), d.Name)
+	}
+	// Turning domain_users_only off lets the drive's content be shared
+	// past the organization, so it is lift_drive_restriction's, behind
+	// the destructive flag, and a client's approval of manage_drive never
+	// covers it (§4a). The other switches stay here.
+	for _, name := range off {
+		if slices.Contains(LiftableRestrictions(), name) {
+			return nil, Errorf(ClassBlocked, "manage_drive does not turn off %s on %s: that lets its content "+
+				"reach people outside the organization. Nothing was changed. lift_drive_restriction does it, "+
+				"when %sENABLE_DESTRUCTIVE=true.", name, d.Name, config.EnvPrefix)
 		}
 	}
 	return s.applyDriveChange(ctx, d, action, &gdrive.DriveMeta{Restrictions: restrictions}, changes, in.DryRun)
+}
+
+// LiftableRestrictions are the shared-drive restrictions that only
+// lift_drive_restriction turns off: each keeps the drive's content from
+// reaching people outside the organization.
+func LiftableRestrictions() []string { return []string{"domain_users_only"} }
+
+// LiftDriveRestrictionInput turns off one restriction that keeps a
+// shared drive's content inside the organization.
+type LiftDriveRestrictionInput struct {
+	Drive       string
+	Restriction string
+	Confirm     bool
+	DryRun      bool
+}
+
+// LiftDriveRestriction turns off a restriction LiftableRestrictions
+// names. It is the one way this server opens a shared drive past the
+// organization, so it exists only behind the destructive flag and needs
+// confirm: true on the call (§4a).
+func (s *Service) LiftDriveRestriction(ctx context.Context, in LiftDriveRestrictionInput) (*Result, error) {
+	const tool = "lift_drive_restriction"
+	if err := s.widening(tool); err != nil {
+		return nil, err
+	}
+	name := strings.ToLower(strings.TrimSpace(in.Restriction))
+	switch {
+	case name == "":
+		return nil, Errorf(ClassInvalid, "restriction is required: one of %s", strings.Join(LiftableRestrictions(), ", "))
+	case slices.Contains(model.DriveRestrictionNames, name) && !slices.Contains(LiftableRestrictions(), name):
+		return nil, Errorf(ClassInvalid, "%s turns off only %s; manage_drive with action restrict turns %s "+
+			"off.", tool, strings.Join(LiftableRestrictions(), ", "), name)
+	case !slices.Contains(LiftableRestrictions(), name):
+		return nil, Errorf(ClassInvalid, "restriction %q is not one of %s", in.Restriction,
+			strings.Join(LiftableRestrictions(), ", "))
+	}
+	if strings.TrimSpace(in.Drive) == "" {
+		return nil, Errorf(ClassInvalid, "drive is required: name the shared drive, by name or id")
+	}
+	d, err := s.findDrive(ctx, in.Drive)
+	if err != nil {
+		return nil, err
+	}
+	if err := driveChangeAllowed(d, DriveRestrict); err != nil {
+		return nil, err
+	}
+	restrictions, changes, _, err := driveRestrictionPatch(d.Restrictions, map[string]bool{name: false})
+	if err != nil {
+		return nil, err
+	}
+	if len(changes) == 0 {
+		return driveResult(model.NewDrive(d), outcome{Action: render.ActionUnchanged,
+			Note: name + " is already off."}), nil
+	}
+	if !in.DryRun {
+		if err := s.confirmed(in.Confirm, tool, "turn off "+name+" on the shared drive "+d.Name+
+			", which lets what is in it be shared with people outside the organization"); err != nil {
+			return nil, err
+		}
+	}
+	return s.applyDriveChange(ctx, d, DriveRestrict, &gdrive.DriveMeta{Restrictions: restrictions}, changes, in.DryRun)
 }
 
 // applyDriveChange makes the call the action needs and renders what it

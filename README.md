@@ -202,15 +202,64 @@ the server will do at all:
 | `GDRIVE_LOCAL_DIR` | unset | The one directory downloads are written to and uploads are read from. **Unset means no file transfer at all.** |
 | `GDRIVE_READ_ONLY` | `false` | Register only read tools, and ask for read-only scopes at login. |
 | `GDRIVE_SHARING` | `all` | `off` leaves the sharing tools unregistered, keeps a shared drive's restrictions, a file's download and reshare switches and a folder's limited access from being loosened, and refuses a move that would let more people reach an item, or a copy that more people could reach than the original. |
-| `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back. Each still needs `confirm: true` per call. |
-| `GDRIVE_REQUIRE_PROMPT` | `false` | Refuse the writes that ask the person when the client cannot ask them. |
+| `GDRIVE_ENABLE_DESTRUCTIVE` | `false` | Register permanent delete, empty trash and the other tools with no way back, and the shares that reach past your organization: a link for anyone, a whole domain, someone outside it, a new owner, and lifting a shared drive's domain restriction. Each still needs `confirm: true` per call. |
 
-Before a write that cannot be undone, a share to anyone with the link, a
-whole domain, a new owner or someone outside your organization,
-accepting a request for access, turning a shared drive's restriction
-off, turning a folder's limited access off, or a move or a copy into a
-folder or shared drive that more people can reach, the server asks you
-through your MCP client when the client supports elicitation. Anything but Accept stops the write.
+`GDRIVE_REQUIRE_PROMPT` was removed in 3.0.0: the server no longer asks
+you anything. Set to anything but `false`, the server refuses to start,
+rather than quietly allow what you set it to stop.
+
+### Who approves each call
+
+Your MCP client approves each call; the server does not ask you
+itself. claude.ai and Codex prompt for the tools marked destructive:
+the deletes, the four that reach past your organization,
+`approve_file`, and the writes that replace what was there
+(`update_content`, `manage_revision`, `reply_comment` and
+`manage_labels`). VS Code prompts for every tool not marked read-only,
+which is every tool that writes, `download_file` included. In Claude
+Code, `delete_file`, `empty_trash`, `delete_drive` and `share_by_link`
+ask on every call whatever your rules say, and are refused where no
+prompt can be drawn: none can be undone, and each reaches past one
+item, skipping the trash, taking a whole trash or shared drive, or
+opening a file to everyone with the link or a whole domain. For the
+rest, list the calls you want to approve one by one under
+`permissions.ask` in your settings, with the name you gave the server
+in place of `google-drive`. For example, the writes that share, publish,
+sign off or delete:
+
+```json
+{
+  "permissions": {
+    "ask": [
+      "mcp__google-drive__share_file", "mcp__google-drive__share_outside_organization",
+      "mcp__google-drive__share_by_link", "mcp__google-drive__transfer_ownership",
+      "mcp__google-drive__resolve_access_request", "mcp__google-drive__lift_drive_restriction",
+      "mcp__google-drive__approve_file",
+      "mcp__google-drive__delete_file", "mcp__google-drive__empty_trash",
+      "mcp__google-drive__delete_drive", "mcp__google-drive__delete_revision",
+      "mcp__google-drive__delete_comment"
+    ]
+  }
+}
+```
+
+What holds whatever the client does:
+
+- **Wide shares are their own tools.** `share_file` grants named people
+  and groups inside your organization. A link for anyone, a whole
+  domain, someone outside the organization and a new owner each have
+  their own tool, registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`.
+  Outside means an address whose domain is not your account's; on a
+  personal Google account, which has no organization, that is every
+  address.
+- **Nothing widens by omission.** A move, a copy, or a folder's limited
+  access turned off that would let anyone with the link, a domain or
+  someone outside your organization reach a file is refused, naming
+  who. Accepting a request for access from outside your organization is
+  refused too.
+- **Deletes need the flag and `confirm: true`.** Trash and restore are
+  the default way to remove something; `confirm: true` is the caller's
+  witness that it meant this delete, not your approval.
 
 ## Tools
 
@@ -234,10 +283,10 @@ through your MCP client when the client supports elicitation. Anything but Accep
 | `trash_file` | Move an item to the trash, which is reversible |
 | `restore_file` | Take an item out of the trash, and say where it went |
 | `list_permissions` | Who can see an item, with the role, the expiry, and where each grant came from |
-| `share_file` | Grant or change access, with who can see it before and after |
+| `share_file` | Grant or change access for people and groups inside your organization, with who can see it before and after |
 | `unshare_file` | Take access away, or kill the link that let anybody open it |
 | `list_drives` | The shared drives this account can see, with what it may do in each |
-| `manage_drive` | Create, rename, hide, unhide or restrict a shared drive |
+| `manage_drive` | Create, rename, hide, unhide or restrict a shared drive; never lift its domain restriction |
 | `list_revisions` | A file's version history, with Google's own caveat about what it leaves out |
 | `manage_revision` | Pin a version so Drive keeps it, or unpin the current one; a pin on an older version is for good |
 | `list_changes` | What has changed since a point in time, with the token for next time |
@@ -245,9 +294,10 @@ through your MCP client when the client supports elicitation. Anything but Accep
 | `add_comment` | Start a thread on any file, Google document or not |
 | `reply_comment` | Answer a thread, resolve it, reopen it, or edit wording already in it |
 | `list_access_requests` | Who has asked to be let into a file, and what they asked for |
-| `resolve_access_request` | Accept or deny one, with who could see the file before and after |
+| `resolve_access_request` | Accept a request from inside your organization, or deny any, with who could see the file before and after |
 | `list_approvals` | The reviews on a file: who asked, who has to answer, and whether it is waiting on you |
-| `manage_approval` | Ask people to review a file, answer one, withdraw it, comment on it, or change who is asked, and choose whether a content change resets it |
+| `manage_approval` | Ask people to review a file, decline one, withdraw it, comment on it, or change who is asked, and choose whether a content change resets it |
+| `approve_file` | Approve a review you were asked for, which can lock the file for good |
 
 Three more are registered only when the deployer turns their feature on,
 because each needs a scope the consent screen would otherwise not carry:
@@ -260,10 +310,15 @@ because each needs a scope the consent screen would otherwise not carry:
 | `manage_labels` | Put a label on a file, set or clear one of its fields, or take it off |
 | `list_activity` | What happened to a file, or to everything in a folder, and when |
 
-Five more are registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and
-each of those also needs `confirm: true` on the call itself:
-`delete_file`, `empty_trash`, `delete_drive`, `delete_revision` and
-`delete_comment`.
+Nine more are registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and
+each of those also needs `confirm: true` on the call itself. Five remove
+something for good: `delete_file`, `empty_trash`, `delete_drive`,
+`delete_revision` and `delete_comment`. Four reach past your
+organization: `share_by_link` opens a file to anyone with the link or a
+whole domain, `share_outside_organization` grants someone outside it,
+`transfer_ownership` hands a file to a new owner, and
+`lift_drive_restriction` lets a shared drive's content be shared outside
+the organization.
 
 Three of the reads are also **resources**, for a client that attaches
 them rather than calling a tool: `gdrive://<id>` is the file's text,
@@ -285,10 +340,10 @@ Five things it does differently from the alternatives:
   uploads are read from it; unset, there is no file transfer at all. A
   path outside it is refused, symlinks included.
 - **Sharing shows its work.** Every grant or revocation reports who could
-  see the file before and who can see it after. A public link needs
-  `allow_anyone: true` and an ownership transfer needs
-  `transfer_ownership: true`, on the call itself. No notification mail
-  goes out unless you ask for it, which is the opposite of the API's own
+  see the file before and who can see it after. A public link, a share
+  outside your organization and an ownership transfer are each their own
+  tool, off unless the deployer turns them on. No notification mail goes
+  out unless you ask for it, which is the opposite of the API's own
   default.
 
 ## Safety
@@ -304,11 +359,12 @@ Five things it does differently from the alternatives:
   `update_content` refuses new content that would lose one unless
   `allow_comment_changes` is set.
 - Widen access without being asked. Sharing tools check
-  `capabilities.canShare` first, show who can see a file before and
-  after, need `allow_anyone: true` for a public link, and send no
-  notification mail unless you ask for it. What may actually be shared is
-  decided by your organization's own policy, which Google enforces on
-  every call.
+  `capabilities.canShare` first and show who can see a file before and
+  after. Without `GDRIVE_ENABLE_DESTRUCTIVE=true` nothing here can share
+  past your organization, and nothing ever does so by a move or a copy.
+  No notification mail goes out unless you ask for it. What may actually
+  be shared is decided by your organization's own policy, which Google
+  enforces on every call.
 - Destroy anything without a way back, by default. Trash and restore are
   the default surface; permanent deletion is gated behind
   `GDRIVE_ENABLE_DESTRUCTIVE=true` **and** needs `confirm: true` on the

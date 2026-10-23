@@ -328,25 +328,19 @@ func (s *Service) DeleteComment(ctx context.Context, in DeleteCommentInput) (*Re
 		return nil, err
 	}
 	f := res.File
-	// The words are read only where they are shown: in a dry run, and in
-	// the question to the person.
-	if in.DryRun || asks(ctx) {
+	// A dry run reads the comment, so one that is not there, or a reply
+	// that is not on it, is said before anything would be deleted.
+	if in.DryRun {
 		c, err := s.api.GetComment(ctx, f.ID, commentID, false)
 		if err != nil {
 			return nil, s.commentError(err, f, commentID)
 		}
-		author, body, replies, err := commentWords(c, replyID, f)
-		if err != nil {
+		if err := hasReply(c, replyID, f); err != nil {
 			return nil, err
 		}
-		if in.DryRun {
-			return s.report(ctx, res, outcome{Action: render.ActionDeleted, DryRun: true, Note: fmt.Sprintf(
-				"%s on %s would be deleted for good; Drive would keep the thread with its words removed.",
-				what, f.Name)}), nil
-		}
-		if err := ask(ctx, render.AskDeleteComment(f.ID, f.Name, replyID != "", author, body, replies)); err != nil {
-			return nil, err
-		}
+		return s.report(ctx, res, outcome{Action: render.ActionDeleted, DryRun: true, Note: fmt.Sprintf(
+			"%s on %s would be deleted for good; Drive would keep the thread with its words removed.",
+			what, f.Name)}), nil
 	}
 	if replyID != "" {
 		if err := s.api.DeleteReply(ctx, f.ID, commentID, replyID); err != nil {
@@ -360,25 +354,18 @@ func (s *Service) DeleteComment(ctx context.Context, in DeleteCommentInput) (*Re
 			"with include_deleted shows; there is no way back.", what, f.Name)}), nil
 }
 
-// commentWords is who wrote the comment or the reply about to be
-// deleted and what it says, in the words list_comments uses, and for a
-// whole thread the texts of the replies that go with it.
-func commentWords(c *gdrive.Comment, replyID string, f *gdrive.File) (author, body string, replies []string, err error) {
-	m := model.NewComment(c)
+// hasReply refuses a reply id the comment does not carry, or carries
+// deleted. An empty id names the whole thread, which is there.
+func hasReply(c *gdrive.Comment, replyID string, f *gdrive.File) error {
 	if replyID == "" {
-		for _, r := range m.Replies {
-			if !r.Deleted {
-				replies = append(replies, r.Text)
-			}
-		}
-		return m.By, m.Text, replies, nil
+		return nil
 	}
-	for _, r := range m.Replies {
+	for _, r := range model.NewComment(c).Replies {
 		if r.ID == replyID && !r.Deleted {
-			return r.By, r.Text, nil, nil
+			return nil
 		}
 	}
-	return "", "", nil, Errorf(ClassNotFound, "comment %s on %s has no reply %s that this account can see. "+
+	return Errorf(ClassNotFound, "comment %s on %s has no reply %s that this account can see. "+
 		"list_comments shows the reply ids.", c.ID, f.Name, replyID)
 }
 

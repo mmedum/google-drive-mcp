@@ -133,3 +133,25 @@ func TestTheFullSurfaceTurnsOnEveryGatingSetting(t *testing.T) {
 		t.Errorf("the full surface turns on read-only, which removes tools: %v", env)
 	}
 }
+
+// The README's Claude Code permission rules must name registered tools:
+// a rule for a misspelled or removed tool asks nobody. A rule under
+// another server's name is not this server's, and a README with no rule
+// is a check that read nothing.
+func TestPermissionRulesNameRegisteredTools(t *testing.T) {
+	registered := []string{"delete_file", "share_by_link"}
+	const rules = "```json\n{\"permissions\": {\"ask\": [\"mcp__google-drive__delete_file\", " +
+		"\"mcp__google-drive__share_by_link\", \"mcp__other-server__some_tool\"]}}\n```\n"
+	if problems := checkPermissionRules(rules, registered); len(problems) != 0 {
+		t.Errorf("rules for registered tools were reported: %v", problems)
+	}
+	broken := strings.Replace(rules, "mcp__google-drive__delete_file", "mcp__google-drive__delete_files", 1)
+	want := []string{"README.md gives a permission rule for delete_files, which is not registered"}
+	if problems := checkPermissionRules(broken, registered); !slices.Equal(problems, want) {
+		t.Errorf("problems = %v, want %v", problems, want)
+	}
+	want = []string{`README.md gives no Claude Code permission rule for this server ("mcp__google-drive__...")`}
+	if problems := checkPermissionRules("no rules here", registered); !slices.Equal(problems, want) {
+		t.Errorf("problems = %v, want %v", problems, want)
+	}
+}

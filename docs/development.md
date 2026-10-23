@@ -154,12 +154,12 @@ Its modes, each off unless asked for:
 |---|---|
 | `-write` | Every tool that changes Drive, in one scratch folder in My Drive that is trashed at the end |
 | `-drive NAME_OR_ID` | Moves a file into an existing shared drive and back out, and the folder-move refusal |
-| `-share ADDRESS` | The half of sharing that needs a second person, ownership transfer included |
+| `-share ADDRESS` | The half of sharing that needs a second person; with `-destructive`, the ownership transfer too |
 | `-blocked ADDRESS` | Attempts a share the organization's policy should refuse, and reports Google's reason beside this server's class |
 | `-unlistable REF` | Reads and lists a folder this account can see but not list, to show what Drive answers there |
 | `-labels` | The label tools; needs `GDRIVE_LABELS`, the Labels API enabled and its scopes granted |
 | `-activity` | `list_activity`; needs `GDRIVE_ACTIVITY`, the Drive Activity API enabled and its scope granted |
-| `-destructive` | The five tools that remove something for good — see below |
+| `-destructive` | Everything `GDRIVE_ENABLE_DESTRUCTIVE` registers: the five tools that remove something for good — see below — and the shares that reach past the organization, with the move, copy and limited-access refusals that need a folder opened by link |
 
 **`-destructive` creates a shared drive and destroys it again.** It is
 the only way to run `empty_trash` safely: that tool cannot be scoped to a
@@ -186,8 +186,8 @@ go run ./scripts/evals -bin ./google-drive-mcp -only share-as-commenter-quietly
 
 Seventeen tasks through `claude -p` with only this server's tools, scored
 on the end state read back through the server and on the trace: an id no
-result ever handed the agent is a failure, and so is `allow_anyone` on a
-task that asked for one person. Everything happens in one scratch folder,
+result ever handed the agent is a failure, and so is a call to a tool
+that shares past the organization, which no task asks for. Everything happens in one scratch folder,
 which is trashed at the end. It needs the `claude` command on PATH and a
 signed-in account, and it costs real tokens, so it is not in `make
 check`.

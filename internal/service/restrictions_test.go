@@ -145,49 +145,52 @@ func TestLimitedAccessKeepsOutWhoReachesTheFolderFromAbove(t *testing.T) {
 	}
 }
 
-func TestTurningLimitedAccessOffAsksNamingWhoCouldOpenIt(t *testing.T) {
+// Turning limited access off when the folder above reaches only people
+// inside the organization is an ordinary write.
+func TestTurningLimitedAccessOffToPeopleInsideGoes(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	boardInArchive(fake, drivetest.LimitedAccess())
-	off := service.UpdateFileInput{File: "id-board-fixture", LimitedAccess: new(false)}
 
-	no := declines()
-	if _, err := svc.UpdateFile(service.WithAsker(t.Context(), no), off); err == nil {
-		t.Fatal("a change the person declined was made")
-	}
-	if len(no.asked) != 1 {
-		t.Fatalf("asked %d questions, want 1", len(no.asked))
-	}
-	want := "update_file: turn off limited access on the folder `Board`?\n\nEveryone who reaches the folder above it " +
-		"could then open it and everything inside it: 1 person (1 can edit)\n"
-	if !strings.HasPrefix(no.asked[0].Text, want) {
-		t.Errorf("question = %q, want it to start %q", no.asked[0].Text, want)
-	}
-	if fake.Count(http.MethodPatch) != 0 || !fake.Files["id-board-fixture"].InheritedPermissionsDisabled {
-		t.Fatal("the declined change reached Drive")
-	}
-
-	if _, err := svc.UpdateFile(yes(t), off); err != nil {
+	if _, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{File: "id-board-fixture", LimitedAccess: new(false)}); err != nil {
 		t.Fatalf("UpdateFile: %v", err)
 	}
 	if fake.Files["id-board-fixture"].InheritedPermissionsDisabled {
-		t.Error("an accepted change was not made")
+		t.Error("the change was not made")
+	}
+}
+
+// Turning limited access off is refused when the folder above would let
+// anyone with the link open it, naming them, and nothing is changed
+// (§4a).
+func TestTurningLimitedAccessOffToAnyoneIsRefused(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	linkShared(fake)
+	boardInArchive(fake, drivetest.LimitedAccess())
+
+	_, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{File: "id-board-fixture", LimitedAccess: new(false)})
+	want := "[blocked] turning its limited access off would let more people open it and everything inside it past " +
+		"the people inside this account's organization: anyone with the link can view. Nothing was changed on " +
+		"Board. Share it with them first, with share_by_link or share_outside_organization when " +
+		"GDRIVE_ENABLE_DESTRUCTIVE=true, and turning limited access off then gains them nothing. One that gains " +
+		"only people inside the organization is allowed."
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v\nwant %s", err, want)
+	}
+	if fake.Count(http.MethodPatch) != 0 || !fake.Files["id-board-fixture"].InheritedPermissionsDisabled {
+		t.Fatal("the refused change reached Drive")
 	}
 }
 
 // Turning limited access off when the folder above reaches nobody the
-// folder does not already let in asks nothing.
-func TestTurningLimitedAccessOffAsksNothingWhenNobodyCouldOpenIt(t *testing.T) {
+// folder does not already let in is an ordinary write.
+func TestTurningLimitedAccessOffWhenNobodyCouldOpenItGoes(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddFolder("id-board-fixture", "Board", "id-archive-fixture", drivetest.LimitedAccess())
-	p := declines()
 
-	if _, err := svc.UpdateFile(service.WithAsker(t.Context(), p), service.UpdateFileInput{
+	if _, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{
 		File: "id-board-fixture", LimitedAccess: new(false),
 	}); err != nil {
 		t.Fatalf("UpdateFile: %v", err)
-	}
-	if len(p.asked) != 0 {
-		t.Errorf("asked the person: %s", p.asked[0].Text)
 	}
 }
 
@@ -199,16 +202,16 @@ func TestLimitedAccessChecksTheCapabilityForEachWay(t *testing.T) {
 		drivetest.WithCapabilities(gdrive.Capabilities{CanListChildren: true, CanDisableInheritedPermissions: true}))
 	fake.AddFolder("id-open-only-fixture", "Open only", "id-archive-fixture", drivetest.LimitedAccess(),
 		drivetest.WithCapabilities(gdrive.Capabilities{CanListChildren: true, CanEnableInheritedPermissions: true}))
-	if _, err := svc.UpdateFile(yes(t), service.UpdateFileInput{File: "id-close-only-fixture", LimitedAccess: new(true)}); err != nil {
+	if _, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{File: "id-close-only-fixture", LimitedAccess: new(true)}); err != nil {
 		t.Errorf("turning it on with the right to: %v", err)
 	}
-	if _, err := svc.UpdateFile(yes(t), service.UpdateFileInput{File: "id-open-only-fixture", LimitedAccess: new(false)}); err != nil {
+	if _, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{File: "id-open-only-fixture", LimitedAccess: new(false)}); err != nil {
 		t.Errorf("turning it off with the right to: %v", err)
 	}
 	fake.Files["id-close-only-fixture"].InheritedPermissionsDisabled = true
 	fake.Files["id-open-only-fixture"].InheritedPermissionsDisabled = false
 	for id, on := range map[string]bool{"id-close-only-fixture": false, "id-open-only-fixture": true} {
-		_, err := svc.UpdateFile(yes(t), service.UpdateFileInput{File: id, LimitedAccess: new(on)})
+		_, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{File: id, LimitedAccess: new(on)})
 		if err == nil || !strings.HasPrefix(err.Error(), "[forbidden] this account cannot turn limited access") {
 			t.Errorf("%s, limited access %v without the right to: err = %v", id, on, err)
 		}
@@ -216,8 +219,8 @@ func TestLimitedAccessChecksTheCapabilityForEachWay(t *testing.T) {
 }
 
 // The account's own access is not who limited access keeps out: when
-// only the account would open the folder from above, turning it off asks
-// nothing.
+// only the account would open the folder from above, turning it off adds
+// nobody.
 func TestTurningLimitedAccessOffLeavesTheAccountOutOfWhoItAdds(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddFolder("id-dana-fixture", "Dana's", fake.RootID, drivetest.Owner("Dana", "dana@example.com"))
@@ -225,14 +228,10 @@ func TestTurningLimitedAccessOffLeavesTheAccountOutOfWhoItAdds(t *testing.T) {
 	fake.AddFolder("id-board-fixture", "Board", "id-dana-fixture", drivetest.LimitedAccess(),
 		drivetest.Owner("Dana", "dana@example.com"),
 		drivetest.WithCapabilities(gdrive.Capabilities{CanListChildren: true, CanEnableInheritedPermissions: true}))
-	p := declines()
-	if _, err := svc.UpdateFile(service.WithAsker(t.Context(), p), service.UpdateFileInput{
+	if _, err := svc.UpdateFile(t.Context(), service.UpdateFileInput{
 		File: "id-board-fixture", LimitedAccess: new(false),
 	}); err != nil {
 		t.Fatalf("UpdateFile: %v", err)
-	}
-	if len(p.asked) != 0 {
-		t.Errorf("asked the person about the account itself: %s", p.asked[0].Text)
 	}
 }
 
@@ -272,7 +271,7 @@ func TestSharingOffKeepsDownloadsAndLimitedAccessTight(t *testing.T) {
 		{service.UpdateFileInput{File: "id-locked-fixture", RestrictDownload: "viewers"}, "lifting its download restriction"},
 		{service.UpdateFileInput{File: "id-board-fixture", LimitedAccess: new(false)}, "turning its limited access off"},
 	} {
-		_, err := svc.UpdateFile(yes(t), tc.in)
+		_, err := svc.UpdateFile(t.Context(), tc.in)
 		if err == nil || !strings.HasPrefix(err.Error(), "[forbidden] this server was started with GDRIVE_SHARING=off, and "+tc.want) {
 			t.Errorf("%+v: err = %v, want a refusal naming %q", tc.in, err, tc.want)
 		}
@@ -289,21 +288,17 @@ func TestSharingOffKeepsDownloadsAndLimitedAccessTight(t *testing.T) {
 }
 
 // Someone who sees a limited-access folder without opening it does not
-// reach what is moved into it, so the move asks nothing about them.
+// reach what is moved into it, so the move does not count them.
 func TestAMoveIntoALimitedFolderDoesNotCountWhoOnlySeesIt(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	linkShared(fake)
 	fake.AddFolder("id-board-fixture", "Board", "id-archive-fixture", drivetest.LimitedAccess())
-	p := declines()
 
-	got, err := svc.MoveFile(service.WithAsker(t.Context(), p), service.MoveFileInput{
+	got, err := svc.MoveFile(t.Context(), service.MoveFileInput{
 		File: "id-budget-fixture", To: "id-board-fixture",
 	})
 	if err != nil {
 		t.Fatalf("MoveFile: %v", err)
-	}
-	if len(p.asked) != 0 {
-		t.Errorf("asked the person: %s", p.asked[0].Text)
 	}
 	if got.JSON.SharingAfter != "private to you" || got.JSON.Note != "" {
 		t.Errorf("sharing after %q, note %q", got.JSON.SharingAfter, got.JSON.Note)

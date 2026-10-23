@@ -326,37 +326,28 @@ func sharedOutTree(fake *drivetest.Server) {
 
 // A tree's copy reaches who the destination does, all through. The
 // folder reaching those people already widens nothing for it, while a
-// folder inside it with limited access is reached further.
-func TestATreeCopyAsksAboutEachPartItWouldReachFurther(t *testing.T) {
+// folder inside it with limited access is reached further: by a domain,
+// which refuses the copy, naming the part and the domain.
+func TestATreeCopyIsRefusedForAPartItWouldOpenToADomain(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	sharedOutTree(fake)
 	in := service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture", Recursive: true}
 
-	no := declines()
-	if _, err := svc.CopyFile(service.WithAsker(t.Context(), no), in); err == nil || !strings.Contains(err.Error(), "[blocked]") {
-		t.Fatalf("err = %v, want the refusal the person gave", err)
-	}
-	want := "copy_file: copy the folder `Projects`, with everything inside it, into the folder `Shared out`?\n\n" +
-		"The copy would reach more people than these parts of the original do, or give them more access:\n\n" +
-		"the folder `Archive`, inside it, which has limited access: everyone at `example.com` can view with the link\n"
-	if len(no.asked) != 1 || !strings.HasPrefix(no.asked[0].Text, want) {
-		t.Fatalf("questions = %+v, want one starting %q", no.asked, want)
+	_, err := svc.CopyFile(t.Context(), in)
+	want := "[blocked] Inside it, Archive has limited access, and the copy of it would reach more people than it " +
+		"does: everyone at example.com can view. Nothing was copied."
+	if err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Fatalf("err = %v\nwant it to start %s", err, want)
 	}
 	if fake.Count(http.MethodPost) != 0 {
-		t.Fatal("a copy the person declined wrote something")
-	}
-	if _, err := svc.CopyFile(yes(t), in); err != nil {
-		t.Fatalf("CopyFile: %v", err)
-	}
-	if len(childrenNamed(fake, "id-shared-out-fixture")) != 1 {
-		t.Error("an accepted tree copy was not made")
+		t.Fatal("a refused tree copy wrote something")
 	}
 }
 
 func TestSharingOffRefusesATreeCopyThatWidensAnyPart(t *testing.T) {
 	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
 	sharedOutTree(fake)
-	_, err := svc.CopyFile(yes(t), service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture", Recursive: true})
+	_, err := svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture", Recursive: true})
 	want := "[forbidden] this server was started with GDRIVE_SHARING=off. Inside it, Archive has limited access, and " +
 		"the copy of it would reach more people than it does: everyone at example.com can view with the link. Nothing was copied."
 	if err == nil || !strings.HasPrefix(err.Error(), want) {

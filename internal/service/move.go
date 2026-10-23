@@ -14,8 +14,8 @@ import (
 )
 
 // MaxMoveFiles is how many items one move_file call takes. Every one is
-// read before anything moves, and a question naming the ones that
-// widen access has to stay readable.
+// read before anything moves, and a result naming each item's outcome
+// has to stay readable.
 const MaxMoveFiles = 50
 
 // MoveFileInput moves one item, or several, to another folder or shared
@@ -39,9 +39,11 @@ type MoveFileInput struct {
 // move "re-evaluates and applies the new parent's permissions to the item
 // and its children", and the Workspace help that what it inherited from
 // the old folder goes while grants made on it directly stay. So the
-// result shows who could reach it before and who can after, and a move
-// that would reach more people is put to the person first (§4a). With
-// GDRIVE_SHARING=off it is refused instead, dry run included.
+// result shows who could reach it before and who can after. A move that
+// would let anyone with the link, a domain or someone outside the
+// organization reach it is refused, dry run included, and so is one
+// whose reach cannot be read (§4a). With GDRIVE_SHARING=off any move
+// that lets more people reach it is refused.
 func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, error) {
 	if err := s.writable("move_file"); err != nil {
 		return nil, err
@@ -76,18 +78,11 @@ func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, erro
 			Note: "it is already in " + target.Name + "."}), nil
 	}
 	s.predictMove(ctx, p, s.reachOf(ctx, target))
-	if why := s.sharingOffRefuses(p); why != "" {
-		return nil, Errorf(ClassForbidden, "%s Nothing was moved. Moving %s where nobody new can reach it "+
-			"is still allowed.", why, res.File.Name)
+	if class, why := s.widensPast(ctx, p); why != "" {
+		return nil, Errorf(class, "%s Nothing was moved. %s", why, p.instead(class))
 	}
 	if in.DryRun {
 		return s.moveResult(ctx, res, p, p.after, true), nil
-	}
-	if p.widens() {
-		if err := ask(ctx, render.AskMove(s.moveTarget(ctx, target), []string{p.res.File.ID},
-			[]render.MoveItem{p.question()})); err != nil {
-			return nil, err
-		}
 	}
 
 	moved, err := s.moveTo(ctx, p)
@@ -101,10 +96,8 @@ func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, erro
 // moveMany moves several items to one destination. Each is read and
 // checked first, and gets its own outcome: refused, with the reason,
 // when a check stops it, and failed, with Drive's answer, when the move
-// does. A failure does not undo the moves before it. The person is asked
-// once, before anything moves, about every item that would reach more
-// people. §18 has why a move may be bulk when removal and sharing are
-// not.
+// does. A failure does not undo the moves before it. §18 has why a move
+// may be bulk when removal and sharing are not.
 func (s *Service) moveMany(ctx context.Context, in MoveFileInput) (*Result, error) {
 	if len(in.Files) > MaxMoveFiles {
 		return nil, Errorf(ClassInvalid, "files holds %d items, and one call moves at most %d. Split them, or "+
@@ -151,8 +144,8 @@ func (s *Service) moveMany(ctx context.Context, in MoveFileInput) (*Result, erro
 		}
 		s.predictMove(ctx, p, *dest)
 		it.json.From, it.json.Widens, it.json.SharingBefore = p.oldPath, p.widens(), p.before.Summary()
-		if why := s.sharingOffRefuses(p); why != "" {
-			it.set(render.MovedRefused, why)
+		if class, why := s.widensPast(ctx, p); why != "" {
+			it.set(render.MovedRefused, why+" "+p.instead(class))
 			continue
 		}
 		it.plan = p
@@ -166,22 +159,6 @@ func (s *Service) moveMany(ctx context.Context, in MoveFileInput) (*Result, erro
 			}
 		}
 		return s.manyResult(ctx, target, items, true), nil
-	}
-	var moving []string
-	var widening []render.MoveItem
-	for _, it := range items {
-		if it.plan == nil {
-			continue
-		}
-		moving = append(moving, it.plan.res.File.ID)
-		if it.plan.widens() {
-			widening = append(widening, it.plan.question())
-		}
-	}
-	if len(widening) > 0 {
-		if err := ask(ctx, render.AskMove(s.moveTarget(ctx, target), moving, widening)); err != nil {
-			return nil, err
-		}
 	}
 	for _, it := range items {
 		if it.plan != nil {
@@ -309,25 +286,109 @@ type movePlan struct {
 }
 
 // widens reports whether the move would let more people reach the item,
-// or cannot tell: a question too many rather than one too few.
+// or cannot tell: a refusal too many rather than one too few.
 func (p *movePlan) widens() bool { return p.unread != "" || len(p.gained) > 0 }
 
-// sharingOffRefuses says why GDRIVE_SHARING=off refuses the move or the
-// copy, or is empty when it does not. That setting keeps access from
-// being widened, and a move that lets more people reach an item widens
-// it as surely as a share does; so does a copy that more people can
-// reach than the original. One whose reach could not be read is refused
-// too: nothing shows it does not widen.
-func (s *Service) sharingOffRefuses(p *movePlan) string {
-	if s.opts.Sharing != config.SharingOff || !p.widens() {
-		return ""
-	}
-	if p.unread != "" {
-		return "this server was started with GDRIVE_SHARING=off, and who can reach " + p.unread +
+// widensPast says why the move or the copy is refused for who it would
+// let reach the item, with the class to refuse it as, or is empty when
+// nothing refuses it.
+//
+// A move, a copy, and a folder's limited access turned off all reach
+// who the destination reaches, and that is nowhere in the call: never
+// by default and never by omission (§4a). So one that would let anyone
+// with the link, a domain, or a person or group outside the organization
+// reach it is refused [blocked], naming who; so is one whose reach could
+// not be read, since nothing shows it does not. Sharing it with them
+// first, with the share tool that does that, leaves nothing to gain. A
+// gain only to people and groups inside the organization is an ordinary
+// write, with before and after in the result. GDRIVE_SHARING=off keeps
+// access from being widened at all, so there any gain is refused.
+func (s *Service) widensPast(ctx context.Context, p *movePlan) (class, why string) {
+	switch {
+	case !p.widens():
+		return "", ""
+	case s.opts.Sharing == config.SharingOff && p.unread != "":
+		return ClassForbidden, "this server was started with GDRIVE_SHARING=off, and who can reach " + p.unread +
 			" could not be read, so " + p.may() + "."
+	case s.opts.Sharing == config.SharingOff:
+		return ClassForbidden, "this server was started with GDRIVE_SHARING=off, and " + p.would() +
+			", or give them more access: " + render.Reach(p.gained) + "."
+	case p.unread != "":
+		return ClassBlocked, "who can reach " + p.unread + " could not be read, so whether " + p.would() +
+			" past the people inside this account's organization is unknown."
 	}
-	return "this server was started with GDRIVE_SHARING=off, and " + p.would() + ", or give them more access: " +
-		render.Reach(p.gained) + "."
+	wide := s.wideGrants(ctx, p.gained)
+	if len(wide) == 0 {
+		return "", ""
+	}
+	return ClassBlocked, p.would() + " past the people inside this account's organization: " + wideWords(wide) + "."
+}
+
+// wideWords names each grant and what it may do. A person or a group is
+// named by address, which is what share_outside_organization takes, and
+// never by a display name Drive attached.
+func wideWords(grants []model.Grant) string {
+	words := make([]string, 0, len(grants))
+	for _, g := range grants {
+		who := g.Label()
+		switch {
+		case g.Type == principalUser && g.Who != "":
+			who = g.Who
+		case g.Type == principalGroup && g.Who != "":
+			who = "group " + g.Who
+		}
+		words = append(words, who+" "+g.Words())
+	}
+	return strings.Join(words, "; ")
+}
+
+// instead is what to do about a move or a copy widensPast refused.
+func (p *movePlan) instead(class string) string {
+	what := "the move"
+	if p.copy {
+		what = "the copy"
+	}
+	switch {
+	case class == ClassForbidden && p.copy:
+		return "A copy into a folder that nobody new can reach is still allowed."
+	case class == ClassForbidden:
+		return "Moving it where nobody new can reach it is still allowed."
+	}
+	return insteadOfWide(what, p.unread != "")
+}
+
+// insteadOfWide is what to do about a write refused for reaching past
+// the organization: share with them first, explicitly, through the tool
+// that does that, and what refused then gains them nothing.
+func insteadOfWide(what string, unread bool) string {
+	if unread {
+		return "list_permissions shows whether who can reach each can be read now."
+	}
+	return "Share it with them first, with share_by_link or share_outside_organization when " + config.EnvPrefix +
+		"ENABLE_DESTRUCTIVE=true, and " + what + " then gains them nothing. One that gains only people inside " +
+		"the organization is allowed."
+}
+
+// wideGrants is each of grants that reaches past the people inside the
+// organization: anyone with the link, a whole domain, or a person or
+// group outside it (outside).
+func (s *Service) wideGrants(ctx context.Context, grants []model.Grant) []model.Grant {
+	var out []model.Grant
+	for _, g := range grants {
+		switch g.Type {
+		case principalAnyone, principalDomain:
+			out = append(out, g)
+		case principalUser, principalGroup:
+			if s.outside(ctx, g.Who) {
+				out = append(out, g)
+			}
+		default:
+			// A grant type Drive adds later is counted as reaching past
+			// the organization until this server knows what it is.
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // would says what the move or the copy would do to who can reach the
@@ -345,19 +406,6 @@ func (p *movePlan) may() string {
 		return "the copy may reach more people than the original does"
 	}
 	return "the move may let more people reach it"
-}
-
-// question is the item as a question names it.
-func (p *movePlan) question() render.MoveItem {
-	f := p.res.File
-	kind := "file"
-	switch {
-	case f.IsFolder():
-		kind = "folder"
-	case f.IsShortcut():
-		kind = "shortcut"
-	}
-	return render.MoveItem{ID: f.ID, Name: f.Name, Kind: kind, Gained: p.gained, Unread: p.unread}
 }
 
 // planMove refuses a move Drive would refuse, before anything is read
@@ -539,18 +587,6 @@ func movedGrants(f, target *gdrive.File, item, dest []*gdrive.Permission) []mode
 	return model.MergeGrants(grants...)
 }
 
-// moveTarget is the destination as a question names it.
-func (s *Service) moveTarget(ctx context.Context, target *gdrive.File) render.MoveTarget {
-	t := render.MoveTarget{ID: target.ID, Name: target.Name, Kind: "folder"}
-	switch {
-	case target.DriveID != "" && target.ID == target.DriveID:
-		t.Kind = "shared drive"
-	case s.isDriveRoot(ctx, target):
-		t.Kind = "My Drive"
-	}
-	return t
-}
-
 // moveResult reports a move, or what one would do: the location before
 // and after, and who could reach the item before and can after. after is
 // what Drive answered once the move was made, or the prediction on a dry
@@ -576,12 +612,9 @@ func (s *Service) moveNote(ctx context.Context, p *movePlan, after model.Sharing
 		act = "copy"
 	}
 	switch {
-	case dryRun && p.unread != "":
-		parts = append(parts, "who can reach "+p.unread+" could not be read, so whether "+p.would()+
-			" is unknown. A real "+act+" puts it to the person first when the client can ask")
 	case dryRun && len(p.gained) > 0:
-		parts = append(parts, p.would()+", or give them more access: "+render.Reach(p.gained)+". A real "+act+
-			" puts that to the person first when the client can ask")
+		parts = append(parts, p.would()+", all of them inside this account's organization, or give them more "+
+			"access: "+render.Reach(p.gained)+". A real "+act+" does that")
 	case dryRun, p.before.Unknown, after.Unknown:
 	default:
 		if gained := s.gained(ctx, p.before, after); len(gained) > 0 {

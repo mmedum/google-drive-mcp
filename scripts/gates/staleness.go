@@ -26,10 +26,10 @@ func staleness(out io.Writer, args []string) error {
 	// behind a flag could be documented and deleted, or added and never
 	// documented, and this gate would say nothing either way.
 	//
-	// The destructive five ARE in that surface and are deliberately not
-	// in the README's table: it names them in a paragraph instead,
-	// because a row beside the ordinary tools is the wrong prominence for
-	// them. checkReadmeTools knows them by name.
+	// The tools GDRIVE_ENABLE_DESTRUCTIVE registers ARE in that surface
+	// and are deliberately not in the README's table: it names them in a
+	// paragraph instead, because a row beside the ordinary tools is the
+	// wrong prominence for them. checkReadmeTools knows them by name.
 	env, err := fullSurfaceEnv()
 	if err != nil {
 		return err
@@ -71,15 +71,19 @@ var readmeToolRow = regexp.MustCompile("(?m)^\\| `([a-z_]+)` \\|")
 // documentedInProse are the tools the README describes in a paragraph
 // rather than in its table, with the reason. A row beside the ordinary
 // tools is the wrong prominence for a tool that destroys without a way
-// back — but "not in the table" still has to be a decision the gate
-// knows about, or a tool could go undocumented by looking like one of
-// these.
+// back, or reaches past the organization — but "not in the table" still
+// has to be a decision the gate knows about, or a tool could go
+// undocumented by looking like one of these.
 var documentedInProse = map[string]string{
-	"delete_file":     "permanent, skips the trash",
-	"empty_trash":     "the whole account's trash",
-	"delete_drive":    "an empty shared drive",
-	"delete_revision": "one blob revision",
-	"delete_comment":  "a thread or one reply",
+	"delete_file":                "permanent, skips the trash",
+	"empty_trash":                "the whole account's trash",
+	"delete_drive":               "an empty shared drive",
+	"delete_revision":            "one blob revision",
+	"delete_comment":             "a thread or one reply",
+	"share_by_link":              "anyone with the link, or a whole domain",
+	"share_outside_organization": "someone outside the organization",
+	"transfer_ownership":         "a new owner, for good",
+	"lift_drive_restriction":     "a shared drive opened past the organization",
 }
 
 // checkReadmeTools keeps the README's table and the registered tools in
@@ -118,6 +122,30 @@ func checkReadmeTools(registered []string) []string {
 	sort.Strings(extra)
 	for _, name := range extra {
 		problems = append(problems, "README's tool table lists "+name+", which is not registered")
+	}
+	return append(problems, checkPermissionRules(string(readme), registered)...)
+}
+
+// permissionRule is a Claude Code permission rule for one of this
+// server's tools, under the server name the README's own `claude mcp
+// add` gives it.
+var permissionRule = regexp.MustCompile(`"mcp__google-drive__([a-z0-9_]+)"`)
+
+// checkPermissionRules holds the README's Claude Code permission rules
+// to the registered tools. A rule for a tool that does not exist matches
+// nothing, so the person it was meant to ask is never asked. A README
+// with no rule at all is reported too: the rules are §4a's advice, and
+// a check that read none passes everything.
+func checkPermissionRules(readme string, registered []string) []string {
+	rules := permissionRule.FindAllStringSubmatch(readme, -1)
+	if len(rules) == 0 {
+		return []string{"README.md gives no Claude Code permission rule for this server (\"mcp__google-drive__...\")"}
+	}
+	var problems []string
+	for _, m := range rules {
+		if !slices.Contains(registered, m[1]) {
+			problems = append(problems, "README.md gives a permission rule for "+m[1]+", which is not registered")
+		}
 	}
 	return problems
 }

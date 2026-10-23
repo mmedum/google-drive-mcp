@@ -20,7 +20,7 @@ type ApprovalsInput struct {
 // ManageApprovalInput is one action on one approval.
 type ManageApprovalInput struct {
 	File             string   `json:"file" jsonschema:"the file the approval is on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
-	Action           string   `json:"action" jsonschema:"start a new approval, approve or decline one you are a reviewer of, cancel one you started, comment on one, or reassign it to different reviewers"`
+	Action           string   `json:"action" jsonschema:"start a new approval, decline one you are a reviewer of, cancel one you started, comment on one, or reassign it to different reviewers. approve_file approves."`
 	Approval         string   `json:"approval,omitempty" jsonschema:"the approval to act on, by the id list_approvals shows. Required for everything except start."`
 	Reviewers        []string `json:"reviewers,omitempty" jsonschema:"email addresses. With start, the people being asked to approve — at least one is required. With reassign, the people to ADD to the reviewers."`
 	ReplaceReviewers []string `json:"replace_reviewers,omitempty" jsonschema:"with reassign, swaps as \"going@example.com=arriving@example.com\". Drive will not simply remove a reviewer: a replacement, which names who takes their place, is the only way somebody leaves an approval."`
@@ -30,7 +30,14 @@ type ManageApprovalInput struct {
 	OnContentChange  string   `json:"on_content_change,omitempty" jsonschema:"with start, what a change to the file's content does to the approval: reset_approval (the default) clears answers already given while it is open and LOCKS the file once it is approved; no_action leaves the answers as they are and does not lock the file"`
 }
 
-// registerApprovals adds the approval pair. list_approvals is a read and
+// ApproveFileInput is this account's approval of one review.
+type ApproveFileInput struct {
+	File     string `json:"file" jsonschema:"the file the approval is on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	Approval string `json:"approval" jsonschema:"the approval to approve, by the id list_approvals shows"`
+	Message  string `json:"message,omitempty" jsonschema:"a message that goes into the notification and into the approval's log"`
+}
+
+// registerApprovals adds the approval tools. list_approvals is a read and
 // is always registered; manage_approval is not, in read-only mode.
 //
 // They are NOT behind GDRIVE_SHARING, and the difference is worth
@@ -66,8 +73,8 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "manage_approval",
-		Description: "Ask people to review a file, answer a review you were asked for, withdraw one, " +
-			"comment on one, or change who is being asked. Actions: " +
+		Description: "Ask people to review a file, decline a review you were asked for, withdraw one, " +
+			"comment on one, or change who is being asked. Approving is approve_file. Actions: " +
 			strings.Join(service.ApprovalActions(), ", ") + ". " +
 			"EVERY ACTION MAILS SOMEBODY — the reviewers, or the person who asked — and there is no way to " +
 			"turn that off, unlike sharing. An approval grants nobody access; what it can do is LOCK the " +
@@ -85,5 +92,19 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 			Message: in.Message, LockFile: in.LockFile, Due: in.Due, OnContentChange: in.OnContentChange,
 		}))
 	})
-	return []string{"list_approvals", "manage_approval"}
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "approve_file",
+		Description: "Approve a review of a file that you were asked for: your sign-off, recorded under your " +
+			"name and mailed to the person who asked and the other reviewers. Drive has no call that takes an " +
+			"approval back. Once every reviewer has approved, an approval started with on_content_change " +
+			"reset_approval LOCKS THE FILE, and that lock does not come off: nobody can edit it after. " +
+			"list_approvals shows the approval's id and whether it is waiting on you.",
+		Annotations: final,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ApproveFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+		return result(d.Service.ApproveFile(ctx, service.ApproveFileInput{
+			File: in.File, Approval: in.Approval, Message: in.Message,
+		}))
+	})
+	return []string{"list_approvals", "manage_approval", "approve_file"}
 }

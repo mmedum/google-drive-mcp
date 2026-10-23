@@ -12,15 +12,22 @@ reach a file (§16). v2.2.0 is verified from outside: all 13
 checksums, the cosign signature against the exact tag identity, the
 provenance attestation, which a tampered copy fails, the version in the
 binary, the registry publish, and `go install
-…/cmd/google-drive-mcp@latest` resolving v2.2.0. The server asks the person before a write it cannot take back or that opens
-a file past people somebody named (§4a), and six defects are fixed, two
-of them found by its live run (§16). The Go module path is now `/v2`. A default
-build registers **32** tools; eight more exist behind a flag — the
-destructive five, plus `list_labels` and `manage_labels` under
-`GDRIVE_LABELS` and `list_activity` under `GDRIVE_ACTIVITY`. Those last
-three each need a Google API enabled in the Cloud project AND a scope the
-consent screen would otherwise not carry, which is why they are off by
-default — 40 tools in all, and 13 in read-only mode. Neither phase 5 nor
+…/cmd/google-drive-mcp@latest` resolving v2.2.0.
+
+**Phase 10, unreleased, is 3.0.0 (§16).** The server asks the person
+nothing; the client approves each call. A link for anyone, a domain,
+someone outside the organization, a new owner and lifting a shared
+drive's domain restriction are each their own tool behind
+`GDRIVE_ENABLE_DESTRUCTIVE`, approving is its own tool, and a move or a
+copy never reaches past the organization by omission (§4a). The Go
+module path is now `/v3`. It waits on a live run, and one decision on a
+probe (§17). A default build registers **33** tools; twelve more exist
+behind a flag — the nine `GDRIVE_ENABLE_DESTRUCTIVE` registers, plus
+`list_labels` and `manage_labels` under `GDRIVE_LABELS` and
+`list_activity` under `GDRIVE_ACTIVITY`. Those last three each need a
+Google API enabled in the Cloud project AND a scope the consent screen
+would otherwise not carry, which is why they are off by default — 45
+tools in all, and 13 in read-only mode. Neither phase 5 nor
 phase 6 added a tool. Every method of all three APIs is recorded as used
 on purpose or left out on purpose, and a gate holds that record to the
 code AND to a snapshot of the APIs themselves — offline, on every
@@ -245,16 +252,19 @@ undo a permanent delete.
    because names are not unique in Drive and a file's meaning depends on
    where it sits.
 3. **Access is never widened silently.** Sharing tools report who could
-   see the file before and after. `anyone` links need `allow_anyone:
-   true` on the call *and* a deployer policy that permits them.
-   Notification mail is off unless asked for. Ownership transfer is its
-   own explicit action. A deployer can limit sharing to the account's own
-   domain, or turn the sharing tools off (§7.4).
+   see the file before and after. `share_file` reaches named people and
+   groups inside the organization; a link for anyone, a domain, someone
+   outside it and a new owner are each their own tool, registered only
+   with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and a move or a copy never
+   reaches past the organization by omission (§4a). Notification mail is
+   off unless asked for. A deployer can turn the sharing tools off
+   (§7.4).
 4. **Nothing is destroyed without a way back, by default.** Trash and
    restore are the default surface. Permanent delete, empty trash, delete
    revision, delete shared drive and delete comment exist only with
-   `GDRIVE_ENABLE_DESTRUCTIVE=true`. Replacing a file's content can pin
-   the previous revision first.
+   `GDRIVE_ENABLE_DESTRUCTIVE=true`, and each needs `confirm: true` on
+   the call. Replacing a file's content can pin the previous revision
+   first.
 5. **Content that is not text goes through disk, never through the
    context window.** Text-like content comes back inline under a budget.
    Everything else streams to `GDRIVE_LOCAL_DIR` and is checksum-verified;
@@ -283,126 +293,124 @@ undo a permanent delete.
     (edit, share, trash, delete, download), starred, trashed, size,
     modified by whom and when.
 
-### 4a. A write that cannot be undone, or that widens access, is confirmed by the person
+### 4a. The client approves each call; the server gates what is wide
 
-`confirm: true`, `allow_anyone`, `allow_domain` and
-`transfer_ownership` are arguments the model writes, and a persuaded
-model writes them too. So when the client can ask, the server asks the
-person itself, through MCP form elicitation, before eleven writes:
-`delete_file`, `empty_trash`, `delete_drive`, `delete_revision`,
-`delete_comment`; `share_file` when it grants `anyone`, a whole
-`domain:` or ownership, or widens a grant to a person or group outside
-the account's organization; `resolve_access_request` when it accepts;
-`manage_drive` when it turns a restriction off; `move_file` when the
-destination would let more people reach the item, or give them more
-access (§7.3); `copy_file` when more people could reach the copy than
-reach the original, or with more access; and `update_file` when it
-turns a folder's limited access off and that lets someone new open it.
+Decided for the family 2026-10-22, and for this server 2026-10-23,
+when the maintainer approved each change below. It replaces the
+2.0.0 design, in which the server asked the person itself, through MCP
+form elicitation, before eleven writes.
 
-`extract_text` asks nothing. What it deletes for good is the temporary
-copy it made in the same call, which nobody else has seen; the person's
-own files are not touched.
+**The server asks the person nothing.** Per-call approval is the
+client's. The specification puts consent to a tool call on the host,
+and lets a server ask through elicitation without making the answer
+consent. On today's clients the question was unreliable: an
+`Elicitation` hook answers it with no dialog, Codex under full access
+accepts an empty form by itself, and some clients declare it and never
+draw it. No client's permission rules can govern it, and a question on
+every call is answered without reading (§18, 2026-10-23).
+`GDRIVE_REQUIRE_PROMPT` is gone; set to anything but `false`, the
+server refuses to start, since ignoring it would quietly allow what its
+owner set it to stop. That makes this 3.0.0.
 
-A move asks on any widening, inside the organization too, where a share
-asks only past people somebody named. With `GDRIVE_SHARING=off` such a
-move is refused rather than asked, as a loosened restriction is. A
-share names its grantee in the call, so the model wrote down who it
-reaches; a move names a folder, and who that folder reaches is nowhere
-in the call. A copy is the same case: it takes on who reaches the
-folder it lands in, so a copy of a private file into a folder anyone
-with the link can open, followed by trashing the original, would
-publish it with no share made. So `copy_file` follows the move's rule,
-for each part of a folder it copies.
+What holds on every client stays, and is the safety this server counts
+on: registration flags, `confirm: true` on the gated tools, the
+witnesses and guards in the service, and `dry_run`. Every widely used
+client has a mode that runs a registered tool with nobody approving the
+call, so a tool that must not run unattended is not registered.
 
-`create_file` and `upload_file` ask nothing, decided 2026-10-09. They
-put new content, written by the caller, into the folder the caller
-named; nothing that fewer people could reach before becomes reachable
-by more.
+**Every risky variant is its own tool.** A client remembers an
+approval per tool, never per argument value, so a wide form carried as
+an argument rides along unseen once its tool is always allowed.
 
-Outside means an address whose domain is not the signed-in account's.
-A personal Google address is always outside, since two of them share a
-domain and no organization, and so is a secondary domain of the same
-organization: the server cannot tell it apart, and asks a question too
-many rather than one too few. A share inside the organization, and one
-that only narrows a grant, asks nothing. Accepting an access request
-always asks, because the request and its message come from the person
-asking for access, which under injection is the attacker.
+1. **Sharing.** `share_file` grants named people and groups inside the
+   organization, and refuses the rest `[blocked]`, naming the tool
+   that does it. Three tools take the rest, each registered only with
+   `GDRIVE_ENABLE_DESTRUCTIVE=true` (and `GDRIVE_SHARING=all`), each
+   needing `confirm: true`, each `destructiveHint: true`:
+   `share_by_link` for anyone with the link or a `domain:` (and
+   `discoverable`), `share_outside_organization` for a person or group
+   outside, and `transfer_ownership`. `allow_anyone`, `allow_domain`,
+   `transfer_ownership` and `discoverable` are gone from `share_file`.
+   A wide grant is narrowed with the wide tool, or removed with
+   `unshare_file`, which stays ordinary.
+2. **Outside** means an address whose domain is not the signed-in
+   account's. A secondary domain of the same organization counts as
+   outside, and so does every address when the account's own cannot be
+   read; `share_file` says which. A personal Google account has no
+   organization, so every address is outside it and `share_file`
+   grants nobody there; `get_account` and the refusal say so. This is
+   the conservative choice: "share with an outsider" is the
+   exfiltration path, and the person can still turn the outside tool
+   on.
+3. **Nothing widens by omission.** A move, a copy, and a folder's
+   limited access turned off reach whoever the destination reaches, and
+   that is nowhere in the call. Each is refused `[blocked]`, dry run
+   included, when what it would add includes anyone with the link, a
+   domain, or a person or group outside the organization, naming each
+   by address, domain or link, and when who it would reach cannot be
+   read. A gain only to people and groups inside the organization is an
+   ordinary write, with before and after in the result. There is no
+   "wide move" tool: sharing the item with them first, through the wide
+   tool, leaves the move nothing to add. `GDRIVE_SHARING=off` still
+   refuses any widening at all, `[forbidden]`, as before.
+4. **Access requests.** Accepting a request from someone inside the
+   organization is an ordinary grant. From outside, it is refused
+   `[blocked]`, dry run included, naming `share_outside_organization`
+   or Drive itself: the request and its message come from the person
+   asking, which under injection is the attacker. Denying is ordinary.
+5. **A shared drive's domain restriction.** Turning
+   `domain_users_only` off lets what is in the drive be shared outside
+   the organization, so `manage_drive` refuses it `[blocked]`, naming
+   `lift_drive_restriction`, which does it behind the destructive flag
+   with `confirm: true`. The other switches stay `manage_drive`'s.
+   `members_only` off joins `lift_drive_restriction` only if a live
+   probe shows it restores access already granted to non-members (§17);
+   until then it is an ordinary write.
+6. **Approving** is `approve_file`, `destructiveHint: true`: it is the
+   person's sign-off, Drive has no call to withdraw it, and once every
+   reviewer has approved, an approval started with `reset_approval`
+   locks the file for good. `manage_approval` refuses `approve`, naming
+   it, and keeps the other actions.
 
-1. **A second gate, not a replacement.** The arguments stay and are
-   checked first. A call a guard refuses asks nothing. The question
-   comes after every read, every other guard and the dry run, just
-   before the write, so it shows what the write would do.
-2. **Accepting is the confirmation.** The form has no fields: an empty
-   object schema, which the specification allows. Anything but
-   `accept` — decline, cancel, an error, an answer that came back after
-   its question expired — is `[blocked]`, refused before the retry
-   reads anything, and nothing is changed. The refusal says the call
-   was "not confirmed by the person" and names the client's answer. It
-   never says the person declined: a client can answer without showing
-   anyone anything, and a client hook can accept for the person (§18).
-   So an unattended client that declares elicitation cannot make these
-   writes. Two clients accept an empty form without a person choosing
-   to: Codex under approval policy `never` with full access, and VS Code
-   when the person skips the question.
-3. **No question possible.** A client that declares no form elicitation
-   gets no question, and the arguments are the guard, as before.
-   `GDRIVE_REQUIRE_PROMPT=true` refuses those writes as `[blocked]`
-   instead. The bundle does not set it.
-4. **A dry run never asks.** `delete_comment` gained `dry_run` for it.
-5. **What the question says.** The tool, the target and the effect, in
-   the server's words: a file or folder by name; a trash by whose it is
-   and how many items Drive's listing shows; a shared drive by name; a
-   revision by id and when it was saved; a comment by its author and the
-   start of its text; a share by who it reaches and with what role; a
-   restriction change by the switches it turns off. Text from Drive or
-   from the call stands in a code span, between backticks, on one line:
-   format characters removed, controls made spaces; backticks, grave
-   and acute marks and every quote mark made a plain single quote; a URL
-   scheme, `mailto:`, `www.` and a bare domain followed by a path broken
-   so no client draws a link, in any script and after any character;
-   cut at 120 characters, a comment at 300 with the count of the rest.
-   A closing line says text in backticks is not the server's. A client
-   that draws the question as Markdown shows a code span literally, and
-   a blank line between lines keeps them apart.
-6. **One handler on every protocol.** The handler returns the question
-   as an input request, the multi-round-trip pattern of 2026-07-28.
-   Before that revision the SDK asks with `elicitation/create` and calls
-   the handler again within the same request. A client failure there is
-   a JSON-RPC error inside the SDK, and middleware turns it into
-   `[blocked]`.
-7. **The answer is bound to its question.** `requestState` is signed
-   with HMAC-SHA256 under a key drawn per process. It carries the tool,
-   a hash of the arguments, a hash of what the question binds, a nonce
-   and an expiry. A retry is refused when its state is forged, for
-   another call, expired or already used; answers on a call with no
-   state are refused, and so is an answer sent to a tool that asks
-   nothing. The retry reads again; if what it binds differs from what
-   was answered, it is refused, and the next call asks again. A
-   question binds its text and the id it acts on, and a comment binds
-   its whole text. The trash count is shown and not bound, since it
-   moves whenever anything is trashed.
-8. **The expiry applies where the state travels**: 5 minutes from
-   2026-07-28, when the client carries `requestState` between rounds.
-   Before, the state never leaves the process and the request itself
-   waits for the person.
-9. **A failure after the answer is never "nothing was changed".** From
-   the start of a round that carries an accept, a call that fails
-   without a result is `[ambiguous_outcome]`: verdict `written` when the
-   handler returned from its write, `unknown` otherwise.
-10. **Asking costs the reads again.** The retry repeats every read
-    before the write. `empty_trash` counts the trash only for a question
-    that goes out, and `delete_comment` reads the comment only for a
-    question or a dry run.
-11. **Logs** say `person_asked` and `person_answered` with the tool and
-    the client's action, never the question.
-12. **Held in one place.** A tool asks only through `asked`, which is
-    the only thing that installs an asker; a service write that asks,
-    reached without one, is `[unexpected]` rather than made unasked.
-    `TestEveryToolThatTakesConfirmAsks` reads the published schemas and
-    requires every tool that takes `confirm`, and the ones that widen
-    access, to ask, and `TestEveryAskingWriteWaitsForThePerson` holds
-    each on every protocol: declined, nothing written; accepted, one
-    write.
+`create_file` and `upload_file` into a folder shared with anyone stay
+ordinary, decided 2026-10-09 and kept: they put new content, written by
+the caller, where the caller named. Nothing that fewer people could
+reach before becomes reachable by more, which is what a move or a copy
+of existing content does.
+
+**The mark** (`_meta["anthropic/requiresUserInteraction"]`) is on four
+tools, for every client: `delete_file`, which skips the trash Drive
+offers; `empty_trash` and `delete_drive`, each an unrecoverable delete
+of a whole container; and `share_by_link`, a public or domain-wide
+share. Claude Code prompts on every call of a marked tool, whatever the
+operator's rules, and refuses it where no prompt can be drawn. No other
+client reads it, so the flag that registers the tool remains the
+control. Nowhere else: `delete_revision` and `delete_comment` lost it,
+since one of many in a row would mean a prompt per item, and people stop
+reading prompts they see that often. `TestTheMarkSitsOnlyWhereItsPromptIsThePoint`
+holds the list.
+
+**Annotations are exact**, because they decide the client's prompt.
+`readOnlyHint: true` only on a tool that changes nothing (VS Code
+prompts on every tool without it); `destructiveHint` accurate (Codex
+prompts by it, and claude.ai documents that it decides its prompt).
+`reply_comment`, whose edit replaces a comment's text with no history,
+and `manage_labels`, whose set replaces a field's value, are now
+destructive.
+
+**The model never widens its own reach.** No tool writes the server's
+settings: they come from the `GDRIVE_*` environment, read once at start,
+and the profile `login` writes. `TestNoToolWritesTheServersOwnSettings`
+drives every registered tool and holds both unchanged.
+
+**Held in tests.** The server test client declares form elicitation and
+fails any call that asks; `TestNoToolAsksThePerson` drives every
+registered tool on a protocol that asks with `elicitation/create` and on
+one that asks with an input request. The live driver declares
+elicitation too and counts any question as a failure. The README gives
+the Claude Code `permissions.ask` rules for the writes that share,
+publish, sign off or delete, and the staleness gate holds each name
+there to the registered tools.
 
 ## 5. Module layout
 
@@ -842,9 +850,10 @@ seen to take (§18) is called most likely too long.
   `canEnableInheritedPermissions`) do not allow. Off lets everyone who
   reaches the folder above open it and everything inside it, so the
   server reads the folder's permissions and the folder above's, works
-  out who that adds the way a move into that folder is worked out, and
-  asks the person when it adds anyone or either list cannot be read
-  (§4a). `list_permissions` marks a `view: metadata` grant as one that
+  out who that adds the way a move into that folder is worked out. It
+  is refused `[blocked]`, naming them, when that adds anyone with the
+  link, a domain or someone outside the organization, or either list
+  cannot be read (§4a). `list_permissions` marks a `view: metadata` grant as one that
   "can see it but not open it", and the sharing summary counts those
   apart.
 - `move_file`: `file`, or `files` for up to 50 items, `to` (a folder,
@@ -860,30 +869,29 @@ seen to take (§18) is called most likely too long.
   everything the destination has; a My Drive item moved into a shared
   drive loses its owner to the drive. Before the move the server reads
   the item's permissions and the destination's and works out the after
-  from those rules. When the after reaches someone the before did not,
-  or reaches them with more access, or either list cannot be read, the
-  move is put to the person (§4a); the question names who it adds, in
-  the sharing summary's terms. A dry run shows the same and asks
-  nothing. With `GDRIVE_SHARING=off` that move is refused instead, dry
-  run included, and a list it cannot read is refused too: nothing shows
-  it does not widen. With `files`, each such item is refused with the
-  reason and the rest move. After the move the server reads the item's permissions again
+  from those rules. When what the after adds includes anyone with the
+  link, a domain or a person or group outside the organization, or
+  either list cannot be read, the move is refused `[blocked]`, dry run
+  included, naming each by address, domain or link (§4a). Adding only
+  people and groups inside the organization is an ordinary move, and
+  the result says who it added. With `GDRIVE_SHARING=off` any move that
+  adds anyone is refused, `[forbidden]`, and a list it cannot read is
+  refused too: nothing shows it does not widen. With `files`, each such
+  item is refused with the reason and the rest move. After the move the server reads the item's permissions again
   and reports those, and says so when they differ from what it worked
   out, the account's own access included, since the summary counts it.
   The signed-in account's own access is left out of who a move adds.
   An owner of the destination who does not own the item counts as an
   editor, since what Drive gives them is not documented. Children of
-  a moved folder are not read one by one: the question says they are
-  reached the same way.
+  a moved folder are not read one by one: they are reached the same
+  way.
 
   With `files`, every item is read and checked before anything moves,
   and each gets its own outcome in `items`: `moved`, `unchanged` when it
   is already there, `refused` with the reason when a check stops it (a
   reference that does not resolve, an item listed twice, one Drive
   would refuse), or `failed` with Drive's answer. A dry run reports
-  `would_move`. The person is asked once, before anything moves, naming
-  every item that would reach more people; declining moves nothing.
-  Items move one call each, in order, and a failure does not undo the
+  `would_move`. Items move one call each, in order, and a failure does not undo the
   moves before it or stop the ones after. A failed item is read back:
   one Drive moved anyway is reported as moved, and one it did not says
   where it is. A call that moves none because each item failed or was
@@ -903,17 +911,18 @@ seen to take (§18) is called most likely too long.
   is usually that same account, is not counted as an editor of it. So
   before it copies, the server reads who reaches the original and who
   reaches the destination, as a move does; the result says who reaches
-  each, read back from Drive after the copy. A copy that more people
-  could reach, or with more access, is put to the person (§4a), and with
-  `GDRIVE_SHARING=off` refused; a copy only this account would reach
-  asks nothing, even when who reaches the original cannot be read. A
+  each, read back from Drive after the copy. A copy that anyone with the
+  link, a domain or someone outside the organization could reach when
+  they cannot reach the original is refused `[blocked]`, naming them,
+  as is one whose reach cannot be read (§4a); with `GDRIVE_SHARING=off`
+  any copy more people could reach is refused. A copy only this account
+  would reach goes, even when who reaches the original cannot be read. A
   folder's copy is checked part by part: the folder itself, and each
   folder inside it with limited access, which reaches fewer people
   than the folder around it. Every other item reaches at least who its
-  folder does, so they need no read of their own. The question names
-  each part the copy would reach further, once for the call, and under
-  `GDRIVE_SHARING=off` such a tree is refused before anything is
-  written.
+  folder does, so they need no read of their own. The refusal names
+  each part the copy would open past the organization, before anything
+  is written.
 - `create_shortcut`: `target`, `parent`, `name` (default the target's).
 - `trash_file` and `restore_file`: the result names the item, says
   "folder with its contents" when it is one, reminds that the trash
@@ -932,7 +941,7 @@ did not ask for. The deployer sets `GDRIVE_SHARING`:
 
 | Value | Meaning |
 |---|---|
-| `all` (default) | Every principal type the account may share with. `anyone` still needs `allow_anyone: true` on the call, and `domain:` needs `allow_domain: true`. |
+| `all` (default) | `share_file`, `unshare_file` and `resolve_access_request` are registered. `share_file` grants named people and groups inside the organization; the wide forms are their own tools behind `GDRIVE_ENABLE_DESTRUCTIVE` (§4a). |
 | `off` | `share_file`, `unshare_file` and shared-drive membership changes are not registered. `list_permissions` stays. Loosening a shared drive's restrictions or a file's own switches is refused (§7.5), and so is a move that lets more people reach an item, or a copy that more people could reach than the original (§7.3). |
 
 Before any sharing call the server reads `capabilities.canShare` on the
@@ -947,16 +956,23 @@ message attached. The exact shape of a policy refusal is observed live
 in Phase 2 (§16) and recorded in §18.
 
 `share_file` takes `file` (or a shared drive, for membership),
-`principal` (`someone@example.com`, `domain:example.com`, `anyone`),
-`role` (`reader`, `commenter`, `writer`, `file_organizer`, `organizer`,
-`owner`), `notify` (default false; Google's default is true, and an
-ownership transfer forces it on, which the result says), `message`,
-`expires` (RFC 3339 or a duration like `30d`; users and groups only, at
-most a year), `discoverable` (`allowFileDiscovery` for domain and anyone;
-default false), `allow_anyone: true` and `allow_domain: true` (required
-for those principals), `transfer_ownership: true` (required for `owner`; on a
-consumer account the result explains the pending acceptance), and
-`dry_run`. A principal that already has a grant is updated, and the
+`principal` (`someone@example.com` or `group:team@example.com`, inside
+the organization), `role` (`reader`, `commenter`, `writer`,
+`file_organizer`, `organizer`), `notify` (default false; Google's
+default is true), `message`, `expires` (RFC 3339 or a duration like
+`30d`, at most a year, or `never`), and `dry_run`. An address outside
+the organization, `anyone`, a `domain:` and the role `owner` are refused
+`[blocked]`, naming the tool that does each (§4a).
+`share_outside_organization` takes the same arguments for a person or a
+group outside, and `confirm`. `share_by_link` takes `principal`
+(`anyone` or `domain:example.com`), `role` (`reader`, `commenter`,
+`writer`), `discoverable` (`allowFileDiscovery`; left out, it keeps what
+the grant has, and a new grant is by link only), `confirm` and
+`dry_run`. `transfer_ownership` takes `to`, `message`, `confirm` and
+`dry_run`; Google always mails a transfer, which the result says, and
+on a consumer account the result reads any pending acceptance off the
+answer. The three wide tools exist only with
+`GDRIVE_ENABLE_DESTRUCTIVE=true`. A principal that already has a grant is updated, and the
 result says "changed from reader to writer". The text shows exposure
 before and after; the JSON carries the permission id and the new sharing
 summary. `unshare_file` takes `principal` or `permission_id`, and
@@ -965,8 +981,7 @@ shared-drive permission is refused with the source named. An owner's
 grant is never called inherited: Drive lists a My Drive owner's grant
 both as made on the item and as coming from the folder above that the
 owner also owns. A dry run of either tool says what the grant would
-do, never that it did. A grant to `anyone`, a `domain:` or a new owner
-is also put to the person (§4a).
+do, never that it did.
 
 Publishing a revision to the web (`revisions.update published`) is an
 exposure with no audience control and is deliberately not offered.
@@ -980,7 +995,11 @@ restriction flags (`domain_users_only`, `members_only`,
 `copy_requires_writer_permission`, `admin_managed`,
 `folder_sharing_requires_organizer`), `dry_run`. Every flag is a limit,
 so turning one off loosens the drive: with `GDRIVE_SHARING=off` that is
-refused, and turning one on is not. `update_file`'s
+refused, and turning one on is not. Turning `domain_users_only` off is
+refused `[blocked]` in any configuration, naming `lift_drive_restriction`,
+which takes `drive`, `restriction`, `confirm` and `dry_run` and exists
+only with `GDRIVE_ENABLE_DESTRUCTIVE=true` (§4a). `members_only` off stays
+here until the probe §17 records. `update_file`'s
 `copy_requires_writer_permission: false`, `writers_can_share: true`, a
 `restrict_download` that restricts fewer people than the file does, and
 `limited_access: false` are refused there the same way. Members
@@ -1054,7 +1073,9 @@ and that `read_file` does.
 `list_access_requests` lists pending proposals on a file (who asked, who
 would receive the access, the roles asked for, their message, when);
 `resolve_access_request` accepts with a role or denies, with `notify`.
-Only approvers can list them, and the API cannot create one.
+Only approvers can list them, and the API cannot create one. An accept
+for someone outside the organization is refused `[blocked]`, naming
+`share_outside_organization` and Drive itself (§4a).
 
 Two corrections from the discovery document:
 
@@ -1103,8 +1124,10 @@ costs a second call. `includeLabels` would fold them into the first, but
 only for ids the caller already knows, and the card's whole question is
 which labels are on this file.
 
-**Approvals** are `list_approvals` and `manage_approval` (start, approve,
-decline, cancel, comment, reassign), on the ordinary scope. Two things
+**Approvals** are `list_approvals`, `manage_approval` (start, decline,
+cancel, comment, reassign) and `approve_file`, on the ordinary scope.
+Approving is its own tool, `destructiveHint: true`, since it is the
+person's sign-off and can lock the file for good (§4a). Two things
 about them are not what the name suggests and are said in the tool
 description and in every result: every verb MAILS somebody, with no
 notify flag anywhere, unlike sharing; and an approval can LOCK the file,
@@ -1131,11 +1154,11 @@ nothing, and what happened inside it — so the head says which was asked.
 ## 8. Tool surface
 
 snake_case verb_noun, no dots. Claude Code prefixes `mcp__<server>__`.
-"Gated" means registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`;
-gated tools also set `_meta["anthropic/requiresUserInteraction"]`, but
-only for a client that cannot ask the person itself: each of them asks
-before every write, and `tools/list` drops the mark when the request
-declares form elicitation, so the person answers once.
+"Gated" means registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, and
+needing `confirm: true` on the call. `delete_file`, `empty_trash`,
+`delete_drive` and `share_by_link` also set
+`_meta["anthropic/requiresUserInteraction"]`, for every client, and no
+other tool does (§4a).
 `GDRIVE_READ_ONLY=true` registers only the readOnly rows, and
 `download_file`, which writes only a new local file, and requests
 `drive.readonly`. Every write states `destructiveHint`: the
@@ -1156,39 +1179,45 @@ grants a permission.
 | `upload_file` | A local file, multipart or resumable, optional conversion | — | 1 |
 | `update_content` | Replace a blob's content; the old one stays a revision for about 30 days unless pinned | destructive | 1 |
 | `create_folder` | New folder; refuses a duplicate name unless allowed | — | 1 |
-| `update_file` | Rename, describe, star, color, properties, sharing switches, download restriction, a folder's limited access (asks before turning it off) | idempotent | 1 |
-| `move_file` | Move one item, or up to 50, to a folder or shared drive; single parent; who can reach each before and after, asking once when that widens; dry run | idempotent | 1 |
+| `update_file` | Rename, describe, star, color, properties, sharing switches, download restriction, a folder's limited access (refused off when that reaches past the organization) | idempotent | 1 |
+| `move_file` | Move one item, or up to 50, to a folder or shared drive; single parent; who can reach each before and after, refusing an item it would open past the organization; dry run | idempotent | 1 |
 | `copy_file` | Copy, optionally converting (OCR); `recursive` walks a folder, refusing a tree over budget rather than copying half of it | — | 1, 3 |
 | `create_shortcut` | Shortcut to a file or folder | — | 1 |
 | `trash_file`, `restore_file` | Reversible removal and its undo | idempotent | 1 |
 | `list_permissions` | Who has access, how, inherited from where, link state | readOnly | 2 |
-| `share_file` | Grant or change access, link sharing, ownership transfer; policy-checked; before/after | *sharing* | 2 |
+| `share_file` | Grant or change access for named people and groups inside the organization; policy-checked; before/after | *sharing* | 2, 10 |
 | `unshare_file` | Revoke a grant or a link | *sharing* | 2 |
 | `list_drives` | Shared drives with your role and restrictions | readOnly | 2 |
-| `manage_drive` | Create, rename, hide, unhide, restrict a shared drive | — | 2 |
+| `manage_drive` | Create, rename, hide, unhide, restrict a shared drive; never turns `domain_users_only` off | — | 2 |
 | `list_revisions` | Version history with the incompleteness caveat | readOnly | 2 |
 | `manage_revision` | Keep or unkeep a revision | idempotent | 2 |
 | `list_changes` | The changes feed: start token, then changes since | readOnly | 2 |
 | `list_comments` | Threads on any file | readOnly | 3 |
-| `add_comment`, `reply_comment` | Unanchored comment; reply, resolve, reopen, edit | — | 3 |
+| `add_comment`, `reply_comment` | Unanchored comment; reply, resolve, reopen, edit (which replaces the text with no history) | — / destructive | 3, 10 |
 | `list_access_requests` | Who has asked to be let in, and for what | readOnly | 3 |
-| `resolve_access_request` | Accept or deny one; accepting grants a permission, so it is policy-checked with before and after | *sharing* | 3 |
-| `list_labels`, `manage_labels` | Workspace labels: the definitions this account may use, and applying one to a file. Registered only with `GDRIVE_LABELS=true` | readOnly / — | 4 |
+| `resolve_access_request` | Accept one from inside the organization, or deny any; accepting grants a permission, so it is policy-checked with before and after | *sharing* | 3 |
+| `list_labels`, `manage_labels` | Workspace labels: the definitions this account may use, and applying one to a file. Registered only with `GDRIVE_LABELS=true` | readOnly / destructive | 4, 10 |
 | `list_approvals` | The reviews on a file, and whether one waits on you | readOnly | 4 |
-| `manage_approval` | Start, answer, withdraw, comment on or reassign a review. Every action mails somebody; an approval can lock the file once approved, unless started with `on_content_change: no_action` | — | 4 |
+| `manage_approval` | Start, decline, withdraw, comment on or reassign a review. Every action mails somebody; an approval can lock the file once approved, unless started with `on_content_change: no_action` | — | 4 |
+| `approve_file` | Approve a review you were asked for: your sign-off, which Drive cannot withdraw and which can lock the file for good | destructive | 10 |
 | `list_activity` | What happened to a file or inside a folder. Registered only with `GDRIVE_ACTIVITY=true` | readOnly | 4 |
 | `delete_file` | Gated: permanent, skips the trash | destructive | 2 |
 | `empty_trash` | Gated: everything in the trash, or one shared drive's | destructive | 2 |
 | `delete_drive` | Gated: an empty shared drive | destructive | 2 |
 | `delete_revision` | Gated: one blob revision | destructive | 2 |
 | `delete_comment` | Gated: a thread or one reply | destructive | 3 |
+| `share_by_link` | Gated, *sharing*: anyone with the link, or a whole domain | destructive | 10 |
+| `share_outside_organization` | Gated, *sharing*: a person or a group outside the organization | destructive | 10 |
+| `transfer_ownership` | Gated, *sharing*: a new owner, for good | destructive | 10 |
+| `lift_drive_restriction` | Gated, *sharing*: turn a shared drive's `domain_users_only` off | destructive | 10 |
 
 There is deliberately no bulk delete and no bulk share: one item per
 call, so "remove these forty files" is forty approvals in the client. A
 folder is the unit for bulk operations, and trashing one is reversible.
 `move_file` is the exception, with up to 50 items in `files` (§18): a
 move can be moved back, and the part of it that cannot be taken back,
-who saw the item meanwhile, is put to the person for the whole batch.
+who saw the item meanwhile, is refused item by item whenever it would
+reach past the organization (§4a).
 
 **Resources** (built in phase 3). `gdrive://{file}` is the text
 `read_file` gives (markdown for a Doc, csv for a Sheet or a workbook,
@@ -1253,7 +1282,7 @@ whose result is a file's text, returned as a text block alone (§4).
 | Risk | What limits it |
 |---|---|
 | Acting on the wrong file | Ids are the contract; a name or path that matches more than one item is refused; every result shows the location. |
-| Exposing a file to the world or to the wrong domain | The organization's own sharing policy, enforced by Google on every call; `allow_anyone` per call; before-and-after exposure in every sharing result, move and copy; a move or a copy that widens access asks the person; `dry_run`; `GDRIVE_SHARING=off`; no publish-to-web at all. |
+| Exposing a file to the world, a domain or someone outside the organization | The organization's own sharing policy, enforced by Google on every call; `share_file` limited to named people and groups inside the organization, and each wide form its own tool behind `GDRIVE_ENABLE_DESTRUCTIVE` with `confirm: true` (§4a); before-and-after exposure in every sharing result, move and copy; a move, a copy or limited access turned off that would reach past the organization refused, naming who; `dry_run`; `GDRIVE_SHARING=off`; no publish-to-web at all. |
 | Unwanted email to people | `notify` is off unless asked; the result says when Google forced it on. |
 | Mass deletion | Trash is the only default removal and it is reversible; permanent deletion and emptying the trash are gated; no bulk tool. The one ungated permanent delete is `extract_text` removing the copy it made in the same call, and only the file Drive's answer to that copy named. |
 | Copying private files onto disk | Downloads only under `GDRIVE_LOCAL_DIR`, size-capped, named in the result. |
@@ -1508,8 +1537,8 @@ honest option and the one a model can act on.
   a Markdown file holding a comment made in Google Docs, keeping the
   comment.
   Scored on the end state read back through the server and on the trace:
-  no invented ids, ambiguity handled by asking or listing, `allow_anyone`
-  and `transfer_ownership` never passed unasked. The trace half is the
+  no invented ids, ambiguity handled by asking or listing, and no tool
+  that shares past the organization called unasked. The trace half is the
   point — a task can be answered correctly by a model that guessed an id
   and was lucky, and the end state cannot tell. Everything happens inside
   one scratch folder, which is trashed at the end, and the output goes
@@ -1531,7 +1560,12 @@ honest option and the one a model can act on.
 | File boundary only; the content of Docs, Sheets and Slides is edited through their own APIs, not here | `read_file` exports; `update_content` refuses Workspace documents and says which API edits them |
 | Ids are the contract; paths and names resolved out loud, never guessed | §6; `[ambiguous]` and `[not_found]` carry the candidates and the fix |
 | Location shown everywhere | `internal/model` computes paths with a cache; the cost is counted (§7.1) |
-| Google's sharing policy is the authority; the server adds only agent brakes: `canShare` checked first, `anyone` double-gated, notifications off by default, ownership explicit, `GDRIVE_SHARING=off` available | §7.4 |
+| Google's sharing policy is the authority; the server adds only agent brakes: `canShare` checked first, notifications off by default, `GDRIVE_SHARING=off` available. *(2026-10-23: `anyone` is no longer double-gated by an argument. It, a domain, someone outside the organization and a new owner are each their own tool behind `GDRIVE_ENABLE_DESTRUCTIVE`.)* | §7.4, §4a |
+| The server asks the person nothing; the client approves each call; `GDRIVE_REQUIRE_PROMPT` set refuses to start (2026-10-22 for the family, 2026-10-23 here) | §4a; 3.0.0 |
+| Every risky variant is its own tool: `share_by_link`, `share_outside_organization`, `transfer_ownership`, `lift_drive_restriction`, `approve_file` (2026-10-23) | §4a, §8 |
+| A move, a copy or limited access turned off never reaches past the organization by omission; inside-only gains are ordinary (2026-10-23) | §4a, §7.3 |
+| On a personal Google account every address is outside (2026-10-23) | §4a; `get_account` says so |
+| The mark on `delete_file`, `empty_trash`, `delete_drive` and `share_by_link` only, for every client (2026-10-23) | §4a, §8 |
 | Trash by default, destruction gated, no bulk removal tool | §8, §9 |
 | One local directory for transfers, unset means none | §7.1, §7.2, §9 |
 | Pre-generated ids and request ids for idempotent writes | §11 |
@@ -1940,9 +1974,41 @@ as the header and is a step in closing a phase. Three live runs, the
 evals (16 of 17, the label task unreachable), and two rounds of
 `/simplify` and `/code-review high`; the verdicts are in §18.
 
+**Phase 10 — the client decides (3.0.0). Built 2026-10-23, not yet run
+live.** The family standard moved per-call approval to the client on
+2026-10-22, and the maintainer approved this server's port on
+2026-10-23 (§4a, §14). The question to the person is gone, with
+`internal/tools/ask.go`, `internal/service/ask.go`, the question
+renderers and their tests; `GDRIVE_REQUIRE_PROMPT` set refuses to start.
+Six writes the question had been the only guard on now have another:
+a share outside the organization is its own tool behind the destructive
+flag; accepting an outside access request, a widening move or copy, and
+turning a folder's limited access off are refused when they reach past
+the organization; turning a shared drive's `domain_users_only` off is
+its own tool. The link, domain and ownership shares became tools too,
+`approve_file` split from `manage_approval`, the mark moved to four
+tools for every client, and `reply_comment` and `manage_labels` became
+destructive. The schema diff now lets through a break the
+`[Unreleased]` CHANGELOG declares under `**Breaking:**`, naming the
+tool. It waits for a live run with `-write -destructive -share`, its
+transcript read, before release.
+
 ## 17. Open decisions
 
-None. The five choices below were decided on 2026-09-05 and are kept
+One, waiting on a live probe:
+
+- **`members_only` off** (approved 2026-10-23, conditionally). If
+  turning a shared drive's `members_only` off restores access that
+  non-members were already granted on files inside it, it joins
+  `domain_users_only` in `lift_drive_restriction`, behind the
+  destructive flag, and `manage_drive` refuses it; if not, it stays an
+  ordinary `manage_drive` switch. The probe needs a shared drive this
+  run makes, `members_only` on, a file inside it granted to a second
+  account that is not a member, and a read as that account before and
+  after turning it off. Until the probe, nothing depends on its answer:
+  `members_only` off is an ordinary write, as it was.
+
+The five choices below were decided on 2026-09-05 and are kept
 here so they are not reopened.
 
 1. **Sharing.** Google's organization policy is the authority (§7.4).
@@ -1974,46 +2040,33 @@ difference is a decision rather than a drift.
 |---|---|---|
 | A test fails if **an id** appears in a log | Full ids never appear; a **six-character prefix** does, at debug level | A retry, its backoff and its outcome are separate log lines, and without a correlation key a failure cannot be traced to the call that caused it. Six characters of a 33-character id cannot be looked up, cannot be pasted into a URL, and identify nothing on their own. Everything else the standard names — names, titles, addresses, queries, content, and whole ids — is absent and stays absent: `TestLogsCarryNoTraceOfWhatWasTouched` runs the whole surface at debug level against unmistakable fixtures and fails on any of them. *(Phase 2: "the whole surface" had quietly stopped being true — the test was written for phase 1's tools and eight more had been added around it, including the only ones that take an email address as an argument. It covers them now, a domain was added to the forbidden fixtures, and `method=DELETE` joined the assertion that the writes actually reached the network. A claim like this decays every time the surface grows, which is the argument for asserting the methods rather than trusting the list of calls.)* *(Phase 3: a comment, a reply and an access request's message joined the forbidden fixtures. They are a new KIND of subject rather than a new call on an old one — somebody else's words about the file — and the test would have passed without them.)* *(No longer a deviation: the standard's wording is being changed to the intent it always had — a log must not identify or reconstruct its subject.)* |
 | The staleness gate **deliberately fails** between the release commit and the tag | It passes, by accepting notes under an untagged version heading | Our release flow (§12) puts the release commit on a topic branch and requires CI green *before* the merge and therefore before the tag exists. A gate that fails there fails the release pull request. The gate still refuses an undocumented change: with the notes removed it fails, which is tested |
-| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Fourteen classes, including `ambiguous`, `blocked`, `rate_limited`, `ambiguous_outcome` and `pending` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organization's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 4 added `pending`: work Google has begun and not finished, which is a long-running download whose operation is still running. It is not `server`, which says something went wrong, and not `rate_limited`, which says you asked too often — nothing is wrong and nothing needs backing off from, and the same call in a minute picks up the finished render. A model told `server` would report a failure that did not happen.)* *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* |
+| Widening access is never by omission | A new file made or uploaded into a folder shared with anyone stays an ordinary write, while a move or a copy of existing content there is refused (§4a) | Decided 2026-10-09 and kept 2026-10-23. `create_file` and `upload_file` put new content, written by the caller, where the caller named: nothing that fewer people could reach before becomes reachable by more, as a post in a space reaches its members. A move or a copy takes existing content, which someone else may have written for fewer people, to where the destination's reach is nowhere in the call |
+| `members_only` off is a wide form, its own tool | Still an ordinary `manage_drive` switch | Waiting on the live probe §17 records: whether turning it off restores access already granted to non-members decides whether it is a widening at all |
+| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Fourteen classes, including `ambiguous`, `blocked`, `rate_limited`, `ambiguous_outcome` and `pending` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organization's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 4 added `pending`: work Google has begun and not finished, which is a long-running download whose operation is still running. It is not `server`, which says something went wrong, and not `rate_limited`, which says you asked too often — nothing is wrong and nothing needs backing off from, and the same call in a minute picks up the finished render. A model told `server` would report a failure that did not happen.)* *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* *(Phase 10: `blocked` also covers this server's own refusal of a wide form in an ordinary tool — a share, a move or a copy past the organization, an outside access request, `domain_users_only` off — each naming the tool that does it behind the destructive flag. Both meanings say "not this way, and no argument here changes that": the organization's policy, or this server's rule.)* |
 
 ## 17a. Deferred cleanups
 
-Raised by the phase 7 reviews (2026-09-30) and left open on purpose:
+Raised by the phase 7 reviews (2026-09-30), and how phase 10 left them:
 
-- **Grants inside the organization ask nothing.** A share to a
-  colleague is routine, and asking on it would wear the question out
-  for the ones that matter (§4a). Under injection, a colleague's address
-  is still one somebody named.
-- **`update_file`'s download and reshare switches ask nothing.** Letting
-  viewers copy a file, editors reshare it, or lifting a download
-  restriction is refused with `GDRIVE_SHARING=off`, as the drive-level
-  switches are, but not asked. Turning a folder's limited access off is
-  asked, because it opens the folder to people nobody named in the call.
-- **Shown, not bound.** The trash count and a folder's contents are not
-  bound. An unasked `trash_file` or `move_file` running while the person
-  reads can add to what an accepted `empty_trash` or `delete_file`
-  destroys. The question says the count lags.
-- **A question names a file without its folder.** Drive allows two
-  items of one name; the answer is bound to the id, so the target
-  cannot change between rounds, but the person reads only the name.
-- **`GDRIVE_REQUIRE_PROMPT` with a client that cannot ask** pays for the
-  comment read or the trash count before it refuses.
-- **The protocol a question is sent on** is read from what the client
-  asked for in `initialize`, not the negotiated version. The SDK's own
-  multi-round-trip check reads the same field, and the two must agree,
-  so this follows it.
+- **Grants inside the organization are ordinary.** A share to a
+  colleague is routine; under injection, a colleague's address is
+  still one somebody named. Phase 10 keeps it, now as §4a's rule rather
+  than as a question not asked.
+- **`update_file`'s download and reshare switches are ordinary.**
+  Letting viewers copy a file, editors reshare it, or lifting a
+  download restriction is refused with `GDRIVE_SHARING=off`, as the
+  drive-level switches are. Turning a folder's limited access off is
+  refused when it opens the folder past the organization (§4a).
+- ~~Shown, not bound; a question names a file without its folder;
+  `GDRIVE_REQUIRE_PROMPT` with a client that cannot ask; the protocol a
+  question is sent on.~~ Gone with the question (phase 10).
 
 Raised by the review of the change that asks once per delete
-(2026-10-09) and left open on purpose:
+(2026-10-09):
 
-- **A client can get neither the mark nor a question.** On protocol
-  2026-07-28 capabilities travel with each request, so a client can
-  declare form elicitation to `tools/list` and none to `tools/call`.
-  It then sees no `requiresUserInteraction` mark, and the server does
-  not ask. That gives a misbehaving client nothing it lacked: such a
-  client answers the server's question itself and can accept without a
-  person (§18, "An `accept` comes from a person").
-  `GDRIVE_REQUIRE_PROMPT=true` refuses that call.
+- ~~A client can get neither the mark nor a question.~~ Gone in phase
+  10: the mark no longer depends on the client, and there is no
+  question.
 
 Raised by the phase-0 review passes and deliberately not done in phase 0.
 
@@ -2683,13 +2736,13 @@ live run of it found.
 | An unset `destructiveHint` means not destructive | **Refuted.** The specification's `ToolAnnotations` in `schema/2026-07-28/schema.ts`, read 2026-09-30: "Default: true", and `false` means "the tool performs only additive updates" | Every write states the hint, and a test fails on one that does not. Trash, move, restore, rename, unshare and the drive settings say `false`: each can be set back, and a client that confirms on the hint would otherwise ask as it does for a permanent delete. That is a reading, not the letter, which calls any non-additive update destructive. `update_content` says `true`: the old content survives only as a revision Drive may purge |
 | `readOnlyHint` is about Drive | **Refuted**, same source: "the tool does not modify its environment" | `download_file` writes a local file, so it is not read-only; read-only mode still registers it, since it changes nothing in Drive |
 | Drive keeps a replaced file's old content | **Refined.** The revisions overview (<https://developers.google.com/workspace/drive/api/guides/change-overview>), read 2026-09-30: a blob revision not kept forever "is purgeable", "typically preserved for 30 days", and purged sooner once a file has 100 such revisions | `update_content`'s description and `keep_previous_revision` say so |
-| The Go SDK's typed handler can return a question | **Confirmed** in MCP Go SDK v1.8.0, `mcp/server.go`, read 2026-09-30: when a handler's result carries `InputRequests`, the output is not marshaled or validated against the output schema | The asking tools keep their typed handlers and output schema |
-| A form elicitation must ask for at least one field | **Refuted.** `ElicitRequestFormParams` in the specification's `schema.ts` for 2025-06-18, 2025-11-25 and 2026-07-28, read 2026-09-28: `properties` is an open map with no minimum, and `required` is optional | The question's form is `{"type":"object","properties":{}}`; accepting it is the answer (§4a) |
-| A client that declares elicitation has a person to answer it | **Refuted.** `claude -p` 2.1.284 against a throwaway probe server, 2026-09-28, answered `cancel` within milliseconds on both 2025-11-25 and 2026-07-28 | An unattended client that declares elicitation cannot make the asking writes; the refusal says "not confirmed by the person" and never that the person declined |
-| An `accept` comes from a person | **Refuted.** Claude Code's MCP documentation (<https://code.claude.com/docs/en/mcp>), read 2026-09-28: an `Elicitation` hook can answer without a dialog. Codex (`codex-rs/codex-mcp/src/elicitation.rs`, read 2026-09-29) accepts a form with no properties itself under approval policy `never` with full access, and a VS Code question the person skips resolves as `accept` | Recorded as a limit of the empty form. A required choice would stop both, and was found slower and less clear than Accept in the maintainer's check in Claude Code, 2026-09-29 |
-| A client draws a question as plain text | **Refuted.** VS Code's `mcpElicitationService.ts`, read 2026-09-29, builds a form question as an untrusted `MarkdownString` | Every value from Drive or the call stands in a code span with its backticks and quote marks folded, and links broken |
-| `\b` in a Go regular expression is a word boundary in any script | **Refuted.** `go doc regexp/syntax`, Go 1.27.1: `\b` is "at ASCII word boundary" | The link shapes in a question are unanchored, so a link after an underscore or in a non-Latin domain is broken too; a test holds both |
-| A destructive tool should carry both `requiresUserInteraction` and the server's own question | **Refuted** 2026-10-09, after the owner was asked twice for one delete in another server built the same way. No source recommends two hard gates for one call: the spec puts confirmation on the client, GitHub's `delete_repository` and Supabase confirm with `destructiveHint` plus a form elicitation and set no mark, and Claude Code's documentation scopes the mark to "tools whose permission prompt is itself the point" | The mark is sent per client, present only when the request declares no form elicitation, on the five tools that ask before every write (`askedEveryCall`). A Claude Code `Elicitation` hook that accepts now confirms these deletes alone, where the mark used to stop the call before it reached the server. A typed confirmation, which would stop Codex accepting an empty form unseen, was offered and not chosen |
+| The Go SDK's typed handler can return a question | **Confirmed** in MCP Go SDK v1.8.0, `mcp/server.go`, read 2026-09-30: when a handler's result carries `InputRequests`, the output is not marshaled or validated against the output schema | The asking tools keep their typed handlers and output schema *(Superseded 2026-10-23: the server asks nobody, §4a.)* |
+| A form elicitation must ask for at least one field | **Refuted.** `ElicitRequestFormParams` in the specification's `schema.ts` for 2025-06-18, 2025-11-25 and 2026-07-28, read 2026-09-28: `properties` is an open map with no minimum, and `required` is optional | The question's form is `{"type":"object","properties":{}}`; accepting it is the answer (§4a) *(Superseded 2026-10-23: the server asks nobody, §4a.)* |
+| A client that declares elicitation has a person to answer it | **Refuted.** `claude -p` 2.1.284 against a throwaway probe server, 2026-09-28, answered `cancel` within milliseconds on both 2025-11-25 and 2026-07-28 | An unattended client that declares elicitation cannot make the asking writes; the refusal says "not confirmed by the person" and never that the person declined *(Superseded 2026-10-23: the server asks nobody, §4a.)* |
+| An `accept` comes from a person | **Refuted.** Claude Code's MCP documentation (<https://code.claude.com/docs/en/mcp>), read 2026-09-28: an `Elicitation` hook can answer without a dialog. Codex (`codex-rs/codex-mcp/src/elicitation.rs`, read 2026-09-29) accepts a form with no properties itself under approval policy `never` with full access, and a VS Code question the person skips resolves as `accept` | Recorded as a limit of the empty form. A required choice would stop both, and was found slower and less clear than Accept in the maintainer's check in Claude Code, 2026-09-29 *(This is part of why the server no longer asks, 2026-10-23, §4a.)* |
+| A client draws a question as plain text | **Refuted.** VS Code's `mcpElicitationService.ts`, read 2026-09-29, builds a form question as an untrusted `MarkdownString` | Every value from Drive or the call stands in a code span with its backticks and quote marks folded, and links broken *(Superseded 2026-10-23: the server asks nobody, §4a.)* |
+| `\b` in a Go regular expression is a word boundary in any script | **Refuted.** `go doc regexp/syntax`, Go 1.27.1: `\b` is "at ASCII word boundary" | The link shapes in a question are unanchored, so a link after an underscore or in a non-Latin domain is broken too; a test holds both *(Superseded 2026-10-23: the server asks nobody, §4a.)* |
+| A destructive tool should carry both `requiresUserInteraction` and the server's own question | **Refuted** 2026-10-09, after the owner was asked twice for one delete in another server built the same way. No source recommends two hard gates for one call: the spec puts confirmation on the client, GitHub's `delete_repository` and Supabase confirm with `destructiveHint` plus a form elicitation and set no mark, and Claude Code's documentation scopes the mark to "tools whose permission prompt is itself the point" | The mark is sent per client, present only when the request declares no form elicitation, on the five tools that ask before every write (`askedEveryCall`). A Claude Code `Elicitation` hook that accepts now confirms these deletes alone, where the mark used to stop the call before it reached the server. A typed confirmation, which would stop Codex accepting an empty form unseen, was offered and not chosen *(Corrected 2026-10-23: there is no question, and the mark no longer depends on the client. It is on `delete_file`, `empty_trash`, `delete_drive` and `share_by_link`, for every client, and came off `delete_revision` and `delete_comment` (§4a).)* |
 
 **Gap-analysis additions (2026-10-09).** Three `-write` live runs the
 same day settled the rows marked "live 2026-10-09". The second made the
@@ -2731,10 +2784,10 @@ for the next run:
 | What the owner of a My Drive destination folder gets on an item moved into it (undocumented) | **Unverified.** No reference or help page read 2026-10-09 says | Counted as an editor, which errs toward showing more exposure. Settling it needs a folder another account owns, which a one-account run cannot make; the read-back reports what Drive did on any real move |
 | `permissionDetails` marks inherited grants on a My Drive item (unstated for My Drive) | **Confirmed live 2026-10-09.** The `permissions` reference, read 2026-10-09, says `inherited` "is always populated" and `inheritedFrom` "is only populated for items in shared drives". Live, a grant from a folder above carried an inherited detail with no source, and four moves' predictions matched what Drive answered. A My Drive owner's grant carries both kinds: `list_permissions` showed it inherited, and a move's prediction kept it as made on the item, which needs a direct detail | The live driver moves a file into a link-shared folder and back out, and fails the step when the result says Drive answered other than predicted. An owner's grant is not called inherited, since it was made on the item |
 | A copy takes on its new folder's grants and none of the original's (unstated) | **Confirmed live 2026-10-09, both ways**: a private file copied into a folder open by link came out open by link, and a file open by link on its own came out private in a private folder. The prediction counted the account as one more editor of the copy, which was fixed the same day: outside a shared drive a copy is the account's own. The `files.copy` reference (updated 2026-09-04) says only, of `ignoreDefaultVisibility`, "Permissions are still inherited from parent folders"; the sharing guide (updated 2026-09-14), read 2026-10-09, speaks of moves and not copies | `copy_file` works out the copy's reach from the destination's grants alone, and reads the copy's back from Drive after it is made, saying when the two differ. The live driver copies a private file into a folder open by link, and a file shared by link on its own into a private one, and fails a step when either copy is reached otherwise |
-| `copy_file` asks like a move, and `create_file` and `upload_file` do not (decided 2026-10-09) | **Decided.** A review found that with `GDRIVE_SHARING=off` a move into a link-shared folder was refused while a copy into it succeeded, and trashing the original then finished the same exposure | A copy that more people could reach than the original is put to the person and, with `GDRIVE_SHARING=off`, refused, part by part for a folder (§4a, §7.3). `create_file` and `upload_file` put new content the caller wrote into the folder the caller named, so they are unchanged |
+| `copy_file` asks like a move, and `create_file` and `upload_file` do not (decided 2026-10-09) | **Decided.** A review found that with `GDRIVE_SHARING=off` a move into a link-shared folder was refused while a copy into it succeeded, and trashing the original then finished the same exposure | A copy that more people could reach than the original is put to the person and, with `GDRIVE_SHARING=off`, refused, part by part for a folder (§4a, §7.3). `create_file` and `upload_file` put new content the caller wrote into the folder the caller named, so they are unchanged *(2026-10-23: nothing is put to the person. A copy that would reach past the organization is refused, as a move is; `create_file` and `upload_file` stay ordinary, recorded in §17b.)* |
 | A move's new sharing is in place when `files.update` answers (unstated) | **Confirmed live 2026-10-09** for four moves: the permission list read right after each answer was the one predicted | The read-back is one permission list right after the move. A late answer shows as "that is not who this server worked out would reach it", which points at `list_permissions`; the live driver's two moves fail on it |
 | A moved folder with limited access keeps out the destination's grants (unstated for a move) | **Unverified.** The sharing guide, read 2026-10-09, says of an inherited grant: "Changes must be made on the originating parent, or the folder must use the limited access setting." It says nothing about a move | The card reads `inheritedPermissionsDisabled`, and the move prediction does not use it: it counts the destination's grants on such a folder and may ask a question too many. A destination's own `view: metadata` grants are left out, since they do not reach what is inside it |
-| A bulk move needs one approval per item, as removal and sharing do (the "Bulk operations belong in the tool surface" row did not cover moves) | **Rejected for moves, decided 2026-10-09.** That row rejected bulk work because "one item per call keeps every removal and every share a visible approval". A move removes nothing and grants nothing by name: it is undone by moving the item back. What it can do that is not undone is let more people reach the item, and since 2026-10-09 that is put to the person before any item moves, once for the batch, naming every item that would reach further. Forty moves into a folder nobody else can reach is forty approvals of nothing | `move_file` takes `files`, at most 50, to one destination. Each item gets its own outcome, and a failure leaves the moves before it in place. Removal and sharing stay one item per call, and there is no bulk rename |
+| A bulk move needs one approval per item, as removal and sharing do (the "Bulk operations belong in the tool surface" row did not cover moves) | **Rejected for moves, decided 2026-10-09.** That row rejected bulk work because "one item per call keeps every removal and every share a visible approval". A move removes nothing and grants nothing by name: it is undone by moving the item back. What it can do that is not undone is let more people reach the item, and since 2026-10-09 that is put to the person before any item moves, once for the batch, naming every item that would reach further. Forty moves into a folder nobody else can reach is forty approvals of nothing | `move_file` takes `files`, at most 50, to one destination. Each item gets its own outcome, and a failure leaves the moves before it in place. Removal and sharing stay one item per call, and there is no bulk rename *(2026-10-23: the question for the batch is gone; each item that would reach past the organization is refused with its reason, and the rest move.)* |
 | A query may carry any number of `in parents` terms (unstated) | **Refuted live 2026-10-09.** The `files.list` reference (updated 2026-07-07) and the search guide (updated 2026-09-09), read 2026-10-09, state no limit on the length of `q`, its number of terms or its complexity. Live, Drive took 200 terms, 9,996 bytes of query, and refused 400, 19,996 bytes, with an HTML error page from Google's front end rather than a Drive error. A second run the same day found the same bounds and recorded the status: **HTTP 400**, not 414 | `under_folder` stops at 100 folders, about 5.6 KB of encoded terms, half of what Drive took, and refuses a larger tree. A search Google refuses with a page and a query longer than 9,996 bytes is called most likely too long. The live driver doubles a group of `in parents` terms from 50 until Drive refuses one, and prints where and with which status |
 | A page token continues only the query it came from (unstated) | **Unverified.** The `files.list` reference says the token "is typically valid for several hours" and to start over when it is rejected; it does not say the token is bound to `q` | Every search wraps Drive's token with a digest of the request: the query, which holds every filter and the folder set, the order, the drive and the corpus. With `under_folder` it also carries the folder and a digest of the folder set. A continuation with any of those different, under another folder, without `under_folder`, or over a set that changed since the first page is refused here, so Drive never sees a token beside a different query. Until 2026-10-09 only `under_folder` searches were bound, and any other filter could change between pages |
 | A page of `files.list` holds what `pageSize` asked unless it is the last (assumed by the `under_folder` walk until 2026-10-09) | **Refuted** against the `files.list` reference, read 2026-10-09: "Partial or empty result pages are possible even before the end of the files list has been reached" | The walk pages each level to its end. The fake can serve short pages (`FilePageCap`), and a test holds the walk to them |
@@ -2774,3 +2827,17 @@ for the next run:
 | Google Docs treats only `text/markdown` as a Markdown file (what this server assumed while building the check) | **Refuted live 2026-10-14.** A file created as `text/x-markdown` kept that type in Drive, and the Docs API read it exactly as it read a `text/markdown` control made the same minute from the same bytes: two paragraphs, `# Probe` as `HEADING_1`, the same named styles. A media update sent as `text/x-markdown` kept that type and the Docs API read the new text. A `text/plain` `.md` is refused by the Docs API (400, measured 2026-10-13), and so is `text/x-web-markdown` (400 `INVALID_ARGUMENT`, 2026-10-14), so that alias is not one | `mediatype.IsMarkdown` takes both types, for the comment check and for every note; the registry names `text/x-markdown` a Markdown file |
 | A revision kept forever can be unpinned again (what `manage_revision`'s description said: "or unpin one so Drive may discard it again") | **Refuted for every revision but the current one.** <https://developers.google.com/workspace/drive/api/guides/manage-revisions>, updated 2026-09-03: "Once a blob file revision is set to "Keep Forever", it can only be downloaded or deleted." <https://developers.google.com/workspace/drive/api/guides/handle-errors>, same date: `illegalKeepForeverModification`, 400, "occurs when trying to set a blob file revision marked as "Keep Forever" to `false`", fixed by deleting the revision. Measured live 2026-10-13: unpinning the current revision answered 200, an older pinned one 400. The live driver unpins the current revision and expects the refusal for the one `keep_previous_revision` pinned | `manage_revision` says a pin on a revision that is not current is for good and explains the refusal, naming `delete_revision`; `keep_previous_revision`'s description and result say the same, and the fake refuses as Drive does |
 | A commit message holds only what a person typed, so every address in one is a leak (what `leaks history` assumed) | **Refuted for two trailers.** git-commit(1): `--signoff` adds "a `Signed-off-by` trailer by the committer at the end of the commit log message", and dependabot signs every commit that way. <https://docs.github.com/en/pull-requests/committing-changes-to-your-project/creating-and-editing-commits/creating-a-commit-with-multiple-authors>: "Add one or more `Co-authored-by` trailers to a commit message to attribute a commit to multiple authors", and "If a co-author keeps their email address private, use their GitHub-provided `no-reply` email". <https://docs.github.com/en/account-and-profile/reference/email-addresses-reference> gives that address as `ID+USERNAME@users.noreply.github.com`. Both trailers are the author header's record in another place. Run 2026-10-14, the scan flagged seven things, all on `main` for weeks: five such trailers, a type-name prefix, and the first code of conduct's contact address | `leaks history` blanks those two trailers, as it skips the header; `users.noreply.github.com` is a documented domain; the type-name prefix is an allowed id and the old code of conduct an allowed blob, each with its reason. CONTRIBUTING asks for no-reply addresses, since a work address in a trailer is no longer flagged. The scan is a step in closing a phase |
+
+**Phase 10 additions (2026-10-23).** The family standard's re-check of
+2026-10-23 read every source below again, with the quotes, against the
+110 most-used MCP servers and the clients that run them. Nothing here
+was probed live from this repository; each row says what its verdict
+rests on.
+
+| Convention | Verdict | Effect |
+|---|---|---|
+| A server should confirm a write that cannot be undone, or that widens access, with the person itself, through MCP form elicitation (what 2.0.0 built) | **Refuted for this family, decided 2026-10-22.** The MCP specification puts consent to a tool call on the host, and its elicitation is a way "to request additional information from users", with no consent rule. Claude Code's documentation (<https://code.claude.com/docs/en/mcp>, <https://code.claude.com/docs/en/hooks>): an `Elicitation` hook answers with no dialog. Codex accepts a form with no fields by itself under full access. Open reports on Claude Code's VS Code extension, Desktop's Code tab and Cowork: the question declared and not drawn, or left until it times out. No client's permission rules match an elicitation. Of the 91 most-used servers with risky writes, 83 never ask the person; the 8 that do each pick their own scope | The question is gone (§4a). What held on every client stays: the flags, `confirm`, the guards, `dry_run` |
+| A client that prompts by annotations prompts by `destructiveHint` | **Refined.** Codex prompts by it in its default tool mode, and claude.ai documents that it decides its prompt. VS Code never reads `destructiveHint`: it prompts on every tool without `readOnlyHint: true` | `readOnlyHint` only on a tool that changes nothing; `destructiveHint` accurate. `reply_comment` and `manage_labels`, which replace what was there, are now destructive |
+| A remembered approval can be scoped to an argument value, so a wide form may be an argument of an ordinary tool (what `allow_anyone`, `allow_domain`, `transfer_ownership` and `approve` in `manage_approval` assumed) | **Refuted.** claude.ai, Codex, VS Code and Copilot remember "always allow" per tool or per server; Claude Code's permission rules match an MCP argument only in a command-line deny rule. Argument-level control exists only where an operator writes it (hooks; Gemini CLI's policy rules). Notion, Slack, Canva, Figma, Asana and Airtable's servers offer no sharing tool; Box's sharing tools are off until an admin enables them | Each wide form is its own tool, behind the destructive flag (§4a) |
+| `requiresUserInteraction` is one more prompt a client may show | **Refined.** Claude Code, v2.1.199 or later, prompts on every call of a marked tool in every interactive mode, whatever the allow rules; from v2.1.246 it offers no "don't ask again"; where no prompt can be drawn (`dontAsk`, `-p` without a permission host) it denies the call, and only an Agent SDK host's `canUseTool` can approve it. Anthropic documents it for "tools whose permission prompt is itself the point". GitLab's own server calls the same mark "advisory" (MR !252995: "Only Claude Code 2.1.199 and later honour the annotation"). No other client reads it | The mark on four tools whose prompt is the point, for every client, and the destructive flag still the control (§4a) |
+| Turning a shared drive's `members_only` off restores access already granted to non-members | **Unverified.** The drives reference describes `driveMembersOnly` as restricting access to the drive's items to its members, and says nothing of what happens to a grant made to a non-member while it was on | `members_only` off stays an ordinary `manage_drive` switch until the probe §17 records |

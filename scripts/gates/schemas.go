@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -127,6 +128,13 @@ func readReleaseState() (changelog string, baseline []byte, err error) {
 // person to read, an output that may carry a value it did not list
 // among it.
 //
+// A break the [Unreleased] part of the CHANGELOG declares is let through:
+// a **Breaking:** entry there names its tool, or its resource template,
+// in backticks. Only a new major version may ship one, and
+// `make schema-baseline` refuses to record a break as anything else, so
+// the declaration is the first half of that rule and the release is the
+// second.
+//
 // It also fails when the baseline is not the newest release's. An older
 // baseline protects an older surface, so whatever shipped since could be
 // dropped and nothing would say. With nothing under [Unreleased] the
@@ -161,9 +169,13 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 			"record it in that release's commit with `make schema-baseline VERSION=%s`",
 			base.version, want, want))
 	}
-	if len(breaking) > 0 {
-		problems = append(problems, fmt.Sprintf("the tool surface breaks a caller of %s in %d way(s) above",
-			base.version, len(breaking)))
+	if undeclared := undeclaredBreaks(breaking, changelog); len(undeclared) > 0 {
+		problems = append(problems, fmt.Sprintf("the tool surface breaks a caller of %s in %d way(s) above that "+
+			"[Unreleased] does not declare (%s): a break names its tool, in backticks, in a **Breaking:** entry "+
+			"there, and ships in a new major version", base.version, len(undeclared), strings.Join(undeclared, "; ")))
+	} else if len(breaking) > 0 {
+		_, _ = fmt.Fprintf(out, "%d breaking change(s), each declared under **Breaking:** in [Unreleased]; "+
+			"`make schema-baseline` records them only as a new major version\n", len(breaking))
 	}
 	if len(problems) == 0 && want != "" && countEntries(changelog, "## [Unreleased]") == 0 && !sameSurface(baseline, current) {
 		problems = append(problems, fmt.Sprintf("nothing is under [Unreleased], so this build is %s, "+
@@ -175,6 +187,34 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 	}
 	return nil
 }
+
+// undeclaredBreaks is each breaking change whose tool, or resource
+// template, no **Breaking:** line in the CHANGELOG's [Unreleased]
+// section names in backticks.
+func undeclaredBreaks(breaking []string, changelog string) []string {
+	_, unreleased, _ := strings.Cut(changelog, "## [Unreleased]")
+	unreleased, _, _ = strings.Cut(unreleased, "\n## [")
+	named := map[string]bool{}
+	for line := range strings.Lines(unreleased) {
+		if !strings.Contains(line, "**Breaking:**") {
+			continue
+		}
+		for _, m := range codeSpan.FindAllStringSubmatch(line, -1) {
+			named[m[1]] = true
+		}
+	}
+	var out []string
+	for _, b := range breaking {
+		subject, _, _ := strings.Cut(strings.TrimPrefix(b, resourcePrefix), ": ")
+		if !named[subject] {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// codeSpan is text in backticks.
+var codeSpan = regexp.MustCompile("`([^`]+)`")
 
 // schemaBaseline records the surface of the release being cut as the
 // baseline. The release commit runs it, so the baseline lands with the

@@ -7,8 +7,8 @@
 // end state, read back through the server, and on the trace — which
 // tools were called with which arguments. A task can pass on its answer
 // and fail on its trace, and that is the interesting case: a model that
-// guessed an id and happened to be right, or passed allow_anyone nobody
-// asked for.
+// guessed an id and happened to be right, or reached for a link anyone
+// can open that nobody asked for.
 //
 // It needs a signed-in account and the `claude` command on PATH. Every
 // task runs inside one scratch folder, which is trashed at the end;

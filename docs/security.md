@@ -46,9 +46,9 @@ you asked for it; it never reaches the log.
 | Risk | What limits it |
 |---|---|
 | Acting on the wrong file | Ids are the contract. A name or path matching more than one item is refused with the candidates listed, and every result shows the file's folder and drive. |
-| Exposing a file to the world or the wrong domain | Your organization's own sharing policy, enforced by Google on every call; a `capabilities.canShare` check before the server offers the action at all; `allow_anyone: true` required per call for a link grant, and `allow_domain: true` for a domain-wide one; the person asked before either, before an ownership transfer, and before a move into a folder or shared drive that more people can reach, when the client can ask; who can see the file shown before and after a share or a move; `dry_run`; `GDRIVE_SHARING=off`, which also refuses such a move. Publishing a revision to the web is not offered at all, because it is exposure with no audience control. |
+| Exposing a file to the world, a domain or someone outside the organization | Your organization's own sharing policy, enforced by Google on every call; a `capabilities.canShare` check before the server offers the action at all; `share_file` grants only named people and groups inside the organization, and a link for anyone, a whole domain, someone outside it, a new owner and lifting a shared drive's domain restriction are each their own tool, registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true` and needing `confirm: true`; a move, a copy, or a folder's limited access turned off that would reach anyone with the link, a domain or someone outside the organization refused, naming who, and so is accepting a request for access from outside it; who can see the file shown before and after a share or a move; `dry_run`; `GDRIVE_SHARING=off`, which also refuses any move that lets more people reach a file. On a personal Google account every address counts as outside. Publishing a revision to the web is not offered at all, because it is exposure with no audience control. |
 | Unwanted email to people | Notification mail is off unless asked for, the opposite of the API's default. Where Google forces it on — an ownership transfer — the result says so. |
-| Mass deletion | Trash and restore are the default surface and are reversible for 30 days. Permanent delete, empty trash, delete revision and delete shared drive exist only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, **and each also needs `confirm: true` on the call itself**: the deployer's switch decides whether the tool exists, and a registered tool is one a model will reach for eventually. There is no bulk delete and no bulk share: one item per call, so every removal is a separate approval in the client. When the client supports MCP elicitation, the server also asks the person before each of these writes, and anything but Accept stops it; `GDRIVE_REQUIRE_PROMPT=true` refuses them where the client cannot ask. The one permanent delete outside that gate is `extract_text` removing the temporary copy it made in the same call: it deletes only the Google Doc Drive's answer to that copy named, never the file it read. |
+| Mass deletion | Trash and restore are the default surface and are reversible for 30 days. Permanent delete, empty trash, delete revision and delete shared drive exist only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, **and each also needs `confirm: true` on the call itself**: the deployer's switch decides whether the tool exists, and a registered tool is one a model will reach for eventually. There is no bulk delete and no bulk share: one item per call, so every removal is a separate approval in the client. The server asks the person nothing itself; the client's own approval decides each call, and `delete_file`, `empty_trash` and `delete_drive` carry Claude Code's `requiresUserInteraction`, so Claude Code prompts on every one and refuses it where no prompt can be drawn. The one permanent delete outside that gate is `extract_text` removing the temporary copy it made in the same call: it deletes only the Google Doc Drive's answer to that copy named, never the file it read. |
 | One deletion turning into many | A file id that spells one of Drive's own endpoints under `/files` is refused before a request is built, so `delete_file` cannot become `emptyTrash`. Deleting the root of My Drive or the top of a shared drive is refused by this server, not only by Google: a bounded call becoming an unbounded one must not depend on a capability field the other side computes. `empty_trash` reports how many items it is about to destroy, because it is the one destructive call that names none. |
 | Copying private files onto disk | Files are written only under `GDRIVE_LOCAL_DIR`, which is unset by default and disables transfers entirely. Paths are cleaned and symlinks resolved, and a path that escapes the directory is refused. Downloads are capped by `GDRIVE_MAX_DOWNLOAD` and every file written is named in the result. |
 | Uploading files the person did not mean to share | Uploads read only from `GDRIVE_LOCAL_DIR`. Inline content is whatever the model wrote, which the person saw it write. |
@@ -62,7 +62,17 @@ you asked for it; it never reaches the log.
 
 The MCP specification says a client may not trust a tool's annotations.
 So every gate here is in the server: a tool the configuration excludes is
-never registered, rather than registered with a warning attached.
+never registered, rather than registered with a warning attached. Every
+widely used client has a mode that runs a tool with nobody approving the
+call, so neither the client's prompt nor the `requiresUserInteraction`
+mark is counted here as a limit. They are exact all the same, because
+they decide what the client asks: `readOnlyHint` only on a tool that
+changes nothing, since VS Code prompts on every tool without it, and
+`destructiveHint` accurate, since claude.ai and Codex prompt by it.
+
+No tool changes this server's own settings: they come from the
+environment and the profile `login` writes, and a test drives every
+registered tool and holds both unchanged.
 
 ## Reporting a vulnerability
 

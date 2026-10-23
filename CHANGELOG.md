@@ -6,9 +6,24 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `share_by_link`, `share_outside_organization`, `transfer_ownership` and `lift_drive_restriction`, registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true` (and `GDRIVE_SHARING=all`), each needing `confirm: true`: a link for anyone or a whole domain, a person or group outside the organization, a new owner, and turning a shared drive's `domain_users_only` off.
+- `approve_file`, which approves a review you were asked for, marked destructive: Drive cannot withdraw an approval, and it can lock the file for good.
+- The README gives Claude Code `permissions.ask` rules for the writes that share, publish, sign off or delete, and says what each client prompts for. The staleness gate holds every tool named there to the registered tools.
+
 ### Changed
 
 - **Breaking:** the Go module path is now `github.com/mmedum/google-drive-mcp/v3`, as Go requires from v3; install with `go install github.com/mmedum/google-drive-mcp/v3/cmd/google-drive-mcp@latest`.
+- **Breaking:** the server no longer asks the person before a write; your MCP client approves each call. `GDRIVE_REQUIRE_PROMPT` and `--require-prompt` are removed, and the server refuses to start while `GDRIVE_REQUIRE_PROMPT` is set to anything but `false`: unset it, keep `GDRIVE_ENABLE_DESTRUCTIVE` off for a client that runs unattended, and list the writes to approve under your client's ask rules.
+- **Breaking:** `share_file` grants only named people and groups inside your organization, and takes no `allow_anyone`, `allow_domain`, `transfer_ownership` or `discoverable`. A link for anyone or a domain, someone outside the organization and a new owner are refused `[blocked]`, naming `share_by_link`, `share_outside_organization` or `transfer_ownership`. On a personal Google account every address counts as outside, so `share_file` shares with nobody there.
+- **Breaking:** `move_file`, `copy_file`, and `update_file` with `limited_access: false` refuse `[blocked]`, dry run included, when they would let anyone with the link, a domain or someone outside the organization reach a file, naming who, or when who they would reach cannot be read. Reaching more people inside the organization is an ordinary write.
+- **Breaking:** `resolve_access_request` refuses `[blocked]` to accept a request from someone outside your organization; deny it, or grant it with `share_outside_organization` or in Drive.
+- **Breaking:** `manage_drive` refuses `[blocked]` to turn `domain_users_only` off; `lift_drive_restriction` does it.
+- **Breaking:** `manage_approval` no longer approves; `approve_file` does.
+- **Breaking:** Claude Code's `requiresUserInteraction` is now on `delete_file`, `empty_trash`, `delete_drive` and `share_by_link` for every client, so Claude Code prompts on every such call and refuses it where it cannot prompt; it came off `delete_revision` and `delete_comment`.
+- `reply_comment` and `manage_labels` are marked destructive, since an edit replaces a comment's text and a set replaces a label field's value, so a client that prompts by `destructiveHint` prompts for them.
+- The schema diff lets through a break that a `**Breaking:**` entry under `[Unreleased]` names, with its tool in backticks; recording the baseline still takes a new major version.
 - `update_content` on a Markdown file reads only the revision ids from the version history when it looks for a save its upload replaced. It asked for every field of every revision, which on a file with a long history is most of the response for nothing.
 
 ## [2.2.0] - 2026-10-15
