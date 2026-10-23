@@ -341,6 +341,16 @@ an argument rides along unseen once its tool is always allowed.
    shows the call's arguments, and a name is what a person recognizes
    there, where an id says nothing. A shared drive's root also answers
    to the drive's own name.
+
+   A group is shared with as a group, by its own address: who is in it
+   is nowhere in the call, and this server holds no scope that reads
+   it. Google decides each member's access when they open the item, so
+   a grant to a group reaches everyone in the group, including people
+   added later; a member outside the organization too, if the
+   organization's sharing policy lets them in. `share_file`'s
+   description and a group grant's result say so. Whether anything this
+   server can read shows that a group admits outside members is an open
+   question (§17).
 2. **Outside** means an address whose domain is not the signed-in
    account's. A secondary domain of the same organization counts as
    outside, and so does every address when the account's own cannot be
@@ -2012,7 +2022,7 @@ transcript read, before release.
 
 ## 17. Open decisions
 
-One, waiting on a live probe:
+Two, waiting on a live probe:
 
 - **`members_only` off** (approved 2026-10-23, conditionally). If
   turning a shared drive's `members_only` off restores access that
@@ -2024,6 +2034,27 @@ One, waiting on a live probe:
   account that is not a member, and a read as that account before and
   after turning it off. Until the probe, nothing depends on its answer:
   `members_only` off is an ordinary write, as it was.
+- **A group that admits outside members** (approved 2026-10-23). A
+  grant to a group at the organization's domain is ordinary, and its
+  result says the grant reaches everyone in the group, including people
+  added later, and a member outside the organization too if the
+  organization's sharing policy lets them in. Google's Drive help says
+  external members of a shared-with group are let in or kept out per
+  user by that policy, that later members get access by URL, and that
+  Drive marks a file shared with an organization's group "set to allow
+  external members" as external even with no external member yet
+  (<https://support.google.com/a/users/answer/167101>,
+  <https://knowledge.workspace.google.com/admin/drive/manage-external-sharing-for-your-organization>,
+  read 2026-10-23). If
+  anything readable with this server's scopes shows that a group allows
+  external members (the permission resource, `about`, or another field
+  Drive returns), `share_file` refuses such a group `[blocked]`, naming
+  `share_outside_organization`, and a move or a copy counts it as
+  reaching past the organization. The probe needs a Workspace account,
+  one group at its domain set to allow external members and one that
+  is not, a file shared with each, and every field Drive returns for
+  both grants and for the account, compared. Until the probe, nothing
+  depends on its answer.
 
 The five choices below were decided on 2026-09-05 and are kept
 here so they are not reopened.

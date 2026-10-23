@@ -22,6 +22,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** `manage_drive` refuses `[blocked]` to turn `domain_users_only` off; `lift_drive_restriction` does it.
 - **Breaking:** `manage_approval` no longer approves; `approve_file` does.
 - **Breaking:** Claude Code's `requiresUserInteraction` is now on `delete_file`, `empty_trash`, `delete_drive` and `share_by_link` for every client, so Claude Code prompts on every such call and refuses it where it cannot prompt; it came off `delete_revision` and `delete_comment`.
+- `share_file`'s description and a group grant's result say who a group reaches: everyone in it, including people added later, and a member outside your organization too if its sharing policy lets them in. This server cannot see who is in a group.
 - `reply_comment` and `manage_labels` are marked destructive, since an edit replaces a comment's text and a set replaces a label field's value, so a client that prompts by `destructiveHint` prompts for them.
 - The schema diff lets through a break that a `**Breaking:**` entry under `[Unreleased]` names, with its tool in backticks; recording the baseline still takes a new major version.
 - `update_content` on a Markdown file reads only the revision ids from the version history when it looks for a save its upload replaced. It asked for every field of every revision, which on a file with a long history is most of the response for nothing.

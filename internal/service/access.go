@@ -355,6 +355,11 @@ func knownAs(res *Resolved) []string {
 	return []string{f.Name}
 }
 
+// GroupReach is who a grant to a Google group reaches, as share_file's
+// description and a group grant's result say it.
+const GroupReach = "everyone in the group, including people added later; a member outside the organization " +
+	"too, if the organization's sharing policy lets them in"
+
 // shareTarget resolves what a share acts on. A shortcut is the thing
 // sitting in the folder, so sharing acts on it rather than on what it
 // points at. A wide share's file_name must be a name Drive has for it.
@@ -602,6 +607,12 @@ func (s *Service) shareNote(p sharePlan, after model.Sharing, dryRun bool) strin
 			parts = append(parts, tense("no email was sent", "no email would be sent")+
 				"; pass notify: true if they should hear about it")
 		}
+	}
+	if p.principal.kind == principalGroup {
+		// Who is in the group is nowhere in the call, and this server
+		// cannot read it: Google decides each member's access when they
+		// open the file, under the organization's sharing policy.
+		parts = append(parts, tense("The grant reaches ", "The grant would reach ")+GroupReach)
 	}
 	if p.principal.kind == principalAnyone {
 		// What the grant is now, not what this call asked for: leaving

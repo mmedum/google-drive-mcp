@@ -106,7 +106,8 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 			"change the access they have. The result shows who could see it before and who can see it after, " +
 			"because that is the part worth checking. Granting to somebody who already has access changes " +
 			"their role rather than adding a second grant. Accepted roles: " + strings.Join(service.GrantRoles(), ", ") +
-			". No email is sent unless notify is set. A link for anyone, a whole domain, someone outside the " +
+			". No email is sent unless notify is set. A grant to a group reaches " + service.GroupReach + ". " +
+			"A link for anyone, a whole domain, someone outside the " +
 			"organization and a new owner are refused here with [blocked]: share_by_link, " +
 			"share_outside_organization and transfer_ownership do those, and exist only on a server started with " +
 			"GDRIVE_ENABLE_DESTRUCTIVE=true. Outside means an address whose domain is not this account's; for a " +

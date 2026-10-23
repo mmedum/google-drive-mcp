@@ -44,6 +44,34 @@ func TestShareFileGrantsAndShowsExposureBeforeAndAfter(t *testing.T) {
 	}
 }
 
+// A group is shared with as a group: who is in it is nowhere in the call,
+// and Google decides each member's access when they open the file. So
+// the result says who a group grant reaches, dry run included.
+func TestAGroupGrantSaysWhoItReaches(t *testing.T) {
+	svc, _ := setup(t, service.Options{})
+	in := service.ShareFileInput{File: "id-budget-fixture", Principal: "group:team@example.com", Role: "reader",
+		DryRun: true}
+	dry, err := svc.ShareFile(t.Context(), in)
+	if err != nil {
+		t.Fatalf("ShareFile dry run: %v", err)
+	}
+	if want := "no email would be sent; pass notify: true if they should hear about it. The grant would reach " +
+		"everyone in the group, including people added later; a member outside the organization too, if the " +
+		"organization's sharing policy lets them in."; dry.JSON.Note != want {
+		t.Errorf("dry run note = %q\nwant %q", dry.JSON.Note, want)
+	}
+	in.DryRun = false
+	got, err := svc.ShareFile(t.Context(), in)
+	if err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	if want := "no email was sent; pass notify: true if they should hear about it. The grant reaches everyone in " +
+		"the group, including people added later; a member outside the organization too, if the " +
+		"organization's sharing policy lets them in."; got.JSON.Note != want {
+		t.Errorf("note = %q\nwant %q", got.JSON.Note, want)
+	}
+}
+
 func TestShareFileUpdatesAnExistingGrantRatherThanAddingASecond(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.Grant("id-budget-fixture", &gdrive.Permission{
