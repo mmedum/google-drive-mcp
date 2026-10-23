@@ -12,12 +12,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/mediatype"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/office"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/mediatype"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
 // ReadFileInput selects the text to return.

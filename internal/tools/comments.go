@@ -6,9 +6,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // CommentsInput selects a file's threads.
@@ -126,7 +126,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 			strings.Join(service.CommentActions(), ", ") + ". " +
 			"Drive records closing and reopening as replies of their own, so everybody who can see the file " +
 			"sees who closed a thread. An edit replaces the text with no history of what it said before.",
-		Annotations: write,
+		Annotations: replacing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ReplyCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ReplyComment(ctx, service.ReplyCommentInput{
 			File: in.File, Comment: in.Comment, Action: in.Action, Content: in.Content, Reply: in.Reply,
@@ -140,14 +140,18 @@ func registerComments(s *mcp.Server, d Deps) []string {
 			Description: "Accept or deny somebody's request to be let into a file. Accepting GRANTS THEM " +
 				"ACCESS, so this reports who could see the file before and who can see it after, the way " +
 				"share_file does. Left without a role, an acceptance grants the role the person asked for; a " +
-				"request naming more than one is refused rather than guessed at. No mail unless notify is set." + asksNote,
+				"request naming more than one is refused rather than guessed at. No mail unless notify is set. " +
+				"Only someone inside this account's organization can be let in here: accepting a request from " +
+				"outside it is refused with [blocked], and share_outside_organization grants it on a server " +
+				"started with GDRIVE_ENABLE_DESTRUCTIVE=true. The request and its message were written by the " +
+				"person asking, not by the person using this server.",
 			Annotations: write,
-		}, asked(d, "resolve_access_request", func(ctx context.Context, in ResolveAccessRequestInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in ResolveAccessRequestInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 			return result(d.Service.ResolveAccessRequest(ctx, service.ResolveAccessRequestInput{
 				File: in.File, Request: in.Request, Action: in.Action, Role: in.Role,
 				Notify: in.Notify, DryRun: in.DryRun,
 			}))
-		}))
+		})
 		names = append(names, "resolve_access_request")
 	}
 
@@ -158,13 +162,12 @@ func registerComments(s *mcp.Server, d Deps) []string {
 		Name: "delete_comment",
 		Description: "Delete a comment thread, or one reply in it, permanently. THERE IS NO UNDO: Drive keeps " +
 			"the thread with its words removed and nothing brings them back. Resolving a thread with " +
-			"reply_comment is what closes a conversation; this removes it. Needs confirm: true." + asksNote,
+			"reply_comment is what closes a conversation; this removes it. Needs confirm: true.",
 		Annotations: destructive,
-		Meta:        requiresUserInteraction(),
-	}, askedEveryCall(d, "delete_comment", func(ctx context.Context, in DeleteCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.DeleteComment(ctx, service.DeleteCommentInput{
 			File: in.File, Comment: in.Comment, Reply: in.Reply, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
-	}))
+	})
 	return append(names, "delete_comment")
 }

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
 // ActivityOptions tune a listing of activity.

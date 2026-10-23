@@ -92,11 +92,7 @@ type Config struct {
 	Labels      bool
 	// Activity turns on list_activity, which reads the separate Drive
 	// Activity API and asks for its scope at login.
-	Activity bool
-	// RequirePrompt refuses the writes that ask the person when the
-	// client cannot ask, rather than letting the call's own arguments
-	// stand in for the person.
-	RequirePrompt    bool
+	Activity         bool
 	ClientSecretPath string
 }
 
@@ -114,8 +110,37 @@ type Settings struct {
 	HTTPTimeout       string
 	Labels            string
 	Activity          string
-	RequirePrompt     string
 	ClientSecretPath  string
+	// removed are the settings a release took out, as the environment
+	// gives them, read only to refuse one still set.
+	removed map[string]string
+}
+
+// removedSettings are the settings a release took out, each with what to
+// do instead. Off is still accepted. On, or a value that is not a
+// boolean, is refused at start: ignored, it would quietly allow what its
+// owner set it to stop.
+var removedSettings = []struct{ key, instead string }{
+	// 3.0.0: the server no longer asks the person before a write, so
+	// there is nothing left to require of a client that cannot ask.
+	{"REQUIRE_PROMPT", "leave " + EnvPrefix + "ENABLE_DESTRUCTIVE off for a client that runs with nobody watching, " +
+		"and list the writes you want to approve under your client's ask rules, as the README shows"},
+}
+
+// removedSet refuses each removed setting that is set to anything but
+// off. The value is not repeated: it is the operator's, and the refusal
+// says what to do whatever it was.
+func (s *Settings) removedSet() []error {
+	var errs []error
+	for _, r := range removedSettings {
+		if on, err := parseBool(r.key, s.removed[r.key]); err == nil && !on {
+			continue
+		}
+		errs = append(errs, fmt.Errorf("%w: %s%s was removed: the server no longer asks the person before a "+
+			"write, and the client's own approval decides each call. Unset it, and %s", ErrInvalid, EnvPrefix,
+			r.key, r.instead))
+	}
+	return errs
 }
 
 // Define registers one flag per setting on fs. Each flag defaults to the
@@ -123,7 +148,10 @@ type Settings struct {
 // the command line wins over the environment, and the environment wins
 // over the built-in default.
 func Define(fs *flag.FlagSet, env func(string) string) *Settings {
-	s := &Settings{}
+	s := &Settings{removed: map[string]string{}}
+	for _, r := range removedSettings {
+		s.removed[r.key] = env(EnvPrefix + r.key)
+	}
 	def := func(p *string, name, key, fallback, usage string) {
 		v := env(EnvPrefix + key)
 		if v == "" {
@@ -143,8 +171,6 @@ func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	def(&s.Labels, "labels", "LABELS", "false", "enable Workspace labels (adds the Drive Labels API scopes at login)")
 	def(&s.Activity, "activity", "ACTIVITY", "false",
 		"enable list_activity (adds the Drive Activity API scope at login)")
-	def(&s.RequirePrompt, "require-prompt", "REQUIRE_PROMPT", "false",
-		"refuse the writes that ask the person when the client cannot ask them")
 	def(&s.ClientSecretPath, "client-secret", "CLIENT_SECRET", "", "path to the OAuth Desktop client JSON (overrides the stored profile setting)")
 	return s
 }
@@ -191,9 +217,7 @@ func (s *Settings) Build() (Config, error) {
 	if c.Labels, err = parseBool("labels", s.Labels); err != nil {
 		errs = append(errs, err)
 	}
-	if c.RequirePrompt, err = parseBool("require-prompt", s.RequirePrompt); err != nil {
-		errs = append(errs, err)
-	}
+	errs = append(errs, s.removedSet()...)
 
 	c.Sharing = Sharing(strings.ToLower(strings.TrimSpace(s.Sharing)))
 	if !sharingModes[c.Sharing] {

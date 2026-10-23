@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // tree fills the fake with a folder holding a file, a subfolder with two
@@ -326,37 +326,49 @@ func sharedOutTree(fake *drivetest.Server) {
 
 // A tree's copy reaches who the destination does, all through. The
 // folder reaching those people already widens nothing for it, while a
-// folder inside it with limited access is reached further.
-func TestATreeCopyAsksAboutEachPartItWouldReachFurther(t *testing.T) {
+// folder inside it with limited access is reached further: by a domain,
+// which refuses the copy, naming the part and the domain.
+func TestATreeCopyIsRefusedForAPartItWouldOpenToADomain(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	sharedOutTree(fake)
 	in := service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture", Recursive: true}
 
-	no := declines()
-	if _, err := svc.CopyFile(service.WithAsker(t.Context(), no), in); err == nil || !strings.Contains(err.Error(), "[blocked]") {
-		t.Fatalf("err = %v, want the refusal the person gave", err)
-	}
-	want := "copy_file: copy the folder `Projects`, with everything inside it, into the folder `Shared out`?\n\n" +
-		"The copy would reach more people than these parts of the original do, or give them more access:\n\n" +
-		"the folder `Archive`, inside it, which has limited access: everyone at `example.com` can view with the link\n"
-	if len(no.asked) != 1 || !strings.HasPrefix(no.asked[0].Text, want) {
-		t.Fatalf("questions = %+v, want one starting %q", no.asked, want)
+	_, err := svc.CopyFile(t.Context(), in)
+	want := "[blocked] Inside it, Archive has limited access, and the copy of it would reach more people than it " +
+		"does: everyone at example.com can view. Nothing was copied."
+	if err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Fatalf("err = %v\nwant it to start %s", err, want)
 	}
 	if fake.Count(http.MethodPost) != 0 {
-		t.Fatal("a copy the person declined wrote something")
+		t.Fatal("a refused tree copy wrote something")
 	}
-	if _, err := svc.CopyFile(yes(t), in); err != nil {
-		t.Fatalf("CopyFile: %v", err)
+}
+
+// A refusal's advice follows the part refused: an inner folder whose
+// reach cannot be read is told to read it again, not to share first.
+func TestATreeCopyAdvisesForThePartItRefused(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	sharedOutTree(fake)
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.HasSuffix(r.URL.Path, "/files/id-archive-fixture/permissions") {
+			return &drivetest.Failure{Status: http.StatusForbidden, Reason: "insufficientFilePermissions", Message: "no"}
+		}
+		return nil
 	}
-	if len(childrenNamed(fake, "id-shared-out-fixture")) != 1 {
-		t.Error("an accepted tree copy was not made")
+	_, err := svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture",
+		Recursive: true})
+	want := "[blocked] Inside it, Archive has limited access, and the copy of it would reach more people than it " +
+		"does: who can reach it could not be read. Nothing was copied. list_permissions shows whether who can " +
+		"reach each can be read now."
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v\nwant %s", err, want)
 	}
 }
 
 func TestSharingOffRefusesATreeCopyThatWidensAnyPart(t *testing.T) {
 	svc, fake := setup(t, service.Options{Sharing: config.SharingOff})
 	sharedOutTree(fake)
-	_, err := svc.CopyFile(yes(t), service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture", Recursive: true})
+	_, err := svc.CopyFile(t.Context(), service.CopyFileInput{File: "id-projects-fixture", To: "id-shared-out-fixture", Recursive: true})
 	want := "[forbidden] this server was started with GDRIVE_SHARING=off. Inside it, Archive has limited access, and " +
 		"the copy of it would reach more people than it does: everyone at example.com can view with the link. Nothing was copied."
 	if err == nil || !strings.HasPrefix(err.Error(), want) {

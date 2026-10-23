@@ -7,8 +7,8 @@
 // end state, read back through the server, and on the trace — which
 // tools were called with which arguments. A task can pass on its answer
 // and fail on its trace, and that is the interesting case: a model that
-// guessed an id and happened to be right, or passed allow_anyone nobody
-// asked for.
+// guessed an id and happened to be right, or reached for a link anyone
+// can open that nobody asked for.
 //
 // It needs a signed-in account and the `claude` command on PATH. Every
 // task runs inside one scratch folder, which is trashed at the end;
@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/redact"
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/transcript"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/transcript"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
 	only := flag.String("only", "", "run only these tasks, by name, comma-separated")
 	model := flag.String("model", "", "the model to run the tasks with; empty uses the CLI's default")
-	share := flag.String("share", "", "an address to share with, for the half of the sharing task that needs one Google will accept. Without it that task scores the call and says the grant went unchecked, because Drive refuses the reserved example.com domain.")
+	share := flag.String("share", "", "an address inside the signed-in account's organization to share with, for the half of the sharing task that needs one Google will accept; share_file grants nobody outside it. Without it that task scores the call and says the grant went unchecked, because example.com is outside every organization.")
 	keep := flag.Bool("keep", false, "leave the scratch folder behind, to look at what happened")
 	raw := flag.Bool("raw", false, "print results without redaction (never in a shared terminal)")
 	timeout := flag.Duration("timeout", 5*time.Minute, "how long one task may take")

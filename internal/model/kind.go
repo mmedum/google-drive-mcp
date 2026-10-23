@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/mediatype"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/mediatype"
 )
 
 // markdownComments says where a comment made on a Markdown file in

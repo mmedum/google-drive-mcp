@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 )
 
 // TestNamedMembersMatchesTheWireType holds namedMembers to the type it

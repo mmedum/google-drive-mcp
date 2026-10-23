@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/office"
-	"github.com/mmedum/google-drive-mcp/v2/internal/office/officetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office/officetest"
 )
 
 // spent is what one extraction cost.

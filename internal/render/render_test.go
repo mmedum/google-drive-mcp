@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")
@@ -268,6 +268,30 @@ func TestAccountGolden(t *testing.T) {
 		Tools: []string{"get_account", "get_file", "list_folder", "search_files"},
 	})
 	golden(t, "account.txt", out)
+}
+
+// The sharing line says what share_file reaches, and which tools do the
+// rest, by whether they are registered; on a personal account it says
+// share_file reaches nobody.
+func TestAccountSaysWhatSharingReaches(t *testing.T) {
+	about := &gdrive.About{User: &gdrive.User{EmailAddress: "person@example.com"}}
+	for _, tc := range []struct {
+		o    AccountOptions
+		want string
+	}{
+		{AccountOptions{Destructive: true}, "sharing: share_file grants named people and groups inside this " +
+			"account's organization, which is addresses at example.com; share_by_link, share_outside_organization " +
+			"and transfer_ownership grant a link for anyone, a whole domain, someone outside the organization and a " +
+			"new owner. What may actually be shared is decided by Google, under your organization's own policy " +
+			"where there is one.\n"},
+		{AccountOptions{Personal: true}, "sharing: this is a personal Google account, which has no organization, " +
+			"so every address is outside it and share_file grants nobody; a link for anyone, a whole domain, " +
+			"someone outside the organization and a new owner need GDRIVE_ENABLE_DESTRUCTIVE=true."},
+	} {
+		if out := Account(about, tc.o); !strings.Contains(out, tc.want) {
+			t.Errorf("%+v: account output missing %q:\n%s", tc.o, tc.want, out)
+		}
+	}
 }
 
 // extract_text deletes the copy it makes for good, so the line that

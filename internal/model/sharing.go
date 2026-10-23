@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 )
 
 // Roles as Drive names them, in order of how much they allow.
@@ -238,7 +238,7 @@ func SharingOf(shared bool, grants []Grant) Sharing {
 }
 
 // Roles is what the people a sharing reaches may do, by count, in the
-// words a summary and a question both use: "2 can edit", "1 can view".
+// words a summary and a refusal both use: "2 can edit", "1 can view".
 func (s Sharing) Roles() []string {
 	var who []string
 	if s.Editors > 0 {
@@ -257,12 +257,11 @@ func (s Sharing) Roles() []string {
 }
 
 // Beyond is who a sharing reaches past the people on it: each domain,
-// then the link. name writes a domain the way the caller shows it, which
-// a question quotes.
-func (s Sharing) Beyond(name func(string) string) []string {
+// then the link.
+func (s Sharing) Beyond() []string {
 	var parts []string
 	for _, d := range s.Domains {
-		line := "everyone at " + name(d.Who) + " " + d.Words()
+		line := "everyone at " + d.Who + " " + d.Words()
 		if d.Discoverable {
 			line += ", and it turns up in their search"
 		} else {
@@ -308,7 +307,7 @@ func (s Sharing) Summary() string {
 		}
 		parts = append(parts, line)
 	}
-	parts = append(parts, s.Beyond(func(domain string) string { return domain })...)
+	parts = append(parts, s.Beyond()...)
 	if len(parts) == 0 {
 		switch {
 		case s.SharedDrive != "":

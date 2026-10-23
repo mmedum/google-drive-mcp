@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 )
 
 // Upload sizes Google documents.

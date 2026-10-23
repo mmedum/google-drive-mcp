@@ -115,6 +115,13 @@ const (
 	cutting    = "# Changelog\n\n## [Unreleased]\n\n## [2.1.0] - 2026-10-10\n\n- y\n\n## [2.0.1] - 2026-10-01\n\n- x\n"
 	cuttingV3  = "# Changelog\n\n## [3.0.0] - 2026-10-10\n\n- y\n\n## [2.0.1] - 2026-10-01\n\n- x\n"
 	firstDraft = "# Changelog\n\n## [Unreleased]\n\n- first\n"
+	// declared declares surfaceRemoved's break under [Unreleased].
+	declared = "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- **Breaking:** `get_file` takes no file.\n\n" +
+		"## [2.0.1] - 2026-10-01\n\n- x\n"
+	// declaredElsewhere names get_file under **Breaking:** in a released
+	// section, and names it without the word in [Unreleased].
+	declaredElsewhere = "# Changelog\n\n## [Unreleased]\n\n- `get_file` takes no file.\n- **Breaking:** `trash_file` " +
+		"changed.\n\n## [2.0.1] - 2026-10-01\n\n- **Breaking:** `get_file` changed.\n"
 )
 
 // Every way the diff fails, and the states it passes.
@@ -128,6 +135,9 @@ func TestDiffSurface(t *testing.T) {
 		{"the release itself, restamped and reordered", surfaceV1Restamped, surfaceV1, released, ""},
 		{"before the first release, with no baseline", surfaceAdded, "", firstDraft, ""},
 		{"a removed field", surfaceRemoved, surfaceV1, unreleased, "breaks a caller of v2.0.1 in 1 way(s)"},
+		{"a removed field [Unreleased] declares", surfaceRemoved, surfaceV1, declared, ""},
+		{"a removed field declared only where it does not count", surfaceRemoved, surfaceV1, declaredElsewhere,
+			"breaks a caller of v2.0.1 in 1 way(s) above that [Unreleased] does not declare (get_file: input field file removed)"},
 		{"no baseline once a release exists", surfaceV1, "", released, "names v2.0.1 as released, but testdata/schema-baseline.json is missing"},
 		{"a baseline older than the newest release", surfaceAdded, surfaceV1, cutting, `the baseline is the "v2.0.1" surface, but CHANGELOG.md's newest release is v2.1.0`},
 		{"a change with nothing unreleased", surfaceAdded, surfaceV1, released, "nothing is under [Unreleased], so this build is v2.0.1"},

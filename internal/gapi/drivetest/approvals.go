@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 )
 
 // The approval endpoints have the same trap the comment ones do: the

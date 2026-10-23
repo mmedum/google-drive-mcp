@@ -1,14 +1,15 @@
 package mcpstdio_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/mcpstdio"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/mcpstdio"
 )
 
 // Both drivers read the id out of a rendered card, because the card is
@@ -53,23 +54,29 @@ func TestARefusalCarriesNoID(t *testing.T) {
 func TestTheIDsInsideAListingAreReadOutOfARealOne(t *testing.T) {
 	now := time.Date(2026, 3, 6, 9, 0, 0, 0, time.UTC)
 	const author = "Wendell Ashgrove"
+	// The second thread's ids have the dot Drive puts in some of them.
 	threads := []*model.Comment{{
 		ID: "AAACCnLs6BQ", By: author, Created: now.Add(-time.Hour), Text: "is this row right?",
 		Replies: []*model.Reply{
 			{ID: "AAACCnLs6BU", By: author, Created: now, Text: "checked, it is"},
-			{ID: "AAACCnLs6BY", By: author, Created: now, Text: "and again"},
+			{ID: "doco.SyntheticReplyFixture01", By: author, Created: now, Text: "and again"},
+		},
+	}, {
+		ID: "doco.SyntheticThreadFixture1", By: author, Created: now, Text: "and this one?",
+		Replies: []*model.Reply{
+			{ID: "doco.SyntheticReplyFixture02", By: author, Created: now, Text: "that too"},
 		},
 	}}
 	listing := render.Comments(threads, render.CommentsOptions{
 		Subject: "rows.csv", Now: now,
 	})
 
-	if got := mcpstdio.ThreadIDs(listing); len(got) != 1 || got[0] != "AAACCnLs6BQ" {
-		t.Errorf("ThreadIDs = %v, want [AAACCnLs6BQ]\n%s", got, listing)
+	if got, want := mcpstdio.ThreadIDs(listing), []string{"AAACCnLs6BQ", "doco.SyntheticThreadFixture1"}; !slices.Equal(got, want) {
+		t.Errorf("ThreadIDs = %v, want %v\n%s", got, want, listing)
 	}
 	replies := mcpstdio.ReplyIDs(listing)
-	if len(replies) != 2 || replies[0] != "AAACCnLs6BU" || replies[1] != "AAACCnLs6BY" {
-		t.Errorf("ReplyIDs = %v, want the two replies\n%s", replies, listing)
+	if want := []string{"AAACCnLs6BU", "doco.SyntheticReplyFixture01", "doco.SyntheticReplyFixture02"}; !slices.Equal(replies, want) {
+		t.Errorf("ReplyIDs = %v, want %v\n%s", replies, want, listing)
 	}
 	// The content lines are indented too, and must not be read as ids.
 	for _, id := range append(replies, mcpstdio.ThreadIDs(listing)...) {

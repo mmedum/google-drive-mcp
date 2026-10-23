@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/office"
-	"github.com/mmedum/google-drive-mcp/v2/internal/office/officetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office"
+	"github.com/mmedum/google-drive-mcp/v3/internal/office/officetest"
 )
 
 // remote stands for a file reachable only by byte ranges, and counts

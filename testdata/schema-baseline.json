@@ -1,6 +1,6 @@
 {
   "server": "google-drive-mcp",
-  "version": "v2.2.0",
+  "version": "v3.0.0",
   "sdk": "v1.8.0",
   "tools": [
     {
@@ -264,12 +264,276 @@
     },
     {
       "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Approve a review of a file that you were asked for: your sign-off, recorded under your name and mailed to the person who asked and the other reviewers. Drive has no call that takes an approval back. Once every reviewer has approved, an approval started with on_content_change reset_approval LOCKS THE FILE, and that lock does not come off: nobody can edit it after. list_approvals shows the approval's id and whether it is waiting on you.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "description": "the approval to approve, by the id list_approvals shows",
+            "type": "string"
+          },
+          "file": {
+            "description": "the file the approval is on: an id, any Drive URL, a path from My Drive, or a shared-drive path",
+            "type": "string"
+          },
+          "message": {
+            "description": "a message that goes into the notification and into the approval's log",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "approval"
+        ],
+        "type": "object"
+      },
+      "name": "approve_file",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
+            "type": "string"
+          },
+          "changes": {
+            "description": "the fields this call changed, before and after",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "description": "the field that changed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "its value before the change",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "its value after the change",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "drive": {
+            "additionalProperties": false,
+            "description": "the shared drive as it is now",
+            "properties": {
+              "hidden": {
+                "description": "true when it is out of the sidebar's default view",
+                "type": "boolean"
+              },
+              "id": {
+                "description": "the shared drive id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "restrictions": {
+                "description": "the restrictions in force, in plain words",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "you_can": {
+                "description": "what the signed-in person may do in this drive",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "dry_run": {
+            "description": "true when nothing was changed because this was a dry run",
+            "type": "boolean"
+          },
+          "file": {
+            "additionalProperties": false,
+            "description": "the file as it is now",
+            "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
+              "head_revision": {
+                "type": "string"
+              },
+              "id": {
+                "description": "the file id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "kind": {
+                "description": "what kind of thing it is, in plain words",
+                "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
+              },
+              "link": {
+                "description": "the Drive link a person can open",
+                "type": "string"
+              },
+              "location": {
+                "description": "the drive and folders it sits in",
+                "type": "string"
+              },
+              "md5": {
+                "type": "string"
+              },
+              "mime_type": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sharing": {
+                "description": "who can see it",
+                "type": "string"
+              },
+              "shortcut_target": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer"
+              },
+              "starred": {
+                "type": "boolean"
+              },
+              "trashed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "kind"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "note": {
+            "description": "anything about the result that the fields do not carry",
+            "type": "string"
+          },
+          "sharing_after": {
+            "description": "who can see it after this call",
+            "type": "string"
+          },
+          "sharing_before": {
+            "description": "who could see it before this call",
+            "type": "string"
+          },
+          "summary": {
+            "description": "the same report as the text result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "action"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
         "destructiveHint": false,
         "idempotentHint": false,
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Copy one file, leaving the original alone. With convert_to, Google imports the copy as one of its own kinds; a PDF or a scanned image copied with convert_to: doc becomes a Google Doc with its text read out, which read_file then reads. extract_text does the same and deletes the copy again. A folder needs recursive: true, because Drive has no call that copies one — it is a listing per folder and a write per item, so a large tree takes a while. A tree over max_items is refused before anything is written rather than copied halfway; dry_run says how big it is first. Shortcuts inside a tree are made again pointing where they point now, not at the copies. A copy takes on who can reach the folder it lands in, and none of the sharing of the original; the result shows who can reach each. A copy that more people can reach than the original, or with more access, is also put to the person when the client can ask; a call they do not confirm is [blocked], nothing is copied, and it is not made again unless they ask. A server started with GDRIVE_SHARING=off refuses such a copy instead.",
+      "description": "Copy one file, leaving the original alone. With convert_to, Google imports the copy as one of its own kinds; a PDF or a scanned image copied with convert_to: doc becomes a Google Doc with its text read out, which read_file then reads. extract_text does the same and deletes the copy again. A folder needs recursive: true, because Drive has no call that copies one — it is a listing per folder and a write per item, so a large tree takes a while. A tree over max_items is refused before anything is written rather than copied halfway; dry_run says how big it is first. Shortcuts inside a tree are made again pointing where they point now, not at the copies. A copy takes on who can reach the folder it lands in, and none of the sharing of the original; the result shows who can reach each. A copy that anyone with the link, a domain or someone outside the organization could reach when they cannot reach the original is refused with [blocked], naming who, and so is one whose reach cannot be read. A server started with GDRIVE_SHARING=off refuses any copy that more people can reach than the original.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1383,16 +1647,13 @@
       }
     },
     {
-      "_meta": {
-        "anthropic/requiresUserInteraction": true
-      },
       "annotations": {
         "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Delete a comment thread, or one reply in it, permanently. THERE IS NO UNDO: Drive keeps the thread with its words removed and nothing brings them back. Resolving a thread with reply_comment is what closes a conversation; this removes it. Needs confirm: true. When the client can, the server also asks the person before the write; a call they do not confirm is [blocked], and is not made again unless they ask.",
+      "description": "Delete a comment thread, or one reply in it, permanently. THERE IS NO UNDO: Drive keeps the thread with its words removed and nothing brings them back. Resolving a thread with reply_comment is what closes a conversation; this removes it. Needs confirm: true.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1667,7 +1928,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Destroy a shared drive permanently. THERE IS NO UNDO. Drive refuses it while the drive still holds anything untrashed, and this server never asks for the override that would take the contents with it: trash what is in there first, then empty_trash. Needs confirm: true. When the client can, the server also asks the person before the write; a call they do not confirm is [blocked], and is not made again unless they ask.",
+      "description": "Destroy a shared drive permanently. THERE IS NO UNDO. Drive refuses it while the drive still holds anything untrashed, and this server never asks for the override that would take the contents with it: trash what is in there first, then empty_trash. Needs confirm: true.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1933,7 +2194,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Destroy a file or folder permanently, skipping the trash. THERE IS NO UNDO: not in Drive, not for an administrator, not through support. Deleting a folder takes everything inside it that this account owns. Use trash_file instead unless permanence is the point; a trashed item can be restored, and Drive clears the trash after 30 days anyway. Needs confirm: true. When the client can, the server also asks the person before the write; a call they do not confirm is [blocked], and is not made again unless they ask.",
+      "description": "Destroy a file or folder permanently, skipping the trash. THERE IS NO UNDO: not in Drive, not for an administrator, not through support. Deleting a folder takes everything inside it that this account owns. Use trash_file instead unless permanence is the point; a trashed item can be restored, and Drive clears the trash after 30 days anyway. Needs confirm: true.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2190,16 +2451,13 @@
       }
     },
     {
-      "_meta": {
-        "anthropic/requiresUserInteraction": true
-      },
       "annotations": {
         "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Destroy one old version of a file's content permanently. THERE IS NO UNDO. The file's current content is untouched. Drive allows this only for a file with bytes of its own, never for a Google Doc, Sheet or Slides deck, and never for the version the file is at now. Needs confirm: true. When the client can, the server also asks the person before the write; a call they do not confirm is [blocked], and is not made again unless they ask.",
+      "description": "Destroy one old version of a file's content permanently. THERE IS NO UNDO. The file's current content is untouched. Drive allows this only for a file with bytes of its own, never for a Google Doc, Sheet or Slides deck, and never for the version the file is at now. Needs confirm: true.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2505,7 +2763,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Destroy everything in the trash permanently. THERE IS NO UNDO, and this is the one destructive call that does not name what it removes, so run it with dry_run first: that says how much is in there. Anything in the trash can still be brought back with restore_file until this runs. Needs confirm: true. When the client can, the server also asks the person before the write; a call they do not confirm is [blocked], and is not made again unless they ask.",
+      "description": "Destroy everything in the trash permanently. THERE IS NO UNDO, and this is the one destructive call that does not name what it removes, so run it with dry_run first: that says how much is in there. Anything in the trash can still be brought back with restore_file until this runs. Needs confirm: true.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2838,6 +3096,279 @@
     },
     {
       "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Turn off a shared drive restriction that keeps what is in the drive inside the organization. Restrictions: domain_users_only. With domain_users_only off, the drive and what is in it can be shared with people outside the organization. manage_drive with action restrict turns it back on. Needs confirm: true, and drive_name: the drive's name as list_drives shows it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "description": "required to actually turn it off. Without it the call is refused.",
+            "type": "boolean"
+          },
+          "drive": {
+            "description": "the shared drive, by name or id",
+            "type": "string"
+          },
+          "drive_name": {
+            "description": "the shared drive's name exactly as list_drives shows it. Required: it says in the call itself which drive is opened up, and a name that is not the drive's is refused with [stale].",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "report what would change, and change nothing",
+            "type": "boolean"
+          },
+          "restriction": {
+            "description": "the restriction to turn off: domain_users_only",
+            "type": "string"
+          }
+        },
+        "required": [
+          "drive",
+          "drive_name",
+          "restriction"
+        ],
+        "type": "object"
+      },
+      "name": "lift_drive_restriction",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
+            "type": "string"
+          },
+          "changes": {
+            "description": "the fields this call changed, before and after",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "description": "the field that changed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "its value before the change",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "its value after the change",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "drive": {
+            "additionalProperties": false,
+            "description": "the shared drive as it is now",
+            "properties": {
+              "hidden": {
+                "description": "true when it is out of the sidebar's default view",
+                "type": "boolean"
+              },
+              "id": {
+                "description": "the shared drive id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "restrictions": {
+                "description": "the restrictions in force, in plain words",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "you_can": {
+                "description": "what the signed-in person may do in this drive",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "dry_run": {
+            "description": "true when nothing was changed because this was a dry run",
+            "type": "boolean"
+          },
+          "file": {
+            "additionalProperties": false,
+            "description": "the file as it is now",
+            "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
+              "head_revision": {
+                "type": "string"
+              },
+              "id": {
+                "description": "the file id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "kind": {
+                "description": "what kind of thing it is, in plain words",
+                "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
+              },
+              "link": {
+                "description": "the Drive link a person can open",
+                "type": "string"
+              },
+              "location": {
+                "description": "the drive and folders it sits in",
+                "type": "string"
+              },
+              "md5": {
+                "type": "string"
+              },
+              "mime_type": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sharing": {
+                "description": "who can see it",
+                "type": "string"
+              },
+              "shortcut_target": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer"
+              },
+              "starred": {
+                "type": "boolean"
+              },
+              "trashed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "kind"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "note": {
+            "description": "anything about the result that the fields do not carry",
+            "type": "string"
+          },
+          "sharing_after": {
+            "description": "who can see it after this call",
+            "type": "string"
+          },
+          "sharing_before": {
+            "description": "who could see it before this call",
+            "type": "string"
+          },
+          "summary": {
+            "description": "the same report as the text result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "action"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
         "idempotentHint": true,
         "openWorldHint": false,
         "readOnlyHint": true
@@ -3153,12 +3684,12 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Ask people to review a file, answer a review you were asked for, withdraw one, comment on one, or change who is being asked. Actions: start, approve, decline, cancel, comment, reassign. EVERY ACTION MAILS SOMEBODY — the reviewers, or the person who asked — and there is no way to turn that off, unlike sharing. An approval grants nobody access; what it can do is LOCK the file: once it is APPROVED, unless it was started with on_content_change no_action, and lock_file asks for it at the start although Drive does not always apply that — the result says which. A locked file cannot be edited by anyone, and the lock an approval leaves does not come off. Declining completes the approval on its own, where approving waits for every reviewer. A reviewer can be added, or replaced by somebody else, but never simply removed.",
+      "description": "Ask people to review a file, decline a review you were asked for, withdraw one, comment on one, or change who is being asked. Approving is approve_file. Actions: start, decline, cancel, comment, reassign. EVERY ACTION MAILS SOMEBODY — the reviewers, or the person who asked — and there is no way to turn that off, unlike sharing. An approval grants nobody access; what it can do is LOCK the file: once it is APPROVED, unless it was started with on_content_change no_action, and lock_file asks for it at the start although Drive does not always apply that — the result says which. A locked file cannot be edited by anyone, and the lock an approval leaves does not come off. Declining completes the approval on its own, where approving waits for every reviewer. A reviewer can be added, or replaced by somebody else, but never simply removed.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "start a new approval, approve or decline one you are a reviewer of, cancel one you started, comment on one, or reassign it to different reviewers",
+            "description": "start a new approval, decline one you are a reviewer of, cancel one you started, comment on one, or reassign it to different reviewers. approve_file approves.",
             "type": "string"
           },
           "approval": {
@@ -3453,7 +3984,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Make a shared drive, rename one, hide or unhide it, or change its restrictions. Everything in a shared drive belongs to the organization rather than to a person, which is the difference from a folder in My Drive and does not come undone. Members are not managed here: a member is a permission on the drive, so share_file and unshare_file add and remove them with the drive as the target. Restrictions: members_only, domain_users_only, copy_requires_writer_permission, admin_managed, folder_sharing_requires_organizer. With GDRIVE_SHARING=off a restriction may be turned on but not off. Turning one off is also put to the person when the client can ask; a call they do not confirm is [blocked], and is not made again unless they ask. Deleting a shared drive is a separate, gated tool.",
+      "description": "Make a shared drive, rename one, hide or unhide it, or change its restrictions. Everything in a shared drive belongs to the organization rather than to a person, which is the difference from a folder in My Drive and does not come undone. Members are not managed here: a member is a permission on the drive, so share_file and unshare_file add and remove them with the drive as the target. Restrictions: members_only, domain_users_only, copy_requires_writer_permission, admin_managed, folder_sharing_requires_organizer. With GDRIVE_SHARING=off a restriction may be turned on but not off. Turning domain_users_only off lets the drive's content reach people outside the organization, so it is refused here with [blocked]: lift_drive_restriction does it, on a server started with GDRIVE_ENABLE_DESTRUCTIVE=true. Deleting a shared drive is a separate, gated tool.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3722,7 +4253,7 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false,
         "readOnlyHint": false
@@ -4271,7 +4802,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Move an item into another folder or into a shared drive, or up to 50 items with files. A file in Drive has exactly one parent, so this takes it out of where it was. A move also changes who can reach it: it keeps the access granted on it directly, loses what it had through the old folder, and gains everyone who can reach the new folder or shared drive. The result shows who could reach it before and who can after. A folder in My Drive cannot move into a shared drive at all: make one there with create_folder and move the files into it. dry_run reports the old and new locations and who would reach each item, and changes nothing. A move that lets more people reach an item, or gives them more access, is also put to the person when the client can ask, once for the whole call; a call they do not confirm is [blocked], nothing in it moves, and it is not made again unless they ask. A server started with GDRIVE_SHARING=off refuses such a move instead.",
+      "description": "Move an item into another folder or into a shared drive, or up to 50 items with files. A file in Drive has exactly one parent, so this takes it out of where it was. A move also changes who can reach it: it keeps the access granted on it directly, loses what it had through the old folder, and gains everyone who can reach the new folder or shared drive. The result shows who could reach it before and who can after. A folder in My Drive cannot move into a shared drive at all: make one there with create_folder and move the files into it. dry_run reports the old and new locations and who would reach each item, and changes nothing. A move that would let anyone with the link, a domain or someone outside the organization reach an item is refused with [blocked], naming who, and so is one whose reach cannot be read; share it with them first if that is meant. A server started with GDRIVE_SHARING=off refuses any move that lets more people reach an item.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4573,7 +5104,7 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false,
         "readOnlyHint": false
@@ -4850,7 +5381,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Accept or deny somebody's request to be let into a file. Accepting GRANTS THEM ACCESS, so this reports who could see the file before and who can see it after, the way share_file does. Left without a role, an acceptance grants the role the person asked for; a request naming more than one is refused rather than guessed at. No mail unless notify is set. When the client can, the server also asks the person before the write; a call they do not confirm is [blocked], and is not made again unless they ask.",
+      "description": "Accept or deny somebody's request to be let into a file. Accepting GRANTS THEM ACCESS, so this reports who could see the file before and who can see it after, the way share_file does. Left without a role, an acceptance grants the role the person asked for; a request naming more than one is refused rather than guessed at. No mail unless notify is set. Only someone inside this account's organization can be let in here: accepting a request from outside it is refused with [blocked], and share_outside_organization grants it on a server started with GDRIVE_ENABLE_DESTRUCTIVE=true. The request and its message were written by the person asking, not by the person using this server.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5479,26 +6010,25 @@
       "name": "search_files"
     },
     {
+      "_meta": {
+        "anthropic/requiresUserInteraction": true
+      },
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Give someone access to a file, or change the access they have. The result shows who could see it before and who can see it after, because that is the part worth checking. Granting to somebody who already has access changes their role rather than adding a second grant. Accepted roles: commenter, file_organizer, organizer, owner, reader, writer. A link anyone can open needs allow_anyone: true, a grant to a whole domain needs allow_domain: true, and handing over ownership needs transfer_ownership: true; without those the call is refused. No email is sent unless notify is set. What may actually be shared is decided by the organization's own policy, which Google enforces: a refusal comes back as [blocked] with Google's own words. A link for anyone, a domain-wide grant, a new grant to someone outside this account's organization and an ownership transfer are also put to the person when the client can ask; one they do not confirm is [blocked], and is not made again unless they ask.",
+      "description": "Open a file to anyone with the link, or to everyone in a domain, or change the access such a grant gives. ANYONE WITH THE LINK means everybody who has or guesses it, with no sign-in. The result shows who could see the file before and who can after. discoverable also makes it turn up in their search. unshare_file with remove_link takes it back, but not what was read or copied meanwhile. Needs confirm: true, and file_name: the item's name as get_file shows it.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "allow_anyone": {
-            "description": "required to grant access to anyone with the link. Without it that grant is refused, because it puts the file within reach of everybody who has or guesses the link.",
-            "type": "boolean"
-          },
-          "allow_domain": {
-            "description": "required to grant access to a whole organization with domain:. Without it that grant is refused, because it reaches everyone there rather than anyone named.",
+          "confirm": {
+            "description": "required to actually share. Without it the call is refused.",
             "type": "boolean"
           },
           "discoverable": {
-            "description": "for a domain or anyone grant: whether the file also turns up in their search results rather than only opening by link. Leave it out to keep what the grant already has; a new grant is by link only.",
+            "description": "whether the file also turns up in their search results rather than only opening by link. Leave it out to keep what the grant already has; a new grant is by link only.",
             "type": [
               "null",
               "boolean"
@@ -5508,8 +6038,282 @@
             "description": "report who can see it now and what this would change, and change nothing",
             "type": "boolean"
           },
+          "file": {
+            "description": "what to open: a file id, any Drive URL, or a path from My Drive. A shortcut is shared itself, not what it points at.",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "the name of the file or folder exactly as get_file shows it. Required: it says in the call itself what is opened up, and a name that is not the item's is refused with [stale].",
+            "type": "string"
+          },
+          "principal": {
+            "description": "anyone, for a link that needs no sign-in, or domain:example.com for everyone in an organization",
+            "type": "string"
+          },
+          "role": {
+            "description": "what they may do: reader, commenter or writer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "file_name",
+          "principal",
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "share_by_link",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
+            "type": "string"
+          },
+          "changes": {
+            "description": "the fields this call changed, before and after",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "description": "the field that changed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "its value before the change",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "its value after the change",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "drive": {
+            "additionalProperties": false,
+            "description": "the shared drive as it is now",
+            "properties": {
+              "hidden": {
+                "description": "true when it is out of the sidebar's default view",
+                "type": "boolean"
+              },
+              "id": {
+                "description": "the shared drive id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "restrictions": {
+                "description": "the restrictions in force, in plain words",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "you_can": {
+                "description": "what the signed-in person may do in this drive",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "dry_run": {
+            "description": "true when nothing was changed because this was a dry run",
+            "type": "boolean"
+          },
+          "file": {
+            "additionalProperties": false,
+            "description": "the file as it is now",
+            "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
+              "head_revision": {
+                "type": "string"
+              },
+              "id": {
+                "description": "the file id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "kind": {
+                "description": "what kind of thing it is, in plain words",
+                "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
+              },
+              "link": {
+                "description": "the Drive link a person can open",
+                "type": "string"
+              },
+              "location": {
+                "description": "the drive and folders it sits in",
+                "type": "string"
+              },
+              "md5": {
+                "type": "string"
+              },
+              "mime_type": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sharing": {
+                "description": "who can see it",
+                "type": "string"
+              },
+              "shortcut_target": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer"
+              },
+              "starred": {
+                "type": "boolean"
+              },
+              "trashed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "kind"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "note": {
+            "description": "anything about the result that the fields do not carry",
+            "type": "string"
+          },
+          "sharing_after": {
+            "description": "who can see it after this call",
+            "type": "string"
+          },
+          "sharing_before": {
+            "description": "who could see it before this call",
+            "type": "string"
+          },
+          "summary": {
+            "description": "the same report as the text result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "action"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Give a named person or group inside this account's organization access to a file, or change the access they have. The result shows who could see it before and who can see it after, because that is the part worth checking. Granting to somebody who already has access changes their role rather than adding a second grant. Accepted roles: commenter, file_organizer, organizer, reader, writer. No email is sent unless notify is set. A grant to a group reaches everyone in the group, including people added later; a member outside the organization too, if the organization's sharing policy lets them in. A link for anyone, a whole domain, someone outside the organization and a new owner are refused here with [blocked]: share_by_link, share_outside_organization and transfer_ownership do those, and exist only on a server started with GDRIVE_ENABLE_DESTRUCTIVE=true. Outside means an address whose domain is not this account's; for a personal Google account that is every address. What may actually be shared is decided by the organization's own policy, which Google enforces: a refusal comes back as [blocked] with Google's own words.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "description": "report who can see it now and what this would change, and change nothing",
+            "type": "boolean"
+          },
           "expires": {
-            "description": "when the grant should end, as a date like 2026-12-01 or a duration like 30d, or never to remove an expiry a grant already has. People and groups only, and Drive's limit is a year. Leave it out to keep whatever expiry is already there.",
+            "description": "when the grant should end, as a date like 2026-12-01 or a duration like 30d, or never to remove an expiry a grant already has. Drive's limit is a year. Leave it out to keep whatever expiry is already there.",
             "type": "string"
           },
           "file": {
@@ -5521,20 +6325,16 @@
             "type": "string"
           },
           "notify": {
-            "description": "send Google's notification email. Off by default: a tool call is not a reason to put mail in somebody's inbox. An ownership transfer always mails, whatever this says.",
+            "description": "send Google's notification email. Off by default: a tool call is not a reason to put mail in somebody's inbox.",
             "type": "boolean"
           },
           "principal": {
-            "description": "who gets access: an address like someone@example.com, group:team@example.com for a Google group, domain:example.com for everyone in an organization, or anyone for a link that needs no sign-in",
+            "description": "who gets access: an address like someone@example.com, or group:team@example.com for a Google group, inside this account's organization",
             "type": "string"
           },
           "role": {
-            "description": "what they may do: reader, commenter, writer, or file_organizer and organizer inside a shared drive. owner hands the file over and needs transfer_ownership.",
+            "description": "what they may do: reader, commenter, writer, or file_organizer and organizer inside a shared drive",
             "type": "string"
-          },
-          "transfer_ownership": {
-            "description": "required for role: owner. It makes them the owner and demotes this account to a writer, and only the new owner can hand it back.",
-            "type": "boolean"
           }
         },
         "required": [
@@ -5545,6 +6345,573 @@
         "type": "object"
       },
       "name": "share_file",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
+            "type": "string"
+          },
+          "changes": {
+            "description": "the fields this call changed, before and after",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "description": "the field that changed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "its value before the change",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "its value after the change",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "drive": {
+            "additionalProperties": false,
+            "description": "the shared drive as it is now",
+            "properties": {
+              "hidden": {
+                "description": "true when it is out of the sidebar's default view",
+                "type": "boolean"
+              },
+              "id": {
+                "description": "the shared drive id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "restrictions": {
+                "description": "the restrictions in force, in plain words",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "you_can": {
+                "description": "what the signed-in person may do in this drive",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "dry_run": {
+            "description": "true when nothing was changed because this was a dry run",
+            "type": "boolean"
+          },
+          "file": {
+            "additionalProperties": false,
+            "description": "the file as it is now",
+            "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
+              "head_revision": {
+                "type": "string"
+              },
+              "id": {
+                "description": "the file id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "kind": {
+                "description": "what kind of thing it is, in plain words",
+                "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
+              },
+              "link": {
+                "description": "the Drive link a person can open",
+                "type": "string"
+              },
+              "location": {
+                "description": "the drive and folders it sits in",
+                "type": "string"
+              },
+              "md5": {
+                "type": "string"
+              },
+              "mime_type": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sharing": {
+                "description": "who can see it",
+                "type": "string"
+              },
+              "shortcut_target": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer"
+              },
+              "starred": {
+                "type": "boolean"
+              },
+              "trashed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "kind"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "note": {
+            "description": "anything about the result that the fields do not carry",
+            "type": "string"
+          },
+          "sharing_after": {
+            "description": "who can see it after this call",
+            "type": "string"
+          },
+          "sharing_before": {
+            "description": "who could see it before this call",
+            "type": "string"
+          },
+          "summary": {
+            "description": "the same report as the text result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "action"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Give a person or group outside this account's organization access to a file, or change the access they have. Outside means an address whose domain is not this account's; for a personal Google account that is every address. The result shows who could see the file before and who can after. Accepted roles: commenter, file_organizer, organizer, reader, writer. No email is sent unless notify is set. Needs confirm: true, and file_name: the item's name as get_file shows it. What may actually be shared is decided by the organization's own policy, which Google enforces.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "description": "required to actually share. Without it the call is refused.",
+            "type": "boolean"
+          },
+          "dry_run": {
+            "description": "report who can see it now and what this would change, and change nothing",
+            "type": "boolean"
+          },
+          "expires": {
+            "description": "when the grant should end, as a date like 2026-12-01 or a duration like 30d, or never to remove an expiry a grant already has. Drive's limit is a year. Leave it out to keep whatever expiry is already there.",
+            "type": "string"
+          },
+          "file": {
+            "description": "what to share: a file id, any Drive URL, a path from My Drive, or a shared drive as drive:Marketing to add a member to it. A shortcut is shared itself, not what it points at.",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "the name of the file, folder or shared drive exactly as get_file shows it. Required: it says in the call itself what is opened up, and a name that is not the item's is refused with [stale].",
+            "type": "string"
+          },
+          "message": {
+            "description": "a line to include in that email; only used when notify is true",
+            "type": "string"
+          },
+          "notify": {
+            "description": "send Google's notification email. Off by default: a tool call is not a reason to put mail in somebody's inbox.",
+            "type": "boolean"
+          },
+          "principal": {
+            "description": "who gets access: an address like someone@example.org, or group:team@example.org for a Google group, outside this account's organization",
+            "type": "string"
+          },
+          "role": {
+            "description": "what they may do: reader, commenter, writer, or file_organizer and organizer inside a shared drive",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "file_name",
+          "principal",
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "share_outside_organization",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "what happened: created, uploaded, updated, moved, copied, trashed, restored, shared, unshared, deleted, emptied, commented, replied, resolved, reopened, denied, failed when a call of several items changed none because each failed or was refused, or unchanged when the call found nothing to do",
+            "type": "string"
+          },
+          "changes": {
+            "description": "the fields this call changed, before and after",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "description": "the field that changed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "its value before the change",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "its value after the change",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "drive": {
+            "additionalProperties": false,
+            "description": "the shared drive as it is now",
+            "properties": {
+              "hidden": {
+                "description": "true when it is out of the sidebar's default view",
+                "type": "boolean"
+              },
+              "id": {
+                "description": "the shared drive id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "restrictions": {
+                "description": "the restrictions in force, in plain words",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "you_can": {
+                "description": "what the signed-in person may do in this drive",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "dry_run": {
+            "description": "true when nothing was changed because this was a dry run",
+            "type": "boolean"
+          },
+          "file": {
+            "additionalProperties": false,
+            "description": "the file as it is now",
+            "properties": {
+              "downloads_restricted": {
+                "description": "who cannot download, print or copy it, counting the shared drive and the organization's rules: viewers (viewers and commenters) or editors (editors as well); left out when nobody is restricted or Drive did not say",
+                "type": "string"
+              },
+              "head_revision": {
+                "type": "string"
+              },
+              "id": {
+                "description": "the file id, which is what to pass to other tools",
+                "type": "string"
+              },
+              "kind": {
+                "description": "what kind of thing it is, in plain words",
+                "type": "string"
+              },
+              "limited_access": {
+                "description": "true for a folder only the people added to it directly can open",
+                "type": "boolean"
+              },
+              "link": {
+                "description": "the Drive link a person can open",
+                "type": "string"
+              },
+              "location": {
+                "description": "the drive and folders it sits in",
+                "type": "string"
+              },
+              "md5": {
+                "type": "string"
+              },
+              "mime_type": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sharing": {
+                "description": "who can see it",
+                "type": "string"
+              },
+              "shortcut_target": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer"
+              },
+              "starred": {
+                "type": "boolean"
+              },
+              "trashed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "kind"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "items": {
+            "description": "for a move of several items: each one and what came of it, in the order passed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the item as it was passed",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "where it was",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "its id, when the reference resolved",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "description": "moved; would_move on a dry run; unchanged when it was already there; refused when this server did not try, with the reason; failed when Drive answered with an error",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "why it was refused or failed, or what else to know about it, such as who the move lets reach it",
+                  "type": "string"
+                },
+                "sharing_after": {
+                  "description": "who can reach it after, as Drive reports it; on a dry run, as worked out beforehand",
+                  "type": "string"
+                },
+                "sharing_before": {
+                  "description": "who could reach it before",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "where it is after the move, or would be",
+                  "type": "string"
+                },
+                "widens": {
+                  "description": "true when the move lets more people reach it, gives them more access, or who it reaches could not be read",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "note": {
+            "description": "anything about the result that the fields do not carry",
+            "type": "string"
+          },
+          "sharing_after": {
+            "description": "who can see it after this call",
+            "type": "string"
+          },
+          "sharing_before": {
+            "description": "who could see it before this call",
+            "type": "string"
+          },
+          "summary": {
+            "description": "the same report as the text result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "action"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Make another person the owner of a file or folder in My Drive. This account becomes a writer on it and CANNOT TAKE IT BACK: only the new owner can hand it on. Google always emails the new owner. A shared drive owns everything in it, so a file there has no owner to transfer. Needs confirm: true, and file_name: the item's name as get_file shows it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "description": "required to actually transfer. Without it the call is refused.",
+            "type": "boolean"
+          },
+          "dry_run": {
+            "description": "report what would change, and change nothing",
+            "type": "boolean"
+          },
+          "file": {
+            "description": "the My Drive file or folder to hand over: a file id, any Drive URL, or a path from My Drive",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "the name of the file or folder exactly as get_file shows it. Required: it says in the call itself what is handed over, and a name that is not the item's is refused with [stale].",
+            "type": "string"
+          },
+          "message": {
+            "description": "a line to include in the email Google always sends for a transfer",
+            "type": "string"
+          },
+          "to": {
+            "description": "the address of the person who becomes the owner",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "file_name",
+          "to"
+        ],
+        "type": "object"
+      },
+      "name": "transfer_ownership",
       "outputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6594,7 +7961,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Change a file's details without touching its content: rename it, describe it, star it, color a folder, set custom properties, mark it as opened, stop downloads and re-sharing, or give a folder limited access. Only the fields you pass change, and the result shows each one before and after. Turning a folder's limited access off is also put to the person when the client can ask; a call they do not confirm is [blocked] and is not made again unless they ask. A server started with GDRIVE_SHARING=off refuses anything here that lets more people reach or pass on a file. update_content replaces what is inside a file; move_file changes where it is.",
+      "description": "Change a file's details without touching its content: rename it, describe it, star it, color a folder, set custom properties, mark it as opened, stop downloads and re-sharing, or give a folder limited access. Only the fields you pass change, and the result shows each one before and after. Turning a folder's limited access off is refused with [blocked] when that would let anyone with the link, a domain or someone outside the organization open it, naming who. A server started with GDRIVE_SHARING=off refuses anything here that lets more people reach or pass on a file. update_content replaces what is inside a file; move_file changes where it is.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6621,7 +7988,7 @@
             "type": "string"
           },
           "limited_access": {
-            "description": "for a folder: true lets only the people added to it directly open it, and those who reach the folder above see it without opening it. false lets everyone who reaches the folder above open it and everything inside it, which is put to the person first when the client can ask.",
+            "description": "for a folder: true lets only the people added to it directly open it, and those who reach the folder above see it without opening it. false lets everyone who reaches the folder above open it and everything inside it, which is refused when that includes anyone with the link, a domain or someone outside the organization.",
             "type": [
               "null",
               "boolean"

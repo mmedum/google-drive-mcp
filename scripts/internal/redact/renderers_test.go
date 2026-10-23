@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
-	"github.com/mmedum/google-drive-mcp/v2/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/redact"
 )
 
 // A redactor tested against lines somebody typed out is a redactor that
@@ -51,13 +51,6 @@ const (
 )
 
 var now = time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
-
-// movedTo is who a move would add: a person, by name and address, and a
-// domain.
-func movedTo() []model.Grant {
-	return []model.Grant{{Type: "user", Role: "writer", Who: their, Name: other},
-		{Type: "domain", Role: "reader", Who: "corp.example.net"}}
-}
 
 func meUser() *gdrive.User    { return &gdrive.User{DisplayName: me, Me: true} }
 func otherUser() *gdrive.User { return &gdrive.User{DisplayName: other, EmailAddress: their} }
@@ -161,32 +154,6 @@ func rendered() map[string]string {
 			}),
 		}, render.AccessRequestsOptions{Subject: "Budget.xlsx", Now: now, CanShare: true}),
 	}
-	out["questions"] = strings.Join([]string{
-		render.AskDeleteFile(fixtureID, "Budget.xlsx", false).Text,
-		render.AskEmptyTrash(fixtureDriveID, "Marketing", 2, true).Text,
-		render.AskDeleteDrive(fixtureDriveID, "Marketing").Text,
-		render.AskDeleteRevision(fixtureID, "Budget.xlsx", "id-revision-1", "2026-03-04T09:00:00Z").Text,
-		render.AskDeleteComment(fixtureID, "Budget.xlsx", false, other, "is this right?", []string{"yes"}).Text,
-		render.AskDeleteComment(fixtureID, "Budget.xlsx", true, me, "yes", nil).Text,
-		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOwner, Who: their, Role: "owner"}).Text,
-		render.AskLoosenDrive(fixtureDriveID, "Marketing", []string{"domain_users_only"}).Text,
-		render.AskGrantRequest(fixtureID, "Budget.xlsx", "id-request-1", their, "writer", "please let me in").Text,
-		render.AskShare(render.Share{FileID: fixtureID, File: "Budget.xlsx", Reach: render.ShareOutside, Who: their, Role: "writer"}).Text,
-		render.AskMove(render.MoveTarget{ID: fixtureID, Name: "Team", Kind: "folder"}, []string{fixtureID},
-			[]render.MoveItem{{ID: fixtureID, Name: "Budget.xlsx", Kind: "file", Gained: movedTo()}}).Text,
-		render.AskMove(render.MoveTarget{ID: fixtureDriveID, Name: "Marketing", Kind: "shared drive"},
-			[]string{fixtureID, "id-other"}, []render.MoveItem{{ID: fixtureID, Name: "Budget.xlsx", Kind: "file",
-				Gained: movedTo()}, {ID: "id-other", Name: "Reports", Kind: "folder", Unread: "it"}}).Text,
-		render.AskOpenFolder(fixtureID, "Board", movedTo(), "").Text,
-		render.AskOpenFolder(fixtureID, "Board", nil, "the folder above it").Text,
-		render.AskCopy(render.MoveTarget{ID: fixtureID, Name: "Team", Kind: "folder"},
-			render.MoveItem{ID: fixtureID, Name: "Budget.xlsx", Kind: "file"},
-			[]render.MoveItem{{ID: fixtureID, Name: "Budget.xlsx", Kind: "file", Gained: movedTo()}}).Text,
-		render.AskCopy(render.MoveTarget{ID: fixtureDriveID, Name: "Marketing", Kind: "shared drive"},
-			render.MoveItem{ID: fixtureID, Name: "Reports", Kind: "folder"},
-			[]render.MoveItem{{ID: fixtureID, Name: "Reports", Kind: "folder", Gained: movedTo()},
-				{ID: "id-other", Name: "Board", Kind: "folder", Unread: "it"}}).Text,
-	}, "\n")
 	// A move of several prints each item's sharing, and a summary names
 	// whoever an ownership transfer waits on.
 	pending := model.SharingOf(true, []model.Grant{{Type: "user", Role: "writer", Who: their, Name: other,
@@ -196,6 +163,13 @@ func rendered() map[string]string {
 			SharingBefore: pending, SharingAfter: pending + "; anyone with the link can view"},
 		{File: "/Team/Notes", Outcome: render.MovedRefused, Reason: "[not_found] nothing called Notes in Team"},
 	}, false, "")
+	// A move, a copy or a folder opened past the organization is refused
+	// naming who, and Drive gives a person and a group a display name.
+	out["wide reach"] = render.WideReach([]model.Grant{
+		{Type: "user", Role: "writer", Who: their, Name: other},
+		{Type: "group", Role: "reader", Who: "team@corp.example.net", Name: me},
+		{Type: "anyone", Role: "reader"},
+	})
 	return out
 }
 
@@ -232,6 +206,7 @@ var noPersonToday = map[string]string{
 	"changes":         "a change says which file changed and when, not who changed it: the feed's own File carries a last modifier, and this server does not print it",
 	"file text":       "the text of a file, headed by its name and size — the people who touched it are on the file card, not here",
 	"download":        "where the bytes went and whether the checksum matched; no people",
+	"wide reach":      "a refusal names a person or a group by address, which share_outside_organization takes, and drops the display name Drive attached",
 }
 
 // TestTheFixturesReallyCarrySomethingToHide is the floor. Three of these
@@ -385,9 +360,8 @@ func returnsOnlyString(fn *ast.FuncDecl) bool {
 	if fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
 		return false
 	}
-	// A Question is rendered text too: what the person is asked.
 	ident, ok := fn.Type.Results.List[0].Type.(*ast.Ident)
-	return ok && (ident.Name == "string" || ident.Name == "Question")
+	return ok && ident.Name == "string"
 }
 
 // renderedKey maps a renderer's Go name to the key it appears under in
@@ -408,19 +382,8 @@ var renderedKey = map[string]string{
 	"Changes":        "changes",
 	"FileText":       "file text",
 	"Download":       "download",
-	// Every question put to the person, joined in one fixture.
-	"AskDeleteFile":     "questions",
-	"AskEmptyTrash":     "questions",
-	"AskDeleteDrive":    "questions",
-	"AskDeleteRevision": "questions",
-	"AskDeleteComment":  "questions",
-	"AskShare":          "questions",
-	"AskLoosenDrive":    "questions",
-	"AskGrantRequest":   "questions",
-	"AskMove":           "questions",
-	"AskOpenFolder":     "questions",
-	"AskCopy":           "questions",
-	"MoveMany":          "move several",
+	"MoveMany":       "move several",
+	"WideReach":      "wide reach",
 }
 
 // notRenderers are the exported string functions in internal/render that
@@ -429,10 +392,9 @@ var renderedKey = map[string]string{
 var notRenderers = map[string]string{
 	"StripDataURIs": "a text filter over content, not a result: it takes a string and gives one back",
 	"Checksum":      "one verdict word about a download's md5, with nothing in it but the verdict",
-	"Sum":           "a SHA-256 in hex that binds an answer to a text, never shown to anyone",
 	"Activity":      "asserted by TestActivityNamesNobody, which is stronger: it prints no person at all",
 	"Labels":        "a label definition as this server models it has no person in it to print",
-	"Reach":         "who a move adds, as counts of people by role, then domains and the link: it prints no name or address, and AskMove, which carries it, is in rendered()",
+	"Reach":         "who a move or a copy adds, as counts of people by role, then domains and the link: it prints no name or address",
 }
 
 // The names a live run reads from the account's own Drive are hidden

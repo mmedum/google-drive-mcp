@@ -6,9 +6,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // DrivesInput tunes a shared-drive listing.
@@ -24,6 +25,16 @@ type ManageDriveInput struct {
 	Name         string          `json:"name,omitempty" jsonschema:"the name for a new drive, or the new name for a rename"`
 	Restrictions map[string]bool `json:"restrictions,omitempty" jsonschema:"for restrict (and optionally create): the switches to set, as name to true or false. Names: members_only, domain_users_only, copy_requires_writer_permission, admin_managed, folder_sharing_requires_organizer."`
 	DryRun       bool            `json:"dry_run,omitempty" jsonschema:"report what would happen and change nothing"`
+}
+
+// LiftDriveRestrictionInput turns off one restriction that keeps a
+// shared drive's content inside the organization.
+type LiftDriveRestrictionInput struct {
+	Drive       string `json:"drive" jsonschema:"the shared drive, by name or id"`
+	DriveName   string `json:"drive_name" jsonschema:"the shared drive's name exactly as list_drives shows it. Required: it says in the call itself which drive is opened up, and a name that is not the drive's is refused with [stale]."`
+	Restriction string `json:"restriction" jsonschema:"the restriction to turn off: domain_users_only"`
+	Confirm     bool   `json:"confirm,omitempty" jsonschema:"required to actually turn it off. Without it the call is refused."`
+	DryRun      bool   `json:"dry_run,omitempty" jsonschema:"report what would change, and change nothing"`
 }
 
 // registerDrives adds the shared-drive tools. list_drives is a read and
@@ -56,16 +67,33 @@ func registerDrives(s *mcp.Server, d Deps) []string {
 			"Members are not managed here: a member is a permission on the drive, so share_file and " +
 			"unshare_file add and remove them with the drive as the target. " +
 			"Restrictions: " + strings.Join(model.DriveRestrictionNames, ", ") + ". " +
-			"With GDRIVE_SHARING=off a restriction may be turned on but not off. Turning one off is also put " +
-			"to the person when the client can ask; a call they do not confirm is [blocked], and is not made " +
-			"again unless they ask. " +
+			"With GDRIVE_SHARING=off a restriction may be turned on but not off. Turning domain_users_only off " +
+			"lets the drive's content reach people outside the organization, so it is refused here with " +
+			"[blocked]: lift_drive_restriction does it, on a server started with GDRIVE_ENABLE_DESTRUCTIVE=true. " +
 			"Deleting a shared drive is a separate, gated tool.",
 		Annotations: idempotentWrite,
-	}, asked(d, "manage_drive", func(ctx context.Context, in ManageDriveInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageDriveInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ManageDrive(ctx, service.ManageDriveInput{
 			Action: in.Action, Drive: in.Drive, Name: in.Name,
 			Restrictions: in.Restrictions, DryRun: in.DryRun,
 		}))
-	}))
-	return []string{"list_drives", "manage_drive"}
+	})
+	if d.Config.Sharing == config.SharingOff || !d.Config.EnableDestructive {
+		return []string{"list_drives", "manage_drive"}
+	}
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "lift_drive_restriction",
+		Description: "Turn off a shared drive restriction that keeps what is in the drive inside the " +
+			"organization. Restrictions: " + strings.Join(service.LiftableRestrictions(), ", ") + ". With " +
+			"domain_users_only off, the drive and what is in it can be shared with people outside the " +
+			"organization. manage_drive with action restrict turns it back on. Needs confirm: true, and " +
+			"drive_name: the drive's name as list_drives shows it.",
+		Annotations: widening,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in LiftDriveRestrictionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+		return result(d.Service.LiftDriveRestriction(ctx, service.LiftDriveRestrictionInput{
+			Drive: in.Drive, DriveName: in.DriveName, Restriction: in.Restriction, Confirm: in.Confirm, DryRun: in.DryRun,
+		}))
+	})
+	return []string{"list_drives", "manage_drive", "lift_drive_restriction"}
 }

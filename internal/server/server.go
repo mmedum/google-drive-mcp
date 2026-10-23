@@ -12,9 +12,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
-	"github.com/mmedum/google-drive-mcp/v2/internal/tools"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/tools"
 )
 
 // Name is the MCP server name.
@@ -36,11 +36,11 @@ const instructions = "Google Drive tools, at the file boundary: finding files, w
 	"Three of the reads are also resources, for a client that attaches them rather than calling a tool: " +
 	"gdrive://<id> is the file's text, gdrive://<id>/meta is the card, and gdrive://<id>/children is a " +
 	"folder's first page. A reference with a slash in it has to be percent-encoded there, so pass an id. " +
-	"Before a write that cannot be undone, or that opens a file to anyone with the link, a whole domain, a " +
-	"new owner, someone outside the organization or someone who asked for access, or that moves or copies it " +
-	"where more people can reach it, or turns a folder's limited access off, the server also asks the person " +
-	"through the client when it can; a call they did not confirm is [blocked], and is not made again unless " +
-	"they ask."
+	"share_file reaches named people and groups inside the organization. A link for anyone, a whole domain, " +
+	"someone outside the organization and a new owner each have their own tool, which only a server started " +
+	"with GDRIVE_ENABLE_DESTRUCTIVE=true registers. A move, a copy, or a folder's limited access turned off, " +
+	"that would let anyone with the link, a domain or someone outside the organization reach a file is " +
+	"refused [blocked], naming who; share with them first only when the person asked for that."
 
 // Deps are what the server needs.
 type Deps struct {

@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"log/slog"
 	"os"
@@ -99,6 +100,35 @@ func TestSharingRejectsTheModeThatWasDropped(t *testing.T) {
 	// dropped; it must not quietly become `all`.
 	if _, err := build(t, map[string]string{"GDRIVE_SHARING": "internal"}); err == nil {
 		t.Fatal("sharing=internal should be rejected")
+	}
+}
+
+// GDRIVE_REQUIRE_PROMPT was removed in 3.0.0. Off, or unset, still
+// starts; anything else is refused, saying what to do instead, since
+// ignoring it would quietly allow what its owner set it to stop. The
+// flag is gone.
+func TestARemovedSettingIsRefusedUnlessOff(t *testing.T) {
+	for _, v := range []string{"", "false", " FALSE ", "0", "no", "off"} {
+		if _, err := build(t, map[string]string{"GDRIVE_REQUIRE_PROMPT": v}); err != nil {
+			t.Errorf("GDRIVE_REQUIRE_PROMPT=%q: %v", v, err)
+		}
+	}
+	for _, v := range []string{"true", "1", "maybe"} {
+		_, err := build(t, map[string]string{"GDRIVE_REQUIRE_PROMPT": v})
+		if err == nil || !errors.Is(err, ErrInvalid) ||
+			!strings.Contains(err.Error(), "GDRIVE_REQUIRE_PROMPT was removed") ||
+			!strings.Contains(err.Error(), "GDRIVE_ENABLE_DESTRUCTIVE off") {
+			t.Errorf("GDRIVE_REQUIRE_PROMPT=%q: %v", v, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "maybe") {
+			t.Errorf("GDRIVE_REQUIRE_PROMPT=%q: the refusal repeats the value: %v", v, err)
+		}
+	}
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.SetOutput(&bytes.Buffer{})
+	Define(fs, func(string) string { return "" })
+	if fs.Lookup("require-prompt") != nil {
+		t.Error("--require-prompt is still a flag")
 	}
 }
 

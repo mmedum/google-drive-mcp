@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
 // API is the subset of the Drive client the service uses. It is an
@@ -316,6 +316,7 @@ const (
 	ClassNetwork     = gapi.ClassNetwork
 	ClassAmbiguousIO = gapi.ClassAmbiguousIO
 	ClassPending     = gapi.ClassPending
+	ClassStale       = gapi.ClassStale
 	ClassUnexpected  = gapi.ClassUnexpected
 )
 

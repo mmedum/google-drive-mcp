@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
 // AccountOptions carry the settings a person needs to see alongside the
@@ -16,6 +17,9 @@ type AccountOptions struct {
 	Destructive bool
 	// Sharing is the configured value, "all" or "off".
 	Sharing string
+	// Personal is a personal Google account, which has no organization:
+	// every address is outside it, so share_file grants nobody.
+	Personal bool
 	// LocalDir is where transfers land; empty means transfers are off.
 	LocalDir string
 	// MaxDownload caps one download, in bytes.
@@ -67,8 +71,21 @@ func Account(about *gdrive.About, o AccountOptions) string {
 	case "off":
 		b.field("sharing", "GDRIVE_SHARING=off: no tool here can widen who can see a file.")
 	default:
-		b.field("sharing", "an anyone-with-the-link grant needs allow_anyone: true on the call, and a domain-wide one allow_domain: true. "+
-			"What may actually be shared is decided by your organization's own policy, which Google enforces on every call.")
+		_, domain, _ := strings.Cut(about.User.EmailAddress, "@")
+		inside := "share_file grants named people and groups inside this account's organization, which is " +
+			"addresses at " + domain
+		if o.Personal {
+			inside = "this is a personal Google account, which has no organization, so every address is outside " +
+				"it and share_file grants nobody"
+		}
+		wide := "a link for anyone, a whole domain, someone outside the organization and a new owner need " +
+			"GDRIVE_ENABLE_DESTRUCTIVE=true"
+		if o.Destructive {
+			wide = "share_by_link, share_outside_organization and transfer_ownership grant a link for anyone, a " +
+				"whole domain, someone outside the organization and a new owner"
+		}
+		b.field("sharing", inside+"; "+wide+". What may actually be shared is decided by Google, under your "+
+			"organization's own policy where there is one.")
 	}
 	if o.Destructive {
 		b.field("destructive tools", "enabled (GDRIVE_ENABLE_DESTRUCTIVE=true): the tools that remove something with no way back are registered")

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
 // Budgets for a recursive copy. They are separate constants from the
@@ -78,7 +78,7 @@ func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput)
 	// tree it comes from may reach fewer: the folder itself, or a folder
 	// inside it with limited access.
 	parts := s.predictCopy(ctx, res, plan.items, target)
-	if err := s.copyRefused(parts); err != nil {
+	if err := s.copyRefused(ctx, parts); err != nil {
 		return nil, err
 	}
 	if in.DryRun {
@@ -90,9 +90,6 @@ func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput)
 		}
 		return s.copyResult(ctx, res, parts[0].before, parts[0].after, outcome{Action: render.ActionCopied,
 			DryRun: true, Note: note + " Nothing was copied."}), nil
-	}
-	if err := s.askCopy(ctx, target, parts); err != nil {
-		return nil, err
 	}
 	created, note, err := s.runCopy(ctx, source, plan, name, destination, destName, in.KeepRevisionForever)
 	if err != nil {
@@ -108,14 +105,16 @@ func (s *Service) copyTree(ctx context.Context, res *Resolved, in CopyFileInput)
 }
 
 // copyWidens says, on a dry run, that one part of a tree would be
-// reached further by its copy.
+// reached further by its copy. A part copyRefused let through gains only
+// people and groups inside the organization.
 func copyWidens(p *movePlan, whole bool) string {
-	what := "The copy would reach more people than the original does, or give them more access: "
+	what := "The copy would reach more people than the original does, all of them inside this account's " +
+		"organization, or give them more access: "
 	if !whole {
 		what = "Inside it, " + p.res.File.Name + " has limited access, and its copy would reach more people " +
-			"than it does, or give them more access: "
+			"than it does, all of them inside this account's organization, or give them more access: "
 	}
-	return what + copyReach(p) + ". A real copy puts that to the person first when the client can ask."
+	return what + render.Reach(p.gained) + ". A real copy does that."
 }
 
 // treePlan is everything the walk found, in the order it has to be

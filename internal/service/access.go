@@ -3,15 +3,16 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
 // Principal types, as Drive names them.
@@ -35,10 +36,16 @@ var roles = map[string]string{
 	"owner":          model.RoleOwner,
 }
 
-// Roles lists the roles share_file accepts, for tool descriptions and
-// error messages, so the words a model is offered are the words the code
-// will accept.
+// Roles lists every role a share tool accepts, for error messages, so
+// the words a model is offered are the words the code will accept.
 func Roles() []string { return sortedKeys(roles) }
+
+// GrantRoles lists the roles share_file and share_outside_organization
+// grant: every role but owner, which transfer_ownership hands over.
+func GrantRoles() []string {
+	out := Roles()
+	return slices.DeleteFunc(out, func(r string) bool { return r == "owner" })
+}
 
 // maxExpiry is Drive's own ceiling on a permission's expiry: the
 // reference says at most a year in the future.
@@ -84,76 +91,167 @@ func (s *Service) ListPermissions(ctx context.Context, in ListPermissionsInput) 
 	return render.Permissions(sharing.Grants, o), nil
 }
 
-// ShareFileInput is one grant to make or change.
+// ShareFileInput is one grant to make or change, for a named person or
+// group inside the organization.
 type ShareFileInput struct {
 	File string
-	// Principal is someone@example.com, domain:example.com, or anyone.
+	// Principal is someone@example.com or group:team@example.com.
 	Principal string
 	Role      string
 	// Notify sends Google's own notification mail. Drive's default is
 	// true; this server's is false, because a tool call is not a reason
-	// to put mail in somebody's inbox. An ownership transfer forces it
-	// on, which the result says.
+	// to put mail in somebody's inbox.
 	Notify  bool
 	Message string
 	// Expires is RFC 3339 or a duration like 30d, or the word "never" to
-	// remove an expiry a grant already has. Users and groups only, at
-	// most a year, as Drive requires. Clearing goes through
-	// permissions.update's own removeExpiration parameter, so it is only
-	// possible on a grant that exists.
+	// remove an expiry a grant already has. At most a year, as Drive
+	// requires. Clearing goes through permissions.update's own
+	// removeExpiration parameter, so it is only possible on a grant that
+	// exists.
 	Expires string
-	// Discoverable is allowFileDiscovery: whether a domain or anyone
-	// grant makes the file turn up in search rather than only opening by
-	// link. A pointer because "not passed" and "false" are different
-	// requests on an existing grant: a plain bool silently narrowed a
-	// file that was already findable by search every time the role was
-	// changed, which is a change the caller never asked for and could
-	// not opt out of.
-	Discoverable *bool
-	// AllowAnyone is the acknowledgment an anyone-with-the-link grant
-	// needs. Without it the grant is refused however good the role.
-	AllowAnyone bool
-	// AllowDomain is the acknowledgment a domain-wide grant needs: it
-	// reaches everyone in an organization, most of whom nobody named.
-	AllowDomain bool
-	// TransferOwnership is the acknowledgment the owner role needs.
-	TransferOwnership bool
-	DryRun            bool
+	DryRun  bool
 }
 
-// ShareFile grants or changes one principal's access, and reports who
-// could see the file before and who can see it after. Google's
-// organization policy decides what may actually be shared; what this
-// adds is the brakes on doing something the person is allowed to do but
-// did not ask for.
-func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, error) {
-	if err := s.sharable("share_file"); err != nil {
-		return nil, err
-	}
-	principal, err := parsePrincipal(in.Principal)
-	if err != nil {
-		return nil, err
-	}
-	role, err := parseRole(in.Role)
-	if err != nil {
-		return nil, err
-	}
-	if err := principal.allows(role, in.AllowAnyone, in.AllowDomain); err != nil {
-		return nil, err
-	}
-	if role == model.RoleOwner && !in.TransferOwnership {
-		return nil, Errorf(ClassForbidden, "handing ownership to %s makes them the owner and demotes this "+
-			"account to a writer, and it cannot be undone from here: only the new owner can hand it back. "+
-			"Pass transfer_ownership: true on the same call if that is really what is wanted.", principal.label())
-	}
-	expires, clearExpiry, err := s.parseExpiry(in.Expires, principal, role)
-	if err != nil {
-		return nil, err
-	}
+// ShareOutsideInput is one grant to make or change, for a person or a
+// group outside the organization.
+type ShareOutsideInput struct {
+	File string
+	// FileName is the item's name as Drive has it: the witness that the
+	// call opens the item the person reads in the client's prompt.
+	FileName  string
+	Principal string
+	Role      string
+	Notify    bool
+	Message   string
+	Expires   string
+	// Confirm is the caller's witness that it meant this share.
+	Confirm bool
+	DryRun  bool
+}
 
-	// A shortcut is the thing sitting in the folder, so sharing acts on
-	// it rather than on what it points at.
-	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: false, Fresh: true})
+// ShareByLinkInput opens a file to anyone with the link, or to everyone
+// in a domain.
+type ShareByLinkInput struct {
+	File     string
+	FileName string
+	// Principal is anyone, or domain:example.com.
+	Principal string
+	Role      string
+	// Discoverable is allowFileDiscovery: whether the file turns up in
+	// search rather than only opening by link. A pointer because "not
+	// passed" and "false" are different requests on an existing grant: a
+	// plain bool silently narrowed a file that was already findable by
+	// search every time the role was changed, which is a change the
+	// caller never asked for and could not opt out of.
+	Discoverable *bool
+	Confirm      bool
+	DryRun       bool
+}
+
+// TransferOwnershipInput hands a My Drive file to another person.
+type TransferOwnershipInput struct {
+	File     string
+	FileName string
+	// To is the new owner's address.
+	To      string
+	Message string
+	Confirm bool
+	DryRun  bool
+}
+
+// The four share tools each take one kind of grantee (§4a). Clients
+// remember an approval per tool, never per argument, so a wide grant
+// carried as an argument of the ordinary tool would ride along once that
+// tool was always allowed.
+const (
+	toolShareFile    = "share_file"
+	toolShareOutside = "share_outside_organization"
+	toolShareByLink  = "share_by_link"
+	toolTransfer     = "transfer_ownership"
+)
+
+// shareRequest is one share as the four tools pass it on.
+type shareRequest struct {
+	tool         string
+	file         string
+	fileName     string
+	principal    string
+	role         string
+	notify       bool
+	message      string
+	expires      string
+	discoverable *bool
+	confirm      bool
+	dryRun       bool
+}
+
+// wide is whether the share reaches past the people inside the
+// organization, or hands the file over: every tool but share_file.
+func (r shareRequest) wide() bool { return r.tool != toolShareFile }
+
+// ShareFile grants or changes a named person's or group's access, inside
+// the organization, and reports who could see the file before and who
+// can see it after.
+func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, error) {
+	return s.share(ctx, shareRequest{tool: toolShareFile, file: in.File, principal: in.Principal, role: in.Role,
+		notify: in.Notify, message: in.Message, expires: in.Expires, dryRun: in.DryRun})
+}
+
+// ShareOutside grants or changes access for a person or a group outside
+// the organization.
+func (s *Service) ShareOutside(ctx context.Context, in ShareOutsideInput) (*Result, error) {
+	return s.share(ctx, shareRequest{tool: toolShareOutside, file: in.File, fileName: in.FileName,
+		principal: in.Principal, role: in.Role, notify: in.Notify, message: in.Message, expires: in.Expires, confirm: in.Confirm, dryRun: in.DryRun})
+}
+
+// ShareByLink grants or changes access for anyone with the link, or for
+// everyone in a domain.
+func (s *Service) ShareByLink(ctx context.Context, in ShareByLinkInput) (*Result, error) {
+	return s.share(ctx, shareRequest{tool: toolShareByLink, file: in.File, fileName: in.FileName,
+		principal: in.Principal, role: in.Role, discoverable: in.Discoverable, confirm: in.Confirm, dryRun: in.DryRun})
+}
+
+// TransferOwnership makes another person the owner of a My Drive file,
+// and this account a writer on it.
+func (s *Service) TransferOwnership(ctx context.Context, in TransferOwnershipInput) (*Result, error) {
+	if strings.TrimSpace(in.To) == "" {
+		return nil, Errorf(ClassInvalid, "to is required: the address of the person who becomes the owner")
+	}
+	return s.share(ctx, shareRequest{tool: toolTransfer, file: in.File, fileName: in.FileName,
+		principal: in.To, role: "owner", message: in.Message, confirm: in.Confirm, dryRun: in.DryRun})
+}
+
+// share is the one path every share tool takes. Google's organization
+// policy decides what may actually be shared; what this adds is the
+// brakes on doing something the person is allowed to do but did not ask
+// for, and which tool may do which.
+func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
+	gate := s.sharable
+	if in.wide() {
+		gate = s.widening
+	}
+	if err := gate(in.tool); err != nil {
+		return nil, err
+	}
+	principal, err := parsePrincipal(in.principal)
+	if err != nil {
+		return nil, err
+	}
+	role, err := parseRole(in.role)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.shareToolTakes(ctx, in.tool, principal, role); err != nil {
+		return nil, err
+	}
+	if err := principal.allows(role); err != nil {
+		return nil, err
+	}
+	expires, clearExpiry, err := s.parseExpiry(in.expires)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.shareTarget(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -168,8 +266,8 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 	}
 	plan := sharePlan{
 		principal: principal, role: role, expires: expires, clearExpiry: clearExpiry,
-		existing: existing, notify: in.Notify, message: in.Message,
-		discoverable: in.Discoverable, file: f,
+		existing: existing, notify: in.notify, message: in.message,
+		discoverable: in.discoverable, file: f,
 	}
 	if clearExpiry && existing == nil {
 		return nil, Errorf(ClassInvalid, "there is no grant to %s yet, so it has no expiry to remove. "+
@@ -186,16 +284,16 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 		}
 		return s.report(ctx, res, outcome{Action: render.ActionUnchanged, Note: note}), nil
 	}
-	if in.DryRun {
+	if in.dryRun {
 		return s.shareResult(ctx, res, before, before, plan, true), nil
 	}
-	// Whether a person or a group is outside the organization costs a
-	// read, paid only for a grant that widens and a question that may go.
-	if principal.notifiable() && role != model.RoleOwner && plan.widens() && asks(ctx) {
-		plan.outside = s.outside(ctx, principal.email)
-	}
-	if q, ok := plan.question(); ok {
-		if err := ask(ctx, q); err != nil {
+	if in.wide() {
+		what := fmt.Sprintf("let %s open %s, where they %s", principal.label(), f.Name, model.RoleWords(role))
+		if role == model.RoleOwner {
+			what = fmt.Sprintf("make %s the owner of %s and this account a writer on it, which only the new "+
+				"owner can hand back", principal.label(), f.Name)
+		}
+		if err := s.confirmed(in.confirm, in.tool, what); err != nil {
 			return nil, err
 		}
 	}
@@ -208,6 +306,148 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 	s.forget(f, false)
 	res, after := s.rereadAfterSharing(ctx, res)
 	return s.shareResult(ctx, res, before, after, plan, false), nil
+}
+
+// A wide write carries the name of what it opens up, as a witness. The
+// client's prompt shows the call's arguments, and a name is what a person
+// recognizes there, where an id says nothing. It is compared with Drive's
+// own name for the item, so the name in the prompt is the item the call
+// reaches (§4a).
+type witness struct {
+	// field is the input that carries it; shownBy is the tool that reads
+	// the name to pass.
+	field, shownBy string
+}
+
+var (
+	fileNameWitness  = witness{field: "file_name", shownBy: "get_file"}
+	driveNameWitness = witness{field: "drive_name", shownBy: "list_drives"}
+)
+
+// given refuses a blank witness, before anything is read.
+func (w witness) given(v string) error {
+	if strings.TrimSpace(v) == "" {
+		return Errorf(ClassInvalid, "%s is required: the name exactly as %s shows it, so the call itself says "+
+			"what it opens up.", w.field, w.shownBy)
+	}
+	return nil
+}
+
+// holds refuses a witness that is none of the names Drive has for the
+// item; the first is the one the refusal quotes. Names are compared
+// exactly: two files in one folder can differ only in case.
+func (w witness) holds(v string, names ...string) error {
+	if slices.Contains(names, v) {
+		return nil
+	}
+	return Errorf(ClassStale, "%s is %q, but what this call reaches is named %q. Nothing was changed. Read "+
+		"it again with %s, and pass that name if it is the one meant.", w.field, v, names[0], w.shownBy)
+}
+
+// knownAs is every name a share's target goes by: its own, and for a
+// shared drive's root folder the drive's, which is the name list_drives
+// and a drive: reference use.
+func knownAs(res *Resolved) []string {
+	f := res.File
+	if f.DriveID != "" && f.ID == f.DriveID {
+		return []string{f.Name, res.DriveName}
+	}
+	return []string{f.Name}
+}
+
+// GroupReach is who a grant to a Google group reaches, as share_file's
+// description and a group grant's result say it.
+const GroupReach = "everyone in the group, including people added later; a member outside the organization " +
+	"too, if the organization's sharing policy lets them in"
+
+// shareTarget resolves what a share acts on. A shortcut is the thing
+// sitting in the folder, so sharing acts on it rather than on what it
+// points at. A wide share's file_name must be a name Drive has for it.
+func (s *Service) shareTarget(ctx context.Context, in shareRequest) (*Resolved, error) {
+	if in.wide() {
+		if err := fileNameWitness.given(in.fileName); err != nil {
+			return nil, err
+		}
+	}
+	res, err := s.Resolve(ctx, in.file, ResolveOptions{FollowShortcut: false, Fresh: true})
+	if err != nil {
+		return nil, err
+	}
+	if in.wide() {
+		if err := fileNameWitness.holds(in.fileName, knownAs(res)...); err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+// shareToolTakes refuses a grantee the tool is not for, naming the tool
+// that is. Each refusal comes before the file is read, since none
+// depends on it.
+func (s *Service) shareToolTakes(ctx context.Context, tool string, p principal, role string) error {
+	wide := p.kind == principalAnyone || p.kind == principalDomain
+	switch tool {
+	case toolShareFile:
+		switch {
+		case wide:
+			return Errorf(ClassBlocked, "share_file does not grant %s: that reaches people nobody named. "+
+				"Nothing was changed. share_by_link does it, when %sENABLE_DESTRUCTIVE=true.",
+				p.label(), config.EnvPrefix)
+		case role == model.RoleOwner:
+			return Errorf(ClassBlocked, "share_file does not hand over ownership. Nothing was changed. "+
+				"transfer_ownership does it, when %sENABLE_DESTRUCTIVE=true.", config.EnvPrefix)
+		case s.account(ctx) == "":
+			return Errorf(ClassBlocked, "this account's own address could not be read, so share_file cannot "+
+				"tell whether %s is inside its organization, and grants only people and groups inside it. "+
+				"Nothing was changed. get_account shows whether the address can be read now.", p.email)
+		case s.outside(ctx, p.email):
+			return Errorf(ClassBlocked, "%s is outside this account's organization, and share_file grants "+
+				"only people and groups inside it. Nothing was changed. share_outside_organization does it, "+
+				"when %sENABLE_DESTRUCTIVE=true.%s", p.email, config.EnvPrefix, s.personalNote(ctx))
+		}
+	case toolShareOutside:
+		switch {
+		case wide:
+			return Errorf(ClassInvalid, "%s grants people and groups by address; share_by_link grants %s.",
+				tool, p.label())
+		case role == model.RoleOwner:
+			return Errorf(ClassInvalid, "%s does not hand over ownership; transfer_ownership does.", tool)
+		case !s.outside(ctx, p.email):
+			return Errorf(ClassInvalid, "%s is inside this account's organization; share_file grants it.", p.email)
+		}
+	case toolShareByLink:
+		if !wide {
+			return Errorf(ClassInvalid, "%s grants anyone with the link or a domain:, not an address; share_file "+
+				"grants a person or a group inside the organization, and share_outside_organization one outside it.", tool)
+		}
+	}
+	return nil
+}
+
+// personalNote says why every address is outside for a personal Google
+// account, which otherwise reads as a refusal of a colleague.
+func (s *Service) personalNote(ctx context.Context) string {
+	if !consumerDomains[domainOf(s.account(ctx))] {
+		return ""
+	}
+	return " This is a personal Google account, which has no organization, so every address is outside it."
+}
+
+// widening refuses a share that reaches past the organization unless the
+// deployer registered it: GDRIVE_SHARING=off refuses it as every sharing
+// write, and without GDRIVE_ENABLE_DESTRUCTIVE=true it does not exist.
+// The tools are not registered in either case, so this is the second
+// line.
+func (s *Service) widening(tool string) error {
+	if err := s.sharable(tool); err != nil {
+		return err
+	}
+	if !s.opts.Destructive {
+		return Errorf(ClassForbidden, "%s opens a file or a shared drive past the people inside this "+
+			"account's organization, and this server was not started with %sENABLE_DESTRUCTIVE=true, so it is "+
+			"not available.", tool, config.EnvPrefix)
+	}
+	return nil
 }
 
 // sharePlan is one grant as it will be applied, gathered so that the
@@ -226,9 +466,6 @@ type sharePlan struct {
 	message      string
 	discoverable *bool
 	file         *gdrive.File
-	// outside is set when the principal is a person or a group outside
-	// the signed-in account's organization.
-	outside bool
 }
 
 // changesAnything reports whether a repeat of an identical grant would
@@ -251,14 +488,6 @@ func (p sharePlan) changesAnything() bool {
 	return false
 }
 
-// widens reports whether the grant reaches more than it did: a new one,
-// a higher role, or turning up in search. A change that only narrows an
-// existing grant reaches nobody new, and asks nothing.
-func (p sharePlan) widens() bool {
-	return p.existing == nil || model.RoleWidens(p.existing.Role, p.role) ||
-		p.findable() && !p.existing.Discoverable
-}
-
 // findable is whether a domain or anyone grant turns up in search once
 // made: what this call asks for, or what the grant already has when the
 // call leaves it out.
@@ -267,34 +496,6 @@ func (p sharePlan) findable() bool {
 		return p.existing != nil && p.existing.Discoverable
 	}
 	return *p.discoverable
-}
-
-// question is what the person is asked before a grant that reaches past
-// people somebody named: a link anyone can open, a whole domain, or a
-// new owner. Any other grant asks nothing.
-func (p sharePlan) question() (render.Question, bool) {
-	sh := render.Share{FileID: p.file.ID, File: p.file.Name, Role: p.role, Discoverable: p.findable()}
-	switch {
-	case p.file.DriveID != "" && p.file.ID == p.file.DriveID:
-		sh.Kind = "shared drive"
-	case p.file.IsFolder():
-		sh.Kind = "folder"
-	}
-	switch {
-	case p.role == model.RoleOwner:
-		sh.Reach, sh.Who, sh.Message, sh.Discoverable = render.ShareOwner, p.principal.email, p.message, false
-	case !p.widens():
-		return render.Question{}, false
-	case p.outside:
-		sh.Reach, sh.Who, sh.Group = render.ShareOutside, p.principal.email, p.principal.kind == principalGroup
-	case p.principal.kind == principalAnyone:
-		sh.Reach = render.ShareAnyone
-	case p.principal.kind == principalDomain:
-		sh.Reach, sh.Who = render.ShareDomain, p.principal.domain
-	default:
-		return render.Question{}, false
-	}
-	return render.AskShare(sh), true
 }
 
 // applyShare makes the call: an update when the principal already has a
@@ -407,6 +608,12 @@ func (s *Service) shareNote(p sharePlan, after model.Sharing, dryRun bool) strin
 				"; pass notify: true if they should hear about it")
 		}
 	}
+	if p.principal.kind == principalGroup {
+		// Who is in the group is nowhere in the call, and this server
+		// cannot read it: Google decides each member's access when they
+		// open the file, under the organization's sharing policy.
+		parts = append(parts, tense("The grant reaches ", "The grant would reach ")+GroupReach)
+	}
 	if p.principal.kind == principalAnyone {
 		// What the grant is now, not what this call asked for: leaving
 		// discoverable out keeps whatever the grant already had, and the
@@ -480,8 +687,8 @@ func (s *Service) UnshareFile(ctx context.Context, in UnshareFileInput) (*Result
 	}
 	if target.Role == model.RoleOwner {
 		return nil, Errorf(ClassInvalid, "%s owns %s, and an owner's access is not revoked but transferred: "+
-			"share_file with role: owner and transfer_ownership: true hands it to somebody else.",
-			target.Label(), f.Name)
+			"transfer_ownership hands it to somebody else, on a server started with %sENABLE_DESTRUCTIVE=true.",
+			target.Label(), f.Name, config.EnvPrefix)
 	}
 
 	if in.DryRun {
@@ -784,19 +991,8 @@ func (p principal) matches(g model.Grant) bool {
 }
 
 // allows refuses the role and principal combinations Drive does not
-// have, and the one this server refuses on its own: a public link
-// without the acknowledgment that it is public.
-func (p principal) allows(role string, allowAnyone, allowDomain bool) error {
-	if p.kind == principalAnyone && !allowAnyone {
-		return Errorf(ClassForbidden, "an anyone-with-the-link grant puts this file within reach of everyone "+
-			"who has or guesses the link, with no sign-in. Pass allow_anyone: true on the same call if that "+
-			"is really what is wanted.")
-	}
-	if p.kind == principalDomain && !allowDomain {
-		return Errorf(ClassForbidden, "a grant to %s reaches the whole organization, not only people "+
-			"somebody named. Pass allow_domain: true on the same call if that is really what is wanted.",
-			p.label())
-	}
+// have.
+func (p principal) allows(role string) error {
 	switch p.kind {
 	case principalAnyone, principalDomain:
 		if role == model.RoleOwner {
@@ -828,26 +1024,19 @@ func parseRole(v string) (string, error) {
 	return role, nil
 }
 
-// parseExpiry reads an RFC 3339 instant or a duration like 30d and
-// checks it against the rules Drive states: users and groups only, in
+// parseExpiry reads when a grant should end, as an RFC 3339 instant or
+// a duration like 30d, and checks it against the rules Drive states: in
 // the future, at most a year out. Refusing here names which rule was
-// broken, where Drive's own answer is a generic 400.
-// parseExpiry reads when a grant should end, and reports separately that
-// it should not end at all. "never" is its own answer rather than an
-// empty string, because leaving expires out has to keep meaning "do not
-// touch the expiry this grant already has".
-func (s *Service) parseExpiry(v string, p principal, role string) (expires string, clear bool, err error) {
+// broken, where Drive's own answer is a generic 400. It reports
+// separately that the grant should not end at all: "never" is its own
+// answer rather than an empty string, because leaving expires out has
+// to keep meaning "do not touch the expiry this grant already has".
+// Only the tools that grant a person or a group take expires, which is
+// what Drive lets expire, and never an ownership transfer.
+func (s *Service) parseExpiry(v string) (expires string, clear bool, err error) {
 	raw := strings.TrimSpace(v)
 	if raw == "" {
 		return "", false, nil
-	}
-	if p.kind != principalUser && p.kind != principalGroup {
-		return "", false, Errorf(ClassInvalid, "Drive only lets a grant to a person or a group expire, and "+
-			"this one is to %s. Remove it with unshare_file when it is no longer wanted.", p.label())
-	}
-	if role == model.RoleOwner {
-		return "", false, Errorf(ClassInvalid, "ownership does not expire; a transfer is permanent until it "+
-			"is transferred again.")
 	}
 	if strings.EqualFold(raw, "never") {
 		return "", true, nil
@@ -919,13 +1108,27 @@ var consumerDomains = map[string]bool{"gmail.com": true, "googlemail.com": true}
 // outside reports whether address is outside the signed-in account's
 // organization, taken as its email domain. A secondary domain of the
 // same organization counts as outside, and so does everything when the
-// account cannot be read: both ask a question too many rather than one
-// too few.
+// account cannot be read, or is a personal Google account, which has no
+// organization: each refuses a share too many in the ordinary tools
+// rather than one too few.
 func (s *Service) outside(ctx context.Context, address string) bool {
-	_, theirs, ok := strings.Cut(strings.ToLower(strings.TrimSpace(address)), "@")
-	if !ok || consumerDomains[theirs] {
+	if theirs := domainOf(address); theirs == "" || consumerDomains[theirs] {
+		// Outside whoever is signed in, so the account is not read.
 		return true
 	}
-	_, mine, _ := strings.Cut(strings.ToLower(s.account(ctx)), "@")
-	return mine == "" || mine != theirs
+	return outsideOf(domainOf(s.account(ctx)), address)
+}
+
+// outsideOf is outside, with the account's own domain, mine, already
+// read: empty when it could not be.
+func outsideOf(mine, address string) bool {
+	theirs := domainOf(address)
+	return theirs == "" || consumerDomains[theirs] || mine == "" || mine != theirs
+}
+
+// domainOf is an address's domain, in lower case, or empty when it has
+// none.
+func domainOf(address string) string {
+	_, domain, _ := strings.Cut(strings.ToLower(strings.TrimSpace(address)), "@")
+	return domain
 }

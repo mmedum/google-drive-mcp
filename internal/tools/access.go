@@ -6,8 +6,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // Every file argument spells out the accepted forms in its own schema
@@ -19,19 +19,50 @@ type PermissionsInput struct {
 	File string `json:"file" jsonschema:"the item to describe: a file id, any Drive URL, the word root for My Drive, a path from My Drive like /Projects/2026, or a shared drive as drive:Marketing, which lists that drive's members. A name or path matching more than one item is refused with the candidates listed."`
 }
 
-// ShareInput is one grant to make or change.
+// ShareInput is one grant to make or change, inside the organization.
 type ShareInput struct {
-	File              string `json:"file" jsonschema:"what to share: a file id, any Drive URL, a path from My Drive, or a shared drive as drive:Marketing to add a member to it. A shortcut is shared itself, not what it points at."`
-	Principal         string `json:"principal" jsonschema:"who gets access: an address like someone@example.com, group:team@example.com for a Google group, domain:example.com for everyone in an organization, or anyone for a link that needs no sign-in"`
-	Role              string `json:"role" jsonschema:"what they may do: reader, commenter, writer, or file_organizer and organizer inside a shared drive. owner hands the file over and needs transfer_ownership."`
-	Notify            bool   `json:"notify,omitempty" jsonschema:"send Google's notification email. Off by default: a tool call is not a reason to put mail in somebody's inbox. An ownership transfer always mails, whatever this says."`
-	Message           string `json:"message,omitempty" jsonschema:"a line to include in that email; only used when notify is true"`
-	Expires           string `json:"expires,omitempty" jsonschema:"when the grant should end, as a date like 2026-12-01 or a duration like 30d, or never to remove an expiry a grant already has. People and groups only, and Drive's limit is a year. Leave it out to keep whatever expiry is already there."`
-	Discoverable      *bool  `json:"discoverable,omitempty" jsonschema:"for a domain or anyone grant: whether the file also turns up in their search results rather than only opening by link. Leave it out to keep what the grant already has; a new grant is by link only."`
-	AllowAnyone       bool   `json:"allow_anyone,omitempty" jsonschema:"required to grant access to anyone with the link. Without it that grant is refused, because it puts the file within reach of everybody who has or guesses the link."`
-	AllowDomain       bool   `json:"allow_domain,omitempty" jsonschema:"required to grant access to a whole organization with domain:. Without it that grant is refused, because it reaches everyone there rather than anyone named."`
-	TransferOwnership bool   `json:"transfer_ownership,omitempty" jsonschema:"required for role: owner. It makes them the owner and demotes this account to a writer, and only the new owner can hand it back."`
-	DryRun            bool   `json:"dry_run,omitempty" jsonschema:"report who can see it now and what this would change, and change nothing"`
+	File      string `json:"file" jsonschema:"what to share: a file id, any Drive URL, a path from My Drive, or a shared drive as drive:Marketing to add a member to it. A shortcut is shared itself, not what it points at."`
+	Principal string `json:"principal" jsonschema:"who gets access: an address like someone@example.com, or group:team@example.com for a Google group, inside this account's organization"`
+	Role      string `json:"role" jsonschema:"what they may do: reader, commenter, writer, or file_organizer and organizer inside a shared drive"`
+	Notify    bool   `json:"notify,omitempty" jsonschema:"send Google's notification email. Off by default: a tool call is not a reason to put mail in somebody's inbox."`
+	Message   string `json:"message,omitempty" jsonschema:"a line to include in that email; only used when notify is true"`
+	Expires   string `json:"expires,omitempty" jsonschema:"when the grant should end, as a date like 2026-12-01 or a duration like 30d, or never to remove an expiry a grant already has. Drive's limit is a year. Leave it out to keep whatever expiry is already there."`
+	DryRun    bool   `json:"dry_run,omitempty" jsonschema:"report who can see it now and what this would change, and change nothing"`
+}
+
+// ShareOutsideInput is one grant to make or change, outside the
+// organization.
+type ShareOutsideInput struct {
+	File      string `json:"file" jsonschema:"what to share: a file id, any Drive URL, a path from My Drive, or a shared drive as drive:Marketing to add a member to it. A shortcut is shared itself, not what it points at."`
+	FileName  string `json:"file_name" jsonschema:"the name of the file, folder or shared drive exactly as get_file shows it. Required: it says in the call itself what is opened up, and a name that is not the item's is refused with [stale]."`
+	Principal string `json:"principal" jsonschema:"who gets access: an address like someone@example.org, or group:team@example.org for a Google group, outside this account's organization"`
+	Role      string `json:"role" jsonschema:"what they may do: reader, commenter, writer, or file_organizer and organizer inside a shared drive"`
+	Notify    bool   `json:"notify,omitempty" jsonschema:"send Google's notification email. Off by default: a tool call is not a reason to put mail in somebody's inbox."`
+	Message   string `json:"message,omitempty" jsonschema:"a line to include in that email; only used when notify is true"`
+	Expires   string `json:"expires,omitempty" jsonschema:"when the grant should end, as a date like 2026-12-01 or a duration like 30d, or never to remove an expiry a grant already has. Drive's limit is a year. Leave it out to keep whatever expiry is already there."`
+	Confirm   bool   `json:"confirm,omitempty" jsonschema:"required to actually share. Without it the call is refused."`
+	DryRun    bool   `json:"dry_run,omitempty" jsonschema:"report who can see it now and what this would change, and change nothing"`
+}
+
+// ShareByLinkInput opens a file to anyone with the link, or to a domain.
+type ShareByLinkInput struct {
+	File         string `json:"file" jsonschema:"what to open: a file id, any Drive URL, or a path from My Drive. A shortcut is shared itself, not what it points at."`
+	FileName     string `json:"file_name" jsonschema:"the name of the file or folder exactly as get_file shows it. Required: it says in the call itself what is opened up, and a name that is not the item's is refused with [stale]."`
+	Principal    string `json:"principal" jsonschema:"anyone, for a link that needs no sign-in, or domain:example.com for everyone in an organization"`
+	Role         string `json:"role" jsonschema:"what they may do: reader, commenter or writer"`
+	Discoverable *bool  `json:"discoverable,omitempty" jsonschema:"whether the file also turns up in their search results rather than only opening by link. Leave it out to keep what the grant already has; a new grant is by link only."`
+	Confirm      bool   `json:"confirm,omitempty" jsonschema:"required to actually share. Without it the call is refused."`
+	DryRun       bool   `json:"dry_run,omitempty" jsonschema:"report who can see it now and what this would change, and change nothing"`
+}
+
+// TransferOwnershipInput hands a file to a new owner.
+type TransferOwnershipInput struct {
+	File     string `json:"file" jsonschema:"the My Drive file or folder to hand over: a file id, any Drive URL, or a path from My Drive"`
+	FileName string `json:"file_name" jsonschema:"the name of the file or folder exactly as get_file shows it. Required: it says in the call itself what is handed over, and a name that is not the item's is refused with [stale]."`
+	To       string `json:"to" jsonschema:"the address of the person who becomes the owner"`
+	Message  string `json:"message,omitempty" jsonschema:"a line to include in the email Google always sends for a transfer"`
+	Confirm  bool   `json:"confirm,omitempty" jsonschema:"required to actually transfer. Without it the call is refused."`
+	DryRun   bool   `json:"dry_run,omitempty" jsonschema:"report what would change, and change nothing"`
 }
 
 // UnshareInput revokes one grant.
@@ -46,8 +77,7 @@ type UnshareInput struct {
 // registerAccess adds the access tools. list_permissions is a read and
 // is always registered: seeing who can reach a file is not widening it,
 // and a server that hides exposure is worse than one that cannot change
-// it. share_file and unshare_file are the ones GDRIVE_SHARING=off
-// removes.
+// it. GDRIVE_SHARING=off removes the rest.
 func registerAccess(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "list_permissions",
@@ -64,7 +94,7 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 		}
 		return text(out), nil, nil
 	})
-	names := make([]string, 0, 3)
+	names := make([]string, 0, 6)
 	names = append(names, "list_permissions")
 	if d.Config.ReadOnly || d.Config.Sharing == "off" {
 		return names
@@ -72,26 +102,25 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "share_file",
-		Description: "Give someone access to a file, or change the access they have. The result shows who could " +
-			"see it before and who can see it after, because that is the part worth checking. " +
-			"Granting to somebody who already has access changes their role rather than adding a second grant. " +
-			"Accepted roles: " + strings.Join(service.Roles(), ", ") + ". " +
-			"A link anyone can open needs allow_anyone: true, a grant to a whole domain needs allow_domain: true, " +
-			"and handing over ownership needs " +
-			"transfer_ownership: true; without those the call is refused. No email is sent unless notify is set. " +
-			"What may actually be shared is decided by the organization's own policy, which Google enforces: a " +
-			"refusal comes back as [blocked] with Google's own words. A link for anyone, a domain-wide grant, a new " +
-			"grant to someone outside this account's organization and an ownership transfer are also put to the " +
-			"person when the client can ask; one they do not confirm is " +
-			"[blocked], and is not made again unless they ask.",
+		Description: "Give a named person or group inside this account's organization access to a file, or " +
+			"change the access they have. The result shows who could see it before and who can see it after, " +
+			"because that is the part worth checking. Granting to somebody who already has access changes " +
+			"their role rather than adding a second grant. Accepted roles: " + strings.Join(service.GrantRoles(), ", ") +
+			". No email is sent unless notify is set. A grant to a group reaches " + service.GroupReach + ". " +
+			"A link for anyone, a whole domain, someone outside the " +
+			"organization and a new owner are refused here with [blocked]: share_by_link, " +
+			"share_outside_organization and transfer_ownership do those, and exist only on a server started with " +
+			"GDRIVE_ENABLE_DESTRUCTIVE=true. Outside means an address whose domain is not this account's; for a " +
+			"personal Google account that is every address. What may actually be shared is decided by the " +
+			"organization's own policy, which Google enforces: a refusal comes back as [blocked] with Google's " +
+			"own words.",
 		Annotations: write,
-	}, asked(d, "share_file", func(ctx context.Context, in ShareInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ShareInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ShareFile(ctx, service.ShareFileInput{
 			File: in.File, Principal: in.Principal, Role: in.Role, Notify: in.Notify,
-			Message: in.Message, Expires: in.Expires, Discoverable: in.Discoverable,
-			AllowAnyone: in.AllowAnyone, AllowDomain: in.AllowDomain, TransferOwnership: in.TransferOwnership, DryRun: in.DryRun,
+			Message: in.Message, Expires: in.Expires, DryRun: in.DryRun,
 		}))
-	}))
+	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "unshare_file",
@@ -107,5 +136,62 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	return append(names, "share_file", "unshare_file")
+	names = append(names, "share_file", "unshare_file")
+	if !d.Config.EnableDestructive {
+		return names
+	}
+	return append(names, registerWideShares(s, d)...)
+}
+
+// registerWideShares adds the shares that reach past the people inside
+// the organization, or hand a file over (§4a). Each is its own tool
+// because a client remembers an approval per tool, never per argument,
+// and each exists only on a server started with
+// GDRIVE_ENABLE_DESTRUCTIVE=true, with confirm: true on the call.
+func registerWideShares(s *mcp.Server, d Deps) []string {
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "share_by_link",
+		Description: "Open a file to anyone with the link, or to everyone in a domain, or change the access such " +
+			"a grant gives. ANYONE WITH THE LINK means everybody who has or guesses it, with no sign-in. The result " +
+			"shows who could see the file before and who can after. discoverable also makes it turn up in their " +
+			"search. unshare_file with remove_link takes it back, but not what was read or copied meanwhile. " +
+			"Needs confirm: true, and file_name: the item's name as get_file shows it.",
+		Annotations: widening,
+		Meta:        requiresUserInteraction(),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ShareByLinkInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+		return result(d.Service.ShareByLink(ctx, service.ShareByLinkInput{
+			File: in.File, FileName: in.FileName, Principal: in.Principal, Role: in.Role, Discoverable: in.Discoverable,
+			Confirm: in.Confirm, DryRun: in.DryRun,
+		}))
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "share_outside_organization",
+		Description: "Give a person or group outside this account's organization access to a file, or change " +
+			"the access they have. Outside means an address whose domain is not this account's; for a personal " +
+			"Google account that is every address. The result shows who could see the file before and who can " +
+			"after. Accepted roles: " + strings.Join(service.GrantRoles(), ", ") + ". No email is sent unless " +
+			"notify is set. Needs confirm: true, and file_name: the item's name as get_file shows it. What may " +
+			"actually be shared is decided by the organization's own policy, which Google enforces.",
+		Annotations: widening,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ShareOutsideInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+		return result(d.Service.ShareOutside(ctx, service.ShareOutsideInput{
+			File: in.File, FileName: in.FileName, Principal: in.Principal, Role: in.Role, Notify: in.Notify,
+			Message: in.Message, Expires: in.Expires, Confirm: in.Confirm, DryRun: in.DryRun,
+		}))
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "transfer_ownership",
+		Description: "Make another person the owner of a file or folder in My Drive. This account becomes a " +
+			"writer on it and CANNOT TAKE IT BACK: only the new owner can hand it on. Google always emails the new " +
+			"owner. A shared drive owns everything in it, so a file there has no owner to transfer. Needs " +
+			"confirm: true, and file_name: the item's name as get_file shows it.",
+		Annotations: widening,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in TransferOwnershipInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
+		return result(d.Service.TransferOwnership(ctx, service.TransferOwnershipInput{
+			File: in.File, FileName: in.FileName, To: in.To, Message: in.Message, Confirm: in.Confirm, DryRun: in.DryRun,
+		}))
+	})
+	return []string{"share_by_link", "share_outside_organization", "transfer_ownership"}
 }

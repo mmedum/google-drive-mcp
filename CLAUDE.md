@@ -42,10 +42,13 @@ Google Doc, Sheet or Slides deck is out of scope.
    first match and never guesses an id.
 4. **Never widen access silently.** Google's organization policy decides
    what may be shared; the server checks `capabilities.canShare` first,
-   shows exposure before and after, needs `allow_anyone: true` for a
-   public link, sends no mail unless `notify` is set, and treats
-   ownership transfer as its own action. `GDRIVE_SHARING=off` removes
-   the sharing tools.
+   shows exposure before and after, and sends no mail unless `notify` is
+   set. `share_file` grants named people and groups inside the
+   organization; a link for anyone, a domain, someone outside it, a new
+   owner and lifting a shared drive's domain restriction are each their
+   own tool, behind `GDRIVE_ENABLE_DESTRUCTIVE`. A move, a copy or a
+   folder's limited access turned off never widens past the organization.
+   `GDRIVE_SHARING=off` removes the sharing tools.
 5. **Never destroy without a way back by default.** Trash and restore
    are the default surface. Permanent delete, empty trash, delete
    revision, delete shared drive and delete comment are unregistered

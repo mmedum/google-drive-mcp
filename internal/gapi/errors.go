@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/mmedum/google-drive-mcp/v2/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v3/internal/redact"
 	"net"
 	"net/http"
 	"net/url"
@@ -436,7 +436,12 @@ const (
 	// backing off from — the same call in a minute picks up the finished
 	// work. Phase 4 added it for files.download, which is the only
 	// long-running operation this server starts.
-	ClassPending    = "pending"
+	ClassPending = "pending"
+	// ClassStale is a witness the call carried that is not what Drive
+	// has: a wide share's file_name is not the name of the item it
+	// resolved to. The item changed since it was read, or is not the one
+	// meant; read it again rather than correcting the argument blind.
+	ClassStale      = "stale"
 	ClassUnexpected = "unexpected"
 )
 
@@ -445,7 +450,7 @@ const (
 func Classes() []string {
 	return []string{ClassAuth, ClassForbidden, ClassNotFound, ClassAmbiguous, ClassExists,
 		ClassInvalid, ClassUnsupported, ClassBlocked, ClassRateLimited, ClassServer,
-		ClassNetwork, ClassAmbiguousIO, ClassPending, ClassUnexpected}
+		ClassNetwork, ClassAmbiguousIO, ClassPending, ClassStale, ClassUnexpected}
 }
 
 // Class returns the short class name that goes in front of an LLM-facing

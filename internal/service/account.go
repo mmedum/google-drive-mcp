@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
 // GetAccount renders who is signed in, what their Drive holds, and what
@@ -24,6 +24,9 @@ func (s *Service) GetAccount(ctx context.Context) (string, error) {
 		MaxDownload: s.opts.MaxDownload,
 		Labels:      s.opts.Labels,
 		Tools:       s.RegisteredTools(),
+	}
+	if about.User != nil {
+		o.Personal = consumerDomains[domainOf(about.User.EmailAddress)]
 	}
 	if o.Sharing == "" {
 		o.Sharing = string(config.SharingAll)

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
 // ListAccessRequestsInput selects a file's pending requests.
@@ -144,16 +144,20 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 			"action accept to grant that role.")
 	}
 
+	// The request and its message come from the person asking, which
+	// under injection is the attacker. Letting in someone inside the
+	// organization is an ordinary grant; anyone outside it is the outside
+	// share's to let in, behind the destructive flag (§4a).
+	if action == RequestAccept && s.outside(ctx, request.For) {
+		return nil, Errorf(ClassBlocked, "%s is outside this account's organization, and "+
+			"resolve_access_request lets in only people inside it. Nothing was changed. Deny the request, or "+
+			"grant it with share_outside_organization, which a server started with %sENABLE_DESTRUCTIVE=true "+
+			"registers, or in Drive itself.", request.For, config.EnvPrefix)
+	}
+
 	before := s.sharingNow(ctx, f)
 	if in.DryRun {
 		return s.requestResult(ctx, res, request, action, role, before, before, in.Notify, true), nil
-	}
-	// The request and its message come from the person asking, so an
-	// accept is put to the person using the server.
-	if action == RequestAccept {
-		if err := ask(ctx, render.AskGrantRequest(f.ID, f.Name, request.ID, request.For, role, request.Message)); err != nil {
-			return nil, err
-		}
 	}
 
 	body := &gdrive.ResolveProposal{
@@ -214,9 +218,9 @@ func grantableRole(role string) (string, error) {
 	case model.RoleReader, model.RoleCommenter, model.RoleWriter:
 		return role, nil
 	case model.RoleOwner:
-		return "", Errorf(ClassUnsupported, "an access request cannot hand over ownership. share_file "+
-			"with role owner and transfer_ownership: true is the only way to do that, and it is its own "+
-			"decision.")
+		return "", Errorf(ClassUnsupported, "an access request cannot hand over ownership. transfer_ownership, "+
+			"on a server started with %sENABLE_DESTRUCTIVE=true, is the only way to do that, and it is its own "+
+			"decision.", config.EnvPrefix)
 	default:
 		return "", Errorf(ClassInvalid, "an access request can be accepted as reader, commenter or "+
 			"writer; %s is not one of them.", role)

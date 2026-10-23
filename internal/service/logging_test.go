@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi/drivetest"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/service"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
 // A person's Drive is personal data: the names of their files, who they
@@ -126,10 +126,6 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	_, _ = svc.ListPermissions(ctx, service.ListPermissionsInput{File: secretFileID})
 	_, _ = svc.ShareFile(ctx, service.ShareFileInput{
 		File: secretFileID, Principal: secretEmail, Role: "writer", Message: secretContent})
-	_, _ = svc.ShareFile(ctx, service.ShareFileInput{
-		File: secretFileID, Principal: "anyone", Role: "reader", AllowAnyone: true})
-	_, _ = svc.ShareFile(ctx, service.ShareFileInput{
-		File: secretFileID, Principal: "domain:" + secretDomain, Role: "reader"})
 	_, _ = svc.UnshareFile(ctx, service.UnshareFileInput{File: secretFileID, Principal: secretEmail})
 	_, _ = svc.UnshareFile(ctx, service.UnshareFileInput{File: secretFileID, RemoveLink: true})
 	_, _ = svc.ListDrives(ctx, service.ListDrivesInput{Name: secretDrive})
@@ -172,6 +168,19 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	_, _ = destructive.EmptyTrash(ctx, service.EmptyTrashInput{Drive: secretDrive, Confirm: true})
 	_, _ = destructive.DeleteComment(ctx, service.DeleteCommentInput{
 		File: secretFileID, Comment: "id-comment-fixture", Confirm: true})
+	// The wide shares take addresses and domains too.
+	// update_file renamed it above, and the witness is the name it has.
+	_, _ = destructive.ShareByLink(ctx, service.ShareByLinkInput{
+		File: secretFileID, FileName: secretFileName + " v2", Principal: "anyone", Role: "reader", Confirm: true})
+	_, _ = destructive.ShareByLink(ctx, service.ShareByLinkInput{
+		File: secretFileID, FileName: secretFileName + " v2", Principal: "domain:" + secretDomain, Role: "reader", Confirm: true})
+	_, _ = destructive.ShareOutside(ctx, service.ShareOutsideInput{
+		File: secretFileID, FileName: secretFileName + " v2", Principal: "someone@" + secretDomain, Role: "reader", Message: secretContent, Notify: true,
+		Confirm: true})
+	_, _ = destructive.TransferOwnership(ctx, service.TransferOwnershipInput{
+		File: secretFileID, FileName: secretFileName + " v2", To: secretEmail, Message: secretContent, Confirm: true})
+	_, _ = destructive.LiftDriveRestriction(ctx, service.LiftDriveRestrictionInput{
+		Drive: secretDrive, DriveName: secretDrive, Restriction: "domain_users_only", Confirm: true})
 
 	got := log.String()
 	if strings.TrimSpace(got) == "" {

@@ -10,11 +10,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/mmedum/google-drive-mcp/v2/internal/config"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gapi"
-	"github.com/mmedum/google-drive-mcp/v2/internal/gdrive"
-	"github.com/mmedum/google-drive-mcp/v2/internal/model"
-	"github.com/mmedum/google-drive-mcp/v2/internal/render"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
+	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
 // CreateFolderInput describes a folder to create.
@@ -129,7 +129,7 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 			Note: "nothing to do: every field passed already had that value."}), nil
 	}
 	if meta.InheritedPermissionsDisabled != nil && !*meta.InheritedPermissionsDisabled {
-		if err := s.askOpenFolder(ctx, res); err != nil {
+		if err := s.openFolderRefused(ctx, res); err != nil {
 			return nil, err
 		}
 	}
@@ -174,27 +174,30 @@ func (p *patch) loosening() []string {
 // downloadRank orders the levels from least to most restricted.
 func downloadRank(level string) int { return slices.Index(model.DownloadLevels(), level) }
 
-// askOpenFolder puts it to the person before a folder's limited access
-// goes off, naming who could then open it: everyone who reaches the
-// folder above and does not reach this one now. That is what a move
-// into the folder above would give it, so it is worked out by the same
-// prediction. A list that cannot be read asks too.
-func (s *Service) askOpenFolder(ctx context.Context, res *Resolved) error {
+// openFolderRefused refuses turning a folder's limited access off when
+// that would let anyone with the link, a domain or someone outside the
+// organization open it, naming who, or when who could open it cannot be
+// read (§4a). Who could then open it is everyone who reaches the folder
+// above and does not reach this one now: what a move into the folder
+// above would give it, so it is worked out by the same prediction.
+func (s *Service) openFolderRefused(ctx context.Context, res *Resolved) error {
 	f := res.File
-	p := &movePlan{res: res, target: &gdrive.File{ID: f.Parent(), MimeType: gdrive.MimeFolder}}
+	p := &movePlan{res: res, target: &gdrive.File{ID: f.Parent(), MimeType: gdrive.MimeFolder}, opening: true}
 	above := reach{}
 	if parent, err := s.Resolve(ctx, f.Parent(), ResolveOptions{FollowShortcut: false}); f.Parent() != "" && err == nil {
 		p.target, above = parent.File, s.reachOf(ctx, parent.File)
 	}
 	s.predictMove(ctx, p, above)
-	if !p.widens() {
+	if p.unread == "the destination" {
+		p.unread = "the folder above it"
+	}
+	r := s.widensPast(ctx, p)
+	if r.class != ClassBlocked {
+		// Nothing refuses it, or GDRIVE_SHARING=off, which refused it
+		// before this with its own words.
 		return nil
 	}
-	unread := p.unread
-	if unread == "the destination" {
-		unread = "the folder above it"
-	}
-	return ask(ctx, render.AskOpenFolder(f.ID, f.Name, p.gained, unread))
+	return Errorf(r.class, "%s Nothing was changed on %s. %s", r.why, f.Name, r.advice)
 }
 
 // metaPatch works out the smallest patch that turns f into what the
@@ -376,8 +379,10 @@ type CopyFileInput struct {
 // A copy takes on who can reach the folder it lands in, and none of the
 // grants made on the original, so it can reach people the original does
 // not. The rule is the move's (§4a): the result shows who reaches the
-// original and who reaches the copy, a copy that reaches more people is
-// put to the person first, and with GDRIVE_SHARING=off it is refused.
+// original and who reaches the copy, a copy that anyone with the link, a
+// domain or someone outside the organization could reach when they
+// cannot reach the original is refused, and with GDRIVE_SHARING=off any
+// copy that reaches more people is refused.
 func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, error) {
 	if err := s.writable("copy_file"); err != nil {
 		return nil, err
@@ -440,7 +445,7 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 		becomes = f.MimeType
 	}
 	parts := s.predictCopy(ctx, res, nil, target)
-	if err := s.copyRefused(parts); err != nil {
+	if err := s.copyRefused(ctx, parts); err != nil {
 		return nil, err
 	}
 	if in.DryRun {
@@ -455,9 +460,6 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 		note = strings.TrimSpace(note + ". " + sentence(s.moveNote(ctx, parts[0], parts[0].after, true)))
 		return s.copyResult(ctx, res, parts[0].before, parts[0].after, outcome{Action: render.ActionCopied,
 			DryRun: true, Note: note + " Nothing was copied."}), nil
-	}
-	if err := s.askCopy(ctx, target, parts); err != nil {
-		return nil, err
 	}
 	if err := s.assignIDFor(ctx, meta, becomes); err != nil {
 		return nil, err
@@ -557,29 +559,41 @@ func (s *Service) predictCopy(ctx context.Context, res *Resolved, inside []*gdri
 	return parts
 }
 
-// copyRefused is GDRIVE_SHARING=off's refusal of a copy any part of
-// which would reach more people than the original does, or nil.
-func (s *Service) copyRefused(parts []*movePlan) error {
-	var why []string
+// copyRefused refuses a copy any part of which widensPast refuses: the
+// original, or a folder inside it with limited access, which reaches
+// fewer people than the folder around it. It names each part and who
+// its copy would reach that it does not, and is nil when no part is
+// refused. GDRIVE_SHARING=off is a setting of the server, so every part
+// is refused for the same reason.
+func (s *Service) copyRefused(ctx context.Context, parts []*movePlan) error {
+	var why, advice []string
+	class, whole := "", false
 	for i, p := range parts {
-		w := s.sharingOffRefuses(p)
+		r := s.widensPast(ctx, p)
 		switch {
-		case w == "":
+		case r.class == "":
+			continue
 		case i == 0:
-			why = append(why, w)
+			why, whole = append(why, r.why), true
 		default:
 			why = append(why, fmt.Sprintf("Inside it, %s has limited access, and the copy of it would reach "+
-				"more people than it does: %s.", p.res.File.Name, copyReach(p)))
+				"more people than it does: %s.", p.res.File.Name, r.who))
+		}
+		class = r.class
+		// Each part refused says what to do about it, once.
+		if !slices.Contains(advice, r.advice) {
+			advice = append(advice, r.advice)
 		}
 	}
 	if len(why) == 0 {
 		return nil
 	}
-	if !strings.HasPrefix(why[0], "this server") {
+	// The original's own refusal names the setting; an inner part's does
+	// not, so it is said once in front.
+	if class == ClassForbidden && !whole {
 		why[0] = "this server was started with GDRIVE_SHARING=off. " + why[0]
 	}
-	return Errorf(ClassForbidden, "%s Nothing was copied. A copy into a folder that nobody new can reach is "+
-		"still allowed.", strings.Join(why, " "))
+	return Errorf(class, "%s Nothing was copied. %s", strings.Join(why, " "), strings.Join(advice, " "))
 }
 
 // sentence starts s with a capital letter, for a note that follows
@@ -590,29 +604,6 @@ func sentence(s string) string {
 	}
 	r, n := utf8.DecodeRuneInString(s)
 	return string(unicode.ToUpper(r)) + s[n:]
-}
-
-// copyReach is who one part of a copy would newly reach.
-func copyReach(p *movePlan) string {
-	if p.unread != "" {
-		return "who can reach " + p.unread + " could not be read"
-	}
-	return render.Reach(p.gained)
-}
-
-// askCopy puts a copy that would reach more people than the original
-// to the person, once, naming each part that would.
-func (s *Service) askCopy(ctx context.Context, target *gdrive.File, parts []*movePlan) error {
-	var widening []render.MoveItem
-	for _, p := range parts {
-		if p.widens() {
-			widening = append(widening, p.question())
-		}
-	}
-	if len(widening) == 0 {
-		return nil
-	}
-	return ask(ctx, render.AskCopy(s.moveTarget(ctx, target), parts[0].question(), widening))
 }
 
 // copyResult reports a copy, or what one would do, with who can reach
