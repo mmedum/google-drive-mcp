@@ -153,13 +153,23 @@ Its modes, each off unless asked for:
 | Flag | What it adds |
 |---|---|
 | `-write` | Every tool that changes Drive, in one scratch folder in My Drive that is trashed at the end |
-| `-drive NAME_OR_ID` | Moves a file into an existing shared drive and back out, and the folder-move refusal |
-| `-share ADDRESS` | The half of sharing that needs a second person; with `-destructive`, the ownership transfer too |
+| `-drive NAME_OR_ID` | Moves a file into an existing shared drive and back out, reads back that it left, and the folder-move refusal |
+| `-share ADDRESS` | The half of sharing that needs a second person: a real grant on a scratch file, taken back and read back from the file's permissions before the run ends |
+| `-transfer ADDRESS` | With `-destructive`, the real ownership transfer of a scratch file to that address. **It cannot be undone, and Google emails the address.** Name an account you control, never a colleague. Without it the transfer runs only as a dry run and its refusals |
 | `-blocked ADDRESS` | Attempts a share the organization's policy should refuse, and reports Google's reason beside this server's class |
 | `-unlistable REF` | Reads and lists a folder this account can see but not list, to show what Drive answers there |
 | `-labels` | The label tools; needs `GDRIVE_LABELS`, the Labels API enabled and its scopes granted |
 | `-activity` | `list_activity`; needs `GDRIVE_ACTIVITY`, the Drive Activity API enabled and its scope granted |
-| `-destructive` | Everything `GDRIVE_ENABLE_DESTRUCTIVE` registers: the five tools that remove something for good — see below — and the shares that reach past the organization, with the move, copy and limited-access refusals that need a folder opened by link |
+| `-destructive` | Everything `GDRIVE_ENABLE_DESTRUCTIVE` registers: the five tools that remove something for good — see below — and the shares that reach past the organization, with the move, copy and limited-access refusals that need a folder opened by link. The ownership transfer runs only as a dry run and its refusals, unless `-transfer` names the recipient |
+
+Ctrl-C, a `SIGTERM` or closing the terminal stops a run without
+stranding what it made. No further step starts, and the cleanup still
+runs: `-share`'s grant is taken back and read back, a file is brought
+out of `-drive`'s shared drive and read back, the scratch shared drive
+is deleted, and the scratch folder is trashed. A second signal is
+ignored while that happens; `Ctrl-\` quits at once and leaves everything
+where it is. The server runs in a process group of its own, so the same
+Ctrl-C does not stop it before the cleanup is done.
 
 **`-destructive` creates a shared drive and destroys it again.** It is
 the only way to run `empty_trash` safely: that tool cannot be scoped to a

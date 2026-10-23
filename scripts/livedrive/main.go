@@ -21,10 +21,13 @@
 //	go run ./scripts/livedrive -bin ./google-drive-mcp -write -parent /Scratch
 //
 // -share SOMEONE@EXAMPLE.COM adds the sharing calls that need a second
-// person, and with -destructive the ownership transfer of spike F. The
-// transfer is made on a file created for it, and it CANNOT be undone
-// from this account: trashing the scratch folder does not take back a
-// file whose owner is now somebody else.
+// person. The grant is taken back, and read back, before the run ends.
+//
+// -transfer SOMEONE@EXAMPLE.COM, with -destructive, makes spike F's real
+// ownership transfer to that address, on a file created for it. It
+// CANNOT be undone from this account, and Google emails the address:
+// name an account you control. Without it, -destructive runs the
+// transfer only as a dry run and its refusals.
 //
 // -destructive registers what GDRIVE_ENABLE_DESTRUCTIVE does: the five
 // tools that remove something for good, run in a shared drive this run
@@ -42,15 +45,20 @@
 //
 //	go run ./scripts/livedrive -bin ./google-drive-mcp -write -blocked partner@example.org
 //
+// Ctrl-C, a SIGTERM or the terminal closing stops the run: no further
+// step starts, and what it made is cleaned up as it would have been.
+//
 // -raw turns redaction off. Do not use it in a terminal you are sharing.
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/livecover"
 	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/mcpstdio"
@@ -65,10 +73,11 @@ func main() {
 	write := flag.Bool("write", false, "also exercise every tool that changes Drive, in one scratch folder that is trashed afterwards")
 	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
 	drive := flag.String("drive", "", "a shared drive to move a file into and out of, by name or id; empty skips that half")
-	share := flag.String("share", "", "an address to grant access to, for the half of sharing that needs a second person (spike F included); empty skips it")
+	share := flag.String("share", "", "an address to grant access to, for the half of sharing that needs a second person; the grant is taken back and read back before the run ends; empty skips it")
+	transfer := flag.String("transfer", "", "with -write and -destructive, an address to hand a scratch file to for good in spike F's real ownership transfer. It CANNOT be undone, and Google emails the address: name an account you control. Empty runs the transfer only as a dry run and its refusals")
 	labels := flag.Bool("labels", false, "exercise the label tools, which need GDRIVE_LABELS and the Drive Labels API enabled with its scopes granted at login")
 	activity := flag.Bool("activity", false, "exercise list_activity, which needs GDRIVE_ACTIVITY and the Drive Activity API enabled with its scope granted at login")
-	destructive := flag.Bool("destructive", false, "also exercise the tools GDRIVE_ENABLE_DESTRUCTIVE registers: the five that remove something for good, in a shared drive this run creates and destroys again, which needs an account that may create shared drives, and the shares that reach past the organization")
+	destructive := flag.Bool("destructive", false, "also exercise the tools GDRIVE_ENABLE_DESTRUCTIVE registers: the five that remove something for good, in a shared drive this run creates and destroys again, which needs an account that may create shared drives, the shares that reach past the organization, and the ownership transfer as a dry run and its refusals")
 	unlistable := flag.String("unlistable", "", "a folder this account can see but not list, such as the parent of a file shared with it alone; shows what Drive answers when such a folder is listed (§18); empty skips it")
 	blocked := flag.String("blocked", "", "an address the organization's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
 	flag.Parse()
@@ -85,10 +94,13 @@ func main() {
 	red := redact.NewRedactor(*raw)
 	red.KeepNamesUnder(scratchPrefix)
 	t := transcript.New(red)
-	if err := run(options{binary: *binary, file: *file, write: *write,
-		parent: *parent, drive: *drive, share: *share, blocked: *blocked, unlistable: *unlistable,
-		labels: *labels, activity: *activity, destructive: *destructive,
-		given: givenFlags(flag.CommandLine)}, t); err != nil {
+	stop, release := catchStops()
+	err := run(options{binary: *binary, file: *file, write: *write,
+		parent: *parent, drive: *drive, share: *share, transfer: *transfer, blocked: *blocked,
+		unlistable: *unlistable, labels: *labels, activity: *activity, destructive: *destructive,
+		given: givenFlags(flag.CommandLine), stop: stop}, t)
+	release()
+	if err != nil {
 		t.Fail("livedrive: %v", err)
 		os.Exit(1)
 	}
@@ -129,6 +141,7 @@ type options struct {
 	parent   string
 	drive    string
 	share    string
+	transfer string
 	blocked  string
 	labels   bool
 	activity bool
@@ -146,6 +159,19 @@ type options struct {
 	given map[string]bool
 	// asker catches a question the server puts to the person.
 	asker *asker
+	// stop is where a stop signal arrives; nil never stops.
+	stop *stopper
+	// pause waits for Drive to catch up; nil is time.Sleep.
+	pause func(time.Duration)
+}
+
+// check refuses a combination of flags that cannot do what it says.
+func (o options) check() error {
+	if o.transfer != "" && (!o.write || !o.destructive) {
+		return errors.New("-transfer needs -write and -destructive: transfer_ownership is registered only " +
+			"with GDRIVE_ENABLE_DESTRUCTIVE, and the file it hands over is one the write run makes")
+	}
+	return nil
 }
 
 // asker is the person a server would ask before a write. This one never
@@ -164,6 +190,13 @@ func (a *asker) answer(message string) string {
 }
 
 func run(o options, t *transcript.Transcript) error {
+	if err := o.check(); err != nil {
+		return err
+	}
+	if o.transfer != "" {
+		t.Say("!! -transfer: this run hands a scratch file to " + o.transfer + " for good. It cannot be " +
+			"undone from this account, and Google emails that address.")
+	}
 	// The transfer tools need a local directory, and an MCP client passes
 	// one only through the environment.
 	dir, err := os.MkdirTemp("", "livedrive-")
@@ -239,28 +272,9 @@ func run(o options, t *transcript.Transcript) error {
 		)
 	}
 
-	unexpected := 0
-	for _, c := range calls { //nolint:dupl // the read loop and the write loop print differently on purpose
-		t.Sayf("\n=== %s %s ===", c.tool, mcpstdio.Encode(c.args))
-		if c.why != "" {
-			t.Sayf("(expecting a refusal: %s)", c.why)
-		}
-		text, isError, err := sess.CallTool(c.tool, c.args)
-		if err != nil {
-			return err
-		}
-		t.Say(text)
-		switch {
-		case c.tolerant:
-			t.Say("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
-		case isError != c.expectError:
-			unexpected++
-			if c.expectError {
-				t.Say("!! expected a refusal and did not get one")
-			} else {
-				t.Say("!! unexpected tool error")
-			}
-		}
+	unexpected, err := runReads(sess, t, calls, o.stop)
+	if err != nil {
+		return err
 	}
 
 	if o.file == "" {
@@ -288,11 +302,47 @@ func run(o options, t *transcript.Transcript) error {
 	unexpected += o.asker.asked
 	t.Say("\n" + coverage(rec, sess, o.given))
 	t.Say("\n" + t.Summary())
+	if sig := o.stop.signal(); sig != nil {
+		return fmt.Errorf("stopped by %v; read the cleanup above, which says what, if anything, is left", sig)
+	}
 	if unexpected > 0 {
 		return fmt.Errorf("%d call(s) did not behave as expected", unexpected)
 	}
 	t.Say("all calls behaved as expected")
 	return nil
+}
+
+// runReads makes the calls that change nothing, and counts those that
+// did not behave as expected. A stop signal ends it before the next
+// call; there is nothing yet to clean up.
+func runReads(sess session, t *transcript.Transcript, calls []call, stop *stopper) (int, error) {
+	unexpected := 0
+	for _, c := range calls { //nolint:dupl // the read loop and the write loop print differently on purpose
+		if sig := stop.signal(); sig != nil {
+			return unexpected, fmt.Errorf("stopped by %v before anything was written", sig)
+		}
+		t.Sayf("\n=== %s %s ===", c.tool, mcpstdio.Encode(c.args))
+		if c.why != "" {
+			t.Sayf("(expecting a refusal: %s)", c.why)
+		}
+		text, isError, err := sess.CallTool(c.tool, c.args)
+		if err != nil {
+			return unexpected, err
+		}
+		t.Say(text)
+		switch {
+		case c.tolerant:
+			t.Say("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
+		case isError != c.expectError:
+			unexpected++
+			if c.expectError {
+				t.Say("!! expected a refusal and did not get one")
+			} else {
+				t.Say("!! unexpected tool error")
+			}
+		}
+	}
+	return unexpected, nil
 }
 
 // coverage says how much of the registered surface this run drove.

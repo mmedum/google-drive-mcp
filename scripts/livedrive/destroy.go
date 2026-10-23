@@ -101,7 +101,7 @@ func runDestructive(w *writeRun, name string) {
 	// whole cleanup contract, and a step below returning early or
 	// panicking must not be the reason a shared drive is left in
 	// somebody's Workspace.
-	defer d.deleteTheDrive()
+	defer d.cleanup(d.deleteTheDrive)
 
 	d.driveScopedArguments()
 	d.refusalsWithoutConfirm()
@@ -199,7 +199,7 @@ func (d *destroyRun) deleteARevision() {
 		// that never called it. A pause is fine here: this is a driver,
 		// not a tool call somebody is waiting on.
 		d.out.Say("\n(only the current revision is listed yet; waiting for Drive to catch up)")
-		time.Sleep(10 * time.Second)
+		d.pause(10 * time.Second)
 		first = d.revisionID(id, true)
 	}
 	if first == "" {
@@ -231,7 +231,7 @@ func (d *destroyRun) deleteARevision() {
 		// write. One retry after a pause, the same treatment the drive
 		// delete gets and for the same reason.
 		d.out.Say("\n(the revision was there for the dry run and not for the delete; waiting)")
-		time.Sleep(10 * time.Second)
+		d.pause(10 * time.Second)
 		d.call(call{tool: "delete_revision", args: map[string]any{
 			"file": id, "revision": first, "confirm": true,
 		}})
@@ -460,7 +460,7 @@ func (d *destroyRun) deleteTheDrive() {
 	// catch up — two early runs retried instantly, failed twice, and
 	// left a shared drive behind that a hand-run delete took minutes
 	// later without complaint.
-	time.Sleep(10 * time.Second)
+	d.pause(10 * time.Second)
 	again := d.call(call{tool: "delete_drive", args: map[string]any{
 		"drive": d.driveID, "confirm": true,
 	}})

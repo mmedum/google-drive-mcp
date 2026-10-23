@@ -2018,7 +2018,8 @@ tools for every client, and `reply_comment` and `manage_labels` became
 destructive. The schema diff now lets through a break the
 `[Unreleased]` CHANGELOG declares under `**Breaking:**`, naming the
 tool. It waits for a live run with `-write -destructive -share`, its
-transcript read, before release.
+transcript read, before release; the ownership transfer also needs
+`-transfer` to an account the maintainer controls.
 
 ## 17. Open decisions
 
@@ -2305,9 +2306,10 @@ Raised by the phase-0 review passes and deliberately not done in phase 0.
   as honest as an unverified path can be, and the first person to run it
   will be told what actually happened rather than what was expected.
 
-  When an account is available: `livedrive -write -share ADDRESS` makes
-  a file for the purpose, records its owner, transfers, reads it back and
-  compares. It reports three outcomes, two of which are failures.
+  When an account is available: `livedrive -write -destructive -transfer
+  ADDRESS` makes a file for the purpose, records its owner, transfers,
+  reads it back and compares. The transfer cannot be undone and Google
+  emails the address, so it is an account the maintainer controls. It reports three outcomes, two of which are failures.
 - ~~Ten of the thirteen evals have never been run.~~ **Done in phase 4.**
   All thirteen ran against a real account and all thirteen passed, and
   three more were added for phase 4's own surface, because the thirteen

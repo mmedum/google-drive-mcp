@@ -45,8 +45,13 @@ type Session struct {
 // Start launches the server. env adds to the process environment, which
 // is how the local directory reaches it: an MCP client passes command,
 // args and env, and nothing else.
+//
+// The server runs in a process group of its own, so a stop signal
+// reaches the driver and not the server the driver cleans up through.
+// It still exits when the driver does, since its stdin closes.
 func Start(binary string, env ...string) (*Session, error) {
 	cmd := exec.Command(binary)
+	cmd.SysProcAttr = ownGroup()
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}

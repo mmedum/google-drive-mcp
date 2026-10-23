@@ -441,6 +441,11 @@ make check     # everything CI runs
 make live      # drive the binary against the signed-in account, redacted
 ```
 
+`make live` changes nothing unless asked: `-write` and the flags in
+[docs/development.md](docs/development.md) add writes. `-transfer`
+hands a scratch file to another account for good, which cannot be undone
+and makes Google email that account.
+
 `make check` is the definition of done: gofmt, `go vet`, golangci-lint,
 race tests with a per-package coverage floor, `govulncheck`, a license
 check, a leak check over the working tree, pinned-version and error-class
