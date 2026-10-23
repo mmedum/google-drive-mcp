@@ -316,6 +316,7 @@ const (
 	ClassNetwork     = gapi.ClassNetwork
 	ClassAmbiguousIO = gapi.ClassAmbiguousIO
 	ClassPending     = gapi.ClassPending
+	ClassStale       = gapi.ClassStale
 	ClassUnexpected  = gapi.ClassUnexpected
 )
 

@@ -8,7 +8,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `share_by_link`, `share_outside_organization`, `transfer_ownership` and `lift_drive_restriction`, registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true` (and `GDRIVE_SHARING=all`), each needing `confirm: true`: a link for anyone or a whole domain, a person or group outside the organization, a new owner, and turning a shared drive's `domain_users_only` off.
+- `share_by_link`, `share_outside_organization`, `transfer_ownership` and `lift_drive_restriction`, registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true` (and `GDRIVE_SHARING=all`), each needing `confirm: true`: a link for anyone or a whole domain, a person or group outside the organization, a new owner, and turning a shared drive's `domain_users_only` off. Each also needs the item's name, `file_name` or `drive_name`, so the call you approve names what it opens up; a name that is not the one Drive has is refused with the new error class `[stale]`, dry run included.
 - `approve_file`, which approves a review you were asked for, marked destructive: Drive cannot withdraw an approval, and it can lock the file for good.
 - The README gives Claude Code `permissions.ask` rules for the writes that share, publish, sign off or delete, and says what each client prompts for. The staleness gate holds every tool named there to the registered tools.
 

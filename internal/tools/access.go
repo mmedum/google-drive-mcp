@@ -34,6 +34,7 @@ type ShareInput struct {
 // organization.
 type ShareOutsideInput struct {
 	File      string `json:"file" jsonschema:"what to share: a file id, any Drive URL, a path from My Drive, or a shared drive as drive:Marketing to add a member to it. A shortcut is shared itself, not what it points at."`
+	FileName  string `json:"file_name" jsonschema:"the name of the file, folder or shared drive exactly as get_file shows it. Required: it says in the call itself what is opened up, and a name that is not the item's is refused with [stale]."`
 	Principal string `json:"principal" jsonschema:"who gets access: an address like someone@example.org, or group:team@example.org for a Google group, outside this account's organization"`
 	Role      string `json:"role" jsonschema:"what they may do: reader, commenter, writer, or file_organizer and organizer inside a shared drive"`
 	Notify    bool   `json:"notify,omitempty" jsonschema:"send Google's notification email. Off by default: a tool call is not a reason to put mail in somebody's inbox."`
@@ -46,6 +47,7 @@ type ShareOutsideInput struct {
 // ShareByLinkInput opens a file to anyone with the link, or to a domain.
 type ShareByLinkInput struct {
 	File         string `json:"file" jsonschema:"what to open: a file id, any Drive URL, or a path from My Drive. A shortcut is shared itself, not what it points at."`
+	FileName     string `json:"file_name" jsonschema:"the name of the file or folder exactly as get_file shows it. Required: it says in the call itself what is opened up, and a name that is not the item's is refused with [stale]."`
 	Principal    string `json:"principal" jsonschema:"anyone, for a link that needs no sign-in, or domain:example.com for everyone in an organization"`
 	Role         string `json:"role" jsonschema:"what they may do: reader, commenter or writer"`
 	Discoverable *bool  `json:"discoverable,omitempty" jsonschema:"whether the file also turns up in their search results rather than only opening by link. Leave it out to keep what the grant already has; a new grant is by link only."`
@@ -55,11 +57,12 @@ type ShareByLinkInput struct {
 
 // TransferOwnershipInput hands a file to a new owner.
 type TransferOwnershipInput struct {
-	File    string `json:"file" jsonschema:"the My Drive file or folder to hand over: a file id, any Drive URL, or a path from My Drive"`
-	To      string `json:"to" jsonschema:"the address of the person who becomes the owner"`
-	Message string `json:"message,omitempty" jsonschema:"a line to include in the email Google always sends for a transfer"`
-	Confirm bool   `json:"confirm,omitempty" jsonschema:"required to actually transfer. Without it the call is refused."`
-	DryRun  bool   `json:"dry_run,omitempty" jsonschema:"report what would change, and change nothing"`
+	File     string `json:"file" jsonschema:"the My Drive file or folder to hand over: a file id, any Drive URL, or a path from My Drive"`
+	FileName string `json:"file_name" jsonschema:"the name of the file or folder exactly as get_file shows it. Required: it says in the call itself what is handed over, and a name that is not the item's is refused with [stale]."`
+	To       string `json:"to" jsonschema:"the address of the person who becomes the owner"`
+	Message  string `json:"message,omitempty" jsonschema:"a line to include in the email Google always sends for a transfer"`
+	Confirm  bool   `json:"confirm,omitempty" jsonschema:"required to actually transfer. Without it the call is refused."`
+	DryRun   bool   `json:"dry_run,omitempty" jsonschema:"report what would change, and change nothing"`
 }
 
 // UnshareInput revokes one grant.
@@ -151,12 +154,12 @@ func registerWideShares(s *mcp.Server, d Deps) []string {
 			"a grant gives. ANYONE WITH THE LINK means everybody who has or guesses it, with no sign-in. The result " +
 			"shows who could see the file before and who can after. discoverable also makes it turn up in their " +
 			"search. unshare_file with remove_link takes it back, but not what was read or copied meanwhile. " +
-			"Needs confirm: true.",
+			"Needs confirm: true, and file_name: the item's name as get_file shows it.",
 		Annotations: widening,
 		Meta:        requiresUserInteraction(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ShareByLinkInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ShareByLink(ctx, service.ShareByLinkInput{
-			File: in.File, Principal: in.Principal, Role: in.Role, Discoverable: in.Discoverable,
+			File: in.File, FileName: in.FileName, Principal: in.Principal, Role: in.Role, Discoverable: in.Discoverable,
 			Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
 	})
@@ -167,12 +170,12 @@ func registerWideShares(s *mcp.Server, d Deps) []string {
 			"the access they have. Outside means an address whose domain is not this account's; for a personal " +
 			"Google account that is every address. The result shows who could see the file before and who can " +
 			"after. Accepted roles: " + strings.Join(service.GrantRoles(), ", ") + ". No email is sent unless " +
-			"notify is set. Needs confirm: true. What may actually be shared is decided by the organization's " +
-			"own policy, which Google enforces.",
+			"notify is set. Needs confirm: true, and file_name: the item's name as get_file shows it. What may " +
+			"actually be shared is decided by the organization's own policy, which Google enforces.",
 		Annotations: widening,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ShareOutsideInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ShareOutside(ctx, service.ShareOutsideInput{
-			File: in.File, Principal: in.Principal, Role: in.Role, Notify: in.Notify,
+			File: in.File, FileName: in.FileName, Principal: in.Principal, Role: in.Role, Notify: in.Notify,
 			Message: in.Message, Expires: in.Expires, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
 	})
@@ -182,11 +185,11 @@ func registerWideShares(s *mcp.Server, d Deps) []string {
 		Description: "Make another person the owner of a file or folder in My Drive. This account becomes a " +
 			"writer on it and CANNOT TAKE IT BACK: only the new owner can hand it on. Google always emails the new " +
 			"owner. A shared drive owns everything in it, so a file there has no owner to transfer. Needs " +
-			"confirm: true.",
+			"confirm: true, and file_name: the item's name as get_file shows it.",
 		Annotations: widening,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in TransferOwnershipInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.TransferOwnership(ctx, service.TransferOwnershipInput{
-			File: in.File, To: in.To, Message: in.Message, Confirm: in.Confirm, DryRun: in.DryRun,
+			File: in.File, FileName: in.FileName, To: in.To, Message: in.Message, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
 	})
 	return []string{"share_by_link", "share_outside_organization", "transfer_ownership"}

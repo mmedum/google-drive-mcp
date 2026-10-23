@@ -254,7 +254,10 @@ func LiftableRestrictions() []string { return []string{"domain_users_only"} }
 // LiftDriveRestrictionInput turns off one restriction that keeps a
 // shared drive's content inside the organization.
 type LiftDriveRestrictionInput struct {
-	Drive       string
+	Drive string
+	// DriveName is the drive's name as Drive has it: the witness that the
+	// call opens the drive the person reads in the client's prompt.
+	DriveName   string
 	Restriction string
 	Confirm     bool
 	DryRun      bool
@@ -283,8 +286,14 @@ func (s *Service) LiftDriveRestriction(ctx context.Context, in LiftDriveRestrict
 	if strings.TrimSpace(in.Drive) == "" {
 		return nil, Errorf(ClassInvalid, "drive is required: name the shared drive, by name or id")
 	}
+	if err := driveNameWitness.given(in.DriveName); err != nil {
+		return nil, err
+	}
 	d, err := s.findDrive(ctx, in.Drive)
 	if err != nil {
+		return nil, err
+	}
+	if err := driveNameWitness.holds(in.DriveName, d.Name); err != nil {
 		return nil, err
 	}
 	if err := driveChangeAllowed(d, DriveRestrict); err != nil {

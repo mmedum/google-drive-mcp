@@ -998,8 +998,8 @@ func TestDestructiveToolsExistOnlyWhenAskedFor(t *testing.T) {
 	if fake.Files["id-notes-fixture"] == nil {
 		t.Fatal("the file was deleted without confirm")
 	}
-	out = resultText(t, call(t, cs, "share_by_link", map[string]any{"file": "id-notes-fixture", "principal": "anyone",
-		"role": "reader"}))
+	out = resultText(t, call(t, cs, "share_by_link", map[string]any{"file": "id-notes-fixture",
+		"file_name": "Meeting notes", "principal": "anyone", "role": "reader"}))
 	if !strings.Contains(out, "confirm: true") || len(fake.Permissions["id-notes-fixture"]) != 0 {
 		t.Errorf("share_by_link ran without confirm:\n%s", out)
 	}
@@ -1164,21 +1164,22 @@ func toolArgs() map[string][]map[string]any {
 			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "owner"},
 		},
 		"share_by_link": {
-			{"file": "id-notes-fixture", "principal": "anyone", "role": "reader", "dry_run": true},
-			{"file": "id-notes-fixture", "principal": "domain:example.com", "role": "reader", "confirm": true},
-			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "reader", "confirm": true},
+			{"file": "id-notes-fixture", "file_name": "Meeting notes", "principal": "anyone", "role": "reader", "dry_run": true},
+			{"file": "id-notes-fixture", "file_name": "Meeting notes", "principal": "domain:example.com", "role": "reader", "confirm": true},
+			{"file": "id-notes-fixture", "file_name": "Meeting notes", "principal": "alice@example.com", "role": "reader", "confirm": true},
+			{"file": "id-notes-fixture", "file_name": "Notes", "principal": "anyone", "role": "reader", "confirm": true},
 		},
 		"share_outside_organization": {
-			{"file": "id-notes-fixture", "principal": "someone@example.org", "role": "reader", "confirm": true},
-			{"file": "id-notes-fixture", "principal": "alice@example.com", "role": "reader", "confirm": true},
+			{"file": "id-notes-fixture", "file_name": "Meeting notes", "principal": "someone@example.org", "role": "reader", "confirm": true},
+			{"file": "id-notes-fixture", "file_name": "Meeting notes", "principal": "alice@example.com", "role": "reader", "confirm": true},
 		},
 		"transfer_ownership": {
-			{"file": "id-notes-fixture", "to": "alice@example.com", "dry_run": true},
-			{"file": "id-notes-fixture", "to": "alice@example.com"},
+			{"file": "id-notes-fixture", "file_name": "Meeting notes", "to": "alice@example.com", "dry_run": true},
+			{"file": "id-notes-fixture", "file_name": "Meeting notes", "to": "alice@example.com"},
 		},
 		"lift_drive_restriction": {
-			{"drive": "Research", "restriction": "domain_users_only", "dry_run": true},
-			{"drive": "Research", "restriction": "members_only", "confirm": true},
+			{"drive": "Research", "drive_name": "Research", "restriction": "domain_users_only", "dry_run": true},
+			{"drive": "Research", "drive_name": "Research", "restriction": "members_only", "confirm": true},
 		},
 		"unshare_file": {
 			{"file": "id-notes-fixture", "remove_link": true},

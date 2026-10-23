@@ -115,7 +115,10 @@ type ShareFileInput struct {
 // ShareOutsideInput is one grant to make or change, for a person or a
 // group outside the organization.
 type ShareOutsideInput struct {
-	File      string
+	File string
+	// FileName is the item's name as Drive has it: the witness that the
+	// call opens the item the person reads in the client's prompt.
+	FileName  string
 	Principal string
 	Role      string
 	Notify    bool
@@ -129,7 +132,8 @@ type ShareOutsideInput struct {
 // ShareByLinkInput opens a file to anyone with the link, or to everyone
 // in a domain.
 type ShareByLinkInput struct {
-	File string
+	File     string
+	FileName string
 	// Principal is anyone, or domain:example.com.
 	Principal string
 	Role      string
@@ -146,7 +150,8 @@ type ShareByLinkInput struct {
 
 // TransferOwnershipInput hands a My Drive file to another person.
 type TransferOwnershipInput struct {
-	File string
+	File     string
+	FileName string
 	// To is the new owner's address.
 	To      string
 	Message string
@@ -169,6 +174,7 @@ const (
 type shareRequest struct {
 	tool         string
 	file         string
+	fileName     string
 	principal    string
 	role         string
 	notify       bool
@@ -178,6 +184,10 @@ type shareRequest struct {
 	confirm      bool
 	dryRun       bool
 }
+
+// wide is whether the share reaches past the people inside the
+// organization, or hands the file over: every tool but share_file.
+func (r shareRequest) wide() bool { return r.tool != toolShareFile }
 
 // ShareFile grants or changes a named person's or group's access, inside
 // the organization, and reports who could see the file before and who
@@ -190,15 +200,15 @@ func (s *Service) ShareFile(ctx context.Context, in ShareFileInput) (*Result, er
 // ShareOutside grants or changes access for a person or a group outside
 // the organization.
 func (s *Service) ShareOutside(ctx context.Context, in ShareOutsideInput) (*Result, error) {
-	return s.share(ctx, shareRequest{tool: toolShareOutside, file: in.File, principal: in.Principal, role: in.Role,
-		notify: in.Notify, message: in.Message, expires: in.Expires, confirm: in.Confirm, dryRun: in.DryRun})
+	return s.share(ctx, shareRequest{tool: toolShareOutside, file: in.File, fileName: in.FileName,
+		principal: in.Principal, role: in.Role, notify: in.Notify, message: in.Message, expires: in.Expires, confirm: in.Confirm, dryRun: in.DryRun})
 }
 
 // ShareByLink grants or changes access for anyone with the link, or for
 // everyone in a domain.
 func (s *Service) ShareByLink(ctx context.Context, in ShareByLinkInput) (*Result, error) {
-	return s.share(ctx, shareRequest{tool: toolShareByLink, file: in.File, principal: in.Principal, role: in.Role,
-		discoverable: in.Discoverable, confirm: in.Confirm, dryRun: in.DryRun})
+	return s.share(ctx, shareRequest{tool: toolShareByLink, file: in.File, fileName: in.FileName,
+		principal: in.Principal, role: in.Role, discoverable: in.Discoverable, confirm: in.Confirm, dryRun: in.DryRun})
 }
 
 // TransferOwnership makes another person the owner of a My Drive file,
@@ -207,8 +217,8 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferOwnershipInp
 	if strings.TrimSpace(in.To) == "" {
 		return nil, Errorf(ClassInvalid, "to is required: the address of the person who becomes the owner")
 	}
-	return s.share(ctx, shareRequest{tool: toolTransfer, file: in.File, principal: in.To, role: "owner",
-		message: in.Message, confirm: in.Confirm, dryRun: in.DryRun})
+	return s.share(ctx, shareRequest{tool: toolTransfer, file: in.File, fileName: in.FileName,
+		principal: in.To, role: "owner", message: in.Message, confirm: in.Confirm, dryRun: in.DryRun})
 }
 
 // share is the one path every share tool takes. Google's organization
@@ -217,7 +227,7 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferOwnershipInp
 // for, and which tool may do which.
 func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 	gate := s.sharable
-	if in.tool != toolShareFile {
+	if in.wide() {
 		gate = s.widening
 	}
 	if err := gate(in.tool); err != nil {
@@ -241,10 +251,7 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// A shortcut is the thing sitting in the folder, so sharing acts on
-	// it rather than on what it points at.
-	res, err := s.Resolve(ctx, in.file, ResolveOptions{FollowShortcut: false, Fresh: true})
+	res, err := s.shareTarget(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +287,7 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 	if in.dryRun {
 		return s.shareResult(ctx, res, before, before, plan, true), nil
 	}
-	if in.tool != toolShareFile {
+	if in.wide() {
 		what := fmt.Sprintf("let %s open %s, where they %s", principal.label(), f.Name, model.RoleWords(role))
 		if role == model.RoleOwner {
 			what = fmt.Sprintf("make %s the owner of %s and this account a writer on it, which only the new "+
@@ -299,6 +306,74 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 	s.forget(f, false)
 	res, after := s.rereadAfterSharing(ctx, res)
 	return s.shareResult(ctx, res, before, after, plan, false), nil
+}
+
+// A wide write carries the name of what it opens up, as a witness. The
+// client's prompt shows the call's arguments, and a name is what a person
+// recognizes there, where an id says nothing. It is compared with Drive's
+// own name for the item, so the name in the prompt is the item the call
+// reaches (§4a).
+type witness struct {
+	// field is the input that carries it; shownBy is the tool that reads
+	// the name to pass.
+	field, shownBy string
+}
+
+var (
+	fileNameWitness  = witness{field: "file_name", shownBy: "get_file"}
+	driveNameWitness = witness{field: "drive_name", shownBy: "list_drives"}
+)
+
+// given refuses a blank witness, before anything is read.
+func (w witness) given(v string) error {
+	if strings.TrimSpace(v) == "" {
+		return Errorf(ClassInvalid, "%s is required: the name exactly as %s shows it, so the call itself says "+
+			"what it opens up.", w.field, w.shownBy)
+	}
+	return nil
+}
+
+// holds refuses a witness that is none of the names Drive has for the
+// item; the first is the one the refusal quotes. Names are compared
+// exactly: two files in one folder can differ only in case.
+func (w witness) holds(v string, names ...string) error {
+	if slices.Contains(names, v) {
+		return nil
+	}
+	return Errorf(ClassStale, "%s is %q, but what this call reaches is named %q. Nothing was changed. Read "+
+		"it again with %s, and pass that name if it is the one meant.", w.field, v, names[0], w.shownBy)
+}
+
+// knownAs is every name a share's target goes by: its own, and for a
+// shared drive's root folder the drive's, which is the name list_drives
+// and a drive: reference use.
+func knownAs(res *Resolved) []string {
+	f := res.File
+	if f.DriveID != "" && f.ID == f.DriveID && res.DriveName != "" && res.DriveName != f.Name {
+		return []string{f.Name, res.DriveName}
+	}
+	return []string{f.Name}
+}
+
+// shareTarget resolves what a share acts on. A shortcut is the thing
+// sitting in the folder, so sharing acts on it rather than on what it
+// points at. A wide share's file_name must be a name Drive has for it.
+func (s *Service) shareTarget(ctx context.Context, in shareRequest) (*Resolved, error) {
+	if in.wide() {
+		if err := fileNameWitness.given(in.fileName); err != nil {
+			return nil, err
+		}
+	}
+	res, err := s.Resolve(ctx, in.file, ResolveOptions{FollowShortcut: false, Fresh: true})
+	if err != nil {
+		return nil, err
+	}
+	if in.wide() {
+		if err := fileNameWitness.holds(in.fileName, knownAs(res)...); err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
 }
 
 // shareToolTakes refuses a grantee the tool is not for, naming the tool

@@ -169,17 +169,18 @@ func TestLogsCarryNoTraceOfWhatWasTouched(t *testing.T) {
 	_, _ = destructive.DeleteComment(ctx, service.DeleteCommentInput{
 		File: secretFileID, Comment: "id-comment-fixture", Confirm: true})
 	// The wide shares take addresses and domains too.
+	// update_file renamed it above, and the witness is the name it has.
 	_, _ = destructive.ShareByLink(ctx, service.ShareByLinkInput{
-		File: secretFileID, Principal: "anyone", Role: "reader", Confirm: true})
+		File: secretFileID, FileName: secretFileName + " v2", Principal: "anyone", Role: "reader", Confirm: true})
 	_, _ = destructive.ShareByLink(ctx, service.ShareByLinkInput{
-		File: secretFileID, Principal: "domain:" + secretDomain, Role: "reader", Confirm: true})
+		File: secretFileID, FileName: secretFileName + " v2", Principal: "domain:" + secretDomain, Role: "reader", Confirm: true})
 	_, _ = destructive.ShareOutside(ctx, service.ShareOutsideInput{
-		File: secretFileID, Principal: "someone@" + secretDomain, Role: "reader", Message: secretContent, Notify: true,
+		File: secretFileID, FileName: secretFileName + " v2", Principal: "someone@" + secretDomain, Role: "reader", Message: secretContent, Notify: true,
 		Confirm: true})
 	_, _ = destructive.TransferOwnership(ctx, service.TransferOwnershipInput{
-		File: secretFileID, To: secretEmail, Message: secretContent, Confirm: true})
+		File: secretFileID, FileName: secretFileName + " v2", To: secretEmail, Message: secretContent, Confirm: true})
 	_, _ = destructive.LiftDriveRestriction(ctx, service.LiftDriveRestrictionInput{
-		Drive: secretDrive, Restriction: "domain_users_only", Confirm: true})
+		Drive: secretDrive, DriveName: secretDrive, Restriction: "domain_users_only", Confirm: true})
 
 	got := log.String()
 	if strings.TrimSpace(got) == "" {

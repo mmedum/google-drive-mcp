@@ -31,6 +31,7 @@ type ManageDriveInput struct {
 // shared drive's content inside the organization.
 type LiftDriveRestrictionInput struct {
 	Drive       string `json:"drive" jsonschema:"the shared drive, by name or id"`
+	DriveName   string `json:"drive_name" jsonschema:"the shared drive's name exactly as list_drives shows it. Required: it says in the call itself which drive is opened up, and a name that is not the drive's is refused with [stale]."`
 	Restriction string `json:"restriction" jsonschema:"the restriction to turn off: domain_users_only"`
 	Confirm     bool   `json:"confirm,omitempty" jsonschema:"required to actually turn it off. Without it the call is refused."`
 	DryRun      bool   `json:"dry_run,omitempty" jsonschema:"report what would change, and change nothing"`
@@ -86,11 +87,12 @@ func registerDrives(s *mcp.Server, d Deps) []string {
 		Description: "Turn off a shared drive restriction that keeps what is in the drive inside the " +
 			"organization. Restrictions: " + strings.Join(service.LiftableRestrictions(), ", ") + ". With " +
 			"domain_users_only off, the drive and what is in it can be shared with people outside the " +
-			"organization. manage_drive with action restrict turns it back on. Needs confirm: true.",
+			"organization. manage_drive with action restrict turns it back on. Needs confirm: true, and " +
+			"drive_name: the drive's name as list_drives shows it.",
 		Annotations: widening,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in LiftDriveRestrictionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.LiftDriveRestriction(ctx, service.LiftDriveRestrictionInput{
-			Drive: in.Drive, Restriction: in.Restriction, Confirm: in.Confirm, DryRun: in.DryRun,
+			Drive: in.Drive, DriveName: in.DriveName, Restriction: in.Restriction, Confirm: in.Confirm, DryRun: in.DryRun,
 		}))
 	})
 	return []string{"list_drives", "manage_drive", "lift_drive_restriction"}

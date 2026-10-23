@@ -249,7 +249,7 @@ func TestManageDriveLeavesDomainUsersOnlyOffToItsOwnTool(t *testing.T) {
 func TestLiftDriveRestriction(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
-	in := service.LiftDriveRestrictionInput{Drive: "Marketing", Restriction: "domain_users_only", Confirm: true}
+	in := service.LiftDriveRestrictionInput{Drive: "Marketing", DriveName: "Marketing", Restriction: "domain_users_only", Confirm: true}
 	if _, err := svc.LiftDriveRestriction(t.Context(), in); err == nil ||
 		!strings.HasPrefix(err.Error(), "[forbidden] lift_drive_restriction opens a file or a shared drive past") {
 		t.Fatalf("without the destructive flag: err = %v", err)
@@ -261,13 +261,13 @@ func TestLiftDriveRestriction(t *testing.T) {
 		in   service.LiftDriveRestrictionInput
 		want string
 	}{
-		{service.LiftDriveRestrictionInput{Drive: "Marketing", Restriction: "domain_users_only"},
+		{service.LiftDriveRestrictionInput{Drive: "Marketing", DriveName: "Marketing", Restriction: "domain_users_only"},
 			"[forbidden] lift_drive_restriction would turn off domain_users_only on the shared drive Marketing, " +
 				"which lets what is in it be shared with people outside the organization. Pass confirm: true"},
-		{service.LiftDriveRestrictionInput{Drive: "Marketing", Restriction: "members_only", Confirm: true},
+		{service.LiftDriveRestrictionInput{Drive: "Marketing", DriveName: "Marketing", Restriction: "members_only", Confirm: true},
 			"[invalid] lift_drive_restriction turns off only domain_users_only; manage_drive with action restrict " +
 				"turns members_only off."},
-		{service.LiftDriveRestrictionInput{Drive: "Marketing", Restriction: "everything", Confirm: true},
+		{service.LiftDriveRestrictionInput{Drive: "Marketing", DriveName: "Marketing", Restriction: "everything", Confirm: true},
 			`[invalid] restriction "everything" is not one of domain_users_only`},
 		{service.LiftDriveRestrictionInput{Restriction: "domain_users_only", Confirm: true},
 			"[invalid] drive is required"},
@@ -293,6 +293,42 @@ func TestLiftDriveRestriction(t *testing.T) {
 	again, err := svc.LiftDriveRestriction(t.Context(), in)
 	if err != nil || again.JSON.Action != "unchanged" {
 		t.Errorf("lifting it again: action %v, err %v; want unchanged", again, err)
+	}
+}
+
+// lift_drive_restriction carries the drive's name, compared exactly with
+// Drive's, so the client's prompt names the drive it opens up, whether
+// the call names it by id or by name. Dry runs included.
+func TestLiftDriveRestrictionHoldsTheDriveToItsName(t *testing.T) {
+	svc, fake := setup(t, service.Options{Destructive: true})
+	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
+	for _, tc := range []struct {
+		in   service.LiftDriveRestrictionInput
+		want string
+	}{
+		{service.LiftDriveRestrictionInput{Drive: "id-drive-marketing", Restriction: "domain_users_only", Confirm: true},
+			"[invalid] drive_name is required: the name exactly as list_drives shows it"},
+		{service.LiftDriveRestrictionInput{Drive: "id-drive-marketing", DriveName: "Sales",
+			Restriction: "domain_users_only", Confirm: true},
+			`[stale] drive_name is "Sales", but what this call reaches is named "Marketing". Nothing was changed. ` +
+				"Read it again with list_drives"},
+		{service.LiftDriveRestrictionInput{Drive: "Marketing", DriveName: "marketing",
+			Restriction: "domain_users_only", DryRun: true},
+			`[stale] drive_name is "marketing", but what this call reaches is named "Marketing".`},
+	} {
+		if _, err := svc.LiftDriveRestriction(t.Context(), tc.in); err == nil || !strings.HasPrefix(err.Error(), tc.want) {
+			t.Errorf("%+v: err = %v\nwant it to start %q", tc.in, err, tc.want)
+		}
+	}
+	if fake.Count(http.MethodPatch) != 0 {
+		t.Fatal("a lift under the wrong name reached Drive")
+	}
+	if _, err := svc.LiftDriveRestriction(t.Context(), service.LiftDriveRestrictionInput{Drive: "id-drive-marketing",
+		DriveName: "Marketing", Restriction: "domain_users_only", Confirm: true}); err != nil {
+		t.Fatalf("by id, under the drive's own name: %v", err)
+	}
+	if fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly {
+		t.Error("domain_users_only is still on")
 	}
 }
 

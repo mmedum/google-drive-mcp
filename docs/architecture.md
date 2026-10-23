@@ -333,6 +333,14 @@ an argument rides along unseen once its tool is always allowed.
    `transfer_ownership` and `discoverable` are gone from `share_file`.
    A wide grant is narrowed with the wide tool, or removed with
    `unshare_file`, which stays ordinary.
+
+   Each wide tool also takes `file_name`, and `lift_drive_restriction`
+   takes `drive_name`: the item's name, compared exactly with the one
+   Drive has, refused `[stale]` when it differs, dry run included. The
+   question these tools used to ask named the item. A client's prompt
+   shows the call's arguments, and a name is what a person recognizes
+   there, where an id says nothing. A shared drive's root also answers
+   to the drive's own name.
 2. **Outside** means an address whose domain is not the signed-in
    account's. A secondary domain of the same organization counts as
    outside, and so does every address when the account's own cannot be
@@ -536,7 +544,7 @@ for that id.
 
 Errors carry the fix, in a `[class] message` form: `auth`, `forbidden`, `not_found`, `ambiguous`, `exists`, `invalid`,
 `unsupported`, `blocked`, `rate_limited`, `server`, `network`,
-`ambiguous_outcome`, `unexpected`. The message quotes Google's own
+`ambiguous_outcome`, `pending`, `stale`, `unexpected`. The message quotes Google's own
 error when Google sends its error envelope. A failure without one, such
 as an HTML page from Google's front end, is never quoted: the message
 gives the HTTP status and what it means. A 413 or 414 is `invalid`, a
@@ -971,7 +979,8 @@ the grant has, and a new grant is by link only), `confirm` and
 `dry_run`. `transfer_ownership` takes `to`, `message`, `confirm` and
 `dry_run`; Google always mails a transfer, which the result says, and
 on a consumer account the result reads any pending acceptance off the
-answer. The three wide tools exist only with
+answer. Each of the three also takes `file_name`, the item's name as
+Drive has it, or `[stale]` (§4a). The three wide tools exist only with
 `GDRIVE_ENABLE_DESTRUCTIVE=true`. A principal that already has a grant is updated, and the
 result says "changed from reader to writer". The text shows exposure
 before and after; the JSON carries the permission id and the new sharing
@@ -997,7 +1006,8 @@ restriction flags (`domain_users_only`, `members_only`,
 so turning one off loosens the drive: with `GDRIVE_SHARING=off` that is
 refused, and turning one on is not. Turning `domain_users_only` off is
 refused `[blocked]` in any configuration, naming `lift_drive_restriction`,
-which takes `drive`, `restriction`, `confirm` and `dry_run` and exists
+which takes `drive`, `drive_name` (the drive's name, or `[stale]`),
+`restriction`, `confirm` and `dry_run` and exists
 only with `GDRIVE_ENABLE_DESTRUCTIVE=true` (§4a). `members_only` off stays
 here until the probe §17 records. `update_file`'s
 `copy_requires_writer_permission: false`, `writers_can_share: true`, a
@@ -1563,6 +1573,7 @@ honest option and the one a model can act on.
 | Google's sharing policy is the authority; the server adds only agent brakes: `canShare` checked first, notifications off by default, `GDRIVE_SHARING=off` available. *(2026-10-23: `anyone` is no longer double-gated by an argument. It, a domain, someone outside the organization and a new owner are each their own tool behind `GDRIVE_ENABLE_DESTRUCTIVE`.)* | §7.4, §4a |
 | The server asks the person nothing; the client approves each call; `GDRIVE_REQUIRE_PROMPT` set refuses to start (2026-10-22 for the family, 2026-10-23 here) | §4a; 3.0.0 |
 | Every risky variant is its own tool: `share_by_link`, `share_outside_organization`, `transfer_ownership`, `lift_drive_restriction`, `approve_file` (2026-10-23) | §4a, §8 |
+| A wide share names what it opens: `file_name` on the three wide shares and `drive_name` on `lift_drive_restriction`, compared exactly with Drive's, `[stale]` when they differ (2026-10-23, the §3 rule that an argument carries what the question showed) | §4a, §7.4, §7.5 |
 | A move, a copy or limited access turned off never reaches past the organization by omission; inside-only gains are ordinary (2026-10-23) | §4a, §7.3 |
 | On a personal Google account every address is outside (2026-10-23) | §4a; `get_account` says so |
 | The mark on `delete_file`, `empty_trash`, `delete_drive` and `share_by_link` only, for every client (2026-10-23) | §4a, §8 |
@@ -2042,7 +2053,7 @@ difference is a decision rather than a drift.
 | The staleness gate **deliberately fails** between the release commit and the tag | It passes, by accepting notes under an untagged version heading | Our release flow (§12) puts the release commit on a topic branch and requires CI green *before* the merge and therefore before the tag exists. A gate that fails there fails the release pull request. The gate still refuses an undocumented change: with the notes removed it fails, which is tested |
 | Widening access is never by omission | A new file made or uploaded into a folder shared with anyone stays an ordinary write, while a move or a copy of existing content there is refused (§4a) | Decided 2026-10-09 and kept 2026-10-23. `create_file` and `upload_file` put new content, written by the caller, where the caller named: nothing that fewer people could reach before becomes reachable by more, as a post in a space reaches its members. A move or a copy takes existing content, which someone else may have written for fewer people, to where the destination's reach is nowhere in the call |
 | `members_only` off is a wide form, its own tool | Still an ordinary `manage_drive` switch | Waiting on the live probe §17 records: whether turning it off restores access already granted to non-members decides whether it is a widening at all |
-| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Fourteen classes, including `ambiguous`, `blocked`, `rate_limited`, `ambiguous_outcome` and `pending` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organization's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 4 added `pending`: work Google has begun and not finished, which is a long-running download whose operation is still running. It is not `server`, which says something went wrong, and not `rate_limited`, which says you asked too often — nothing is wrong and nothing needs backing off from, and the same call in a minute picks up the finished render. A model told `server` would report a failure that did not happen.)* *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* *(Phase 10: `blocked` also covers this server's own refusal of a wide form in an ordinary tool — a share, a move or a copy past the organization, an outside access request, `domain_users_only` off — each naming the tool that does it behind the destructive flag. Both meanings say "not this way, and no argument here changes that": the organization's policy, or this server's rule.)* |
+| Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Fifteen classes, including `ambiguous`, `blocked`, `rate_limited`, `ambiguous_outcome`, `pending` and `stale` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organization's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 4 added `pending`: work Google has begun and not finished, which is a long-running download whose operation is still running. It is not `server`, which says something went wrong, and not `rate_limited`, which says you asked too often — nothing is wrong and nothing needs backing off from, and the same call in a minute picks up the finished render. A model told `server` would report a failure that did not happen.)* *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* *(Phase 10: `blocked` also covers this server's own refusal of a wide form in an ordinary tool — a share, a move or a copy past the organization, an outside access request, `domain_users_only` off — each naming the tool that does it behind the destructive flag. Both meanings say "not this way, and no argument here changes that": the organization's policy, or this server's rule.)* *(Phase 10 added `stale`: a wide share's `file_name` or `lift_drive_restriction`'s `drive_name` is not the name Drive has. It is the word the sibling servers use for a witness that does not match; `exists`, which `expect_head_revision` has used since phase 4, says something is already there.)* |
 
 ## 17a. Deferred cleanups
 

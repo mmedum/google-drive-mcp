@@ -616,10 +616,11 @@ func (w *writeRun) access(m made) {
 		w.needing("share_file", m.text, map[string]any{"file": m.text, "principal": w.share, "role": "writer"})
 	case "share_outside_organization":
 		w.needing("share_outside_organization", m.text, map[string]any{
-			"file": m.text, "principal": w.share, "role": "reader", "expires": "7d", "confirm": true,
+			"file": m.text, "file_name": textRenamed, "principal": w.share, "role": "reader", "expires": "7d",
+			"confirm": true,
 		})
 		w.needing("share_outside_organization", m.text, map[string]any{
-			"file": m.text, "principal": w.share, "role": "writer", "confirm": true,
+			"file": m.text, "file_name": textRenamed, "principal": w.share, "role": "writer", "confirm": true,
 		})
 	default:
 		return
@@ -673,16 +674,23 @@ func (w *writeRun) accountDomain() string {
 // share_by_link's, which needs confirm.
 func (w *writeRun) linkShare(m made) {
 	w.refusing("share_by_link", m.text, map[string]any{
-		"file": m.text, "principal": "anyone", "role": "reader",
+		"file": m.text, "file_name": textRenamed, "principal": "anyone", "role": "reader",
 	}, "confirm: true")
 	w.refusing("share_by_link", m.text, map[string]any{
-		"file": m.text, "principal": "someone@example.org", "role": "reader", "confirm": true,
+		"file": m.text, "file_name": textRenamed, "principal": "someone@example.org", "role": "reader",
+		"confirm": true,
 	}, "not an address")
+	// The name it had before organize renamed it: the witness is read
+	// from Drive, not from what this run once called the file.
+	w.refusing("share_by_link", m.text, map[string]any{
+		"file": m.text, "file_name": "rows.csv", "principal": "anyone", "role": "reader", "confirm": true,
+	}, "[stale]")
 	w.needing("share_by_link", m.text, map[string]any{
-		"file": m.text, "principal": "anyone", "role": "reader", "dry_run": true,
+		"file": m.text, "file_name": textRenamed, "principal": "anyone", "role": "reader", "dry_run": true,
 	})
 	w.needing("share_by_link", m.text, map[string]any{
-		"file": m.text, "principal": "anyone", "role": "reader", "discoverable": false, "confirm": true,
+		"file": m.text, "file_name": textRenamed, "principal": "anyone", "role": "reader", "discoverable": false,
+		"confirm": true,
 	})
 	w.needing("list_permissions", m.text, map[string]any{"file": m.text})
 	// The link grant is the one reach this run can give: visibility
@@ -694,7 +702,7 @@ func (w *writeRun) linkShare(m made) {
 			"visibility anyone finds the same file")
 	}
 	w.needing("share_by_link", m.text, map[string]any{
-		"file": m.text, "principal": "domain:example.com", "role": "reader", "dry_run": true,
+		"file": m.text, "file_name": textRenamed, "principal": "domain:example.com", "role": "reader", "dry_run": true,
 	})
 	w.needing("unshare_file", m.text, map[string]any{"file": m.text, "remove_link": true, "dry_run": true})
 	// By id rather than by principal, which is the path for a grant with
@@ -711,7 +719,7 @@ func (w *writeRun) linkShare(m made) {
 			"visibility limited finds the file once its link is gone")
 	}
 	w.needing("share_outside_organization", m.text, map[string]any{
-		"file": m.text, "principal": "someone@example.org", "role": "reader", "dry_run": true,
+		"file": m.text, "file_name": textRenamed, "principal": "someone@example.org", "role": "reader", "dry_run": true,
 	})
 }
 
@@ -729,8 +737,9 @@ func (w *writeRun) linkShare(m made) {
 // questions. For a transfer the second question is the only one that
 // matters, and the answer is in the owner line, not the status.
 func (w *writeRun) spikeF() {
+	const name = "ownership transfer probe"
 	transfer := w.createAndKeepID("create_file", map[string]any{
-		"name": "ownership transfer probe", "parent": w.scratchID,
+		"name": name, "parent": w.scratchID,
 		"content": "spike F: this file is about to change hands\n", "mime_type": "text/plain",
 	})
 	if transfer == "" {
@@ -739,10 +748,13 @@ func (w *writeRun) spikeF() {
 	}
 	before := ownerFromResult(w.call(call{tool: "get_file", args: map[string]any{"file": transfer}}))
 
-	w.needing("transfer_ownership", transfer, map[string]any{"file": transfer, "to": w.share, "dry_run": true})
+	w.needing("transfer_ownership", transfer, map[string]any{
+		"file": transfer, "file_name": name, "to": w.share, "dry_run": true,
+	})
 	w.out.Say("\n!! the next call hands this file to " + w.share + " for good.")
 	w.needing("transfer_ownership", transfer, map[string]any{
-		"file": transfer, "to": w.share, "message": "a scratch file from the live driver", "confirm": true,
+		"file": transfer, "file_name": name, "to": w.share, "message": "a scratch file from the live driver",
+		"confirm": true,
 	})
 
 	// The proof. A transfer that answers 200 and leaves the owner where
@@ -952,6 +964,10 @@ type made struct {
 	folder, doc, sheet, text, blob, small string
 }
 
+// textRenamed is the name organize gives the text file, and so the one
+// the wide shares after it carry as file_name.
+const textRenamed = "rows renamed.csv"
+
 // create makes one of everything, because several of Drive's rules turn
 // out to be per format rather than per kind of thing.
 func (w *writeRun) create() made {
@@ -1057,7 +1073,7 @@ func (w *writeRun) organize(m made) {
 	}
 
 	w.needing("update_file", m.text, map[string]any{
-		"file": m.text, "name": "rows renamed.csv", "starred": true,
+		"file": m.text, "name": textRenamed, "starred": true,
 		"properties": map[string]any{"livedrive": "yes"},
 	})
 	// An empty value deletes a property, and an empty description clears
@@ -1070,7 +1086,7 @@ func (w *writeRun) organize(m made) {
 	})
 	// A patch that changes nothing has to say so rather than reporting a
 	// write that did not happen.
-	w.needing("update_file", m.text, map[string]any{"file": m.text, "name": "rows renamed.csv"})
+	w.needing("update_file", m.text, map[string]any{"file": m.text, "name": textRenamed})
 	w.needing("update_file", m.folder, map[string]any{"file": m.folder, "color": "#4986e7"})
 
 	if m.text != "" && m.folder != "" {
@@ -1119,9 +1135,10 @@ func (w *writeRun) moveExposure() {
 			"link is refused: opening a folder by link is share_by_link's)")
 		return
 	}
-	open := w.createAndKeepID("create_folder", map[string]any{"name": "Open by link", "parent": w.scratchID})
+	const openName, fileName = "Open by link", "moves into the open folder.txt"
+	open := w.createAndKeepID("create_folder", map[string]any{"name": openName, "parent": w.scratchID})
 	file := w.createAndKeepID("create_file", map[string]any{
-		"name": "moves into the open folder.txt", "parent": w.scratchID,
+		"name": fileName, "parent": w.scratchID,
 		"content": "who can reach this depends on its folder\n", "mime_type": "text/plain",
 	})
 	if open == "" || file == "" {
@@ -1129,12 +1146,12 @@ func (w *writeRun) moveExposure() {
 		return
 	}
 	w.needing("share_by_link", open, map[string]any{
-		"file": open, "principal": "anyone", "role": "reader", "confirm": true,
+		"file": open, "file_name": openName, "principal": "anyone", "role": "reader", "confirm": true,
 	})
 	w.refusing("move_file", file, map[string]any{"file": file, "to": open, "dry_run": true}, "anyone with the link")
 	w.refusing("move_file", file, map[string]any{"file": file, "to": open}, "anyone with the link")
 	w.needing("share_by_link", file, map[string]any{
-		"file": file, "principal": "anyone", "role": "reader", "confirm": true,
+		"file": file, "file_name": fileName, "principal": "anyone", "role": "reader", "confirm": true,
 	})
 	moved := w.call(call{tool: "move_file", args: map[string]any{"file": file, "to": open}})
 	w.unpredicted(moved)
@@ -1234,7 +1251,8 @@ func (w *writeRun) downloads(m made) {
 // refused while the link would open it, naming anyone with the link
 // (§4a). Off goes once the link is gone.
 func (w *writeRun) limitedAccess() {
-	open := w.createAndKeepID("create_folder", map[string]any{"name": "Open around a limited one", "parent": w.scratchID})
+	const openName = "Open around a limited one"
+	open := w.createAndKeepID("create_folder", map[string]any{"name": openName, "parent": w.scratchID})
 	inner := ""
 	if open != "" {
 		inner = w.createAndKeepID("create_folder", map[string]any{"name": "Limited", "parent": open})
@@ -1244,7 +1262,9 @@ func (w *writeRun) limitedAccess() {
 		return
 	}
 	if w.destructive {
-		w.needing("share_by_link", open, map[string]any{"file": open, "principal": "anyone", "role": "reader", "confirm": true})
+		w.needing("share_by_link", open, map[string]any{
+			"file": open, "file_name": openName, "principal": "anyone", "role": "reader", "confirm": true,
+		})
 	}
 	card := w.call(call{tool: "update_file", args: map[string]any{"file": inner, "limited_access": true}})
 	if !strings.Contains(card, "limited access: only people added") {
@@ -1822,7 +1842,7 @@ func (w *writeRun) policyRefusal(m made) {
 		return
 	}
 	out, isError, err := w.sess.CallTool("share_outside_organization", map[string]any{
-		"file": m.text, "principal": w.blocked, "role": "reader", "confirm": true,
+		"file": m.text, "file_name": textRenamed, "principal": w.blocked, "role": "reader", "confirm": true,
 	})
 	if err != nil {
 		w.out.Sayf("!! transport failure: %v", err)

@@ -318,7 +318,10 @@ organization: `share_by_link` opens a file to anyone with the link or a
 whole domain, `share_outside_organization` grants someone outside it,
 `transfer_ownership` hands a file to a new owner, and
 `lift_drive_restriction` lets a shared drive's content be shared outside
-the organization.
+the organization. These four also take the name of what they open up,
+`file_name` or `drive_name`, so the call your client shows you for
+approval says which file or drive it is; a name that is not the item's
+is refused.
 
 Three of the reads are also **resources**, for a client that attaches
 them rather than calling a tool: `gdrive://<id>` is the file's text,

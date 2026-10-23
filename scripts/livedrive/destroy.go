@@ -530,13 +530,17 @@ func (d *destroyRun) liftDomainUsersOnly() {
 		"restrictions": map[string]any{"domain_users_only": false},
 	}, "lift_drive_restriction does it")
 	d.refusing("lift_drive_restriction", d.driveID, map[string]any{
-		"drive": d.driveID, "restriction": "domain_users_only",
+		"drive": d.driveID, "drive_name": d.driveName, "restriction": "domain_users_only",
 	}, "confirm: true")
+	d.refusing("lift_drive_restriction", d.driveID, map[string]any{
+		"drive": d.driveID, "drive_name": d.driveName + " (another)", "restriction": "domain_users_only",
+		"confirm": true,
+	}, "[stale]")
 	d.needing("lift_drive_restriction", d.driveID, map[string]any{
-		"drive": d.driveID, "restriction": "domain_users_only", "dry_run": true,
+		"drive": d.driveID, "drive_name": d.driveName, "restriction": "domain_users_only", "dry_run": true,
 	})
 	lifted := d.call(call{tool: "lift_drive_restriction", args: map[string]any{
-		"drive": d.driveID, "restriction": "domain_users_only", "confirm": true,
+		"drive": d.driveID, "drive_name": d.driveName, "restriction": "domain_users_only", "confirm": true,
 	}})
 	if !strings.Contains(lifted, "restriction domain_users_only: yes → no") {
 		d.problem("lift_drive_restriction does not report domain_users_only going from on to off",
