@@ -15,7 +15,7 @@ than one per run.
 
 | Variable | Flag | Default | Meaning |
 |---|---|---|---|
-| `GDRIVE_PROFILE` | `--profile` | `default` | Named profile. Each profile keeps its own client secret, refresh token and account, so one machine can hold several Google accounts. Lower case, digits, `-` and `_`. |
+| `GDRIVE_PROFILE` | `--profile` | `default` | Named profile. Each profile keeps its own client secret, refresh token and account, so one machine can hold several Google accounts. Up to 64 characters from a to z, 0 to 9, `-` and `_`, starting with a letter or digit; capitals are read as lowercase. |
 | `GDRIVE_CLIENT_SECRET` | `--client-secret` | the profile's `client_secret.json` | Path to the Desktop-app OAuth client JSON downloaded from the Google Cloud console. |
 | `GDRIVE_LOG_LEVEL` | `--log-level` | `info` | `debug`, `info`, `warn` or `error`. Logs go to stderr; stdout carries only JSON-RPC. |
 | `GDRIVE_LOG_FORMAT` | `--log-format` | `text` | `text` or `json`. |

@@ -22,13 +22,15 @@ import (
 	"time"
 
 	"github.com/zalando/go-keyring"
+
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 )
 
 // ServiceName is the keyring service identifier.
 const ServiceName = "google-drive-mcp"
 
 // EnvVar is the environment override.
-const EnvVar = "GDRIVE_REFRESH_TOKEN"
+const EnvVar = config.EnvRefreshToken
 
 // Source identifies where a token came from.
 type Source string

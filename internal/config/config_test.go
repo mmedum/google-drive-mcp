@@ -4,11 +4,18 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +26,117 @@ import (
 func build(t *testing.T, env map[string]string, args ...string) (Config, error) {
 	t.Helper()
 	return Load(args, func(k string) string { return env[k] })
+}
+
+// A setting given as spaces alone is unset, as an empty one is, so a
+// form field cleared to a space starts the server with the default.
+func TestASettingOfSpacesIsUnset(t *testing.T) {
+	want, err := build(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := map[string]bool{}
+	for _, r := range removedSettings {
+		removed[EnvPrefix+r.key] = true
+	}
+	n := 0
+	for _, v := range Vars() {
+		if removed[v.Name] || slices.Contains(envOnly, v.Name) {
+			continue
+		}
+		n++
+		got, err := build(t, map[string]string{v.Name: "  "})
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s=\"  \": %+v, %v; want the unconfigured configuration", v.Name, got, err)
+		}
+	}
+	if n < 12 {
+		t.Errorf("checked %d settings, want every one Define binds", n)
+	}
+}
+
+// Build's refusal of a sharing mode lists the modes, as the bundle's
+// field does.
+func TestSharingRule(t *testing.T) {
+	if SharingRule != "all or off" {
+		t.Errorf("SharingRule = %q, want \"all or off\"", SharingRule)
+	}
+	_, err := build(t, map[string]string{"GDRIVE_SHARING": "internal"})
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "(want all or off)") {
+		t.Errorf("GDRIVE_SHARING=internal: %v; want it refused, listing the modes", err)
+	}
+}
+
+// Every GDRIVE_ variable the server's code names, as a literal or as
+// EnvPrefix and a literal, is one EnvVars lists, so a variable read
+// outside Define cannot escape the bundle and staleness gates. The scan
+// must find the two read outside Define, or it read nothing.
+func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
+	known := map[string]bool{}
+	for _, name := range EnvVars() {
+		known[name] = true
+	}
+	name := regexp.MustCompile(`^GDRIVE_[A-Z0-9][A-Z0-9_]*$`)
+	found := map[string]string{}
+	fset := token.NewFileSet()
+	for _, root := range []string{"../../cmd", "../../internal"} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			f, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return err
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				var lit *ast.BasicLit
+				prefix := ""
+				switch n := n.(type) {
+				case *ast.BinaryExpr:
+					if id, ok := n.X.(*ast.Ident); ok && id.Name == "EnvPrefix" {
+						lit, _ = n.Y.(*ast.BasicLit)
+						prefix = EnvPrefix
+					} else if sel, ok := n.X.(*ast.SelectorExpr); ok && sel.Sel.Name == "EnvPrefix" {
+						lit, _ = n.Y.(*ast.BasicLit)
+						prefix = EnvPrefix
+					}
+				case *ast.BasicLit:
+					lit = n
+				}
+				if lit == nil || lit.Kind != token.STRING {
+					return true
+				}
+				s, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					return true
+				}
+				// A literal of words, such as a message, names its
+				// variables among them.
+				for _, word := range strings.FieldsFunc(prefix+s, func(r rune) bool {
+					return r != '_' && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+				}) {
+					if name.MatchString(word) {
+						found[word] = fset.Position(lit.Pos()).String()
+					}
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, v := range []string{EnvConfigDir, EnvRefreshToken} {
+		if _, ok := found[v]; !ok {
+			t.Errorf("the scan did not find %s, which is read outside Define; it read too little", v)
+		}
+	}
+	for _, v := range slices.Sorted(maps.Keys(found)) {
+		if !known[v] {
+			t.Errorf("%s names %s, which EnvVars does not list", found[v], v)
+		}
+	}
 }
 
 func TestLoad(t *testing.T) {

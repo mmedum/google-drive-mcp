@@ -16,8 +16,6 @@ import (
 	"time"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
-	"github.com/mmedum/google-drive-mcp/v3/internal/credentials"
-	"github.com/mmedum/google-drive-mcp/v3/internal/userconfig"
 )
 
 // The Claude Desktop bundle. A `.mcpb` is a zip carrying a manifest, the
@@ -806,8 +804,8 @@ var bundleLeftOut = map[string]string{
 	config.EnvPrefix + "LOG_FORMAT":     "diagnostics, set by hand while chasing a problem",
 	config.EnvPrefix + "HTTP_TIMEOUT":   "tuning, whose default suits an install",
 	config.EnvPrefix + "REQUIRE_PROMPT": "removed in 3.0.0, and read only to refuse it set",
-	userconfig.EnvDir:                   "moves every profile, which tests do; a second account is a profile",
-	credentials.EnvVar:                  "a credential for automation; a bundle install uses the login's keyring entry",
+	config.EnvConfigDir:                 "moves every profile, which tests do; a second account is a profile",
+	config.EnvRefreshToken:              "a credential for automation; a bundle install uses the login's keyring entry",
 }
 
 // askedFrom is what the bundle asks for at install: every variable the
@@ -840,22 +838,10 @@ func bundleKey(name string) string {
 // accepts, since it refuses anything else at start, each with the words
 // the field must carry.
 func fieldRules() map[string]string {
-	modes := make([]string, 0, len(config.SharingModes))
-	for _, m := range config.SharingModes {
-		modes = append(modes, string(m))
-	}
 	return map[string]string{
 		config.EnvPrefix + "PROFILE": config.ProfileRule,
-		config.EnvPrefix + "SHARING": orList(modes),
+		config.EnvPrefix + "SHARING": config.SharingRule,
 	}
-}
-
-// orList writes words as a person lists them: "a, b or c".
-func orList(words []string) string {
-	if len(words) < 2 {
-		return strings.Join(words, "")
-	}
-	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
 }
 
 // settingProblems holds what the bundle asks for to the server's own
@@ -1087,13 +1073,19 @@ func defaultsProblems(d bundleDefaults) []string {
 }
 
 // configDiff names the fields two configurations disagree on.
-func configDiff(a, b config.Config) []string {
+func configDiff(a, b any) []string {
 	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
 	var fields []string
 	for i := range va.NumField() {
-		if !reflect.DeepEqual(va.Field(i).Interface(), vb.Field(i).Interface()) {
-			fields = append(fields, va.Type().Field(i).Name)
+		f := va.Type().Field(i)
+		if f.IsExported() && !reflect.DeepEqual(va.Field(i).Interface(), vb.Field(i).Interface()) {
+			fields = append(fields, f.Name)
 		}
+	}
+	// An unexported field cannot be read out by name; one that differs
+	// is still a difference.
+	if len(fields) == 0 && !reflect.DeepEqual(a, b) {
+		fields = append(fields, "an unexported field")
 	}
 	return fields
 }

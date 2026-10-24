@@ -14,6 +14,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - A profile name with a character that Unicode lowers into a to z, such as the Kelvin sign (U+212A), is refused rather than read as another profile's name.
+- A setting given as spaces alone means its default, as an empty one does; a field cleared to a space no longer stops the server.
 
 ## [3.1.0] - 2026-10-24
 

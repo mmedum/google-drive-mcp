@@ -21,9 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/mmedum/google-drive-mcp/v3/internal/credentials"
-	"github.com/mmedum/google-drive-mcp/v3/internal/userconfig"
 )
 
 // EnvPrefix is prepended to every environment variable name.
@@ -130,10 +127,17 @@ type Var struct {
 	Switch bool
 }
 
-// envOnly is every variable read outside Define, for Vars: the profile
-// directory, which internal/userconfig reads before any flag is parsed,
-// and the refresh token, which internal/credentials reads.
-var envOnly = []string{userconfig.EnvDir, credentials.EnvVar}
+// The variables read outside Define. internal/userconfig reads the
+// profile directory before any flag is parsed, and internal/credentials
+// the refresh token; each takes its name from here, so config imports
+// neither.
+const (
+	EnvConfigDir    = EnvPrefix + "CONFIG_DIR"
+	EnvRefreshToken = EnvPrefix + "REFRESH_TOKEN"
+)
+
+// envOnly is every variable read outside Define, for Vars.
+var envOnly = []string{EnvConfigDir, EnvRefreshToken}
 
 // removedSettings are the settings a release took out, each with what to
 // do instead. Off is still accepted. On, or a value that is not a
@@ -180,7 +184,9 @@ func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	}
 	bind := func(p *string, name, key, fallback, usage string, isSwitch bool) {
 		v := read(EnvPrefix+key, isSwitch)
-		if v == "" {
+		// Spaces alone are unset too: a form field cleared to a space
+		// means the default, not a value Build refuses.
+		if strings.TrimSpace(v) == "" {
 			v = fallback
 		}
 		fs.StringVar(p, name, v, usage+" [env "+EnvPrefix+key+"]")
@@ -228,9 +234,21 @@ func EnvVars() []string {
 	return slices.Compact(names)
 }
 
-// SharingModes are the GDRIVE_SHARING values Build accepts, which the
-// bundle's sharing field lists.
+// SharingModes are the GDRIVE_SHARING values Build accepts.
 var SharingModes = []Sharing{SharingAll, SharingOff}
+
+// SharingRule is SharingModes in words, "all or off", which Build's
+// refusal and the bundle's sharing field both give.
+var SharingRule = func() string {
+	words := make([]string, 0, len(SharingModes))
+	for _, m := range SharingModes {
+		words = append(words, string(m))
+	}
+	if len(words) < 2 {
+		return strings.Join(words, "")
+	}
+	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
+}()
 
 // ProfileRule is profilePattern in words, which Build's refusal and the
 // bundle's profile field both give.
@@ -292,7 +310,7 @@ func (s *Settings) Build() (Config, error) {
 
 	c.Sharing = Sharing(strings.ToLower(strings.TrimSpace(s.Sharing)))
 	if !slices.Contains(SharingModes, c.Sharing) {
-		errs = append(errs, fmt.Errorf("%w: sharing %q (want all or off)", ErrInvalid, s.Sharing))
+		errs = append(errs, fmt.Errorf("%w: sharing %q (want %s)", ErrInvalid, s.Sharing, SharingRule))
 	}
 
 	if dir := strings.TrimSpace(s.LocalDir); dir != "" {

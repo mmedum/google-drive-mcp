@@ -1516,9 +1516,9 @@ honest option and the one a model can act on.
   the base's (§18). Every command starts with `${__dirname}/` and names
   a program the packer stages (§18). The profile field states
   `config.ProfileRule` and the sharing field the modes the server
-  accepts. The server refuses no combination of the fields, and the
-  gate holds that: it starts every set of the switches and fails on a
-  refusal no field warns of. Read-only leaves the destructive switch
+  accepts. The server refuses no combination of the switches, and the
+  gate holds that: it starts every set of them and fails on a refusal
+  no field warns of. The other fields are each checked on their own. Read-only leaves the destructive switch
   nothing to register, and `sharing` off takes its four sharing tools,
   so those fields say so. The bundle stages
   `server/google-drive-mcp-darwin`, `server/google-drive-mcp.exe`,
@@ -2105,6 +2105,19 @@ maintainer's decision, the OAuth client file is optional: left empty,
 the server uses the client login recorded. Skipped: holding the tools a
 field names to the tools its setting registers (§17a), and the copies
 of the settings list in the README, this file and the CHANGELOG.
+`/code-review high` of `v3.0.0..HEAD` then found, fixed with a test
+each that failed first: a variable read outside Define was a list
+typed by hand, so a new one would escape both gates (a test now finds
+every `GDRIVE_` name the code spells and holds it to `EnvVars`); a
+setting of spaces alone skipped its default and stopped the server;
+`config` imported the keyring for two names, which it now owns; the
+sharing refusal typed the modes the field derives; the defaults
+comparison would panic on an unexported field; `docs/configuration.md`
+still gave the old profile wording; and this file claimed the gate
+tries every combination of the fields, where it tries the switches.
+Kept: the declared list of refused sets, empty today, since the
+family's servers share the mechanism and its tests force a real
+refusal. `/security-review`: no finding at confidence 8 or above.
 
 ## 17. Open decisions
 
