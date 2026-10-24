@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-10-24
+
 ### Changed
 
 - The bundle's OAuth client file is optional, so a person who signed in with `google-drive-mcp login` does not pick it again; left empty, the server uses the client that login recorded for the profile.
@@ -2182,6 +2184,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[3.1.1]: https://github.com/mmedum/google-drive-mcp/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.2.0...v3.0.0
 [2.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.1.0...v2.2.0

@@ -1,10 +1,16 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 10 complete (2026-10-23), released as v3.1.0
-(2026-10-24). v3.1.0 gives the Claude Desktop bundle the shape the
-sibling servers' bundles share: every setting another client sets,
-each off or empty by default, the shared file names and Google's
-privacy policy. The server is unchanged, so no live run was owed.
+**Status:** phase 10 complete (2026-10-23), released as v3.1.1
+(2026-10-24). v3.1.1 is 3.1.0's bundle work reviewed after its release
+by `/simplify`, three `/code-review high` rounds and a security review
+(§16): the bundle gate derives what it asks for from the server's
+settings and refuses `args` or an override that would turn a switch on,
+the OAuth client file is optional, the profile field states the name
+rule, and a profile name is lowered A to Z alone. Two live runs with
+`-write`, their transcripts read, made 254 and 253 calls, all as
+expected. v3.1.0 (2026-10-24) gave the Claude Desktop bundle the shape
+the sibling servers' bundles share, and skipped the live run this
+repository's definition of done asks for; 3.1.1's runs cover it.
 v3.0.0 (2026-10-23), built with Go 1.27.3: the server asks the person nothing,
 and the client approves each call. A link for anyone, a domain, someone
 outside the organization, a new owner and lifting a shared drive's
@@ -2118,7 +2124,14 @@ still gave the old profile wording; and this file claimed the gate
 tries every combination of the fields, where it tries the switches.
 Kept: the declared list of refused sets, empty today, since the
 family's servers share the mechanism and its tests force a real
-refusal. `/security-review`: no finding at confidence 8 or above.
+refusal. `/security-review`: no finding at confidence 8 or above. A
+second `/code-review high`, of those fixes, found the spaces fix
+stopping short of the two variables read outside Define, a scan floor
+that could no longer fail, a scan blind to longer `+` chains, and a
+diff helper typed `any` for its test; each is fixed with a test that
+failed first. Two live runs with `-write`, their transcripts read, made
+254 and 253 calls, all as expected; the second printed one comment
+reply id the redactor left in place (§17a).
 
 ## 17. Open decisions
 
@@ -2201,6 +2214,12 @@ Raised by the 3.1.0 review (2026-10-24), and left for the maintainer:
   the tools their setting registers, and no check compares the list
   with registration. It would take a registered-tool diff per key, a
   mechanism no sibling has.
+- **The live transcript's redactor leaves two things in place.** The
+  organization's domain, where the instructions name who `share_file`
+  reaches, and, in one of two runs on 2026-10-24, a comment reply id
+  in the note `reply_comment` writes on reopening a thread. The
+  transcript is redacted so it can be shared, so until both are fixed
+  it is read before it is shared, as the run's own last line asks.
 
 Raised by the phase 10 reviews (2026-10-23), and left for the
 maintainer:
@@ -3005,7 +3024,7 @@ for the next run:
 | A permanent delete needs `GDRIVE_ENABLE_DESTRUCTIVE` (hard rule 5) | **Kept, with one exception decided 2026-10-09:** the temporary copy `extract_text` makes and deletes in the same call. It was never the person's, nobody has seen it, and putting it in the trash would leave a copy of their file there for 30 days | The delete reaches only the Google Doc Drive's answer to the copy named, never the source, and runs under its own deadline even when the call was canceled |
 | A file card shows everyone who can reach a Google Form (unstated) | **Unverified, and probably not.** The Forms guide, <https://developers.google.com/workspace/forms/api/guides/publish-form>, updated 2026-09-03: "A responder is a permission with view='published' and role='reader'", anyone with the link as a responder is "a permission with type 'anyone', view 'published', and role 'reader'", and listing them needs "the query parameter `includePermissionsForView=published`". The `files.get` reference, updated 2026-03-20, says that parameter "Specifies which additional view's permissions to include in the response. Only `published` is supported." This server never sends it. A live run on 2026-10-09 found a Form whose card said "private to you" among the files a search for `visibility: link` and `anyone` returned. A second run the same day saw it again: the Form it created read "private to you" on its card, and both searches returned it. A third saw the same. Still unverified: no run looked at the published view | Nothing changed yet. A check by hand settles it: `get_file` on a Form published to anyone with the link, against `files.get` with `includePermissionsForView=published`. If the card under-reports, a Form's reads should ask for the published view and count its responders apart from its editors |
 | Pinning a comment belongs to the Docs API, for every Google document (what `list_comments` said of every kind until 2026-10-09) | **Refuted for Sheets and Slides** against the discovery documents, fetched 2026-10-09: Sheets v4, Docs v1 and Slides v1 each publish an `InsertCommentRequest`, tied to a `GridCoordinate` in a sheet, a `Range` in a document, and a page or a page element in a presentation | `list_comments` names the kind, the place a comment pins to there and the API that pins it. Another Google kind gets the sentence without an API. `add_comment`'s description names all three |
-| `use_content_as_indexable_text` makes an upload of a type Drive does not read searchable by its words, and does nothing for a type it reads (what the tool's description says) | **Confirmed live 2026-10-09 for a type Drive does not read**, on the third run. The same 51 bytes went up twice as `application/octet-stream`, once with the flag. A search for a word only those bytes hold found the flagged copy on the first try, and the other copy on neither of two searches. The `files.create` and `files.update` parameters in the discovery document fetched 2026-10-09 (revision 20261005) say only "Whether to use the uploaded content as indexable text." **Unverified** for a type Drive reads: the first two runs sent the flag on a text file and checked nothing | The description stands. The live driver keeps the step: it uploads the same bytes with and without the flag, searches for the word, and says so when the copy without the flag is found too. An empty search after 30 s is reported as unverified, as the other searches are |
+| `use_content_as_indexable_text` makes an upload of a type Drive does not read searchable by its words, and does nothing for a type it reads (what the tool's description says) | **Confirmed live 2026-10-09 for a type Drive does not read**, on the third run. The same 51 bytes went up twice as `application/octet-stream`, once with the flag. A search for a word only those bytes hold found the flagged copy on the first try, and the other copy on neither of two searches. The `files.create` and `files.update` parameters in the discovery document fetched 2026-10-09 (revision 20261005) say only "Whether to use the uploaded content as indexable text." **Unverified** for a type Drive reads: the first two runs sent the flag on a text file and checked nothing On 2026-10-24 two runs sent the same pair: in the first the unflagged copy was not found, as before; in the second it was, so Drive sometimes reads `application/octet-stream` itself, and a run shows the flag's effect only when it does not | The description stands. The live driver keeps the step: it uploads the same bytes with and without the flag, searches for the word, and says so when the copy without the flag is found too. An empty search after 30 s is reported as unverified, as the other searches are |
 | A download by the current revision's id can be checked against the file's `md5Checksum` (what `download_file` assumes since 2026-10-09; before, a download with any `revision` went unchecked) | **Confirmed live 2026-10-09** on the third run. A CSV downloaded by its head revision's id read "verified against Drive's md5", as did plain downloads of a CSV and of a 6 MiB binary. The same file's older revision read "not compared". The discovery document (revision 20261005) calls `md5Checksum` "The MD5 checksum for the content of the file" and `headRevisionId` "The ID of the file's head revision"; it does not say the two describe the same bytes | `download_file` compares the bytes when `revision` is empty or is the head revision's id. An older revision is not compared, and the result says so |
 | The live driver can read from its own source which flag each option it did not send waits for (what its end-of-run report assumes since 2026-10-09; before, it said every such option sat behind `-file`, `-share` or `-drive`) | **Confirmed live 2026-10-09** on the third run, the first with the new report. It passed `-write` alone and sent 147 of 170 options in 267 calls. It named the eight options its source sends and the run did not, each with the flag it lacked: `-labels` for one, `-destructive` for four, `-share` for two, and "`-blocked` or `-share`" for `unshare_file.principal`. None fell to the warning kept for an option no missing flag explains | The report names each unsent option with the flag the run lacked, so the owed list at the head of this block names modes rather than options. A tool the run never called, here `list_drives` and `manage_drive`, is named once rather than by option |
 | A Markdown file in Drive is a blob like any other, whose bytes `update_content` may replace whole (what this server assumed until 2026-10-14) | **Changed by Google on 2026-10-05.** The launch post, <https://workspaceupdates.googleblog.com/2026/10/preview-edit-and-collaborate-on-Markdown-files-natively-across-Drive-and-Docs.html>: people "view, edit, and collaborate on Markdown (.md or .markdown) files directly in Google Docs" and "without changing the file type". The Help Center, <https://support.google.com/docs/answer/18289341>, read 2026-10-14: "Work with others right away using comments". Where those comments are kept is published nowhere. **Measured live 2026-10-13 and 2026-10-14:** a comment made in the Docs editor is written into the file's text, as `<!-- gdoc_comment_begin: KEY -->` and `<!-- gdoc_comment_end: KEY -->` around the passage and an entry under the key in a `gdoc_comments` block that has to end the file, and `comments.list` does not return it. Text after the block made the editor show the block as body text. A `RESOLVED` status written into the text, on an entry without the token the editor gives its own, made the Docs API fail to read the file until it was put back | `update_content` on a `text/markdown` file refuses content that loses one of those comments unless `allow_comment_changes` (§7.2), and `read_file`, `get_file` and `list_comments` say where they are (§7.7). The live driver writes a comment into a file's text the way the editor does and checks the refusal, the override and the notes |
