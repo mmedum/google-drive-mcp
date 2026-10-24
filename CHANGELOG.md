@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-10-24
+
 ### Fixed
 
 - `GDRIVE_CONFIG_DIR` and `GDRIVE_REFRESH_TOKEN` drop the spaces around their value, as every other setting does, so a refresh token with a stray space is no longer sent to Google with it.
@@ -2189,6 +2191,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[3.1.2]: https://github.com/mmedum/google-drive-mcp/compare/v3.1.1...v3.1.2
 [3.1.1]: https://github.com/mmedum/google-drive-mcp/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.2.0...v3.0.0

@@ -1,7 +1,13 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 10 complete (2026-10-23), released as v3.1.1
-(2026-10-24). v3.1.1 is 3.1.0's bundle work reviewed after its release
+**Status:** phase 10 complete (2026-10-23), released as v3.1.2
+(2026-10-24). v3.1.2 is the family sweep of 2026-10-24 (§16): every
+reader trims through `config.Lookup`, the refresh token and config
+directory included, and the bundle gate holds the identity, refuses a
+repeated key, needs a semver release version and reads names whole-word;
+reviewed by `/simplify`, `/code-review medium` and `/security-review`, and
+a live run with `-write` of 253 calls passed, its transcript read.
+v3.1.1 (2026-10-24) is 3.1.0's bundle work reviewed after its release
 by `/simplify`, three `/code-review high` rounds and a security review
 (§16): the bundle gate derives what it asks for from the server's
 settings and refuses `args` or an override that would turn a switch on,
