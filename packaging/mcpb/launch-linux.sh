@@ -16,10 +16,10 @@ dir=$(dirname "$0")
 
 case $(uname -m) in
   x86_64 | amd64)
-    bin=$dir/google-drive-mcp-amd64
+    bin=$dir/google-drive-mcp-linux-amd64
     ;;
   aarch64 | arm64)
-    bin=$dir/google-drive-mcp-arm64
+    bin=$dir/google-drive-mcp-linux-arm64
     ;;
   *)
     # stderr, because stdout is the JSON-RPC channel and a line of

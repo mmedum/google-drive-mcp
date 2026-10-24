@@ -62,9 +62,9 @@ func TestARealVersionInTheTreeIsRefused(t *testing.T) {
 // manifest that is well formed and names files nobody packed.
 func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 	packed := map[string]string{
-		"server/google-drive-mcp":     "somewhere",
-		"server/linux-launch.sh":      "somewhere",
-		"server/google-drive-mcp.exe": "somewhere",
+		"server/google-drive-mcp-darwin": "somewhere",
+		"server/launch-linux.sh":         "somewhere",
+		"server/google-drive-mcp.exe":    "somewhere",
 	}
 	good := func() map[string]any {
 		return map[string]any{
@@ -76,6 +76,8 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			"manifest_version": "0.3", "name": "n",
 			"support": "https://example.invalid/issues",
 			"version": "1.0.0", "description": "d", "author": map[string]any{"name": "Example Maintainer"},
+			"privacy_policies": []any{"https://policies.google.com/privacy"},
+			"compatibility":    map[string]any{"claude_desktop": ">=0.10.0"},
 			// A real user_config entry: the schema requires a type, a
 			// title and a description on each one, and a fixture that
 			// omits them has stopped describing what it stands for.
@@ -86,12 +88,12 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			}},
 			"server": map[string]any{
 				"type":        "binary",
-				"entry_point": "server/google-drive-mcp",
+				"entry_point": "server/google-drive-mcp-darwin",
 				"mcp_config": map[string]any{
-					"command": "${__dirname}/server/google-drive-mcp",
+					"command": "${__dirname}/server/google-drive-mcp-darwin",
 					"env":     map[string]any{"GDRIVE_CLIENT_SECRET": "${user_config.client_secret}"},
 					"platform_overrides": map[string]any{
-						"linux": map[string]any{"command": "${__dirname}/server/linux-launch.sh"},
+						"linux": map[string]any{"command": "${__dirname}/server/launch-linux.sh"},
 						"win32": map[string]any{"command": "${__dirname}/server/google-drive-mcp.exe"},
 					},
 				},
@@ -141,7 +143,7 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 		{
 			name: "an override for a platform the bundle does not claim",
 			break_: func(m map[string]any) {
-				m["compatibility"] = map[string]any{"platforms": []any{"darwin", "win32"}}
+				m["compatibility"] = map[string]any{"claude_desktop": ">=0.10.0", "platforms": []any{"darwin", "win32"}}
 			},
 			want: "platform_overrides.linux is an override for a platform compatibility.platforms does not claim",
 		},
@@ -153,7 +155,7 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			// other check here is satisfied.
 			name: "a claimed platform with no command of its own",
 			break_: func(m map[string]any) {
-				m["compatibility"] = map[string]any{"platforms": []any{"darwin", "win32"}}
+				m["compatibility"] = map[string]any{"claude_desktop": ">=0.10.0", "platforms": []any{"darwin", "win32"}}
 				cfg := m["server"].(map[string]any)["mcp_config"].(map[string]any)
 				delete(cfg["platform_overrides"].(map[string]any), "win32")
 			},
@@ -163,6 +165,21 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			name:   "a server that is not a binary",
 			break_: func(m map[string]any) { m["server"].(map[string]any)["type"] = "node" },
 			want:   "this bundle ships binaries",
+		},
+		{
+			name:   "no privacy policy",
+			break_: func(m map[string]any) { delete(m, "privacy_policies") },
+			want:   "privacy_policies is empty",
+		},
+		{
+			name:   "an empty privacy policy list",
+			break_: func(m map[string]any) { m["privacy_policies"] = []any{} },
+			want:   "privacy_policies is empty",
+		},
+		{
+			name:   "no Claude Desktop floor",
+			break_: func(m map[string]any) { delete(m, "compatibility") },
+			want:   `compatibility.claude_desktop is ""; the family's bundles claim ">=0.10.0"`,
 		},
 	}
 	for _, c := range cases {
@@ -191,8 +208,8 @@ func TestTheBundleIsAZipWithTheModesItNeeds(t *testing.T) {
 	}
 	bundle := filepath.Join(dir, "out.mcpb")
 	err := writeBundle(bundle, map[string]any{"name": "n"}, map[string]string{
-		"server/google-drive-mcp": src,
-		"LICENSE":                 src,
+		"server/google-drive-mcp-darwin": src,
+		"LICENSE":                        src,
 	})
 	if err != nil {
 		t.Fatalf("writeBundle: %v", err)
@@ -211,8 +228,8 @@ func TestTheBundleIsAZipWithTheModesItNeeds(t *testing.T) {
 			t.Errorf("%s carries no modification time, which writes as an impossible date", f.Name)
 		}
 	}
-	if modes["server/google-drive-mcp"] != 0o755 {
-		t.Errorf("the server binary is %o, want 755", modes["server/google-drive-mcp"])
+	if modes["server/google-drive-mcp-darwin"] != 0o755 {
+		t.Errorf("the server binary is %o, want 755", modes["server/google-drive-mcp-darwin"])
 	}
 	if modes["LICENSE"] != 0o644 {
 		t.Errorf("LICENSE is %o, want 644", modes["LICENSE"])
@@ -236,13 +253,15 @@ func TestTheCommittedManifestNamesFilesThePackerStages(t *testing.T) {
 	if err := mcpbCheck(&out, nil); err != nil {
 		t.Fatalf("the committed manifest does not match what the packer stages: %v\n%s", err, out.String())
 	}
-	// And it read something: today's 8 staged files and 3 platforms.
-	var files, platforms int
-	if _, err := fmt.Sscanf(out.String(), "mcpb manifest ok (%d files staged, %d platforms)", &files, &platforms); err != nil {
+	// And it read something: today's 8 staged files, 3 platforms and 9
+	// user_config keys.
+	var files, platforms, keys int
+	if _, err := fmt.Sscanf(out.String(), "mcpb manifest ok (%d files staged, %d platforms, %d user_config keys)",
+		&files, &platforms, &keys); err != nil {
 		t.Fatalf("cannot read the summary %q: %v", out.String(), err)
 	}
-	if files < 4 || platforms < 3 {
-		t.Errorf("summary %q is under its floors of 4 files and 3 platforms", out.String())
+	if files < 4 || platforms < 3 || keys < 9 {
+		t.Errorf("summary %q is under its floors of 4 files, 3 platforms and 9 user_config keys", out.String())
 	}
 }
 
@@ -310,8 +329,8 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 		t.Skip("the launcher is /bin/sh, and it is not the Windows entry point")
 	}
 	dir := t.TempDir()
-	launcher := filepath.Join(dir, "linux-launch.sh")
-	body, err := os.ReadFile(filepath.Join("..", "..", alongside["server/linux-launch.sh"]))
+	launcher := filepath.Join(dir, "launch-linux.sh")
+	body, err := os.ReadFile(filepath.Join("..", "..", alongside[linuxLauncher]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,10 +379,10 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 	}
 
 	for _, c := range []struct{ arch, want string }{
-		{"x86_64", "google-drive-mcp-amd64"},
-		{"amd64", "google-drive-mcp-amd64"},
-		{"aarch64", "google-drive-mcp-arm64"},
-		{"arm64", "google-drive-mcp-arm64"},
+		{"x86_64", "google-drive-mcp-linux-amd64"},
+		{"amd64", "google-drive-mcp-linux-amd64"},
+		{"aarch64", "google-drive-mcp-linux-arm64"},
+		{"arm64", "google-drive-mcp-linux-arm64"},
 	} {
 		stdout, stderr, code := run(c.arch)
 		if code != 0 {
@@ -387,7 +406,7 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 
 	// A binary missing from the bundle is the other way this ends, and
 	// it must end the same way: nothing on stdout.
-	if err := os.Remove(filepath.Join(dir, "google-drive-mcp-amd64")); err != nil {
+	if err := os.Remove(filepath.Join(dir, "google-drive-mcp-linux-amd64")); err != nil {
 		t.Fatal(err)
 	}
 	stdout, stderr, code = run("x86_64")
@@ -397,7 +416,7 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 	if stdout != "" {
 		t.Errorf("the launcher wrote %q to stdout for a missing binary", stdout)
 	}
-	if !strings.Contains(stderr, "google-drive-mcp-amd64") {
+	if !strings.Contains(stderr, "google-drive-mcp-linux-amd64") {
 		t.Errorf("the complaint does not name the missing binary: %q", stderr)
 	}
 }
@@ -558,5 +577,153 @@ func TestTheCommittedManifestMeetsTheFloor(t *testing.T) {
 	}
 	if got, _ := manifest["manifest_version"].(string); got != "0.3" {
 		t.Fatalf("the committed manifest declares %q; this repository has checked 0.3", got)
+	}
+}
+
+// committedManifest is the committed manifest with one edit applied.
+func committedManifest(t *testing.T, edit func(map[string]any)) map[string]any {
+	t.Helper()
+	manifest, err := readManifest(filepath.Join("..", "..", mcpbManifestPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit(manifest)
+	return manifest
+}
+
+// dig is the object at a path in a decoded manifest.
+func dig(doc map[string]any, path ...string) map[string]any {
+	for _, key := range path {
+		doc = doc[key].(map[string]any)
+	}
+	return doc
+}
+
+// Each rule the bundle's settings are held to, broken once in the
+// committed manifest, and the shape that ships passing all of them.
+func TestTheBundleSettingsRefuseEachBreak(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		edit func(map[string]any)
+		want string
+	}{
+		{name: "the shape that ships", edit: func(map[string]any) {}},
+		{"a switch the bundle turns on", func(d map[string]any) {
+			dig(d, "user_config", "enable_destructive")["default"] = true
+		}, "user_config.enable_destructive is a boolean defaulting to true; GDRIVE_ENABLE_DESTRUCTIVE is a " +
+			"switch the server defaults to false"},
+		{"a switch asked as text", func(d map[string]any) {
+			dig(d, "user_config", "read_only")["type"] = "string"
+			dig(d, "user_config", "read_only")["default"] = "false"
+		}, `user_config.read_only is a string defaulting to "false"; GDRIVE_READ_ONLY is a switch`},
+		{"a switch with no default", func(d map[string]any) {
+			delete(dig(d, "user_config", "labels"), "default")
+		}, "user_config.labels is a boolean defaulting to null"},
+		{"an optional key with no default", func(d map[string]any) {
+			delete(dig(d, "user_config", "local_dir"), "default")
+		}, "user_config.local_dir is optional with no default"},
+		{"a setting the bundle no longer asks for", func(d map[string]any) {
+			delete(dig(d, "user_config"), "activity")
+			delete(dig(d, "server", "mcp_config", "env"), "GDRIVE_ACTIVITY")
+		}, "user_config does not ask for activity, which sets GDRIVE_ACTIVITY"},
+		{"a setting spent under another key", func(d map[string]any) {
+			dig(d, "server", "mcp_config", "env")["GDRIVE_PROFILE"] = "${user_config.sharing}"
+		}, `mcp_config.env.GDRIVE_PROFILE is "${user_config.sharing}", want "${user_config.profile}"`},
+		{"a key no setting has", func(d map[string]any) {
+			dig(d, "user_config")["verbose"] = map[string]any{
+				"type": "boolean", "title": "Verbose", "description": "d", "default": false}
+		}, "user_config asks for verbose, which is no setting's key"},
+		{"a variable the bundle does not ask for", func(d map[string]any) {
+			dig(d, "server", "mcp_config", "env")["GDRIVE_LOG_LEVEL"] = "debug"
+		}, "mcp_config.env sets GDRIVE_LOG_LEVEL, which the bundle does not ask for"},
+		{"a default that configures the server", func(d map[string]any) {
+			dig(d, "user_config", "sharing")["default"] = "off"
+		}, "the bundle's defaults configure the server otherwise than no environment does"},
+		{"a default the server refuses", func(d map[string]any) {
+			dig(d, "user_config", "max_download")["default"] = "lots"
+		}, `the environment the bundle's defaults give the server is refused: config: invalid: max download "lots"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			problems := settingProblems(committedManifest(t, tc.edit), serverVars())
+			if tc.want == "" {
+				if len(problems) > 0 {
+					t.Fatalf("the shape that ships was refused:\n%s", strings.Join(problems, "\n"))
+				}
+				return
+			}
+			if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, tc.want) }) {
+				t.Errorf("problems:\n%s\nwant one containing %q", strings.Join(problems, "\n"), tc.want)
+			}
+		})
+	}
+}
+
+// The 3.0.0 bundle's names are refused, so the family's layout cannot
+// drift back in one file and not the others.
+func TestTheOldLayoutIsRefused(t *testing.T) {
+	for _, tc := range []struct{ name, entry, linux, want string }{
+		{"the old macOS name", "server/google-drive-mcp", "server/launch-linux.sh",
+			`server.entry_point names "server/google-drive-mcp"`},
+		{"the old launcher name", "server/google-drive-mcp-darwin", "server/linux-launch.sh",
+			`platform_overrides.linux.command names "server/linux-launch.sh"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest := committedManifest(t, func(d map[string]any) {
+				dig(d, "server")["entry_point"] = tc.entry
+				dig(d, "server", "mcp_config", "platform_overrides", "linux")["command"] = "${__dirname}/" + tc.linux
+			})
+			problems := strings.Join(checkManifest(manifest, stagedNames()), "\n")
+			if !strings.Contains(problems, tc.want) {
+				t.Errorf("problems:\n%s\nwant %q", problems, tc.want)
+			}
+		})
+	}
+}
+
+// Every variable the server reads has a verdict: asked for, or left out
+// with a reason. A new one with neither fails, and so does a verdict on
+// one the server no longer reads.
+func TestEverySettingHasABundleVerdict(t *testing.T) {
+	known := serverVars()
+	if len(known) < 15 {
+		t.Fatalf("the server reads %d variables; this would be checking a stub", len(known))
+	}
+	manifest := committedManifest(t, func(map[string]any) {})
+	if p := settingProblems(manifest, known); len(p) != 0 {
+		t.Fatalf("the committed manifest fails: %v", p)
+	}
+	got := strings.Join(settingProblems(manifest, append(slices.Clone(known), "GDRIVE_NEW")), "\n")
+	if !strings.Contains(got, "the server reads GDRIVE_NEW, and the bundle neither asks for it nor says why not") {
+		t.Errorf("a setting with no verdict passed: %s", got)
+	}
+	without := slices.DeleteFunc(slices.Clone(known), func(s string) bool { return s == "GDRIVE_HTTP_TIMEOUT" })
+	got = strings.Join(settingProblems(manifest, without), "\n")
+	if !strings.Contains(got, "the bundle has a verdict on GDRIVE_HTTP_TIMEOUT, which the server does not read") {
+		t.Errorf("a verdict on a setting the server does not read passed: %s", got)
+	}
+}
+
+// The launcher's install hint names the module go.mod declares, read
+// under Windows line endings too. The path moves with each major
+// version, so a hint left behind sends somebody to an old one.
+func TestTheLauncherInstallHintIsGoModsModule(t *testing.T) {
+	const hint = `echo "no binary." "Install with: go install example.com/m/v3/cmd/google-drive-mcp@latest" >&2`
+	for _, goMod := range []string{"module example.com/m/v3\n\ngo 1.27\n", "module example.com/m/v3\r\n\r\ngo 1.27\r\n"} {
+		if problems := installHintProblems(hint, goMod); len(problems) > 0 {
+			t.Errorf("go.mod %q: %v", goMod, problems)
+		}
+	}
+	for _, tc := range []struct{ name, launcher, goMod, want string }{
+		{"a hint without the major version", strings.Replace(hint, "/v3", "", 1), "module example.com/m/v3\n",
+			`the launcher says "go install example.com/m/cmd/google-drive-mcp@latest"`},
+		{"no hint at all", "exit 1", "module example.com/m/v3\n", "gives no install hint"},
+		{"no module line", hint, "go 1.27\n", "go.mod names no module"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := strings.Join(installHintProblems(tc.launcher, tc.goMod), "\n")
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("problems %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

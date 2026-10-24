@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -289,5 +291,65 @@ func TestTheDirectoryMustExistAndBeADirectory(t *testing.T) {
 				t.Errorf("the error does not name the setting: %v", err)
 			}
 		})
+	}
+}
+
+// Vars is what the bundle gate reads a switch's default from, so each
+// claim it makes is held to what Build does. A switch takes true and
+// false and refuses anything else, and nothing else does that. Its
+// default, and an empty value, each configure what setting nothing does,
+// which is what lets a bundle leave a field blank.
+func TestVarsDescribeWhatBuildDoes(t *testing.T) {
+	vars := Vars()
+	if len(vars) != 12 {
+		t.Fatalf("Vars has %d settings; Define binds 12 flags", len(vars))
+	}
+	unset, err := build(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var switches []string
+	for _, v := range vars {
+		accepts := func(value string) bool {
+			_, err := build(t, map[string]string{v.Name: value})
+			return err == nil
+		}
+		if boolean := accepts("true") && accepts("false") && !accepts("maybe"); boolean != v.Switch {
+			t.Errorf("%s: Switch is %t, and Build reads it as a boolean: %t", v.Name, v.Switch, boolean)
+		}
+		if v.Switch {
+			switches = append(switches, v.Name)
+		}
+		for _, value := range []string{v.Default, ""} {
+			c, err := build(t, map[string]string{v.Name: value})
+			if err != nil {
+				t.Errorf("%s=%q is refused: %v", v.Name, value, err)
+				continue
+			}
+			if !reflect.DeepEqual(c, unset) {
+				t.Errorf("%s=%q configures something:\n got %+v\nwant %+v", v.Name, value, c, unset)
+			}
+		}
+	}
+	want := []string{"GDRIVE_READ_ONLY", "GDRIVE_ENABLE_DESTRUCTIVE", "GDRIVE_LABELS", "GDRIVE_ACTIVITY"}
+	if !slices.Equal(switches, want) {
+		t.Errorf("switches %v, want %v", switches, want)
+	}
+}
+
+// EnvVars is recorded from the lookups Define makes, so it holds the
+// removed setting that no flag binds as well as every one that does.
+func TestEnvVarsIsEveryLookup(t *testing.T) {
+	got := EnvVars()
+	for _, v := range Vars() {
+		if !slices.Contains(got, v.Name) {
+			t.Errorf("EnvVars lacks %s, which Define binds", v.Name)
+		}
+	}
+	if !slices.Contains(got, "GDRIVE_REQUIRE_PROMPT") {
+		t.Errorf("EnvVars lacks GDRIVE_REQUIRE_PROMPT, which Define reads to refuse it set: %v", got)
+	}
+	if len(got) != len(Vars())+1 || !slices.IsSorted(got) {
+		t.Errorf("EnvVars is %v; want the %d settings and the removed one, sorted", got, len(Vars()))
 	}
 }

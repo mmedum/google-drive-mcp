@@ -79,17 +79,29 @@ you did not build.
 ### Claude Desktop
 
 Every release also carries a `.mcpb` bundle. Open it and Claude Desktop
-installs the server and asks for your OAuth client JSON — no config file
-to edit. It covers macOS, Windows and Linux on both architectures each:
-macOS through a universal binary, Windows through amd64, and Linux
-through a small launcher that picks the right binary at start, because a
-bundle manifest names a command per platform and has no key for the
+installs the server and asks for the settings a client's configuration
+would carry: your OAuth client JSON, the profile, read-only, the
+destructive switch, the sharing tools, the download and upload folder,
+the largest download, Workspace labels and activity — no config file to
+edit. Deleting for good and sharing past your organization
+(`enable_destructive`), labels (`labels`) and activity (`activity`) stay
+off unless you turn them on, and read-only leaves the destructive switch
+with nothing to register. This server asks nobody before a call. Claude
+Desktop approves each tool, with Allow once or Always allow, and a tool
+you always allow then runs unasked, so leave a switch off unless you
+need its tools.
+
+It covers macOS, Windows and Linux on both architectures each: macOS
+through a universal binary, Windows through amd64, and Linux through a
+small launcher that picks the right binary at start, because a bundle
+manifest names a command per platform and has no key for the
 architecture. Its SHA-256 is in the same signed `checksums.txt`.
 
 The bundle does not log you in. Install the binary as well, run
 `google-drive-mcp login` once, and the bundle picks up the same
-credentials. Claude Code does not install `.mcpb` files, so it uses the
-command below.
+credentials. Labels and activity also need a login that asks for their
+scopes, such as `google-drive-mcp login --labels=true`. Claude Code does
+not install `.mcpb` files, so it uses the command below.
 
 ## Set up Google
 

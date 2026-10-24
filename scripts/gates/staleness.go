@@ -152,7 +152,7 @@ func checkPermissionRules(readme string, registered []string) []string {
 
 // settingDefinition matches the Define calls in config.go, which are the
 // authority on which GDRIVE_* variables exist.
-var settingDefinition = regexp.MustCompile(`def\(&s\.[A-Za-z]+, "[a-z-]+", "([A-Z_]+)"`)
+var settingDefinition = regexp.MustCompile(`(?:def|sw)\(&s\.[A-Za-z]+, "[a-z-]+", "([A-Z_]+)"`)
 
 func definedSettings() ([]string, error) {
 	source, err := os.ReadFile("internal/config/config.go")

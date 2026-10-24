@@ -1492,6 +1492,23 @@ honest option and the one a model can act on.
 - **Client configuration** documented for Claude Code, Claude Desktop
   and Cursor; all three pass only `command`, `args` and `env`, which is
   why configuration is env-first.
+- **The Claude Desktop bundle** asks for what a person sets in another
+  client's configuration: the OAuth client file, the profile, read-only,
+  the destructive switch, the sharing tools, the local directory, the
+  download cap, labels and activity, each under its variable's name
+  without `GDRIVE_`, lowercased. Logging, the HTTP timeout, the config
+  directory and the refresh token are left out, each with its reason in
+  `gates mcpb`, and the gate fails on a variable with no verdict. Each
+  switch defaults to the server's own default, off, and every other
+  optional key to `""`, which the server reads as unset. Claude Desktop
+  approves each tool, and a person can set a tool to always allow, so a
+  switch left off is the one guard a bundle install keeps (§18). No
+  combination of the fields is refused: read-only leaves the destructive
+  switch nothing to register, and `sharing` off takes its four sharing
+  tools, so those fields say so. The bundle stages
+  `server/google-drive-mcp-darwin`, `server/google-drive-mcp.exe`,
+  `server/google-drive-mcp-linux-amd64`, `server/google-drive-mcp-linux-arm64`
+  and `server/launch-linux.sh`, with `LICENSE` and `README.md` at the root.
 - **Setup guide** in the README, in the order `doctor` checks it (§10).
 - **Versioning.** Semantic versions; Keep a Changelog; the schema diff in
   CI fails on a removed or renamed tool or resource, a field removed at
@@ -2953,3 +2970,6 @@ rests on. The last row was found by the live runs of the same day.
 | `requiresUserInteraction` is one more prompt a client may show | **Refined.** Claude Code, v2.1.199 or later, prompts on every call of a marked tool in every interactive mode, whatever the allow rules; from v2.1.246 it offers no "don't ask again"; where no prompt can be drawn (`dontAsk`, `-p` without a permission host) it denies the call, and only an Agent SDK host's `canUseTool` can approve it. Anthropic documents it for "tools whose permission prompt is itself the point". GitLab's own server calls the same mark "advisory" (MR !252995: "Only Claude Code 2.1.199 and later honour the annotation"). No other client reads it | The mark on four tools whose prompt is the point, for every client, and the destructive flag still the control (§4a) |
 | Turning a shared drive's `members_only` off restores access already granted to non-members | **Unverified.** The drives reference describes `driveMembersOnly` as restricting access to the drive's items to its members, and says nothing of what happens to a grant made to a non-member while it was on | `members_only` off stays an ordinary `manage_drive` switch until the probe §17 records |
 | A comment or reply id uses only letters, digits, `-` and `_` (what the live driver's listing parser assumed) | **Refuted live 2026-10-23.** Every reply id a run listed carried a dot, so the parser read none of them, and the run sent neither `reply_comment`'s nor `delete_comment`'s `reply` | The driver's patterns accept the dot. The server passes a reply id to Drive as given; the next run edited three replies and deleted one by such ids |
+| A bundle install has a second approval behind the server, as Claude Code's ask rules are | **Refuted, 2026-10-23 (the docs and the reference host; Claude Desktop not probed, and no page names desktop extensions).** anthropics/mcpb v2.1.2 declares `tools` for display, and its `src/` reads it only in `init`; its `src/shared/config.ts` passes a boolean to `env` as "true" or "false". claude.com/docs/connectors/getting-started: "Select Allow once to continue, or Always allow to skip the prompt for that tool from now on". claude.com/docs/connectors/building/review-criteria: readOnlyHint and destructiveHint "determine auto-permissions in Claude". Claude Desktop has nothing like Claude Code's `permissions.ask` | Every switch the bundle asks for defaults to the server's own default, off, and `gates mcpb` refuses one that does not, compared as JSON. The bundle declares no `tools` list, which would be display only and wrong for most installs, since five settings change what registers (§12) |
+| A bundle's optional setting the person leaves blank reaches the server empty | **Refuted, 2026-10-23 (the reference host; Claude Desktop not probed).** anthropics/mcpb v2.1.2 `src/shared/config.ts` builds its variables from the defaults and the person's values, and `replaceVariables` leaves a variable it does not have as written. An optional key with no default is never a variable, so `${user_config.local_dir}` would reach the server as that text, which it refuses as a path that is not absolute. The 3.0.0 bundle asked only for the client file, which is required, so it was not affected | Every optional key has a default, `""` for text and directories, and `gates mcpb` refuses one without. The environment the defaults give the server must configure it as no environment does, which `TestVarsDescribeWhatBuildDoes` holds for each setting's default and for `""` |
+| `privacy_policies` is optional for a bundle | **Refuted, 2026-10-23 (the specification).** anthropics/mcpb `MANIFEST.md`: "Required when the extension connects to external services (first- or third-party) that process user data"; added in manifest_version 0.2, and enforced by neither the schema nor `mcpb validate` | The manifest names https://policies.google.com/privacy, which answered 200 on 2026-10-24, and `gates mcpb` refuses an empty list |
