@@ -6,6 +6,20 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-24
+
+### Added
+
+- The Claude Desktop bundle asks for the profile, read-only, `enable_destructive`, the sharing tools, the download and upload folder, the largest download, `labels` and `activity`, each off or empty unless you set it, names Google's privacy policy, and needs Claude Desktop 0.10.0 or later.
+
+### Changed
+
+- The bundle stages its binaries as `server/google-drive-mcp-darwin`, `server/google-drive-mcp.exe`, `server/google-drive-mcp-linux-amd64` and `server/google-drive-mcp-linux-arm64`, and its Linux launcher as `server/launch-linux.sh`.
+
+### Fixed
+
+- The bundle's description said `download_file` and `upload_file` are not registered without a download folder. Both are registered and refuse every call until you set one.
+
 ## [3.0.0] - 2026-10-23
 
 ### Added
@@ -2158,6 +2172,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[3.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.2.0...v3.0.0
 [2.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.0.1...v2.1.0

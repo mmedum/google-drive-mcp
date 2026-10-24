@@ -1,6 +1,6 @@
 {
   "server": "google-drive-mcp",
-  "version": "v3.0.0",
+  "version": "v3.1.0",
   "sdk": "v1.8.0",
   "tools": [
     {
