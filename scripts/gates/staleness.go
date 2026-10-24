@@ -144,21 +144,57 @@ func checkPermissionRules(readme string, registered []string) []string {
 	return problems
 }
 
+// configDocPath is the page every setting is documented on.
+const configDocPath = "docs/configuration.md"
+
 // checkConfigDocs holds docs/configuration.md to every variable the
 // server reads, which config.Vars records from the lookups themselves.
 func checkConfigDocs(settings []string) []string {
-	docs, err := os.ReadFile("docs/configuration.md")
+	docs, err := os.ReadFile(configDocPath)
 	if err != nil {
-		return []string{"cannot read docs/configuration.md: " + err.Error()}
+		return []string{"cannot read " + configDocPath + ": " + err.Error()}
+	}
+	return configDocProblems(settings, string(docs))
+}
+
+// configDocProblems holds the configuration page, text, to the variables
+// the server reads, both ways: it names every one as a whole word, names
+// no other, and says what a profile name is in the words the server
+// refuses one with.
+func configDocProblems(settings []string, text string) []string {
+	documented := map[string]bool{}
+	for _, at := range settingWord.FindAllStringSubmatchIndex(text, -1) {
+		if word := text[at[2]:at[3]]; settingName.MatchString(word) && !strings.HasPrefix(text[at[3]:], "*") {
+			documented[word] = true
+		}
 	}
 	var problems []string
 	for _, name := range settings {
-		if !strings.Contains(string(docs), name) {
-			problems = append(problems, "docs/configuration.md does not document "+name)
+		if !documented[name] {
+			problems = append(problems, configDocPath+" does not document "+name)
 		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(documented)) {
+		if !slices.Contains(settings, name) {
+			problems = append(problems, configDocPath+" documents "+name+", which the server does not read")
+		}
+	}
+	if !strings.Contains(text, config.ProfileRule) {
+		problems = append(problems, fmt.Sprintf("%s does not say a profile name is %q", configDocPath, config.ProfileRule))
 	}
 	return problems
 }
+
+// settingWord is a word that starts with the prefix, with no letter of
+// either case, digit or _ before it, and all of it: a longer word that
+// contains a name, such as GDRIVE_READ_ONLY_X, GDRIVE_LABELSx or
+// xGDRIVE_LABELS, is not that name. The word is a setting's name when
+// settingName matches it and no * follows, since GDRIVE_ENABLE_* is a
+// pattern.
+var (
+	settingWord = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(` + config.EnvPrefix + `[A-Za-z0-9_]*)`)
+	settingName = regexp.MustCompile(`^` + config.EnvPrefix + `[A-Z0-9_]+$`)
+)
 
 func checkArchitectureStatus() []string {
 	arch, err := os.ReadFile("docs/architecture.md")

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 )
 
 func TestRoundTrip(t *testing.T) {
@@ -139,16 +141,22 @@ func TestBaseDirFallsBackToTheUserConfigDir(t *testing.T) {
 	}
 }
 
+// The profile the server starts with when none is named lives in the
+// base directory, and a named one under profiles/.
 func TestANamedProfileLivesBesideTheDefaultOne(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(EnvDir, dir)
 
-	base, err := ProfileDir(DefaultProfile)
+	unnamed, err := config.Load(nil, func(string) string { return "" })
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	base, err := ProfileDir(unnamed.Profile)
 	if err != nil {
 		t.Fatalf("ProfileDir: %v", err)
 	}
 	if base != dir {
-		t.Errorf("the default profile lives at %q, want %q", base, dir)
+		t.Errorf("the default profile %q lives at %q, want %q", unnamed.Profile, base, dir)
 	}
 	// The empty name is the default profile, so that a caller which never
 	// set one does not get a directory called "".

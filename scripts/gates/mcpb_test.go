@@ -44,19 +44,228 @@ func TestTheCommittedManifestCarriesThePlaceholder(t *testing.T) {
 	}
 }
 
-// TestARealVersionInTheTreeIsRefused proves the guard bites.
+// TestARealVersionInTheTreeIsRefused proves the guard bites, for the
+// stamping command and for the gate, which start from the same function.
+// The stamping command's refusal is its error, so nothing reaches the
+// writer the stamped document goes to.
 func TestARealVersionInTheTreeIsRefused(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "manifest.json")
-	if err := os.WriteFile(path, []byte(`{"version":"1.0.0"}`), 0o600); err != nil {
+	root := copiedRoot(t)
+	editFile(t, root, mcpbManifestPath, `"version": "0.0.0-dev"`, `"version": "1.0.0"`)
+	var out bytes.Buffer
+	err := mcpbManifest(&out, []string{"2.0.0", root})
+	want := `packaging/mcpb/manifest.json carries version "1.0.0"; the committed manifest must carry "0.0.0-dev"`
+	if err == nil || !strings.HasPrefix(err.Error(), "1 problem(s) in the bundle:\n  "+want) {
+		t.Errorf("mcpb-manifest refused with %v; want the one problem %q", err, want)
+	}
+	if out.Len() != 0 {
+		t.Errorf("mcpb-manifest wrote %q where the stamped document goes", out.String())
+	}
+	if _, problems, err := committedManifest(root); err != nil || len(problems) != 1 || !strings.HasPrefix(problems[0], want) {
+		t.Errorf("committedManifest = %q, %v; want the one problem %q", problems, err, want)
+	}
+}
+
+// gateFiles are the repository files the bundle gate reads: the manifest
+// and the files beside it.
+var gateFiles = []string{mcpbManifestPath, alongside[linuxLauncher], "go.mod", ".goreleaser.yaml"}
+
+// copiedRoot is a directory holding a copy of every file the gate reads.
+func copiedRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, name := range gateFiles {
+		body, err := os.ReadFile(filepath.Join("..", "..", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(name)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+// editFile replaces old with new in one file under root, once.
+func editFile(t *testing.T, root, name, old, new string) {
+	t.Helper()
+	path := filepath.Join(root, name)
+	body, err := os.ReadFile(path) //nolint:gosec // a test's own temporary file
+	if err != nil {
 		t.Fatal(err)
 	}
-	err := mcpbManifest(&bytes.Buffer{}, []string{"2.0.0", path})
-	if err == nil {
-		t.Fatal("a manifest carrying a real version was accepted")
+	if strings.Count(string(body), old) != 1 {
+		t.Fatalf("%s does not say %q once", name, old)
 	}
-	if !strings.Contains(err.Error(), mcpbPlaceholder) {
-		t.Errorf("the refusal does not say what the manifest must carry: %v", err)
+	if err := os.WriteFile(path, []byte(strings.Replace(string(body), old, new, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The gate reads every file from the root it is given, so the packer and
+// the gate check one tree: a copy of the repository passes, and each file
+// beside the manifest, broken in the copy, is refused there.
+func TestTheGateReadsEveryFileFromItsRoot(t *testing.T) {
+	if _, problems, err := committedManifest(copiedRoot(t)); err != nil || len(problems) > 0 {
+		t.Fatalf("a copy of the repository: %q, %v; want no problem", problems, err)
+	}
+	for _, tc := range []struct{ name, file, old, new, want string }{
+		{"a launcher naming another binary", alongside[linuxLauncher], "google-drive-mcp-linux-arm64",
+			"google-drive-mcp-linux-riscv64", "stages server/google-drive-mcp-linux-arm64 and"},
+		{"go.mod at another module", "go.mod", "module github.com/mmedum/google-drive-mcp/v3",
+			"module github.com/mmedum/google-drive-mcp/v4", "and go.mod's module gives"},
+		{"a build for another system", ".goreleaser.yaml", "goos: [", "goos: [freebsd, ",
+			"goreleaser builds freebsd and the bundle stages nothing from it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := copiedRoot(t)
+			editFile(t, root, tc.file, tc.old, tc.new)
+			_, problems, err := committedManifest(root)
+			if err != nil || !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, tc.want) }) {
+				t.Errorf("problems %q, %v; want one containing %q", problems, err, tc.want)
+			}
+		})
+	}
+}
+
+// A key repeated in one object is refused, wherever it is, before any
+// other check reads a document that is not the one reviewed.
+func TestARepeatedKeyIsRefused(t *testing.T) {
+	for _, tc := range []struct{ name, old, new, want string }{
+		{"at the top", `"version": "0.0.0-dev",`, `"version": "0.0.0-dev", "version": "0.0.0-dev",`, "version"},
+		{"in the env", `"GDRIVE_PROFILE": "${user_config.profile}",`,
+			`"GDRIVE_PROFILE": "${user_config.profile}", "GDRIVE_PROFILE": "work",`,
+			"server.mcp_config.env.GDRIVE_PROFILE"},
+		{"in a list", `"https://policies.google.com/privacy"`,
+			`{"url": "a", "url": "b"}`, "privacy_policies[0].url"},
+		{"a key with a dot", `"GDRIVE_PROFILE": "${user_config.profile}",`,
+			`"GDRIVE_PROFILE": "${user_config.profile}", "a.b": "x", "a.b": "y",`,
+			`server.mcp_config.env["a.b"]`},
+		{"an empty key", `"version": "0.0.0-dev",`, `"version": "0.0.0-dev", "": 1, "": 2,`, `[""]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := copiedRoot(t)
+			editFile(t, root, mcpbManifestPath, tc.old, tc.new)
+			_, problems, err := committedManifest(root)
+			want := "the manifest has " + tc.want + " more than once;"
+			if err != nil || len(problems) != 1 || !strings.HasPrefix(problems[0], want) {
+				t.Errorf("problems %q, %v; want the one problem %q", problems, err, want)
+			}
+		})
+	}
+}
+
+// The help names a command's arguments as the command takes them: each
+// command that needs an argument gives its usage when run without one,
+// and the help says the same.
+func TestTheHelpNamesTheArgumentsEachCommandTakes(t *testing.T) {
+	checked := 0
+	for _, name := range sorted(commands) {
+		c := commands[name]
+		if c.args == "" || strings.HasPrefix(c.args, "[") {
+			continue
+		}
+		checked++
+		err := c.run(&bytes.Buffer{}, nil)
+		if want := "usage: gates " + name + " " + c.args; err == nil || err.Error() != want {
+			t.Errorf("%s run with no arguments gave %v; its help says %q", name, err, want)
+		}
+	}
+	if checked < 4 {
+		t.Errorf("checked %d commands that need an argument; release-notes, registry-publish, mcpb-manifest "+
+			"and mcpb-pack are 4", checked)
+	}
+}
+
+// A key walk that fails is a refusal, not a document with no repeated
+// key.
+func TestARepeatedKeyWalkThatFailsIsAnError(t *testing.T) {
+	if got, err := repeatedKeys([]byte(`{"a": {"b": 1}, "a": 2}`)); err != nil || !slices.Equal(got, []string{"a"}) {
+		t.Errorf("repeatedKeys = %q, %v; want [a] and no error", got, err)
+	}
+	if got, err := repeatedKeys([]byte(`{"a": 1, "a"`)); err == nil {
+		t.Errorf("a document cut short gave %q and no error", got)
+	}
+}
+
+// What ships is held to the vendored schema, not only what is committed,
+// since the stamp encodes the document again.
+func TestTheStampedManifestIsHeldToTheSchema(t *testing.T) {
+	stamped, err := stampManifest(editedManifest(t, func(map[string]any) {}), "1.2.3")
+	if err != nil {
+		t.Fatalf("the committed manifest does not stamp: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(stamped, &doc); err != nil || doc["version"] != "1.2.3" {
+		t.Errorf("stamped version %v, %v; want 1.2.3", doc["version"], err)
+	}
+	_, err = stampManifest(editedManifest(t, func(d map[string]any) { d["keywords"] = "drive" }), "1.2.3")
+	if want := "the stamped manifest does not satisfy mcpb-manifest-v0.3.schema.json"; err == nil ||
+		!strings.Contains(err.Error(), want) {
+		t.Errorf("stamping a document the schema refuses gave %v, want an error containing %q", err, want)
+	}
+}
+
+// The version stamped is a Semantic Versioning one, which the schema
+// does not hold: it takes any string.
+func TestTheStampedVersionIsSemver(t *testing.T) {
+	manifest := editedManifest(t, func(map[string]any) {})
+	for _, version := range []string{"1.2.3", "0.0.1", "3.1.2-SNAPSHOT-53c6b05", "1.2.3-rc.1+build.5"} {
+		if _, err := stampManifest(manifest, version); err != nil {
+			t.Errorf("stamping %q: %v", version, err)
+		}
+	}
+	for _, version := range []string{"v1.2.3", "1.2", "1.2.3 ", " 1.2.3", "01.2.3", "1.2.3-", "{{ .Tag }}", ""} {
+		_, err := stampManifest(manifest, version)
+		want := fmt.Sprintf("the version is %q; a bundle carries a Semantic Versioning version", version)
+		if err == nil || !strings.HasPrefix(err.Error(), want) {
+			t.Errorf("stamping %q gave %v, want an error starting %q", version, err, want)
+		}
+	}
+}
+
+// The packer ships the stamped manifest it validated, and packs from
+// goreleaser's layout under dist.
+func TestThePackShipsTheStampedManifest(t *testing.T) {
+	want, err := stampManifest(editedManifest(t, func(map[string]any) {}), "1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir("../..")
+	dist := t.TempDir()
+	for _, dir := range []string{"m_darwin_all", "m_windows_amd64_v1", "m_linux_amd64_v1", "m_linux_arm64_v8.0"} {
+		name := "google-drive-mcp"
+		if strings.Contains(dir, "windows") {
+			name += ".exe"
+		}
+		if err := os.MkdirAll(filepath.Join(dist, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dist, dir, name), []byte("binary for "+dir), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := mcpbPack(&bytes.Buffer{}, []string{"1.2.3", dist}); err != nil {
+		t.Fatalf("mcpb-pack: %v", err)
+	}
+	r, err := zip.OpenReader(filepath.Join(dist, "google-drive-mcp_1.2.3.mcpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	f, err := r.Open("manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	var shipped bytes.Buffer
+	if _, err := shipped.ReadFrom(f); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(shipped.Bytes(), want) {
+		t.Errorf("the bundle's manifest is not the stamped one:\n%s", shipped.String())
 	}
 }
 
@@ -79,7 +288,7 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			// fixture stops describing the thing it stands for.
 			"$schema": "https://raw.githubusercontent.com/anthropics/mcpb/v2.1.2/" +
 				"schemas/mcpb-manifest-v0.3.schema.json",
-			"manifest_version": "0.3", "name": "n",
+			"manifest_version": "0.3", "name": "google-drive-mcp",
 			"support": "https://example.invalid/issues",
 			"version": "1.0.0", "description": "d", "author": map[string]any{"name": "Example Maintainer"},
 			"privacy_policies": []any{"https://policies.google.com/privacy"},
@@ -178,9 +387,38 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 		{
 			name: "an override for a platform the bundle does not claim",
 			break_: func(m map[string]any) {
-				dig(m, "compatibility")["platforms"] = []any{"darwin", "win32"}
+				dig(m, "server", "mcp_config", "platform_overrides")["sunos"] = map[string]any{
+					"command": "${__dirname}/server/google-drive-mcp-darwin"}
 			},
-			want: "platform_overrides.linux is an override for a platform compatibility.platforms does not claim",
+			want: "platform_overrides.sunos is an override for a platform compatibility.platforms does not claim",
+		},
+		{
+			// Every check above holds each claimed platform to its file,
+			// so a platform dropped with its override passes all of them.
+			name: "a platform dropped with its override",
+			break_: func(m map[string]any) {
+				dig(m, "compatibility")["platforms"] = []any{"darwin", "win32"}
+				delete(dig(m, "server", "mcp_config", "platform_overrides"), "linux")
+			},
+			want: "compatibility.platforms is [darwin win32]; the packer stages entry points for [darwin linux win32]",
+		},
+		{
+			// The identity check reports it, and no override is reported
+			// as one for a platform the bundle does not claim.
+			name:   "no platforms claimed",
+			break_: func(m map[string]any) { delete(dig(m, "compatibility"), "platforms") },
+			want:   "compatibility.platforms is []; the packer stages entry points for [darwin linux win32]",
+		},
+		{
+			name:   "an entry point the default command does not run",
+			break_: func(m map[string]any) { dig(m, "server")["entry_point"] = "server/google-drive-mcp.exe" },
+			want: `server.entry_point is "server/google-drive-mcp.exe", and server.mcp_config.command runs ` +
+				`"server/google-drive-mcp-darwin"`,
+		},
+		{
+			name:   "another server's name",
+			break_: func(m map[string]any) { m["name"] = "google-drive" },
+			want:   `the manifest's name is "google-drive" and the server's is "google-drive-mcp"`,
 		},
 		{
 			// The direction the override check does not cover, and the
@@ -225,6 +463,24 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			}
 		})
 	}
+
+	// A platform the packer stops staging an entry point for, still
+	// claimed, is the identity check's to report, and the check of each
+	// platform's file does not report it again against no file.
+	t.Run("a claimed platform the packer stops staging", func(t *testing.T) {
+		original := binaries
+		t.Cleanup(func() { binaries = original })
+		binaries = slices.Clone(binaries)
+		for i := range binaries {
+			if binaries[i].platform == "win32" {
+				binaries[i].platform = ""
+			}
+		}
+		want := "compatibility.platforms is [darwin linux win32]; the packer stages entry points for [darwin linux]"
+		if problems := checkManifest(good(), packed); !slices.Equal(problems, []string{want}) {
+			t.Errorf("the report is not the one problem %q:\n%s", want, strings.Join(problems, "\n"))
+		}
+	})
 }
 
 // TestTheBundleIsAZipWithTheModesItNeeds. A zip records the mode, and
@@ -237,7 +493,7 @@ func TestTheBundleIsAZipWithTheModesItNeeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	bundle := filepath.Join(dir, "out.mcpb")
-	err := writeBundle(bundle, map[string]any{"name": "n"}, map[string]string{
+	err := writeBundle(bundle, []byte(`{"name": "n"}`+"\n"), map[string]string{
 		"server/google-drive-mcp-darwin": src,
 		"LICENSE":                        src,
 	})
@@ -463,7 +719,7 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 // again, which is the mistake this file has already made once.
 func TestTheLauncherIsHeldToTheStagedNames(t *testing.T) {
 	t.Chdir("../..")
-	if problems := checkLauncher(); len(problems) > 0 {
+	if problems := checkLauncher("."); len(problems) > 0 {
 		t.Fatalf("the committed launcher does not name what the packer stages:\n%s",
 			strings.Join(problems, "\n"))
 	}
@@ -478,7 +734,7 @@ func TestTheLauncherIsHeldToTheStagedNames(t *testing.T) {
 	}
 	binaries = renamed
 
-	problems := checkLauncher()
+	problems := checkLauncher(".")
 	if len(problems) == 0 {
 		t.Fatal("a renamed Linux binary was accepted")
 	}
@@ -494,7 +750,7 @@ func TestTheLauncherIsHeldToTheStagedNames(t *testing.T) {
 // long as nobody looks.
 func TestThePlatformsGoreleaserBuildsAreStaged(t *testing.T) {
 	t.Chdir("../..")
-	if problems := checkBuildMatrix(); len(problems) > 0 {
+	if problems := checkBuildMatrix("."); len(problems) > 0 {
 		t.Fatalf("the bundle does not cover what goreleaser builds:\n%s", strings.Join(problems, "\n"))
 	}
 
@@ -610,8 +866,21 @@ func TestTheCommittedManifestMeetsTheFloor(t *testing.T) {
 	}
 }
 
-// committedManifest is the committed manifest with one edit applied.
-func committedManifest(t *testing.T, edit func(map[string]any)) map[string]any {
+// readManifest decodes a manifest file into a map.
+func readManifest(path string) (map[string]any, error) {
+	raw, err := os.ReadFile(path) //nolint:gosec // a path this repository owns
+	if err != nil {
+		return nil, err
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+	return manifest, nil
+}
+
+// editedManifest is the committed manifest with one edit applied.
+func editedManifest(t *testing.T, edit func(map[string]any)) map[string]any {
 	t.Helper()
 	manifest, err := readManifest(filepath.Join("..", "..", mcpbManifestPath))
 	if err != nil {
@@ -703,9 +972,15 @@ func TestTheBundleSettingsRefuseEachBreak(t *testing.T) {
 		{"a sharing field that does not list the modes", func(d map[string]any) {
 			dig(d, "user_config", "sharing")["description"] = "Which sharing tools to register."
 		}, `user_config.sharing does not say "all or off", which is what GDRIVE_SHARING accepts`},
+		{"a default the host expands", func(d map[string]any) {
+			dig(d, "user_config", "local_dir")["default"] = "${HOME}/Drive"
+		}, `user_config.local_dir defaults to "${HOME}/Drive"; the host expands a ${ reference in a default`},
+		{"a default holding another key", func(d map[string]any) {
+			dig(d, "user_config", "profile")["default"] = "${user_config.sharing}"
+		}, `user_config.profile defaults to "${user_config.sharing}"; the host expands a ${ reference in a default`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			problems := settingProblems(committedManifest(t, tc.edit), config.Vars(), bundleLeftOut)
+			problems := settingProblems(editedManifest(t, tc.edit), config.Vars(), bundleLeftOut)
 			if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, tc.want) }) {
 				t.Errorf("problems:\n%s\nwant one containing %q", strings.Join(problems, "\n"), tc.want)
 			}
@@ -729,7 +1004,7 @@ func TestTheBundleAsksForEverySettingNotLeftOut(t *testing.T) {
 		t.Fatalf("asked %v with problems %v, want %v and none", names, problems, want)
 	}
 
-	manifest := committedManifest(t, func(map[string]any) {})
+	manifest := editedManifest(t, func(map[string]any) {})
 	got := strings.Join(settingProblems(manifest, append(config.Vars(), config.Var{Name: "GDRIVE_NEW"}), bundleLeftOut), "\n")
 	if !strings.Contains(got, "user_config does not ask for new, which sets GDRIVE_NEW") {
 		t.Errorf("a setting neither asked for nor left out passed: %s", got)
@@ -742,7 +1017,7 @@ func TestTheBundleAsksForEverySettingNotLeftOut(t *testing.T) {
 	}
 
 	// A bundle that drops the profile field is told so once.
-	dropped := committedManifest(t, func(d map[string]any) {
+	dropped := editedManifest(t, func(d map[string]any) {
 		delete(dig(d, "user_config"), "profile")
 		delete(dig(d, "server", "mcp_config", "env"), "GDRIVE_PROFILE")
 	})
@@ -769,7 +1044,7 @@ func TestTheBundleAsksForEverySettingNotLeftOut(t *testing.T) {
 // Every list or object default is reported, in key order, and the
 // comparison still runs over the rest.
 func TestTheDefaultsReportEveryUnreadableDefault(t *testing.T) {
-	manifest := committedManifest(t, func(d map[string]any) {
+	manifest := editedManifest(t, func(d map[string]any) {
 		dig(d, "user_config", "profile")["default"] = []any{"work"}
 		dig(d, "user_config", "local_dir")["default"] = map[string]any{"path": "x"}
 		dig(d, "user_config", "labels")["default"] = true
@@ -802,7 +1077,7 @@ func refusingPair(t *testing.T, edit func(map[string]any)) map[string]any {
 			t.Fatal(err)
 		}
 	}
-	return committedManifest(t, func(d map[string]any) {
+	return editedManifest(t, func(d map[string]any) {
 		dig(d, "server", "mcp_config", "env")["GDRIVE_LOCAL_DIR"] =
 			dir + string(filepath.Separator) + "${user_config.labels}-${user_config.activity}"
 		edit(d)
@@ -810,25 +1085,51 @@ func refusingPair(t *testing.T, edit func(map[string]any)) map[string]any {
 }
 
 // A field the defaults change is named, an unexported one included
-// where its type compares; an unexported one that does not is reported
-// unnamed, rather than panicking.
+// where its type compares strictly; an unexported one that does not,
+// such as an interface holding a slice, is reported unnamed rather than
+// panicking, whatever else differs. A pointer is compared by what it
+// points at, not by its address.
 func TestTheConfigDiffNamesTheFieldsThatDiffer(t *testing.T) {
+	type inner struct{ held any }
 	type cfg struct {
 		Shown  int
 		hidden int
 		rest   []string
+		held   any
+		nested inner
+		ptr    *int
+		boxed  struct{ p *int }
+		opts   map[string]int
 	}
+	one, alsoOne, two := 1, 1, 2
+	base := cfg{Shown: 1, hidden: 1, held: []string{"x"}, nested: inner{[]string{"x"}}, ptr: &one}
+	base.boxed.p = &one
+	base.opts = map[string]int{"a": 1}
 	for _, tc := range []struct {
-		b    cfg
+		edit func(*cfg)
 		want []string
 	}{
-		{cfg{2, 1, nil}, []string{"Shown"}},
-		{cfg{1, 2, nil}, []string{"hidden"}},
-		{cfg{1, 1, []string{"x"}}, []string{"an unexported field"}},
-		{cfg{1, 1, nil}, nil},
+		{func(c *cfg) { c.Shown = 2 }, []string{"Shown"}},
+		{func(c *cfg) { c.hidden = 2 }, []string{"hidden"}},
+		{func(c *cfg) { c.rest = []string{"x"} }, []string{"an unexported field"}},
+		{func(c *cfg) { c.held = []string{"y"} }, []string{"an unexported field"}},
+		{func(c *cfg) { c.nested = inner{[]string{"y"}} }, []string{"an unexported field"}},
+		{func(c *cfg) { c.Shown, c.rest = 2, []string{"x"} }, []string{"Shown", "an unexported field"}},
+		{func(c *cfg) { c.held, c.rest = []string{"y"}, []string{"x"} }, []string{"an unexported field"}},
+		{func(c *cfg) { c.ptr = &alsoOne }, nil},
+		{func(c *cfg) { c.ptr = &two }, []string{"an unexported field"}},
+		{func(c *cfg) { c.ptr = nil }, []string{"an unexported field"}},
+		{func(c *cfg) { c.boxed.p = &alsoOne }, nil},
+		{func(c *cfg) { c.boxed.p = &two }, []string{"an unexported field"}},
+		{func(c *cfg) { c.opts = map[string]int{"a": 1} }, nil},
+		{func(c *cfg) { c.opts = map[string]int{"a": 2} }, []string{"an unexported field"}},
+		{func(c *cfg) { c.opts = map[string]int{"b": 1} }, []string{"an unexported field"}},
+		{func(*cfg) {}, nil},
 	} {
-		if got := fieldDiff(cfg{1, 1, nil}, tc.b); !slices.Equal(got, tc.want) {
-			t.Errorf("fieldDiff against %+v = %q, want %q", tc.b, got, tc.want)
+		b := base
+		tc.edit(&b)
+		if got := fieldDiff(base, b); !slices.Equal(got, tc.want) {
+			t.Errorf("fieldDiff against %+v = %q, want %q", b, got, tc.want)
 		}
 	}
 }
@@ -864,7 +1165,7 @@ func TestTheBundleRefusalsAreDeclared(t *testing.T) {
 		t.Errorf("a declared refusal the fields do not name gives %q, want %q", got, want)
 	}
 
-	manifest := committedManifest(t, func(map[string]any) {})
+	manifest := editedManifest(t, func(map[string]any) {})
 	const starts = "bundleRefused declares that the server refuses enable_destructive, read_only together, and it starts with them"
 	if got := refusals(manifest, [][]string{{"enable_destructive", "read_only"}}); !slices.Contains(got, starts) ||
 		len(slices.DeleteFunc(got, func(p string) bool { return p != starts })) != 1 {
@@ -883,7 +1184,7 @@ func TestTheBundleRefusalsAreDeclared(t *testing.T) {
 
 	// read_only is in both sets, and a missing title is one problem, not
 	// one per set, whether or not the defaults start.
-	untitled := committedManifest(t, func(d map[string]any) { dig(d, "user_config", "read_only")["title"] = " " })
+	untitled := editedManifest(t, func(d map[string]any) { dig(d, "user_config", "read_only")["title"] = " " })
 	for _, defaultsErr := range []error{nil, errors.New("the defaults do not start")} {
 		got := refusalProblems(untitled, asked, [][]string{{"labels", "read_only"}, {"activity", "read_only"}}, defaultsErr)
 		if n := len(slices.DeleteFunc(got, func(p string) bool {
@@ -919,7 +1220,8 @@ func TestTheRefusalsTurnASwitchOnWhateverItsDefault(t *testing.T) {
 // version, so a hint left behind sends somebody to an old one.
 func TestTheLauncherInstallHintIsGoModsModule(t *testing.T) {
 	const hint = `echo "no binary." "Install with: go install example.com/m/v3/cmd/google-drive-mcp@latest" >&2`
-	for _, goMod := range []string{"module example.com/m/v3\n\ngo 1.27\n", "module example.com/m/v3\r\n\r\ngo 1.27\r\n"} {
+	for _, goMod := range []string{"module example.com/m/v3\n\ngo 1.27\n", "module example.com/m/v3\r\n\r\ngo 1.27\r\n",
+		"module\texample.com/m/v3\n", "module example.com/m/v3 // the server\n", "module example.com/m/v3// the server\r\n"} {
 		if problems := installHintProblems(hint, goMod); len(problems) > 0 {
 			t.Errorf("go.mod %q: %v", goMod, problems)
 		}

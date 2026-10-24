@@ -1,7 +1,13 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 10 complete (2026-10-23), released as v3.1.1
-(2026-10-24). v3.1.1 is 3.1.0's bundle work reviewed after its release
+**Status:** phase 10 complete (2026-10-23), released as v3.1.2
+(2026-10-24). v3.1.2 is the family sweep of 2026-10-24 (§16): every
+reader trims through `config.Lookup`, the refresh token and config
+directory included, and the bundle gate holds the identity, refuses a
+repeated key, needs a semver release version and reads names whole-word;
+reviewed by `/simplify`, `/code-review medium` and `/security-review`, and
+a live run with `-write` of 253 calls passed, its transcript read.
+v3.1.1 (2026-10-24) is 3.1.0's bundle work reviewed after its release
 by `/simplify`, three `/code-review high` rounds and a security review
 (§16): the bundle gate derives what it asks for from the server's
 settings and refuses `args` or an override that would turn a switch on,
@@ -1512,7 +1518,8 @@ honest option and the one a model can act on.
   new variable fails it until the bundle asks for it or a reason is
   written. Each switch defaults to off and every other optional key,
   the OAuth client file included, to `""`, which the server reads as
-  unset. The gate starts the server through `config.Load` from the
+  unset; no default holds a `${` reference, which the host would expand.
+  The gate starts the server through `config.Load` from the
   environment the reference host builds from those defaults and from
   none, and names any field that differs. Claude Desktop approves each
   tool, and a person can set a tool to always allow, so a switch left
@@ -1520,7 +1527,10 @@ honest option and the one a model can act on.
   `mcp_config.env` alone: the base `args` is `[]` and no platform
   override carries `args` or `env`, which the host takes in place of
   the base's (§18). Every command starts with `${__dirname}/` and names
-  a program the packer stages (§18). The profile field states
+  a program the packer stages (§18), and `entry_point` is the file the
+  default command runs. The manifest's `name` is the server's,
+  `server.type` is `binary`, and `compatibility.platforms` is exactly
+  the platforms the packer stages an entry point for. The profile field states
   `config.ProfileRule` and the sharing field the modes the server
   accepts. The server refuses no combination of the switches, and the
   gate holds that: it starts every set of them and fails on a refusal
@@ -1530,6 +1540,12 @@ honest option and the one a model can act on.
   `server/google-drive-mcp-darwin`, `server/google-drive-mcp.exe`,
   `server/google-drive-mcp-linux-amd64`, `server/google-drive-mcp-linux-arm64`
   and `server/launch-linux.sh`, with `LICENSE` and `README.md` at the root.
+  The gate and the packer start from one function, which reads the
+  manifest, the launcher, `go.mod` and `.goreleaser.yaml` once from one
+  root, refuses a key repeated in one object and a version other than
+  the placeholder; the packer validates the stamped manifest it ships
+  against the vendored schema, with a Semantic Versioning version, and
+  a failed close of the bundle fails the pack.
 - **Setup guide** in the README, in the order `doctor` checks it (§10).
 - **Versioning.** Semantic versions; Keep a Changelog; the schema diff in
   CI fails on a removed or renamed tool or resource, a field removed at
@@ -2132,6 +2148,61 @@ diff helper typed `any` for its test; each is fixed with a test that
 failed first. Two live runs with `-write`, their transcripts read, made
 254 and 253 calls, all as expected; the second printed one comment
 reply id the redactor left in place (§17a).
+
+**The family sweep of 2026-10-24.** The family's servers were held to
+one table of the bundle gate's and the configuration's rules, and this
+repository was missing these, each now with a test that failed first.
+The server: every variable is read through one `config.Lookup`, which
+drops the spaces around a value, so the profile directory and the
+refresh token are trimmed as every setting already was, and `logout` no
+longer warns of a refresh token of spaces alone. The name scan reads a
+`+` chain in order, so a name built after another operand is seen, and
+walks `scripts/` too, where the smoke test, the evals and the live
+driver set the server's variables. The bundle gate: `fieldDiff` compares
+an unexported field with `Value.Equal` only where no interface is inside
+its type, rather than panicking; the manifest's `name` is the server's,
+`compatibility.platforms` is exactly the platforms an entry point is
+staged for, and `entry_point` is the file the default command runs; the
+gate and the packer read every file from one root, a key repeated in one
+object is refused, and the packer validates the stamped manifest it
+ships. The configuration page is held by whole word, both ways, and
+states `config.ProfileRule`. Already held: a failed close of the bundle
+fails the pack. Not carried: a check of the manifest's `license` against
+`LICENSE`, which no row of the table asks for. `/simplify` (one agent,
+four angles), `/code-review medium` and `/security-review` then ran
+over `main...family-rules`, with the family's second round of fixes.
+Fixed, each with a test that failed first: `fieldDiff` reported an
+unexported field it cannot name only when no named field differed, and
+compared a pointer by its address; the repeated-key refusal named a key
+holding a dot ambiguously, and passed a manifest whose keys it could
+not walk; `mcpb-manifest` wrote its refusal where the stamped manifest
+goes, and its help said `MANIFEST` where it takes a root; a refusal
+named the manifest when a problem can be in a file beside it; the
+stamped version was only stripped of a `v`, twice, and is now held to
+Semantic Versioning, which the schema does not hold, so the stamped
+check can fail; the configuration page check counted `xGDRIVE_LABELS`
+and `GDRIVE_LABELSx` as `GDRIVE_LABELS` and read `GDRIVE_ENABLE_*` as a
+variable; the name scan read `EnvPrefix + "ENABLE_" + kind` as a
+variable `GDRIVE_ENABLE_`; a default holding a `${` reference, which
+the host expands, was not refused by name; the install hint check
+missed a `module` line with a trailing comment; and `config` and
+`userconfig` each spelled the default profile, which is now
+`config.DefaultProfile` alone. The integration test reads the profile
+through `config.Load` rather than its own `os.Getenv`, a one-use alias
+of the server's name is gone, and the scan test no longer promises a
+list of the live driver's variables that does not exist. Kept: the
+override check's guard for a manifest that claims no platform, and the
+skip of a claimed platform with no staged file, which the review called
+dead: each stops a second report of what the identity check reports,
+and a test now fails without each. `userconfig.BaseDir` reads the
+process environment rather than an injected one, which only a test
+would use; the server reads the process environment either way.
+Repeated keys are compared exactly, not under case folding: the
+manifest decodes into a map, which keeps `command` and `Command` apart
+as the host does. Not carried: spelling the names typed outside
+`config` through its constants, since the name scan already holds each
+one to `EnvVars`. `/security-review`: no finding at confidence 8 or
+above.
 
 ## 17. Open decisions
 

@@ -2,10 +2,12 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/server"
 )
 
 // The Claude Desktop bundle. A `.mcpb` is a zip carrying a manifest, the
@@ -43,66 +46,176 @@ import (
 // tree can never be stale: it does not claim a version at all.
 const mcpbPlaceholder = "0.0.0-dev"
 
-// mcpbManifestPath is the committed manifest, which both the gate and
-// the packer read: one file, so a check of it is a check of what ships.
+// mcpbManifestPath is the committed manifest, which the gate and the
+// packer both read: one file, so a check of it is a check of what ships.
 const mcpbManifestPath = "packaging/mcpb/manifest.json"
 
-// mcpbManifest prints the packaging manifest with a real version in it.
-//
-// Through a decode and an encode rather than a text substitution,
-// because the manifest is JSON and a sed over JSON is how a quote ends
-// up inside a string. It refuses a manifest that is not carrying the
-// placeholder, so a real version committed by accident fails the build
-// instead of shipping under the wrong number.
+// mcpbManifest prints the packaging manifest with a real version in it:
+// the committed one under root, held to every check the gate runs, and
+// stamped as the packer stamps it. What it refuses is the error, so out
+// carries the stamped document and nothing else.
 func mcpbManifest(out io.Writer, args []string) error {
 	version := arg(args, 0, "")
-	path := arg(args, 1, mcpbManifestPath)
+	root := arg(args, 1, ".")
 	if version == "" {
-		return fmt.Errorf("usage: gates mcpb-manifest VERSION [MANIFEST]")
+		return fmt.Errorf("usage: gates mcpb-manifest VERSION [ROOT]")
 	}
-	manifest, err := readCommittedManifest(path)
+	manifest, problems, err := committedManifest(root)
 	if err != nil {
 		return err
 	}
-	manifest["version"] = strings.TrimPrefix(version, "v")
-
-	enc := json.NewEncoder(out)
-	enc.SetIndent("", "  ")
-	return enc.Encode(manifest)
+	if len(problems) > 0 {
+		return refused(problems)
+	}
+	stamped, err := stampManifest(manifest, version)
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(stamped)
+	return err
 }
 
-// readCommittedManifest reads a manifest and refuses one that is not
-// carrying the placeholder.
+// committedManifest is where the gate and the packer both start: the
+// committed manifest under root, read once and decoded once, and every
+// problem manifestProblems finds in it and in the files beside it under
+// the same root. A real version in it is a problem too: the tree
+// outlives any release, so a version there is a stale one waiting to
+// ship.
 //
-// One function because there were three copies of the check, and they
-// had already drifted: two shared the long explanation and the third
-// gave a bare one, so the same mistake read differently depending on
-// which entry point somebody hit.
-func readCommittedManifest(path string) (map[string]any, error) {
-	manifest, err := readManifest(path)
+// It decodes into a map rather than a struct: the packer rewrites one
+// field and must not drop the rest, and the manifest schema is not this
+// repository's to model. A key repeated in one object is refused before
+// anything else is checked. The decode keeps the last, as the schema
+// validator and the host do, while a person reading the file can stop at
+// the first, so the document reviewed would not be the one shipped.
+func committedManifest(root string) (manifest map[string]any, problems []string, err error) {
+	raw, err := os.ReadFile(filepath.Join(root, mcpbManifestPath)) //nolint:gosec // a repository path from a constant
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil, []string{fmt.Sprintf("decode %s: %v", mcpbManifestPath, err)}, nil
+	}
+	repeated, err := repeatedKeys(raw)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("the keys of %s cannot be read: %v", mcpbManifestPath, err)}, nil
+	}
+	if len(repeated) > 0 {
+		for _, at := range repeated {
+			problems = append(problems, fmt.Sprintf("the manifest has %s more than once; the decode, the schema "+
+				"and the host keep the last, and a person reading the file can stop at the first", at))
+		}
+		return nil, problems, nil
 	}
 	if got, _ := manifest["version"].(string); got != mcpbPlaceholder {
-		return nil, fmt.Errorf("%s carries version %q; the committed manifest must carry %q, "+
-			"so that a version in the tree can never be a stale one", path, got, mcpbPlaceholder)
+		problems = append(problems, fmt.Sprintf("%s carries version %q; the committed manifest must carry %q, "+
+			"so that a version in the tree can never be a stale one", mcpbManifestPath, got, mcpbPlaceholder))
 	}
-	return manifest, nil
+	return manifest, append(problems, manifestProblems(manifest, root)...), nil
 }
 
-// readManifest decodes into a map rather than a struct: the packer
-// rewrites one field and must not drop the rest, and the manifest schema
-// is not this repository's to model.
-func readManifest(path string) (map[string]any, error) {
-	raw, err := os.ReadFile(path) //nolint:gosec // a path this repository owns
+// repeatedKeys is the path of every key an object in raw has more than
+// once, each once, in document order: "server" at the top level,
+// "server.mcp_config.env.GDRIVE_PROFILE" inside, [i] for an element of a
+// list, and ["a.b"] for a key a dot or a bracket would make ambiguous.
+// Keys are exact: the manifest is decoded into a map, which keeps
+// "command" and "Command" apart as the host does. A walk that fails is
+// an error rather than none, so the gate refuses what it could not read.
+func repeatedKeys(raw []byte) ([]string, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	var repeated []string
+	var walk func(path string) error
+	walk = func(path string) error {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch tok {
+		case json.Delim('{'):
+			seen := map[string]int{}
+			for dec.More() {
+				keyTok, err := dec.Token()
+				if err != nil {
+					return err
+				}
+				key, _ := keyTok.(string)
+				at := keyPath(path, key)
+				if seen[key]++; seen[key] == 2 {
+					repeated = append(repeated, at)
+				}
+				if err := walk(at); err != nil {
+					return err
+				}
+			}
+		case json.Delim('['):
+			for i := 0; dec.More(); i++ {
+				if err := walk(fmt.Sprintf("%s[%d]", path, i)); err != nil {
+					return err
+				}
+			}
+		default:
+			return nil
+		}
+		_, err = dec.Token() // the closing brace or bracket
+		return err
+	}
+	if err := walk(""); err != nil {
+		return nil, err
+	}
+	return repeated, nil
+}
+
+// keyPath is the path of key inside path: path.key, or path["key"] for a
+// key holding a dot or a bracket, and for the empty key.
+func keyPath(path, key string) string {
+	switch {
+	case key == "" || strings.ContainsAny(key, ".["):
+		return path + "[" + strconv.Quote(key) + "]"
+	case path == "":
+		return key
+	}
+	return path + "." + key
+}
+
+// releaseVersion is a Semantic Versioning 2.0.0 version, by the
+// expression semver.org gives: what goreleaser's {{ .Version }} is for a
+// tag, the tag without its v, and for a snapshot, with a pre-release
+// after it.
+var releaseVersion = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)` +
+	`(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?` +
+	`(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
+
+// stampManifest is the committed manifest with version written in, as
+// the bundle carries it. The version must be releaseVersion's, which the
+// vendored schema does not hold: it takes any string, so a hook passing
+// {{ .Tag }} or a stray space would otherwise ship. Through a decode and
+// an encode rather than a text substitution, because the manifest is
+// JSON and a sed over JSON is how a quote ends up inside a string. The
+// encode sorts the keys and escapes <, > and &, so what it returns is
+// the committed document but not its bytes, and it is held to the
+// vendored schema again before anything ships it.
+func stampManifest(manifest map[string]any, version string) ([]byte, error) {
+	if !releaseVersion.MatchString(version) {
+		return nil, fmt.Errorf("the version is %q; a bundle carries a Semantic Versioning version, such as 1.2.3 "+
+			"or 1.2.3-rc.1, with no v", version)
+	}
+	stamped := maps.Clone(manifest)
+	stamped["version"] = version
+	encoded, err := json.MarshalIndent(stamped, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	var manifest map[string]any
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", path, err)
+	encoded = append(encoded, '\n')
+	if err := validateDocument(mcpbSchemaFile, "the stamped manifest", encoded); err != nil {
+		return nil, err
 	}
-	return manifest, nil
+	return encoded, nil
+}
+
+// refused is the error that stops a command, carrying every problem,
+// which may be in the manifest or in a file beside it.
+func refused(problems []string) error {
+	return fmt.Errorf("%d problem(s) in the bundle:\n  %s", len(problems), strings.Join(problems, "\n  "))
 }
 
 // staged is one file going into the bundle: where to find it in the
@@ -137,6 +250,9 @@ var binaries = []staged{
 // spawned, and because the two names it chooses between have to match
 // what the packer stages — see checkLauncher.
 const linuxLauncher = "server/launch-linux.sh"
+
+// launcherPlatform is the platform the launcher is the entry point for.
+const launcherPlatform = "linux"
 
 // alongside are the files that come from the tree rather than from the
 // build, so they are the same on every platform and at any moment.
@@ -173,20 +289,16 @@ func stagedNames() map[string]string {
 // the repository, and waiting for a tagged release to learn it is
 // waiting for the most expensive moment there is.
 func mcpbCheck(out io.Writer, _ []string) error {
-	manifest, err := readCommittedManifest(mcpbManifestPath)
+	manifest, problems, err := committedManifest(".")
 	if err != nil {
 		return err
 	}
-	contents := stagedNames()
-	if problems := manifestProblems(manifest, contents); len(problems) > 0 {
-		for _, p := range problems {
-			_, _ = fmt.Fprintln(out, "  "+p)
-		}
-		return fmt.Errorf("%d problem(s) in %s", len(problems), mcpbManifestPath)
+	if len(problems) > 0 {
+		return refused(problems)
 	}
 	userConfig, _ := manifest["user_config"].(map[string]any)
 	_, _ = fmt.Fprintf(out, "mcpb manifest ok (%d files staged, %d platforms, %d user_config keys)\n",
-		len(contents)+1, len(manifestPlatforms(manifest)), len(userConfig))
+		len(stagedNames())+1, len(manifestPlatforms(manifest)), len(userConfig))
 	return nil
 }
 
@@ -209,7 +321,19 @@ func mcpbPack(out io.Writer, args []string) error {
 	if version == "" {
 		return fmt.Errorf("usage: gates mcpb-pack VERSION [DIST]")
 	}
-	version = strings.TrimPrefix(version, "v")
+
+	// The gate's own start, so the packer refuses what the gate refuses.
+	manifest, problems, err := committedManifest(".")
+	if err != nil {
+		return err
+	}
+	if len(problems) > 0 {
+		return refused(problems)
+	}
+	stamped, err := stampManifest(manifest, version)
+	if err != nil {
+		return err
+	}
 
 	contents := stagedNames()
 	for _, b := range binaries {
@@ -220,20 +344,8 @@ func mcpbPack(out io.Writer, args []string) error {
 		contents[b.as] = src
 	}
 
-	manifest, err := readCommittedManifest(mcpbManifestPath)
-	if err != nil {
-		return err
-	}
-	manifest["version"] = version
-	if problems := manifestProblems(manifest, contents); len(problems) > 0 {
-		for _, p := range problems {
-			_, _ = fmt.Fprintln(out, "  "+p)
-		}
-		return fmt.Errorf("%d problem(s) in the bundle manifest", len(problems))
-	}
-
 	bundle := filepath.Join(dist, fmt.Sprintf("google-drive-mcp_%s.mcpb", version))
-	if err := writeBundle(bundle, manifest, contents); err != nil {
+	if err := writeBundle(bundle, stamped, contents); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(out, "mcpb-pack: wrote %s (%d files)\n", bundle, len(contents)+1)
@@ -241,14 +353,14 @@ func mcpbPack(out io.Writer, args []string) error {
 }
 
 // manifestProblems is every check the gate and the packer both run: the
-// manifest against the files staged, the settings it asks for against
-// the server's, the launcher against the staged names, and the staged
-// binaries against the build matrix.
-func manifestProblems(manifest map[string]any, contents map[string]string) []string {
-	problems := checkManifest(manifest, contents)
+// manifest against the names staged, the settings it asks for against
+// the server's, the launcher and go.mod under root against the staged
+// names, and the staged binaries against the build matrix under root.
+func manifestProblems(manifest map[string]any, root string) []string {
+	problems := checkManifest(manifest, stagedNames())
 	problems = append(problems, settingProblems(manifest, config.Vars(), bundleLeftOut)...)
-	problems = append(problems, checkLauncher()...)
-	return append(problems, checkBuildMatrix()...)
+	problems = append(problems, checkLauncher(root)...)
+	return append(problems, checkBuildMatrix(root)...)
 }
 
 // isProgram reports whether a staged name is a program: everything under
@@ -267,14 +379,10 @@ func isProgram(name string) bool {
 // absent one.
 var zipEpoch = time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-// writeBundle writes the zip. Names are sorted so the same inputs give
-// the same archive, which is the least a build can offer somebody
-// checking a checksum.
-func writeBundle(bundle string, manifest map[string]any, contents map[string]string) error {
-	encoded, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return err
-	}
+// writeBundle writes the zip, manifest being the stamped document as it
+// ships. Names are sorted so the same inputs give the same archive,
+// which is the least a build can offer somebody checking a checksum.
+func writeBundle(bundle string, manifest []byte, contents map[string]string) error {
 	f, err := os.Create(bundle) //nolint:gosec // a path built from dist and the version
 	if err != nil {
 		return err
@@ -282,7 +390,7 @@ func writeBundle(bundle string, manifest map[string]any, contents map[string]str
 	defer func() { _ = f.Close() }()
 	zw := zip.NewWriter(f)
 
-	if err := addBytes(zw, "manifest.json", append(encoded, '\n'), 0o644); err != nil {
+	if err := addBytes(zw, "manifest.json", manifest, 0o644); err != nil {
 		return err
 	}
 	for _, name := range sorted(contents) {
@@ -297,6 +405,9 @@ func writeBundle(bundle string, manifest map[string]any, contents map[string]str
 	if err := zw.Close(); err != nil {
 		return err
 	}
+	// Close's error is the pack's: the last of the archive can reach the
+	// disk only there, and a bundle cut short must not pass. The deferred
+	// Close then does nothing.
 	return f.Close()
 }
 
@@ -346,19 +457,7 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	formatVersion, _ := manifest["manifest_version"].(string)
 	supportURL, _ := manifest["support"].(string)
 	problems = append(problems, declarationProblems(schemaRef, formatVersion, supportURL)...)
-
-	// The manifest specification requires privacy_policies of a server
-	// that connects to a service processing user data, as this one does
-	// to Google, and neither the schema nor `mcpb validate` enforces it.
-	if policies, _ := manifest["privacy_policies"].([]any); len(policies) == 0 {
-		problems = append(problems, "privacy_policies is empty; the manifest specification requires one for a "+
-			"server that connects to a service processing user data, as this one does to Google")
-	}
-	compat, _ := manifest["compatibility"].(map[string]any)
-	if got, _ := compat["claude_desktop"].(string); got != claudeDesktopFloor {
-		problems = append(problems, fmt.Sprintf("compatibility.claude_desktop is %q; the family's bundles claim %q",
-			got, claudeDesktopFloor))
-	}
+	problems = append(problems, identityProblems(manifest)...)
 
 	// And against the schema the manifest cites, which the declaration
 	// rules only name: a document can satisfy every claim about the
@@ -371,9 +470,6 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	server, _ := manifest["server"].(map[string]any)
 	if server == nil {
 		return append(problems, "manifest has no server block")
-	}
-	if kind, _ := server["type"].(string); kind != "binary" {
-		problems = append(problems, fmt.Sprintf("server.type is %q, and this bundle ships binaries", kind))
 	}
 
 	// Only a program can be spawned: LICENSE and README.md are staged to
@@ -414,6 +510,13 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	}
 	command, _ := cfg["command"].(string)
 	resolve("", "server.mcp_config.command", command)
+	// entry_point is the file the default command runs, so the bundle
+	// does not name one file as the server and spawn another. An entry
+	// point or a command that names no program is reported above.
+	if got, ok := runs[""]; ok && program(entry) && got != entry {
+		problems = append(problems, fmt.Sprintf("server.entry_point is %q, and server.mcp_config.command runs %q",
+			entry, got))
+	}
 
 	overrides, _ := cfg["platform_overrides"].(map[string]any)
 	claimed := manifestPlatforms(manifest)
@@ -442,12 +545,10 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	// a staged program. A Mach-O binary on Windows is exactly the "packs
 	// cleanly and then does nothing" failure this function exists to
 	// catch.
+	// A claimed platform nothing is staged for is reported above.
 	for _, platform := range claimed {
 		want := entryPointFor(platform)
 		if want == "" {
-			problems = append(problems, fmt.Sprintf(
-				"compatibility.platforms claims %s and this packer stages no entry point for it",
-				platform))
 			continue
 		}
 		from := ""
@@ -474,6 +575,40 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 					"env %s spends ${user_config.%s}, which user_config does not declare", name, key))
 			}
 		}
+	}
+	return problems
+}
+
+// identityProblems holds what the manifest says it is: the server's own
+// name, a binary, the family's Claude Desktop floor, a privacy policy,
+// and exactly the platforms the packer stages an entry point for, so
+// dropping one platform and its override together is refused.
+// checkManifest holds each platform to the file staged for it.
+func identityProblems(manifest map[string]any) []string {
+	var problems []string
+	if name, _ := manifest["name"].(string); name != server.Name {
+		problems = append(problems, fmt.Sprintf("the manifest's name is %q and the server's is %q", name, server.Name))
+	}
+	server, _ := manifest["server"].(map[string]any)
+	if kind, _ := server["type"].(string); server != nil && kind != "binary" {
+		problems = append(problems, fmt.Sprintf("server.type is %q, and this bundle ships binaries", kind))
+	}
+	compat, _ := manifest["compatibility"].(map[string]any)
+	if got, _ := compat["claude_desktop"].(string); got != claudeDesktopFloor {
+		problems = append(problems, fmt.Sprintf("compatibility.claude_desktop is %q; the family's bundles claim %q",
+			got, claudeDesktopFloor))
+	}
+	platforms, staged := slices.Sorted(slices.Values(manifestPlatforms(manifest))), stagedPlatforms()
+	if !slices.Equal(platforms, staged) {
+		problems = append(problems, fmt.Sprintf("compatibility.platforms is %v; the packer stages entry points for %v",
+			platforms, staged))
+	}
+	// The manifest specification requires privacy_policies of a server
+	// that connects to a service processing user data, as this one does
+	// to Google, and neither the schema nor `mcpb validate` enforces it.
+	if policies, _ := manifest["privacy_policies"].([]any); len(policies) == 0 {
+		problems = append(problems, "privacy_policies is empty; the manifest specification requires one for a "+
+			"server that connects to a service processing user data, as this one does to Google")
 	}
 	return problems
 }
@@ -535,7 +670,7 @@ func manifestPlatforms(manifest map[string]any) []string {
 // entryPointFor is the file a platform spawns: its own binary, or the
 // launcher where the platform needs one binary per architecture.
 func entryPointFor(platform string) string {
-	if platform == "linux" {
+	if platform == launcherPlatform {
 		return linuxLauncher
 	}
 	for _, b := range binaries {
@@ -546,7 +681,21 @@ func entryPointFor(platform string) string {
 	return ""
 }
 
-// checkLauncher holds the Linux launcher to the names the packer stages.
+// stagedPlatforms is every platform the packer stages an entry point
+// for, sorted: each binary's, and the launcher's.
+func stagedPlatforms() []string {
+	platforms := []string{launcherPlatform}
+	for _, b := range binaries {
+		if b.platform != "" {
+			platforms = append(platforms, b.platform)
+		}
+	}
+	slices.Sort(platforms)
+	return platforms
+}
+
+// checkLauncher holds the Linux launcher under root to the names the
+// packer stages.
 //
 // The launcher picks a binary from `uname -m` and spawns it by name, and
 // those names are written out in a shell script that no manifest
@@ -559,13 +708,13 @@ func entryPointFor(platform string) string {
 // It asserts the names rather than generating the script: a launcher is
 // a thing a person should be able to read, and generating it would trade
 // a checkable fact for a harder-to-read one. Its install hint is held to
-// go.mod the same way.
-func checkLauncher() []string {
+// go.mod under root the same way.
+func checkLauncher(root string) []string {
 	source, ok := alongside[linuxLauncher]
 	if !ok {
 		return []string{"the packer stages no " + linuxLauncher}
 	}
-	body, err := os.ReadFile(source) //nolint:gosec // a path this repository owns
+	body, err := os.ReadFile(filepath.Join(root, source)) //nolint:gosec // a path this repository owns
 	if err != nil {
 		return []string{"cannot read " + source + ": " + err.Error()}
 	}
@@ -588,7 +737,7 @@ func checkLauncher() []string {
 		return []string{source + " names none of the staged binaries; this check is not reading what it " +
 			"is meant to"}
 	}
-	goMod, err := os.ReadFile("go.mod")
+	goMod, err := os.ReadFile(filepath.Join(root, "go.mod")) //nolint:gosec // a repository path from a constant
 	if err != nil {
 		return append(problems, "cannot read go.mod: "+err.Error())
 	}
@@ -619,13 +768,15 @@ func installHintProblems(launcher, goMod string) []string {
 }
 
 var (
-	// moduleLine is go.mod's module directive. Trailing space is allowed
-	// because a checkout with Windows line endings ends it with "\r".
-	moduleLine  = regexp.MustCompile(`(?m)^module\s+(\S+)\s*$`)
+	// moduleLine is go.mod's module directive: the path after spaces or a
+	// tab, then perhaps a // comment, and a "\r" where a checkout has
+	// Windows line endings.
+	moduleLine  = regexp.MustCompile(`(?m)^module[ \t]+(\S+?)[ \t]*(?://.*)?\r?$`)
 	installHint = regexp.MustCompile(`go install [^\s"]+`)
 )
 
-// checkBuildMatrix holds the staged binaries to what goreleaser builds.
+// checkBuildMatrix holds the staged binaries to what goreleaser builds,
+// as .goreleaser.yaml under root says.
 //
 // The two lists are written in different files by different people
 // thinking about different things — `.goreleaser.yaml` decides what
@@ -636,8 +787,8 @@ var (
 //
 // That is the shape `gates parity` exists for one file over, and this is
 // the same argument applied to the release's other pair of lists.
-func checkBuildMatrix() []string {
-	source, err := os.ReadFile(".goreleaser.yaml")
+func checkBuildMatrix(root string) []string {
+	source, err := os.ReadFile(filepath.Join(root, ".goreleaser.yaml")) //nolint:gosec // a repository path from a constant
 	if err != nil {
 		return []string{"cannot read .goreleaser.yaml: " + err.Error()}
 	}
@@ -852,9 +1003,10 @@ func fieldRules() map[string]string {
 // variable, and nothing else is set. A switch is asked as a boolean, so
 // Claude Desktop shows it as one. An optional key has a default, because
 // the reference host passes ${user_config.x} through as written when it
-// has none and the person leaves the field blank. The defaults configure
-// the server as no environment does, and the switches the server
-// refuses together are the ones bundleRefused declares.
+// has none and the person leaves the field blank. A default holds no ${
+// reference, which the host would expand. The defaults configure the
+// server as no environment does, and the switches the server refuses
+// together are the ones bundleRefused declares.
 func settingProblems(manifest map[string]any, vars []config.Var, leftOut map[string]string) []string {
 	asked, problems := askedFrom(vars, leftOut)
 	declared, _ := manifest["user_config"].(map[string]any)
@@ -877,6 +1029,10 @@ func settingProblems(manifest map[string]any, vars []config.Var, leftOut map[str
 		if _, hasDefault := opt["default"]; !required && !hasDefault {
 			problems = append(problems, fmt.Sprintf("user_config.%s is optional with no default; the reference host "+
 				"passes ${user_config.%s} to the server as written when the field is left blank", key, key))
+		}
+		if def, _ := opt["default"].(string); strings.Contains(def, "${") {
+			problems = append(problems, fmt.Sprintf("user_config.%s defaults to %q; the host expands a ${ reference in a "+
+				"default, ${HOME} and ${__dirname} among them, and the defaults check cannot follow it", key, def))
 		}
 	}
 	for _, name := range sorted(env) {
@@ -1079,8 +1235,9 @@ func configDiff(a, b config.Config) []string {
 
 // fieldDiff names the fields of two values of one struct type that
 // differ. An unexported field cannot be read out through Interface, so
-// it is compared with Value.Equal where its type compares; one that does
-// not, and differs, is reported unnamed.
+// it is compared with Value.Equal where its type compares strictly; one
+// whose type does not is compared by sameValue and, when it differs,
+// reported unnamed, once, whatever else differs.
 func fieldDiff(a, b any) []string {
 	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
 	var fields []string
@@ -1092,18 +1249,91 @@ func fieldDiff(a, b any) []string {
 			if !reflect.DeepEqual(va.Field(i).Interface(), vb.Field(i).Interface()) {
 				fields = append(fields, f.Name)
 			}
-		case f.Type.Comparable():
+		case strictlyComparable(f.Type):
 			if !va.Field(i).Equal(vb.Field(i)) {
 				fields = append(fields, f.Name)
 			}
 		default:
-			unnamed = true
+			unnamed = unnamed || !sameValue(va.Field(i), vb.Field(i))
 		}
 	}
-	if unnamed && len(fields) == 0 && !reflect.DeepEqual(a, b) {
+	if unnamed {
 		fields = append(fields, "an unexported field")
 	}
 	return fields
+}
+
+// strictlyComparable reports whether Value.Equal compares every value of
+// t by what it holds. An interface type compares as a type, but Equal
+// panics on a dynamic value that does not; a pointer, a channel and a
+// func compare by address. One anywhere inside t rules it out.
+func strictlyComparable(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Interface, reflect.Pointer, reflect.Chan, reflect.UnsafePointer, reflect.Func:
+		return false
+	case reflect.Struct:
+		for i := range t.NumField() {
+			if !strictlyComparable(t.Field(i).Type) {
+				return false
+			}
+		}
+		return true
+	case reflect.Array:
+		return strictlyComparable(t.Elem())
+	}
+	return t.Comparable()
+}
+
+// sameValue is reflect.DeepEqual for two values of one type that may be
+// unexported fields, which DeepEqual cannot be handed: it reads them
+// through the accessors that do not panic on one. A configuration holds
+// no cycle, so none is followed.
+func sameValue(x, y reflect.Value) bool {
+	switch x.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if x.IsNil() || y.IsNil() {
+			return x.IsNil() == y.IsNil()
+		}
+		if x.Elem().Type() != y.Elem().Type() {
+			return false
+		}
+		return sameValue(x.Elem(), y.Elem())
+	case reflect.Slice:
+		if x.IsNil() != y.IsNil() || x.Len() != y.Len() {
+			return false
+		}
+		fallthrough
+	case reflect.Array:
+		for i := range x.Len() {
+			if !sameValue(x.Index(i), y.Index(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Map:
+		if x.IsNil() != y.IsNil() || x.Len() != y.Len() {
+			return false
+		}
+		for _, key := range x.MapKeys() {
+			if v := y.MapIndex(key); !v.IsValid() || !sameValue(x.MapIndex(key), v) {
+				return false
+			}
+		}
+		return true
+	case reflect.Struct:
+		for i := range x.NumField() {
+			if !sameValue(x.Field(i), y.Field(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Func:
+		// As DeepEqual has it: two funcs are equal only when both are nil.
+		return x.IsNil() && y.IsNil()
+	case reflect.Chan, reflect.UnsafePointer:
+		return x.Pointer() == y.Pointer()
+	}
+	return x.Equal(y)
 }
 
 // bundleRefused are the sets of the bundle's switches the server refuses

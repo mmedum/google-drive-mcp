@@ -26,6 +26,11 @@ import (
 // EnvPrefix is prepended to every environment variable name.
 const EnvPrefix = "GDRIVE_"
 
+// DefaultProfile is the profile used when none is named, which
+// internal/userconfig keeps in the base directory rather than under
+// profiles/.
+const DefaultProfile = "default"
+
 // LogLevel is a typed enum constrained at load time.
 type LogLevel string
 
@@ -129,8 +134,8 @@ type Var struct {
 
 // The variables read outside Define. internal/userconfig reads the
 // profile directory before any flag is parsed, and internal/credentials
-// the refresh token; each takes its name from here, so config imports
-// neither.
+// the refresh token; each takes its name from here and reads it through
+// Lookup, so config imports neither.
 const (
 	EnvConfigDir    = EnvPrefix + "CONFIG_DIR"
 	EnvRefreshToken = EnvPrefix + "REFRESH_TOKEN"
@@ -138,6 +143,15 @@ const (
 
 // envOnly is every variable read outside Define, for Vars.
 var envOnly = []string{EnvConfigDir, EnvRefreshToken}
+
+// Lookup is the value env gives the variable name, without the spaces
+// around it. Spaces alone are "", unset as an empty variable is, so a
+// form field cleared to a space means the default rather than a value
+// the server refuses. Define reads every setting through it, and so does
+// each reader of a variable outside Define.
+func Lookup(env func(string) string, name string) string {
+	return strings.TrimSpace(env(name))
+}
 
 // removedSettings are the settings a release took out, each with what to
 // do instead. Off is still accepted. On, or a value that is not a
@@ -171,22 +185,21 @@ func (s *Settings) removedSet() []error {
 // the command line wins over the environment, and the environment wins
 // over the built-in default.
 //
-// Every variable is read through read, which records it for Vars, so a
-// setting added here reaches the bundle and staleness gates.
+// Every variable is read through read, which records it for Vars and
+// reads it through Lookup, so a setting added here reaches the bundle
+// and staleness gates and has its spaces dropped.
 func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	s := &Settings{removed: map[string]string{}}
 	read := func(name string, isSwitch bool) string {
 		s.vars = append(s.vars, Var{Name: name, Switch: isSwitch})
-		return env(name)
+		return Lookup(env, name)
 	}
 	for _, r := range removedSettings {
 		s.removed[r.key] = read(EnvPrefix+r.key, false)
 	}
 	bind := func(p *string, name, key, fallback, usage string, isSwitch bool) {
 		v := read(EnvPrefix+key, isSwitch)
-		// Spaces alone are unset too: a form field cleared to a space
-		// means the default, not a value Build refuses.
-		if strings.TrimSpace(v) == "" {
+		if v == "" {
 			v = fallback
 		}
 		fs.StringVar(p, name, v, usage+" [env "+EnvPrefix+key+"]")
@@ -194,7 +207,7 @@ func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	def := func(p *string, name, key, fallback, usage string) { bind(p, name, key, fallback, usage, false) }
 	// A switch is off unless set.
 	sw := func(p *string, name, key, usage string) { bind(p, name, key, "false", usage, true) }
-	def(&s.Profile, "profile", "PROFILE", "default", "named configuration profile")
+	def(&s.Profile, "profile", "PROFILE", DefaultProfile, "named configuration profile")
 	def(&s.LogLevel, "log-level", "LOG_LEVEL", string(LogInfo), "log level: debug, info, warn, error")
 	def(&s.LogFormat, "log-format", "LOG_FORMAT", string(LogText), "log format: text, json")
 	sw(&s.ReadOnly, "read-only", "READ_ONLY", "register only read tools and request read-only scopes")
@@ -214,13 +227,18 @@ func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 // Define's are recorded rather than listed, so they cannot fall behind.
 // The bundle gate derives what it asks for from these.
 func Vars() []Var {
-	fs := flag.NewFlagSet("vars", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	vars := Define(fs, func(string) string { return "" }).vars
+	vars := defined()
 	for _, name := range envOnly {
 		vars = append(vars, Var{Name: name})
 	}
 	return vars
+}
+
+// defined is every variable Define reads, in the order it reads them.
+func defined() []Var {
+	fs := flag.NewFlagSet("vars", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	return Define(fs, func(string) string { return "" }).vars
 }
 
 // EnvVars is the names of Vars, sorted.
