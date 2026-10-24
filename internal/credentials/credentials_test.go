@@ -248,6 +248,19 @@ func TestIsKeyringNotFound(t *testing.T) {
 	}
 }
 
+// A refresh token of spaces alone is unset, so the keyring's is used.
+func TestAnEnvTokenOfSpacesIsUnset(t *testing.T) {
+	kr := newFakeKeyring()
+	s := &Store{Profile: "default", Keyring: kr, Env: func(string) string { return "  " }}
+	if _, err := s.Save("from-keyring"); err != nil {
+		t.Fatal(err)
+	}
+	tok, src, err := s.Resolve()
+	if err != nil || tok != "from-keyring" || src != SourceKeyring {
+		t.Errorf("Resolve = %q/%q/%v, want the keyring's token", tok, src, err)
+	}
+}
+
 func TestEnvDefaultsToTheProcessEnvironment(t *testing.T) {
 	t.Setenv(EnvVar, "from-process-env")
 	s := &Store{Profile: "default", Keyring: newFakeKeyring()}

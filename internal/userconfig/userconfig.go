@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
@@ -39,7 +40,8 @@ type Config struct {
 
 // BaseDir returns the application config directory.
 func BaseDir() (string, error) {
-	if v := os.Getenv(EnvDir); v != "" {
+	// Spaces alone are unset, as for every setting.
+	if v := os.Getenv(EnvDir); strings.TrimSpace(v) != "" {
 		return v, nil
 	}
 	d, err := os.UserConfigDir()

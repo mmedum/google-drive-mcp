@@ -2108,8 +2108,9 @@ of the settings list in the README, this file and the CHANGELOG.
 `/code-review high` of `v3.0.0..HEAD` then found, fixed with a test
 each that failed first: a variable read outside Define was a list
 typed by hand, so a new one would escape both gates (a test now finds
-every `GDRIVE_` name the code spells and holds it to `EnvVars`); a
-setting of spaces alone skipped its default and stopped the server;
+every `GDRIVE_` name the code spells as a literal, or as literals and
+`EnvPrefix` joined, and holds it to `EnvVars`); a variable of spaces
+alone skipped its default and stopped the server;
 `config` imported the keyring for two names, which it now owns; the
 sharing refusal typed the modes the field derives; the defaults
 comparison would panic on an unexported field; `docs/configuration.md`

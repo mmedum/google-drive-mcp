@@ -122,17 +122,20 @@ func TestPathHelpers(t *testing.T) {
 // coverage floor started deriving its own package list.
 
 func TestBaseDirFallsBackToTheUserConfigDir(t *testing.T) {
-	t.Setenv(EnvDir, "")
-	got, err := BaseDir()
-	if err != nil {
-		t.Fatalf("BaseDir: %v", err)
-	}
 	want, err := os.UserConfigDir()
 	if err != nil {
 		t.Skipf("this machine has no user config dir: %v", err)
 	}
-	if got != filepath.Join(want, AppDir) {
-		t.Errorf("BaseDir() = %q, want it under %q", got, want)
+	// Spaces alone are unset, as empty is.
+	for _, v := range []string{"", "  "} {
+		t.Setenv(EnvDir, v)
+		got, err := BaseDir()
+		if err != nil {
+			t.Fatalf("BaseDir: %v", err)
+		}
+		if got != filepath.Join(want, AppDir) {
+			t.Errorf("%s=%q: BaseDir() = %q, want it under %q", EnvDir, v, got, want)
+		}
 	}
 }
 

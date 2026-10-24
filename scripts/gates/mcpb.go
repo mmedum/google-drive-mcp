@@ -1073,18 +1073,34 @@ func defaultsProblems(d bundleDefaults) []string {
 }
 
 // configDiff names the fields two configurations disagree on.
-func configDiff(a, b any) []string {
+func configDiff(a, b config.Config) []string {
+	return fieldDiff(a, b)
+}
+
+// fieldDiff names the fields of two values of one struct type that
+// differ. An unexported field cannot be read out through Interface, so
+// it is compared with Value.Equal where its type compares; one that does
+// not, and differs, is reported unnamed.
+func fieldDiff(a, b any) []string {
 	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
 	var fields []string
+	unnamed := false
 	for i := range va.NumField() {
 		f := va.Type().Field(i)
-		if f.IsExported() && !reflect.DeepEqual(va.Field(i).Interface(), vb.Field(i).Interface()) {
-			fields = append(fields, f.Name)
+		switch {
+		case f.IsExported():
+			if !reflect.DeepEqual(va.Field(i).Interface(), vb.Field(i).Interface()) {
+				fields = append(fields, f.Name)
+			}
+		case f.Type.Comparable():
+			if !va.Field(i).Equal(vb.Field(i)) {
+				fields = append(fields, f.Name)
+			}
+		default:
+			unnamed = true
 		}
 	}
-	// An unexported field cannot be read out by name; one that differs
-	// is still a difference.
-	if len(fields) == 0 && !reflect.DeepEqual(a, b) {
+	if unnamed && len(fields) == 0 && !reflect.DeepEqual(a, b) {
 		fields = append(fields, "an unexported field")
 	}
 	return fields

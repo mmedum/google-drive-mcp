@@ -809,27 +809,33 @@ func refusingPair(t *testing.T, edit func(map[string]any)) map[string]any {
 	})
 }
 
-// Every set of the switches is started, and the refused ones are held to
-// the declared list both ways, each defect reported once. A declared key
-// is a switch with a title, and its description names the others'.
-// A field the defaults change is named; an unexported one cannot be read
-// by name, and is reported rather than panicking.
+// A field the defaults change is named, an unexported one included
+// where its type compares; an unexported one that does not is reported
+// unnamed, rather than panicking.
 func TestTheConfigDiffNamesTheFieldsThatDiffer(t *testing.T) {
 	type cfg struct {
 		Shown  int
 		hidden int
+		rest   []string
 	}
-	if got := configDiff(cfg{1, 1}, cfg{2, 1}); !slices.Equal(got, []string{"Shown"}) {
-		t.Errorf("an exported field differing gives %q, want [Shown]", got)
-	}
-	if got := configDiff(cfg{1, 1}, cfg{1, 2}); !slices.Equal(got, []string{"an unexported field"}) {
-		t.Errorf("an unexported field differing gives %q, want [an unexported field]", got)
-	}
-	if got := configDiff(cfg{1, 1}, cfg{1, 1}); len(got) != 0 {
-		t.Errorf("equal configurations give %q, want none", got)
+	for _, tc := range []struct {
+		b    cfg
+		want []string
+	}{
+		{cfg{2, 1, nil}, []string{"Shown"}},
+		{cfg{1, 2, nil}, []string{"hidden"}},
+		{cfg{1, 1, []string{"x"}}, []string{"an unexported field"}},
+		{cfg{1, 1, nil}, nil},
+	} {
+		if got := fieldDiff(cfg{1, 1, nil}, tc.b); !slices.Equal(got, tc.want) {
+			t.Errorf("fieldDiff against %+v = %q, want %q", tc.b, got, tc.want)
+		}
 	}
 }
 
+// Every set of the switches is started, and the refused ones are held to
+// the declared list both ways, each defect reported once. A declared key
+// is a switch with a title, and its description names the others'.
 func TestTheBundleRefusalsAreDeclared(t *testing.T) {
 	asked, _ := askedFrom(config.Vars(), bundleLeftOut)
 	refusals := func(manifest map[string]any, declared [][]string) []string {

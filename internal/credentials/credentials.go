@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -96,7 +97,8 @@ func (s *Store) env(k string) string {
 
 // Resolve returns the refresh token and where it came from.
 func (s *Store) Resolve() (string, Source, error) {
-	if v := s.env(EnvVar); v != "" {
+	// Spaces alone are unset, as for every setting.
+	if v := s.env(EnvVar); strings.TrimSpace(v) != "" {
 		return v, SourceEnv, nil
 	}
 	return s.ResolveStored()

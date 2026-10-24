@@ -67,10 +67,12 @@ func TestSharingRule(t *testing.T) {
 	}
 }
 
-// Every GDRIVE_ variable the server's code names, as a literal or as
-// EnvPrefix and a literal, is one EnvVars lists, so a variable read
-// outside Define cannot escape the bundle and staleness gates. The scan
-// must find the two read outside Define, or it read nothing.
+// Every GDRIVE_ variable the server's code spells is one EnvVars lists,
+// so a variable read outside Define cannot escape the bundle and
+// staleness gates. A name is seen as a string literal, or as a chain of
+// literals and EnvPrefix joined by +; one built from any other constant
+// is not seen. The scan must find a name outside this package in each
+// root, or it read too little.
 func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 	known := map[string]bool{}
 	for _, name := range EnvVars() {
@@ -78,8 +80,10 @@ func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 	}
 	name := regexp.MustCompile(`^GDRIVE_[A-Z0-9][A-Z0-9_]*$`)
 	found := map[string]string{}
+	elsewhere := map[string]int{}
 	fset := token.NewFileSet()
-	for _, root := range []string{"../../cmd", "../../internal"} {
+	roots := []string{"../../cmd", "../../internal"}
+	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return err
@@ -88,35 +92,31 @@ func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			ast.Inspect(f, func(n ast.Node) bool {
-				var lit *ast.BasicLit
-				prefix := ""
-				switch n := n.(type) {
-				case *ast.BinaryExpr:
-					if id, ok := n.X.(*ast.Ident); ok && id.Name == "EnvPrefix" {
-						lit, _ = n.Y.(*ast.BasicLit)
-						prefix = EnvPrefix
-					} else if sel, ok := n.X.(*ast.SelectorExpr); ok && sel.Sel.Name == "EnvPrefix" {
-						lit, _ = n.Y.(*ast.BasicLit)
-						prefix = EnvPrefix
-					}
-				case *ast.BasicLit:
-					lit = n
-				}
-				if lit == nil || lit.Kind != token.STRING {
-					return true
-				}
-				s, err := strconv.Unquote(lit.Value)
-				if err != nil {
-					return true
-				}
-				// A literal of words, such as a message, names its
-				// variables among them.
-				for _, word := range strings.FieldsFunc(prefix+s, func(r rune) bool {
+			outside := filepath.Dir(path) != filepath.Join("..", "..", "internal", "config")
+			spell := func(s string, at token.Pos) {
+				for _, word := range strings.FieldsFunc(s, func(r rune) bool {
 					return r != '_' && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
 				}) {
 					if name.MatchString(word) {
-						found[word] = fset.Position(lit.Pos()).String()
+						found[word] = fset.Position(at).String()
+						if outside {
+							elsewhere[root]++
+						}
+					}
+				}
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.BinaryExpr:
+					// A chain of literals and EnvPrefix is one name; any
+					// other chain is read a literal at a time.
+					if s, ok := joined(n); ok {
+						spell(s, n.Pos())
+						return false
+					}
+				case *ast.BasicLit:
+					if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil {
+						spell(s, n.Pos())
 					}
 				}
 				return true
@@ -127,9 +127,9 @@ func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, v := range []string{EnvConfigDir, EnvRefreshToken} {
-		if _, ok := found[v]; !ok {
-			t.Errorf("the scan did not find %s, which is read outside Define; it read too little", v)
+	for _, root := range roots {
+		if elsewhere[root] == 0 {
+			t.Errorf("the scan found no GDRIVE_ name in %s outside internal/config; it read too little", root)
 		}
 	}
 	for _, v := range slices.Sorted(maps.Keys(found)) {
@@ -137,6 +137,32 @@ func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 			t.Errorf("%s names %s, which EnvVars does not list", found[v], v)
 		}
 	}
+}
+
+// joined is a + chain of string literals and EnvPrefix as one string.
+func joined(e ast.Expr) (string, bool) {
+	switch e := e.(type) {
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return "", false
+		}
+		x, ok := joined(e.X)
+		if !ok {
+			return "", false
+		}
+		y, ok := joined(e.Y)
+		return x + y, ok
+	case *ast.ParenExpr:
+		return joined(e.X)
+	case *ast.BasicLit:
+		s, err := strconv.Unquote(e.Value)
+		return s, e.Kind == token.STRING && err == nil
+	case *ast.Ident:
+		return EnvPrefix, e.Name == "EnvPrefix"
+	case *ast.SelectorExpr:
+		return EnvPrefix, e.Sel.Name == "EnvPrefix"
+	}
+	return "", false
 }
 
 func TestLoad(t *testing.T) {
