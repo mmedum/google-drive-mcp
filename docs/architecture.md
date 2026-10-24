@@ -1502,14 +1502,25 @@ honest option and the one a model can act on.
   download cap, labels and activity, each under its variable's name
   without `GDRIVE_`, lowercased. Logging, the HTTP timeout, the config
   directory and the refresh token are left out, each with its reason in
-  `gates mcpb`, and the gate fails on a variable with no verdict. Each
-  switch defaults to the server's own default, off, and every other
-  optional key to `""`, which the server reads as unset. Claude Desktop
-  approves each tool, and a person can set a tool to always allow, so a
-  switch left off is the one guard a bundle install keeps (§18). No
-  combination of the fields is refused: read-only leaves the destructive
-  switch nothing to register, and `sharing` off takes its four sharing
-  tools, so those fields say so. The bundle stages
+  `gates mcpb`. The gate derives what is asked from `config.Vars`, so a
+  new variable fails it until the bundle asks for it or a reason is
+  written. Each switch defaults to off and every other optional key,
+  the OAuth client file included, to `""`, which the server reads as
+  unset. The gate starts the server through `config.Load` from the
+  environment the reference host builds from those defaults and from
+  none, and names any field that differs. Claude Desktop approves each
+  tool, and a person can set a tool to always allow, so a switch left
+  off is the one guard a bundle install keeps (§18). Settings pass by
+  `mcp_config.env` alone: the base `args` is `[]` and no platform
+  override carries `args` or `env`, which the host takes in place of
+  the base's (§18). Every command starts with `${__dirname}/` and names
+  a program the packer stages (§18). The profile field states
+  `config.ProfileRule` and the sharing field the modes the server
+  accepts. The server refuses no combination of the fields, and the
+  gate holds that: it starts every set of the switches and fails on a
+  refusal no field warns of. Read-only leaves the destructive switch
+  nothing to register, and `sharing` off takes its four sharing tools,
+  so those fields say so. The bundle stages
   `server/google-drive-mcp-darwin`, `server/google-drive-mcp.exe`,
   `server/google-drive-mcp-linux-amd64`, `server/google-drive-mcp-linux-arm64`
   and `server/launch-linux.sh`, with `LICENSE` and `README.md` at the root.
@@ -2073,6 +2084,28 @@ ownership transfer with `-transfer`, and the two probes in §17. Built
 with Go 1.27.3, which fixes GO-2026-6809 in `crypto/x509`; govulncheck
 found it reachable under 1.27.2.
 
+**3.1.0, reviewed after release.** 3.1.0 shipped without `/simplify`,
+which ran over `v3.0.0..v3.1.0` on 2026-10-24; what it found ships in
+the next release. The bundle gate kept its own list of the settings it
+asks for, added two variables by hand, and read a switch's default from
+a field kept only for it; `staleness` read the settings from
+`config.go` with a regular expression. All of them now come from
+`config.Vars`, and the bundle asks for every variable it records less
+those `bundleLeftOut` gives a reason for. Fixed, each with a test that
+failed first: `--enable-destructive=true` in the base `args` passed and
+turned the deletes on, and so did an override's `args` or `env`; a
+command from the root passed, and so did a command or entry point naming
+`LICENSE`; the defaults check did not say which field differed, and
+guessed at a list default; the profile field promised less than Build
+refuses, and Build read the Kelvin sign as `k`; the gate and the packer
+each chained the checks, and the packer skipped one. Added: the gate
+starts every set of the switches and fails on a refusal no field warns
+of, and holds the sharing field to the modes Build accepts. By the
+maintainer's decision, the OAuth client file is optional: left empty,
+the server uses the client login recorded. Skipped: holding the tools a
+field names to the tools its setting registers (§17a), and the copies
+of the settings list in the README, this file and the CHANGELOG.
+
 ## 17. Open decisions
 
 Two, waiting on a live probe:
@@ -2146,6 +2179,14 @@ difference is a decision rather than a drift.
 | Errors use the classes `invalid`, `not_found`, `auth`, `conflict`, `unavailable`, `unsupported` | Fifteen classes, including `ambiguous`, `blocked`, `rate_limited`, `ambiguous_outcome`, `pending` and `stale` | Drive's failures are not the same set. `ambiguous` is the whole addressing design (§4.1), `blocked` is the organization's sharing policy refusing something Google permits in general (§7.4), and `ambiguous_outcome` is a write whose result is unknown. Collapsing them into `invalid` would lose the distinction a model needs to decide what to do next. *(Phase 4 added `pending`: work Google has begun and not finished, which is a long-running download whose operation is still running. It is not `server`, which says something went wrong, and not `rate_limited`, which says you asked too often — nothing is wrong and nothing needs backing off from, and the same call in a minute picks up the finished render. A model told `server` would report a failure that did not happen.)* *(Phase 3: `gates classes` now holds the code to the list, in both directions — a class invented at a call site, and a class listed that nothing emits. It found neither here, which is what a working guard usually finds. A sibling server split its own `ambiguous` the same way after finding it carried both meanings at once, so that word is the one to keep identical across servers: a model must not have to learn what it means twice.)* *(Phase 10: `blocked` also covers this server's own refusal of a wide form in an ordinary tool — a share, a move or a copy past the organization, an outside access request, `domain_users_only` off — each naming the tool that does it behind the destructive flag. Both meanings say "not this way, and no argument here changes that": the organization's policy, or this server's rule.)* *(Phase 10 added `stale`: a wide share's `file_name` or `lift_drive_restriction`'s `drive_name` is not the name Drive has. It is the word the sibling servers use for a witness that does not match; `exists`, which `expect_head_revision` has used since phase 4, says something is already there.)* |
 
 ## 17a. Deferred cleanups
+
+Raised by the 3.1.0 review (2026-10-24), and left for the maintainer:
+
+- **A bundle field names tools nothing holds it to.** The
+  `enable_destructive`, `sharing`, `labels` and `activity` fields list
+  the tools their setting registers, and no check compares the list
+  with registration. It would take a registered-tool diff per key, a
+  mechanism no sibling has.
 
 Raised by the phase 10 reviews (2026-10-23), and left for the
 maintainer:
@@ -2974,6 +3015,8 @@ rests on. The last row was found by the live runs of the same day.
 | `requiresUserInteraction` is one more prompt a client may show | **Refined.** Claude Code, v2.1.199 or later, prompts on every call of a marked tool in every interactive mode, whatever the allow rules; from v2.1.246 it offers no "don't ask again"; where no prompt can be drawn (`dontAsk`, `-p` without a permission host) it denies the call, and only an Agent SDK host's `canUseTool` can approve it. Anthropic documents it for "tools whose permission prompt is itself the point". GitLab's own server calls the same mark "advisory" (MR !252995: "Only Claude Code 2.1.199 and later honour the annotation"). No other client reads it | The mark on four tools whose prompt is the point, for every client, and the destructive flag still the control (§4a) |
 | Turning a shared drive's `members_only` off restores access already granted to non-members | **Unverified.** The drives reference describes `driveMembersOnly` as restricting access to the drive's items to its members, and says nothing of what happens to a grant made to a non-member while it was on | `members_only` off stays an ordinary `manage_drive` switch until the probe §17 records |
 | A comment or reply id uses only letters, digits, `-` and `_` (what the live driver's listing parser assumed) | **Refuted live 2026-10-23.** Every reply id a run listed carried a dot, so the parser read none of them, and the run sent neither `reply_comment`'s nor `delete_comment`'s `reply` | The driver's patterns accept the dot. The server passes a reply id to Drive as given; the next run edited three replies and deleted one by such ids |
-| A bundle install has a second approval behind the server, as Claude Code's ask rules are | **Refuted, 2026-10-23 (the docs and the reference host; Claude Desktop not probed, and no page names desktop extensions).** anthropics/mcpb v2.1.2 declares `tools` for display, and its `src/` reads it only in `init`; its `src/shared/config.ts` passes a boolean to `env` as "true" or "false". claude.com/docs/connectors/getting-started: "Select Allow once to continue, or Always allow to skip the prompt for that tool from now on". claude.com/docs/connectors/building/review-criteria: readOnlyHint and destructiveHint "determine auto-permissions in Claude". Claude Desktop has nothing like Claude Code's `permissions.ask` | Every switch the bundle asks for defaults to the server's own default, off, and `gates mcpb` refuses one that does not, compared as JSON. The bundle declares no `tools` list, which would be display only and wrong for most installs, since five settings change what registers (§12) |
-| A bundle's optional setting the person leaves blank reaches the server empty | **Refuted, 2026-10-23 (the reference host; Claude Desktop not probed).** anthropics/mcpb v2.1.2 `src/shared/config.ts` builds its variables from the defaults and the person's values, and `replaceVariables` leaves a variable it does not have as written. An optional key with no default is never a variable, so `${user_config.local_dir}` would reach the server as that text, which it refuses as a path that is not absolute. The 3.0.0 bundle asked only for the client file, which is required, so it was not affected | Every optional key has a default, `""` for text and directories, and `gates mcpb` refuses one without. The environment the defaults give the server must configure it as no environment does, which `TestVarsDescribeWhatBuildDoes` holds for each setting's default and for `""` |
+| A bundle install has a second approval behind the server, as Claude Code's ask rules are | **Refuted, 2026-10-23 (the docs and the reference host; Claude Desktop not probed, and no page names desktop extensions).** anthropics/mcpb v2.1.2 declares `tools` for display, and its `src/` reads it only in `init`; its `src/shared/config.ts` passes a boolean to `env` as "true" or "false". claude.com/docs/connectors/getting-started: "Select Allow once to continue, or Always allow to skip the prompt for that tool from now on". claude.com/docs/connectors/building/review-criteria: readOnlyHint and destructiveHint "determine auto-permissions in Claude". Claude Desktop has nothing like Claude Code's `permissions.ask` | Every switch the bundle asks for defaults to off: `gates mcpb` starts the server from the environment the bundle's defaults give it and from none, and names any field that differs. The bundle declares no `tools` list, which would be display only and wrong for most installs, since five settings change what registers (§12) |
+| A bundle's optional setting the person leaves blank reaches the server empty | **Refuted, 2026-10-23 (the reference host; Claude Desktop not probed).** anthropics/mcpb v2.1.2 `src/shared/config.ts` builds its variables from the defaults and the person's values, and `replaceVariables` leaves a variable it does not have as written. An optional key with no default is never a variable, so `${user_config.local_dir}` would reach the server as that text, which it refuses as a path that is not absolute. The 3.0.0 bundle asked only for the client file, which is required, so it was not affected | Every optional key has a default, `""` for text, files and directories, and `gates mcpb` refuses one without. The environment the defaults give the server must configure it as no environment does, which the gate checks by starting both, and `TestVarsDescribeWhatBuildDoes` holds `""` to configure nothing for every variable |
 | `privacy_policies` is optional for a bundle | **Refuted, 2026-10-23 (the specification).** anthropics/mcpb `MANIFEST.md`: "Required when the extension connects to external services (first- or third-party) that process user data"; added in manifest_version 0.2, and enforced by neither the schema nor `mcpb validate` | The manifest names https://policies.google.com/privacy, which answered 200 on 2026-10-24, and `gates mcpb` refuses an empty list |
+| A platform override adds to `mcp_config`, and a bundle's settings reach the server only through `env` | **Refuted, 2026-10-24 (the reference host; Claude Desktop not probed).** anthropics/mcpb v2.1.2 `src/shared/config.ts` L114-120 take `platformConfig.args \|\| result.args` and `platformConfig.env \|\| result.env`, and L173-176 substitute variables over the whole result, `args` included. An override's `args` or `env` replaces the base's, and an empty `[]` or `{}` is truthy, so it replaces the base too. An argument such as `--enable-destructive=true` reaches the server past every check on `env`; the 3.1.0 gate passed one | `gates mcpb` refuses `args` and `env` on any override, an empty one included, and holds the base `args` to `[]`, refusing it missing, null or not empty. The key stays, since no Claude Desktop launch has shown it optional |
+| Any `command` the specification shows runs from the bundle | **Refined, 2026-10-24 (the specification and the reference host; Claude Desktop not probed).** anthropics/mcpb v2.1.2: `MANIFEST.md` L497 and L510-515 give a binary the command `server/my-server`, and L532 says `${__dirname}` "is replaced with the absolute path to the extension's directory"; `src/shared/config.ts` L118, L133 and L173-176 substitute variables in `command` and resolve no path. The specification shows a relative command and never says what it is resolved against, and the reference host passes it to the spawn as written. `${__dirname}` is the one form whose meaning the specification fixes. The 3.1.0 gate stripped `${__dirname}` and a leading `/`, so `/server/x` passed | `gates mcpb` requires every command to start with `${__dirname}/`, as the committed manifest's do, refuses a relative or absolute one, and resolves a command and `entry_point` only against the programs staged, never `LICENSE` or `README.md`. A probe of Claude Desktop's working directory would settle the relative form |
