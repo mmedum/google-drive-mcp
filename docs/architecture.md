@@ -1,7 +1,11 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 10 complete (2026-10-23), released as v3.0.0
-(2026-10-23), built with Go 1.27.3: the server asks the person nothing,
+**Status:** phase 10 complete (2026-10-23), released as v3.1.0
+(2026-10-24). v3.1.0 gives the Claude Desktop bundle the shape the
+sibling servers' bundles share: every setting another client sets,
+each off or empty by default, the shared file names and Google's
+privacy policy. The server is unchanged, so no live run was owed.
+v3.0.0 (2026-10-23), built with Go 1.27.3: the server asks the person nothing,
 and the client approves each call. A link for anyone, a domain, someone
 outside the organization, a new owner and lifting a shared drive's
 domain restriction are each their own tool behind
