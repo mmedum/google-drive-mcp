@@ -417,7 +417,7 @@ func cmdLogout(args []string, stdout, stderr io.Writer) int {
 			warnStderr(stderr, fmt.Sprintf("could not revoke the token at Google (%v); it is still deleted locally", err))
 		}
 	}
-	if os.Getenv(credentials.EnvVar) != "" {
+	if p.store.FromEnv() != "" {
 		warnStderr(stderr, credentials.EnvVar+" is set; logout cannot remove or revoke it")
 	}
 	if err := p.store.Delete(); err != nil {

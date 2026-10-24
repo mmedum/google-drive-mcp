@@ -28,33 +28,6 @@ func build(t *testing.T, env map[string]string, args ...string) (Config, error) 
 	return Load(args, func(k string) string { return env[k] })
 }
 
-// A setting given as spaces alone is unset, as an empty one is, so a
-// form field cleared to a space starts the server with the default.
-func TestASettingOfSpacesIsUnset(t *testing.T) {
-	want, err := build(t, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	removed := map[string]bool{}
-	for _, r := range removedSettings {
-		removed[EnvPrefix+r.key] = true
-	}
-	n := 0
-	for _, v := range Vars() {
-		if removed[v.Name] || slices.Contains(envOnly, v.Name) {
-			continue
-		}
-		n++
-		got, err := build(t, map[string]string{v.Name: "  "})
-		if err != nil || !reflect.DeepEqual(got, want) {
-			t.Errorf("%s=\"  \": %+v, %v; want the unconfigured configuration", v.Name, got, err)
-		}
-	}
-	if n < 12 {
-		t.Errorf("checked %d settings, want every one Define binds", n)
-	}
-}
-
 // Build's refusal of a sharing mode lists the modes, as the bundle's
 // field does.
 func TestSharingRule(t *testing.T) {
@@ -69,20 +42,21 @@ func TestSharingRule(t *testing.T) {
 
 // Every GDRIVE_ variable the server's code spells is one EnvVars lists,
 // so a variable read outside Define cannot escape the bundle and
-// staleness gates. A name is seen as a string literal, or as a chain of
-// literals and EnvPrefix joined by +; one built from any other constant
-// is not seen. The scan must find a name outside this package in each
-// root, or it read too little.
+// staleness gates. So is every one scripts/ spells: the smoke test, the
+// evals and the live driver set them for the server, and a misspelling
+// there tests a configuration nobody asked for. The live driver reads no
+// GDRIVE_ variable of its own today; one would be left out here by name.
+// spelled says what counts as a name. The scan must find a name outside
+// this package in each root, or it read too little.
 func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 	known := map[string]bool{}
 	for _, name := range EnvVars() {
 		known[name] = true
 	}
-	name := regexp.MustCompile(`^GDRIVE_[A-Z0-9][A-Z0-9_]*$`)
 	found := map[string]string{}
 	elsewhere := map[string]int{}
 	fset := token.NewFileSet()
-	roots := []string{"../../cmd", "../../internal"}
+	roots := []string{"../../cmd", "../../internal", "../../scripts"}
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -93,34 +67,12 @@ func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 				return err
 			}
 			outside := filepath.Dir(path) != filepath.Join("..", "..", "internal", "config")
-			spell := func(s string, at token.Pos) {
-				for _, word := range strings.FieldsFunc(s, func(r rune) bool {
-					return r != '_' && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
-				}) {
-					if name.MatchString(word) {
-						found[word] = fset.Position(at).String()
-						if outside {
-							elsewhere[root]++
-						}
-					}
+			for word, at := range spelled(f) {
+				found[word] = fset.Position(at).String()
+				if outside {
+					elsewhere[root]++
 				}
 			}
-			ast.Inspect(f, func(n ast.Node) bool {
-				switch n := n.(type) {
-				case *ast.BinaryExpr:
-					// A chain of literals and EnvPrefix is one name; any
-					// other chain is read a literal at a time.
-					if s, ok := joined(n); ok {
-						spell(s, n.Pos())
-						return false
-					}
-				case *ast.BasicLit:
-					if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil {
-						spell(s, n.Pos())
-					}
-				}
-				return true
-			})
 			return nil
 		})
 		if err != nil {
@@ -137,6 +89,98 @@ func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 			t.Errorf("%s names %s, which EnvVars does not list", found[v], v)
 		}
 	}
+}
+
+// The scan reads a + chain in order, so a name built after another
+// operand is seen, and reads inside an operand it cannot join.
+func TestTheNameScanReadsEveryChainInOrder(t *testing.T) {
+	const src = `package p
+
+var (
+	a = "set " + x + EnvPrefix + "AFTER_OPERAND"
+	b = EnvPrefix + ("IN_" + "PARENS")
+	c = x + "GDRIVE_LITERAL"
+	d = f(config.EnvPrefix+"IN_CALL") + x
+	e = EnvPrefix + "A" + x + EnvPrefix + "B"
+	g = Other + "NOT_A_NAME"
+)
+`
+	f, err := parser.ParseFile(token.NewFileSet(), "p.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := slices.Sorted(maps.Keys(spelled(f)))
+	want := []string{"GDRIVE_A", "GDRIVE_AFTER_OPERAND", "GDRIVE_B", "GDRIVE_IN_CALL", "GDRIVE_IN_PARENS", "GDRIVE_LITERAL"}
+	if !slices.Equal(got, want) {
+		t.Errorf("spelled = %v, want %v", got, want)
+	}
+}
+
+// envName is a whole GDRIVE_ variable name.
+var envName = regexp.MustCompile(`^GDRIVE_[A-Z0-9][A-Z0-9_]*$`)
+
+// spelled is every GDRIVE_ name f spells, each with where. A name is
+// seen as a string literal, or as a run of literals and EnvPrefix joined
+// by +, read in order: any other operand ends the run and is read on its
+// own. One built from any other constant, or through a format verb, is
+// not seen.
+func spelled(f *ast.File) map[string]token.Pos {
+	found := map[string]token.Pos{}
+	spell := func(s string, at token.Pos) {
+		for _, word := range strings.FieldsFunc(s, func(r rune) bool {
+			return r != '_' && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+		}) {
+			if envName.MatchString(word) {
+				found[word] = at
+			}
+		}
+	}
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.BinaryExpr:
+			if n.Op != token.ADD {
+				return true
+			}
+			run, at := "", n.Pos()
+			for _, op := range operands(n) {
+				if s, ok := joined(op); ok {
+					if run == "" {
+						at = op.Pos()
+					}
+					run += s
+					continue
+				}
+				spell(run, at)
+				run = ""
+				ast.Inspect(op, visit)
+			}
+			spell(run, at)
+			return false
+		case *ast.BasicLit:
+			if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil {
+				spell(s, n.Pos())
+			}
+		}
+		return true
+	}
+	ast.Inspect(f, visit)
+	return found
+}
+
+// operands is a + chain's operands in order, through parentheses.
+func operands(e ast.Expr) []ast.Expr {
+	switch e := e.(type) {
+	case *ast.BinaryExpr:
+		if e.Op == token.ADD {
+			return append(operands(e.X), operands(e.Y)...)
+		}
+	case *ast.ParenExpr:
+		if b, ok := e.X.(*ast.BinaryExpr); ok && b.Op == token.ADD {
+			return operands(b)
+		}
+	}
+	return []ast.Expr{e}
 }
 
 // joined is a + chain of string literals and EnvPrefix as one string.

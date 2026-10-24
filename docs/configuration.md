@@ -9,13 +9,15 @@ only `command`, `args` and `env` to a stdio server.
 
 Everything is validated once at start. A misconfigured server fails
 before it announces itself, with every problem reported at once rather
-than one per run.
+than one per run. The spaces around a value are dropped, and a variable
+of spaces alone is unset, as an empty one is; that holds for the two
+variables with no flag too.
 
 ## Settings
 
 | Variable | Flag | Default | Meaning |
 |---|---|---|---|
-| `GDRIVE_PROFILE` | `--profile` | `default` | Named profile. Each profile keeps its own client secret, refresh token and account, so one machine can hold several Google accounts. Up to 64 characters from a to z, 0 to 9, `-` and `_`, starting with a letter or digit; capitals are read as lowercase. |
+| `GDRIVE_PROFILE` | `--profile` | `default` | Named profile. Each profile keeps its own client secret, refresh token and account, so one machine can hold several Google accounts. A name is up to 64 characters from a to z, 0 to 9, - and _, starting with a letter or digit; A to Z are read as a to z, and any other name stops the server at start. |
 | `GDRIVE_CLIENT_SECRET` | `--client-secret` | the profile's `client_secret.json` | Path to the Desktop-app OAuth client JSON downloaded from the Google Cloud console. |
 | `GDRIVE_LOG_LEVEL` | `--log-level` | `info` | `debug`, `info`, `warn` or `error`. Logs go to stderr; stdout carries only JSON-RPC. |
 | `GDRIVE_LOG_FORMAT` | `--log-format` | `text` | `text` or `json`. |

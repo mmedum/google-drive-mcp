@@ -6,6 +6,11 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `GDRIVE_CONFIG_DIR` and `GDRIVE_REFRESH_TOKEN` drop the spaces around their value, as every other setting does, so a refresh token with a stray space is no longer sent to Google with it.
+- `logout` no longer warns that `GDRIVE_REFRESH_TOKEN` is set when it holds spaces alone, which the server reads as unset.
+
 ## [3.1.1] - 2026-10-24
 
 ### Changed

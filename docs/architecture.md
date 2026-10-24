@@ -1520,7 +1520,10 @@ honest option and the one a model can act on.
   `mcp_config.env` alone: the base `args` is `[]` and no platform
   override carries `args` or `env`, which the host takes in place of
   the base's (§18). Every command starts with `${__dirname}/` and names
-  a program the packer stages (§18). The profile field states
+  a program the packer stages (§18), and `entry_point` is the file the
+  default command runs. The manifest's `name` is the server's,
+  `server.type` is `binary`, and `compatibility.platforms` is exactly
+  the platforms the packer stages an entry point for. The profile field states
   `config.ProfileRule` and the sharing field the modes the server
   accepts. The server refuses no combination of the switches, and the
   gate holds that: it starts every set of them and fails on a refusal
@@ -1530,6 +1533,12 @@ honest option and the one a model can act on.
   `server/google-drive-mcp-darwin`, `server/google-drive-mcp.exe`,
   `server/google-drive-mcp-linux-amd64`, `server/google-drive-mcp-linux-arm64`
   and `server/launch-linux.sh`, with `LICENSE` and `README.md` at the root.
+  The gate and the packer start from one function, which reads the
+  manifest, the launcher, `go.mod` and `.goreleaser.yaml` once from one
+  root, refuses a key repeated in one object and a version other than
+  the placeholder; the packer validates the stamped manifest it ships
+  against the vendored schema, and a failed close of the bundle fails
+  the pack.
 - **Setup guide** in the README, in the order `doctor` checks it (§10).
 - **Versioning.** Semantic versions; Keep a Changelog; the schema diff in
   CI fails on a removed or renamed tool or resource, a field removed at
@@ -2132,6 +2141,27 @@ diff helper typed `any` for its test; each is fixed with a test that
 failed first. Two live runs with `-write`, their transcripts read, made
 254 and 253 calls, all as expected; the second printed one comment
 reply id the redactor left in place (§17a).
+
+**The family sweep of 2026-10-24.** The family's servers were held to
+one table of the bundle gate's and the configuration's rules, and this
+repository was missing these, each now with a test that failed first.
+The server: every variable is read through one `config.Lookup`, which
+drops the spaces around a value, so the profile directory and the
+refresh token are trimmed as every setting already was, and `logout` no
+longer warns of a refresh token of spaces alone. The name scan reads a
+`+` chain in order, so a name built after another operand is seen, and
+walks `scripts/` too, where the smoke test, the evals and the live
+driver set the server's variables. The bundle gate: `fieldDiff` compares
+an unexported field with `Value.Equal` only where no interface is inside
+its type, rather than panicking; the manifest's `name` is the server's,
+`compatibility.platforms` is exactly the platforms an entry point is
+staged for, and `entry_point` is the file the default command runs; the
+gate and the packer read every file from one root, a key repeated in one
+object is refused, and the packer validates the stamped manifest it
+ships. The configuration page is held by whole word, both ways, and
+states `config.ProfileRule`. Already held: a failed close of the bundle
+fails the pack. Not carried: a check of the manifest's `license` against
+`LICENSE`, which no row of the table asks for.
 
 ## 17. Open decisions
 

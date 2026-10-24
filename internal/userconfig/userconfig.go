@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
@@ -38,10 +37,11 @@ type Config struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-// BaseDir returns the application config directory.
+// BaseDir returns the application config directory: EnvDir, read
+// through config.Lookup as every setting is, or the user's config
+// directory when that is unset.
 func BaseDir() (string, error) {
-	// Spaces alone are unset, as for every setting.
-	if v := os.Getenv(EnvDir); strings.TrimSpace(v) != "" {
+	if v := config.Lookup(os.Getenv, EnvDir); v != "" {
 		return v, nil
 	}
 	d, err := os.UserConfigDir()
