@@ -19,16 +19,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zalando/go-keyring"
+
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 )
 
 // ServiceName is the keyring service identifier.
 const ServiceName = "google-drive-mcp"
 
 // EnvVar is the environment override.
-const EnvVar = "GDRIVE_REFRESH_TOKEN"
+const EnvVar = config.EnvRefreshToken
 
 // Source identifies where a token came from.
 type Source string
@@ -94,7 +97,8 @@ func (s *Store) env(k string) string {
 
 // Resolve returns the refresh token and where it came from.
 func (s *Store) Resolve() (string, Source, error) {
-	if v := s.env(EnvVar); v != "" {
+	// Spaces alone are unset, as for every setting.
+	if v := s.env(EnvVar); strings.TrimSpace(v) != "" {
 		return v, SourceEnv, nil
 	}
 	return s.ResolveStored()

@@ -4,27 +4,195 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-// build runs Define + Build over a fake environment, the way the real
-// commands do.
+// build loads the configuration from a fake environment and the given
+// flags, the way the real commands do.
 func build(t *testing.T, env map[string]string, args ...string) (Config, error) {
 	t.Helper()
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	fs.SetOutput(&bytes.Buffer{})
-	s := Define(fs, func(k string) string { return env[k] })
-	if err := fs.Parse(args); err != nil {
-		t.Fatalf("parse: %v", err)
+	return Load(args, func(k string) string { return env[k] })
+}
+
+// A setting given as spaces alone is unset, as an empty one is, so a
+// form field cleared to a space starts the server with the default.
+func TestASettingOfSpacesIsUnset(t *testing.T) {
+	want, err := build(t, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return s.Build()
+	removed := map[string]bool{}
+	for _, r := range removedSettings {
+		removed[EnvPrefix+r.key] = true
+	}
+	n := 0
+	for _, v := range Vars() {
+		if removed[v.Name] || slices.Contains(envOnly, v.Name) {
+			continue
+		}
+		n++
+		got, err := build(t, map[string]string{v.Name: "  "})
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s=\"  \": %+v, %v; want the unconfigured configuration", v.Name, got, err)
+		}
+	}
+	if n < 12 {
+		t.Errorf("checked %d settings, want every one Define binds", n)
+	}
+}
+
+// Build's refusal of a sharing mode lists the modes, as the bundle's
+// field does.
+func TestSharingRule(t *testing.T) {
+	if SharingRule != "all or off" {
+		t.Errorf("SharingRule = %q, want \"all or off\"", SharingRule)
+	}
+	_, err := build(t, map[string]string{"GDRIVE_SHARING": "internal"})
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "(want all or off)") {
+		t.Errorf("GDRIVE_SHARING=internal: %v; want it refused, listing the modes", err)
+	}
+}
+
+// Every GDRIVE_ variable the server's code spells is one EnvVars lists,
+// so a variable read outside Define cannot escape the bundle and
+// staleness gates. A name is seen as a string literal, or as a chain of
+// literals and EnvPrefix joined by +; one built from any other constant
+// is not seen. The scan must find a name outside this package in each
+// root, or it read too little.
+func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
+	known := map[string]bool{}
+	for _, name := range EnvVars() {
+		known[name] = true
+	}
+	name := regexp.MustCompile(`^GDRIVE_[A-Z0-9][A-Z0-9_]*$`)
+	found := map[string]string{}
+	elsewhere := map[string]int{}
+	fset := token.NewFileSet()
+	roots := []string{"../../cmd", "../../internal"}
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			f, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return err
+			}
+			outside := filepath.Dir(path) != filepath.Join("..", "..", "internal", "config")
+			spell := func(s string, at token.Pos) {
+				for _, word := range strings.FieldsFunc(s, func(r rune) bool {
+					return r != '_' && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+				}) {
+					if name.MatchString(word) {
+						found[word] = fset.Position(at).String()
+						if outside {
+							elsewhere[root]++
+						}
+					}
+				}
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.BinaryExpr:
+					// A chain of literals and EnvPrefix is one name; any
+					// other chain is read a literal at a time.
+					if s, ok := joined(n); ok {
+						spell(s, n.Pos())
+						return false
+					}
+				case *ast.BasicLit:
+					if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil {
+						spell(s, n.Pos())
+					}
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, root := range roots {
+		if elsewhere[root] == 0 {
+			t.Errorf("the scan found no GDRIVE_ name in %s outside internal/config; it read too little", root)
+		}
+	}
+	for _, v := range slices.Sorted(maps.Keys(found)) {
+		if !known[v] {
+			t.Errorf("%s names %s, which EnvVars does not list", found[v], v)
+		}
+	}
+}
+
+// joined is a + chain of string literals and EnvPrefix as one string.
+func joined(e ast.Expr) (string, bool) {
+	switch e := e.(type) {
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return "", false
+		}
+		x, ok := joined(e.X)
+		if !ok {
+			return "", false
+		}
+		y, ok := joined(e.Y)
+		return x + y, ok
+	case *ast.ParenExpr:
+		return joined(e.X)
+	case *ast.BasicLit:
+		s, err := strconv.Unquote(e.Value)
+		return s, e.Kind == token.STRING && err == nil
+	case *ast.Ident:
+		return EnvPrefix, e.Name == "EnvPrefix"
+	case *ast.SelectorExpr:
+		return EnvPrefix, e.Sel.Name == "EnvPrefix"
+	}
+	return "", false
+}
+
+func TestLoad(t *testing.T) {
+	c, err := Load([]string{"-read-only", "true"}, func(string) string { return "" })
+	if err != nil || !c.ReadOnly {
+		t.Errorf("Load = %+v, %v; want read-only", c, err)
+	}
+	if _, err := Load([]string{"-unknown"}, func(string) string { return "" }); err == nil {
+		t.Error("an unknown flag was accepted")
+	}
+}
+
+// A profile name is held to ProfileRule, and the refusal says it. Only A
+// to Z are lowered: a character Unicode folds into a to z, such as the
+// Kelvin sign, is refused rather than renamed to another profile.
+func TestProfileRule(t *testing.T) {
+	for _, tc := range []struct{ name, want string }{
+		{"Work", "work"}, {" work ", "work"}, {"a", "a"}, {"9-", "9-"}, {"a-b_c", "a-b_c"},
+		{strings.Repeat("a", 64), strings.Repeat("a", 64)},
+	} {
+		if c, err := build(t, map[string]string{"GDRIVE_PROFILE": tc.name}); err != nil || c.Profile != tc.want {
+			t.Errorf("GDRIVE_PROFILE=%q: profile %q, %v; want %q", tc.name, c.Profile, err, tc.want)
+		}
+	}
+	for _, name := range []string{strings.Repeat("a", 65), "-a", "_a", "a.b", "a b", "caf\u00e9", "\u212aey"} {
+		_, err := build(t, map[string]string{"GDRIVE_PROFILE": name})
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "must be "+ProfileRule) {
+			t.Errorf("GDRIVE_PROFILE=%q: %v; want it refused, naming the rule", name, err)
+		}
+	}
 }
 
 func TestDefaults(t *testing.T) {
@@ -294,15 +462,15 @@ func TestTheDirectoryMustExistAndBeADirectory(t *testing.T) {
 	}
 }
 
-// Vars is what the bundle gate reads a switch's default from, so each
+// Vars is what the bundle gate reads a setting's kind from, so each
 // claim it makes is held to what Build does. A switch takes true and
-// false and refuses anything else, and nothing else does that. Its
-// default, and an empty value, each configure what setting nothing does,
-// which is what lets a bundle leave a field blank.
+// false and refuses anything else, and nothing else does that. An empty
+// value configures what setting nothing does, which is what lets a
+// bundle leave a field blank.
 func TestVarsDescribeWhatBuildDoes(t *testing.T) {
 	vars := Vars()
-	if len(vars) != 12 {
-		t.Fatalf("Vars has %d settings; Define binds 12 flags", len(vars))
+	if len(vars) != 15 {
+		t.Fatalf("Vars has %d variables; the server reads 15", len(vars))
 	}
 	unset, err := build(t, nil)
 	if err != nil {
@@ -320,15 +488,13 @@ func TestVarsDescribeWhatBuildDoes(t *testing.T) {
 		if v.Switch {
 			switches = append(switches, v.Name)
 		}
-		for _, value := range []string{v.Default, ""} {
-			c, err := build(t, map[string]string{v.Name: value})
-			if err != nil {
-				t.Errorf("%s=%q is refused: %v", v.Name, value, err)
-				continue
-			}
-			if !reflect.DeepEqual(c, unset) {
-				t.Errorf("%s=%q configures something:\n got %+v\nwant %+v", v.Name, value, c, unset)
-			}
+		c, err := build(t, map[string]string{v.Name: ""})
+		if err != nil {
+			t.Errorf("%s=\"\" is refused: %v", v.Name, err)
+			continue
+		}
+		if !reflect.DeepEqual(c, unset) {
+			t.Errorf("%s=\"\" configures something:\n got %+v\nwant %+v", v.Name, c, unset)
 		}
 	}
 	want := []string{"GDRIVE_READ_ONLY", "GDRIVE_ENABLE_DESTRUCTIVE", "GDRIVE_LABELS", "GDRIVE_ACTIVITY"}
@@ -337,19 +503,63 @@ func TestVarsDescribeWhatBuildDoes(t *testing.T) {
 	}
 }
 
-// EnvVars is recorded from the lookups Define makes, so it holds the
-// removed setting that no flag binds as well as every one that does.
-func TestEnvVarsIsEveryLookup(t *testing.T) {
-	got := EnvVars()
+// EnvVars is every variable the server reads, the removed one and the
+// two read outside Define included.
+func TestEnvVars(t *testing.T) {
+	want := []string{
+		"GDRIVE_ACTIVITY", "GDRIVE_CLIENT_SECRET", "GDRIVE_CONFIG_DIR", "GDRIVE_ENABLE_DESTRUCTIVE",
+		"GDRIVE_HTTP_TIMEOUT", "GDRIVE_LABELS", "GDRIVE_LOCAL_DIR", "GDRIVE_LOG_FORMAT", "GDRIVE_LOG_LEVEL",
+		"GDRIVE_MAX_DOWNLOAD", "GDRIVE_PROFILE", "GDRIVE_READ_ONLY", "GDRIVE_REFRESH_TOKEN",
+		"GDRIVE_REQUIRE_PROMPT", "GDRIVE_SHARING",
+	}
+	if got := EnvVars(); !slices.Equal(got, want) {
+		t.Errorf("EnvVars =\n%v\nwant\n%v", got, want)
+	}
+}
+
+// Vars records what Define reads, so Define reads nothing past it: a
+// variable read around the recording would be one the bundle gate and
+// the staleness gate never see. Each is read once.
+func TestDefineReadsOnlyWhatVarsNames(t *testing.T) {
+	var read []string
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.SetOutput(&bytes.Buffer{})
+	Define(fs, func(name string) string {
+		read = append(read, name)
+		return ""
+	})
+	var want []string
 	for _, v := range Vars() {
-		if !slices.Contains(got, v.Name) {
-			t.Errorf("EnvVars lacks %s, which Define binds", v.Name)
+		if !slices.Contains(envOnly, v.Name) {
+			want = append(want, v.Name)
 		}
 	}
-	if !slices.Contains(got, "GDRIVE_REQUIRE_PROMPT") {
-		t.Errorf("EnvVars lacks GDRIVE_REQUIRE_PROMPT, which Define reads to refuse it set: %v", got)
+	if len(read) < 13 {
+		t.Fatalf("Define read %d variables, below the floor of 13", len(read))
 	}
-	if len(got) != len(Vars())+1 || !slices.IsSorted(got) {
-		t.Errorf("EnvVars is %v; want the %d settings and the removed one, sorted", got, len(Vars()))
+	if !slices.Equal(read, want) {
+		t.Errorf("Define reads\n%v\nand Vars names\n%v", read, want)
 	}
+	if twice := readTwice(read); len(twice) != 0 {
+		t.Errorf("Define reads %v more than once", twice)
+	}
+	if got := readTwice([]string{"GDRIVE_A", "GDRIVE_B", "GDRIVE_A"}); !slices.Equal(got, []string{"GDRIVE_A"}) {
+		t.Errorf("readTwice of a duplicate read = %v, want [GDRIVE_A]", got)
+	}
+}
+
+// readTwice is every name that appears more than once in names, sorted.
+func readTwice(names []string) []string {
+	seen := map[string]int{}
+	for _, n := range names {
+		seen[n]++
+	}
+	var twice []string
+	for n, count := range seen {
+		if count > 1 {
+			twice = append(twice, n)
+		}
+	}
+	slices.Sort(twice)
+	return twice
 }

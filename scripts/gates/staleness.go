@@ -11,6 +11,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 )
 
 // staleness fails when the documentation drifts from the code. Each
@@ -30,21 +32,13 @@ func staleness(out io.Writer, args []string) error {
 	// and are deliberately not in the README's table: it names them in a
 	// paragraph instead, because a row beside the ordinary tools is the
 	// wrong prominence for them. checkReadmeTools knows them by name.
-	env, err := fullSurfaceEnv()
-	if err != nil {
-		return err
-	}
-	dump, _, err := dumpSchemas(binary, env...)
+	dump, _, err := dumpSchemas(binary, fullSurfaceEnv()...)
 	if err != nil {
 		return err
 	}
 	problems = append(problems, checkReadmeTools(dump.names())...)
 
-	settings, err := definedSettings()
-	if err != nil {
-		return err
-	}
-	problems = append(problems, checkConfigDocs(settings)...)
+	problems = append(problems, checkConfigDocs(config.EnvVars())...)
 	problems = append(problems, checkArchitectureStatus()...)
 	problems = append(problems, checkStatusVersions()...)
 	problems = append(problems, checkScopesDocumented()...)
@@ -150,26 +144,8 @@ func checkPermissionRules(readme string, registered []string) []string {
 	return problems
 }
 
-// settingDefinition matches the Define calls in config.go, which are the
-// authority on which GDRIVE_* variables exist.
-var settingDefinition = regexp.MustCompile(`(?:def|sw)\(&s\.[A-Za-z]+, "[a-z-]+", "([A-Z_]+)"`)
-
-func definedSettings() ([]string, error) {
-	source, err := os.ReadFile("internal/config/config.go")
-	if err != nil {
-		return nil, fmt.Errorf("read internal/config/config.go: %w", err)
-	}
-	matches := settingDefinition.FindAllStringSubmatch(string(source), -1)
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("found no settings in internal/config/config.go; has Define changed shape?")
-	}
-	out := make([]string, 0, len(matches))
-	for _, m := range matches {
-		out = append(out, m[1])
-	}
-	return out, nil
-}
-
+// checkConfigDocs holds docs/configuration.md to every variable the
+// server reads, which config.Vars records from the lookups themselves.
 func checkConfigDocs(settings []string) []string {
 	docs, err := os.ReadFile("docs/configuration.md")
 	if err != nil {
@@ -177,8 +153,8 @@ func checkConfigDocs(settings []string) []string {
 	}
 	var problems []string
 	for _, name := range settings {
-		if !strings.Contains(string(docs), "GDRIVE_"+name) {
-			problems = append(problems, "docs/configuration.md does not document GDRIVE_"+name)
+		if !strings.Contains(string(docs), name) {
+			problems = append(problems, "docs/configuration.md does not document "+name)
 		}
 	}
 	return problems

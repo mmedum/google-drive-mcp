@@ -6,6 +6,18 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-10-24
+
+### Changed
+
+- The bundle's OAuth client file is optional, so a person who signed in with `google-drive-mcp login` does not pick it again; left empty, the server uses the client that login recorded for the profile.
+- The bundle's profile field, and the refusal of a name the server does not accept, say what a profile name is: up to 64 characters from a to z, 0 to 9, - and _, starting with a letter or digit.
+
+### Fixed
+
+- A profile name with a character that Unicode lowers into a to z, such as the Kelvin sign (U+212A), is refused rather than read as another profile's name.
+- A variable set to spaces alone is unset, as an empty one is, the profile directory and the refresh token included; a bundle field cleared to a space no longer stops the server.
+
 ## [3.1.0] - 2026-10-24
 
 ### Added
@@ -2172,6 +2184,7 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
+[3.1.1]: https://github.com/mmedum/google-drive-mcp/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/mmedum/google-drive-mcp/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.2.0...v3.0.0
 [2.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v2.1.0...v2.2.0

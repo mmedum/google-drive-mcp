@@ -115,20 +115,29 @@ type Settings struct {
 	// removed are the settings a release took out, as the environment
 	// gives them, read only to refuse one still set.
 	removed map[string]string
-	// vars is every setting Define binds to a flag, in order.
+	// vars is every variable Define reads, in order.
 	vars []Var
 }
 
-// Var is one setting Define binds to a flag.
+// Var is one variable the server reads.
 type Var struct {
 	// Name is the environment variable.
 	Name string
-	// Default is what the server uses when neither the variable nor its
-	// flag is set, written as a person would set it.
-	Default string
 	// Switch marks a setting that is on or off.
 	Switch bool
 }
+
+// The variables read outside Define. internal/userconfig reads the
+// profile directory before any flag is parsed, and internal/credentials
+// the refresh token; each takes its name from here, so config imports
+// neither.
+const (
+	EnvConfigDir    = EnvPrefix + "CONFIG_DIR"
+	EnvRefreshToken = EnvPrefix + "REFRESH_TOKEN"
+)
+
+// envOnly is every variable read outside Define, for Vars.
+var envOnly = []string{EnvConfigDir, EnvRefreshToken}
 
 // removedSettings are the settings a release took out, each with what to
 // do instead. Off is still accepted. On, or a value that is not a
@@ -161,18 +170,26 @@ func (s *Settings) removedSet() []error {
 // matching GDRIVE_* variable (read through env) so that a flag passed on
 // the command line wins over the environment, and the environment wins
 // over the built-in default.
+//
+// Every variable is read through read, which records it for Vars, so a
+// setting added here reaches the bundle and staleness gates.
 func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	s := &Settings{removed: map[string]string{}}
+	read := func(name string, isSwitch bool) string {
+		s.vars = append(s.vars, Var{Name: name, Switch: isSwitch})
+		return env(name)
+	}
 	for _, r := range removedSettings {
-		s.removed[r.key] = env(EnvPrefix + r.key)
+		s.removed[r.key] = read(EnvPrefix+r.key, false)
 	}
 	bind := func(p *string, name, key, fallback, usage string, isSwitch bool) {
-		v := env(EnvPrefix + key)
-		if v == "" {
+		v := read(EnvPrefix+key, isSwitch)
+		// Spaces alone are unset too: a form field cleared to a space
+		// means the default, not a value Build refuses.
+		if strings.TrimSpace(v) == "" {
 			v = fallback
 		}
 		fs.StringVar(p, name, v, usage+" [env "+EnvPrefix+key+"]")
-		s.vars = append(s.vars, Var{Name: EnvPrefix + key, Default: fallback, Switch: isSwitch})
 	}
 	def := func(p *string, name, key, fallback, usage string) { bind(p, name, key, fallback, usage, false) }
 	// A switch is off unless set.
@@ -192,35 +209,67 @@ func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	return s
 }
 
-// Vars is every setting Define binds to a flag, in the order it binds
-// them. The bundle gate reads each switch's default here.
+// Vars is every variable the server reads: Define's, in the order it
+// reads them, the removed ones included, then the ones read outside it.
+// Define's are recorded rather than listed, so they cannot fall behind.
+// The bundle gate derives what it asks for from these.
 func Vars() []Var {
 	fs := flag.NewFlagSet("vars", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	return Define(fs, func(string) string { return "" }).vars
+	vars := Define(fs, func(string) string { return "" }).vars
+	for _, name := range envOnly {
+		vars = append(vars, Var{Name: name})
+	}
+	return vars
 }
 
-// EnvVars is every variable Define reads, the removed ones included,
-// sorted. It is recorded from the lookups rather than listed, so it
-// cannot fall behind.
+// EnvVars is the names of Vars, sorted.
 func EnvVars() []string {
-	var seen []string
-	fs := flag.NewFlagSet("envvars", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	Define(fs, func(name string) string {
-		seen = append(seen, name)
-		return ""
-	})
-	slices.Sort(seen)
-	return slices.Compact(seen)
+	vars := Vars()
+	names := make([]string, 0, len(vars))
+	for _, v := range vars {
+		names = append(names, v.Name)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
+
+// SharingModes are the GDRIVE_SHARING values Build accepts.
+var SharingModes = []Sharing{SharingAll, SharingOff}
+
+// SharingRule is SharingModes in words, "all or off", which Build's
+// refusal and the bundle's sharing field both give.
+var SharingRule = func() string {
+	words := make([]string, 0, len(SharingModes))
+	for _, m := range SharingModes {
+		words = append(words, string(m))
+	}
+	if len(words) < 2 {
+		return strings.Join(words, "")
+	}
+	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
+}()
+
+// ProfileRule is profilePattern in words, which Build's refusal and the
+// bundle's profile field both give.
+const ProfileRule = "up to 64 characters from a to z, 0 to 9, - and _, starting with a letter or digit"
 
 var (
 	profilePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 	logLevels      = map[LogLevel]bool{LogDebug: true, LogInfo: true, LogWarn: true, LogError: true}
 	logFormats     = map[LogFormat]bool{LogText: true, LogJSON: true}
-	sharingModes   = map[Sharing]bool{SharingAll: true, SharingOff: true}
 )
+
+// asciiLower lowers A to Z alone, so a character Unicode folds into a
+// to z, such as the Kelvin sign, is refused rather than renamed.
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if 'A' <= r && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, s)
+}
 
 // ErrInvalid wraps every validation failure.
 var ErrInvalid = errors.New("config: invalid")
@@ -230,9 +279,9 @@ func (s *Settings) Build() (Config, error) {
 	var c Config
 	var errs []error
 
-	c.Profile = strings.ToLower(strings.TrimSpace(s.Profile))
+	c.Profile = asciiLower(strings.TrimSpace(s.Profile))
 	if !profilePattern.MatchString(c.Profile) {
-		errs = append(errs, fmt.Errorf("%w: profile %q must match %s", ErrInvalid, s.Profile, profilePattern))
+		errs = append(errs, fmt.Errorf("%w: profile %q must be %s", ErrInvalid, s.Profile, ProfileRule))
 	}
 
 	c.LogLevel = LogLevel(strings.ToLower(strings.TrimSpace(s.LogLevel)))
@@ -260,8 +309,8 @@ func (s *Settings) Build() (Config, error) {
 	errs = append(errs, s.removedSet()...)
 
 	c.Sharing = Sharing(strings.ToLower(strings.TrimSpace(s.Sharing)))
-	if !sharingModes[c.Sharing] {
-		errs = append(errs, fmt.Errorf("%w: sharing %q (want all or off)", ErrInvalid, s.Sharing))
+	if !slices.Contains(SharingModes, c.Sharing) {
+		errs = append(errs, fmt.Errorf("%w: sharing %q (want %s)", ErrInvalid, s.Sharing, SharingRule))
 	}
 
 	if dir := strings.TrimSpace(s.LocalDir); dir != "" {
@@ -306,6 +355,17 @@ func (s *Settings) Build() (Config, error) {
 		return Config{}, errors.Join(errs...)
 	}
 	return c, nil
+}
+
+// Load is Define, Parse and Build for a caller with no flags of its own.
+func Load(args []string, env func(string) string) (Config, error) {
+	fs := flag.NewFlagSet("config", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	s := Define(fs, env)
+	if err := fs.Parse(args); err != nil {
+		return Config{}, err
+	}
+	return s.Build()
 }
 
 func parseBool(name, v string) (bool, error) {

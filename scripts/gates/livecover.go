@@ -43,11 +43,7 @@ type liveCoverEntry struct {
 
 func liveCover(out io.Writer, args []string) error {
 	binary := arg(args, 0, "./google-drive-mcp")
-	env, err := fullSurfaceEnv()
-	if err != nil {
-		return err
-	}
-	dump, _, err := dumpSchemas(binary, env...)
+	dump, _, err := dumpSchemas(binary, fullSurfaceEnv()...)
 	if err != nil {
 		return err
 	}

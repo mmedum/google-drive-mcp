@@ -11,14 +11,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 )
 
 // AppDir is the directory name under the user's config directory.
 const AppDir = "google-drive-mcp"
 
 // EnvDir overrides the base directory (tests, unusual setups).
-const EnvDir = "GDRIVE_CONFIG_DIR"
+const EnvDir = config.EnvConfigDir
 
 // DefaultProfile is the profile used when none is named.
 const DefaultProfile = "default"
@@ -37,7 +40,8 @@ type Config struct {
 
 // BaseDir returns the application config directory.
 func BaseDir() (string, error) {
-	if v := os.Getenv(EnvDir); v != "" {
+	// Spaces alone are unset, as for every setting.
+	if v := os.Getenv(EnvDir); strings.TrimSpace(v) != "" {
 		return v, nil
 	}
 	d, err := os.UserConfigDir()
