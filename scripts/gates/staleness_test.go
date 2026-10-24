@@ -146,18 +146,25 @@ func TestPermissionRulesNameRegisteredTools(t *testing.T) {
 }
 
 // The configuration page names each variable as a whole word: a longer
-// name that contains one does not document it, a name the server does
-// not read is refused, and the page says what a profile name is.
+// word that contains one does not document it, whatever the case of the
+// letter beside it, a name the server does not read is refused, a
+// pattern is not a name, and the page says what a profile name is.
 func TestTheConfigurationPageIsHeldByWholeWord(t *testing.T) {
 	settings := []string{"GDRIVE_PROFILE", "GDRIVE_READ_ONLY"}
 	page := "`GDRIVE_PROFILE` and GDRIVE_READ_ONLY. A name is " + config.ProfileRule + ".\n"
-	if problems := configDocProblems(settings, page); len(problems) != 0 {
-		t.Errorf("a page naming both was refused: %v", problems)
+	for _, page := range []string{page, page + "Each is a `GDRIVE_*` variable; GDRIVE_READ_* are switches.\n"} {
+		if problems := configDocProblems(settings, page); len(problems) != 0 {
+			t.Errorf("a page naming both was refused: %v\n%s", problems, page)
+		}
 	}
 	for _, tc := range []struct{ name, page, want string }{
 		{"a longer name in place of one", strings.Replace(page, "GDRIVE_READ_ONLY.", "GDRIVE_READ_ONLY_X.", 1),
 			"docs/configuration.md does not document GDRIVE_READ_ONLY"},
 		{"a name inside a longer word", strings.Replace(page, "and GDRIVE_READ_ONLY", "and XGDRIVE_READ_ONLY", 1),
+			"docs/configuration.md does not document GDRIVE_READ_ONLY"},
+		{"a lowercase letter before a name", strings.Replace(page, "and GDRIVE_READ_ONLY", "and xGDRIVE_READ_ONLY", 1),
+			"docs/configuration.md does not document GDRIVE_READ_ONLY"},
+		{"a lowercase letter after a name", strings.Replace(page, "GDRIVE_READ_ONLY.", "GDRIVE_READ_ONLYx.", 1),
 			"docs/configuration.md does not document GDRIVE_READ_ONLY"},
 		{"a name the server does not read", page + "GDRIVE_GONE\n",
 			"docs/configuration.md documents GDRIVE_GONE, which the server does not read"},

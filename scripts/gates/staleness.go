@@ -163,8 +163,10 @@ func checkConfigDocs(settings []string) []string {
 // refuses one with.
 func configDocProblems(settings []string, text string) []string {
 	documented := map[string]bool{}
-	for _, m := range settingWord.FindAllStringSubmatch(text, -1) {
-		documented[m[2]] = true
+	for _, at := range settingWord.FindAllStringSubmatchIndex(text, -1) {
+		if word := text[at[2]:at[3]]; settingName.MatchString(word) && !strings.HasPrefix(text[at[3]:], "*") {
+			documented[word] = true
+		}
 	}
 	var problems []string
 	for _, name := range settings {
@@ -183,10 +185,16 @@ func configDocProblems(settings []string, text string) []string {
 	return problems
 }
 
-// settingWord is a setting's name standing as a word of its own, all of
-// it: a longer name that contains one, such as GDRIVE_READ_ONLY_X, is
-// that longer name and not GDRIVE_READ_ONLY.
-var settingWord = regexp.MustCompile(`(^|[^A-Z0-9_])(` + config.EnvPrefix + `[A-Z0-9_]+)`)
+// settingWord is a word that starts with the prefix, with no letter of
+// either case, digit or _ before it, and all of it: a longer word that
+// contains a name, such as GDRIVE_READ_ONLY_X, GDRIVE_LABELSx or
+// xGDRIVE_LABELS, is not that name. The word is a setting's name when
+// settingName matches it and no * follows, since GDRIVE_ENABLE_* is a
+// pattern.
+var (
+	settingWord = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(` + config.EnvPrefix + `[A-Za-z0-9_]*)`)
+	settingName = regexp.MustCompile(`^` + config.EnvPrefix + `[A-Z0-9_]+$`)
+)
 
 func checkArchitectureStatus() []string {
 	arch, err := os.ReadFile("docs/architecture.md")

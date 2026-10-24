@@ -44,10 +44,11 @@ func TestSharingRule(t *testing.T) {
 // so a variable read outside Define cannot escape the bundle and
 // staleness gates. So is every one scripts/ spells: the smoke test, the
 // evals and the live driver set them for the server, and a misspelling
-// there tests a configuration nobody asked for. The live driver reads no
-// GDRIVE_ variable of its own today; one would be left out here by name.
-// spelled says what counts as a name. The scan must find a name outside
-// this package in each root, or it read too little.
+// there tests a configuration nobody asked for. Every name is held to
+// EnvVars, so a variable of the live driver's own, which it has none of
+// today, would need a list of its own here. spelled says what counts as
+// a name. The scan must find a name outside this package in each root,
+// or it read too little.
 func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 	known := map[string]bool{}
 	for _, name := range EnvVars() {
@@ -92,7 +93,10 @@ func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 }
 
 // The scan reads a + chain in order, so a name built after another
-// operand is seen, and reads inside an operand it cannot join.
+// operand is seen, and reads inside an operand it cannot join. A run
+// whose last word runs into an operand it cannot join starts a name
+// built at run time, and is not a name; a word the run ends before it
+// is one.
 func TestTheNameScanReadsEveryChainInOrder(t *testing.T) {
 	const src = `package p
 
@@ -103,6 +107,10 @@ var (
 	d = f(config.EnvPrefix+"IN_CALL") + x
 	e = EnvPrefix + "A" + x + EnvPrefix + "B"
 	g = Other + "NOT_A_NAME"
+	h = EnvPrefix + "ENABLE_" + kind
+	i = "GDRIVE_SAID is set to " + x
+	j = config.EnvPrefix + "SET=" + x
+	k = "GDRIVE_KEPT or " + EnvPrefix + "BUILT_" + x
 )
 `
 	f, err := parser.ParseFile(token.NewFileSet(), "p.go", src, 0)
@@ -110,7 +118,8 @@ var (
 		t.Fatal(err)
 	}
 	got := slices.Sorted(maps.Keys(spelled(f)))
-	want := []string{"GDRIVE_A", "GDRIVE_AFTER_OPERAND", "GDRIVE_B", "GDRIVE_IN_CALL", "GDRIVE_IN_PARENS", "GDRIVE_LITERAL"}
+	want := []string{"GDRIVE_AFTER_OPERAND", "GDRIVE_B", "GDRIVE_IN_CALL", "GDRIVE_IN_PARENS", "GDRIVE_KEPT",
+		"GDRIVE_LITERAL", "GDRIVE_SAID", "GDRIVE_SET"}
 	if !slices.Equal(got, want) {
 		t.Errorf("spelled = %v, want %v", got, want)
 	}
@@ -119,17 +128,24 @@ var (
 // envName is a whole GDRIVE_ variable name.
 var envName = regexp.MustCompile(`^GDRIVE_[A-Z0-9][A-Z0-9_]*$`)
 
+// nameChar is a character a variable name is made of.
+func nameChar(r rune) bool { return r == '_' || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') }
+
 // spelled is every GDRIVE_ name f spells, each with where. A name is
 // seen as a string literal, or as a run of literals and EnvPrefix joined
 // by +, read in order: any other operand ends the run and is read on its
-// own. One built from any other constant, or through a format verb, is
-// not seen.
+// own. A run's last word that runs into such an operand, as
+// EnvPrefix + "ENABLE_" + kind would, starts a name built at run time
+// and is not one. A name built from any other constant, or through a
+// format verb, is not seen.
 func spelled(f *ast.File) map[string]token.Pos {
 	found := map[string]token.Pos{}
-	spell := func(s string, at token.Pos) {
-		for _, word := range strings.FieldsFunc(s, func(r rune) bool {
-			return r != '_' && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
-		}) {
+	spell := func(s string, at token.Pos, joinedOnto bool) {
+		words := strings.FieldsFunc(s, func(r rune) bool { return !nameChar(r) })
+		if joinedOnto && s != "" && nameChar(rune(s[len(s)-1])) {
+			words = words[:len(words)-1]
+		}
+		for _, word := range words {
 			if envName.MatchString(word) {
 				found[word] = at
 			}
@@ -151,15 +167,15 @@ func spelled(f *ast.File) map[string]token.Pos {
 					run += s
 					continue
 				}
-				spell(run, at)
+				spell(run, at, true)
 				run = ""
 				ast.Inspect(op, visit)
 			}
-			spell(run, at)
+			spell(run, at, false)
 			return false
 		case *ast.BasicLit:
 			if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil {
-				spell(s, n.Pos())
+				spell(s, n.Pos(), false)
 			}
 		}
 		return true

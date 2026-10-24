@@ -26,6 +26,11 @@ import (
 // EnvPrefix is prepended to every environment variable name.
 const EnvPrefix = "GDRIVE_"
 
+// DefaultProfile is the profile used when none is named, which
+// internal/userconfig keeps in the base directory rather than under
+// profiles/.
+const DefaultProfile = "default"
+
 // LogLevel is a typed enum constrained at load time.
 type LogLevel string
 
@@ -202,7 +207,7 @@ func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	def := func(p *string, name, key, fallback, usage string) { bind(p, name, key, fallback, usage, false) }
 	// A switch is off unless set.
 	sw := func(p *string, name, key, usage string) { bind(p, name, key, "false", usage, true) }
-	def(&s.Profile, "profile", "PROFILE", "default", "named configuration profile")
+	def(&s.Profile, "profile", "PROFILE", DefaultProfile, "named configuration profile")
 	def(&s.LogLevel, "log-level", "LOG_LEVEL", string(LogInfo), "log level: debug, info, warn, error")
 	def(&s.LogFormat, "log-format", "LOG_FORMAT", string(LogText), "log format: text, json")
 	sw(&s.ReadOnly, "read-only", "READ_ONLY", "register only read tools and request read-only scopes")

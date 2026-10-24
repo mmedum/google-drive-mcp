@@ -1303,7 +1303,7 @@ func TestNoToolWritesTheServersOwnSettings(t *testing.T) {
 	t.Setenv(userconfig.EnvDir, dir)
 	t.Setenv("GDRIVE_SHARING", "all")
 	t.Setenv("GDRIVE_ENABLE_DESTRUCTIVE", "true")
-	if err := userconfig.Save(userconfig.DefaultProfile, userconfig.Config{AccountEmail: drivetest.AccountEmail,
+	if err := userconfig.Save(config.DefaultProfile, userconfig.Config{AccountEmail: drivetest.AccountEmail,
 		TokenStore: "keyring"}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}

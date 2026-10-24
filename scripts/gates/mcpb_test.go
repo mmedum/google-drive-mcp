@@ -46,16 +46,19 @@ func TestTheCommittedManifestCarriesThePlaceholder(t *testing.T) {
 
 // TestARealVersionInTheTreeIsRefused proves the guard bites, for the
 // stamping command and for the gate, which start from the same function.
+// The stamping command's refusal is its error, so nothing reaches the
+// writer the stamped document goes to.
 func TestARealVersionInTheTreeIsRefused(t *testing.T) {
 	root := copiedRoot(t)
 	editFile(t, root, mcpbManifestPath, `"version": "0.0.0-dev"`, `"version": "1.0.0"`)
 	var out bytes.Buffer
-	if err := mcpbManifest(&out, []string{"2.0.0", root}); err == nil {
-		t.Fatal("a manifest carrying a real version was accepted")
-	}
+	err := mcpbManifest(&out, []string{"2.0.0", root})
 	want := `packaging/mcpb/manifest.json carries version "1.0.0"; the committed manifest must carry "0.0.0-dev"`
-	if !strings.Contains(out.String(), want) {
-		t.Errorf("the refusal does not say what the manifest must carry:\n%s", out.String())
+	if err == nil || !strings.HasPrefix(err.Error(), "1 problem(s) in the bundle:\n  "+want) {
+		t.Errorf("mcpb-manifest refused with %v; want the one problem %q", err, want)
+	}
+	if out.Len() != 0 {
+		t.Errorf("mcpb-manifest wrote %q where the stamped document goes", out.String())
 	}
 	if _, problems, err := committedManifest(root); err != nil || len(problems) != 1 || !strings.HasPrefix(problems[0], want) {
 		t.Errorf("committedManifest = %q, %v; want the one problem %q", problems, err, want)
@@ -137,6 +140,10 @@ func TestARepeatedKeyIsRefused(t *testing.T) {
 			"server.mcp_config.env.GDRIVE_PROFILE"},
 		{"in a list", `"https://policies.google.com/privacy"`,
 			`{"url": "a", "url": "b"}`, "privacy_policies[0].url"},
+		{"a key with a dot", `"GDRIVE_PROFILE": "${user_config.profile}",`,
+			`"GDRIVE_PROFILE": "${user_config.profile}", "a.b": "x", "a.b": "y",`,
+			`server.mcp_config.env["a.b"]`},
+		{"an empty key", `"version": "0.0.0-dev",`, `"version": "0.0.0-dev", "": 1, "": 2,`, `[""]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := copiedRoot(t)
@@ -150,10 +157,43 @@ func TestARepeatedKeyIsRefused(t *testing.T) {
 	}
 }
 
+// The help names a command's arguments as the command takes them: each
+// command that needs an argument gives its usage when run without one,
+// and the help says the same.
+func TestTheHelpNamesTheArgumentsEachCommandTakes(t *testing.T) {
+	checked := 0
+	for _, name := range sorted(commands) {
+		c := commands[name]
+		if c.args == "" || strings.HasPrefix(c.args, "[") {
+			continue
+		}
+		checked++
+		err := c.run(&bytes.Buffer{}, nil)
+		if want := "usage: gates " + name + " " + c.args; err == nil || err.Error() != want {
+			t.Errorf("%s run with no arguments gave %v; its help says %q", name, err, want)
+		}
+	}
+	if checked < 4 {
+		t.Errorf("checked %d commands that need an argument; release-notes, registry-publish, mcpb-manifest "+
+			"and mcpb-pack are 4", checked)
+	}
+}
+
+// A key walk that fails is a refusal, not a document with no repeated
+// key.
+func TestARepeatedKeyWalkThatFailsIsAnError(t *testing.T) {
+	if got, err := repeatedKeys([]byte(`{"a": {"b": 1}, "a": 2}`)); err != nil || !slices.Equal(got, []string{"a"}) {
+		t.Errorf("repeatedKeys = %q, %v; want [a] and no error", got, err)
+	}
+	if got, err := repeatedKeys([]byte(`{"a": 1, "a"`)); err == nil {
+		t.Errorf("a document cut short gave %q and no error", got)
+	}
+}
+
 // What ships is held to the vendored schema, not only what is committed,
 // since the stamp encodes the document again.
 func TestTheStampedManifestIsHeldToTheSchema(t *testing.T) {
-	stamped, err := stampManifest(editedManifest(t, func(map[string]any) {}), "v1.2.3")
+	stamped, err := stampManifest(editedManifest(t, func(map[string]any) {}), "1.2.3")
 	if err != nil {
 		t.Fatalf("the committed manifest does not stamp: %v", err)
 	}
@@ -165,6 +205,24 @@ func TestTheStampedManifestIsHeldToTheSchema(t *testing.T) {
 	if want := "the stamped manifest does not satisfy mcpb-manifest-v0.3.schema.json"; err == nil ||
 		!strings.Contains(err.Error(), want) {
 		t.Errorf("stamping a document the schema refuses gave %v, want an error containing %q", err, want)
+	}
+}
+
+// The version stamped is a Semantic Versioning one, which the schema
+// does not hold: it takes any string.
+func TestTheStampedVersionIsSemver(t *testing.T) {
+	manifest := editedManifest(t, func(map[string]any) {})
+	for _, version := range []string{"1.2.3", "0.0.1", "3.1.2-SNAPSHOT-53c6b05", "1.2.3-rc.1+build.5"} {
+		if _, err := stampManifest(manifest, version); err != nil {
+			t.Errorf("stamping %q: %v", version, err)
+		}
+	}
+	for _, version := range []string{"v1.2.3", "1.2", "1.2.3 ", " 1.2.3", "01.2.3", "1.2.3-", "{{ .Tag }}", ""} {
+		_, err := stampManifest(manifest, version)
+		want := fmt.Sprintf("the version is %q; a bundle carries a Semantic Versioning version", version)
+		if err == nil || !strings.HasPrefix(err.Error(), want) {
+			t.Errorf("stamping %q gave %v, want an error starting %q", version, err, want)
+		}
 	}
 }
 
@@ -189,7 +247,7 @@ func TestThePackShipsTheStampedManifest(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := mcpbPack(&bytes.Buffer{}, []string{"v1.2.3", dist}); err != nil {
+	if err := mcpbPack(&bytes.Buffer{}, []string{"1.2.3", dist}); err != nil {
 		t.Fatalf("mcpb-pack: %v", err)
 	}
 	r, err := zip.OpenReader(filepath.Join(dist, "google-drive-mcp_1.2.3.mcpb"))
@@ -345,6 +403,13 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			want: "compatibility.platforms is [darwin win32]; the packer stages entry points for [darwin linux win32]",
 		},
 		{
+			// The identity check reports it, and no override is reported
+			// as one for a platform the bundle does not claim.
+			name:   "no platforms claimed",
+			break_: func(m map[string]any) { delete(dig(m, "compatibility"), "platforms") },
+			want:   "compatibility.platforms is []; the packer stages entry points for [darwin linux win32]",
+		},
+		{
 			name:   "an entry point the default command does not run",
 			break_: func(m map[string]any) { dig(m, "server")["entry_point"] = "server/google-drive-mcp.exe" },
 			want: `server.entry_point is "server/google-drive-mcp.exe", and server.mcp_config.command runs ` +
@@ -398,6 +463,24 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			}
 		})
 	}
+
+	// A platform the packer stops staging an entry point for, still
+	// claimed, is the identity check's to report, and the check of each
+	// platform's file does not report it again against no file.
+	t.Run("a claimed platform the packer stops staging", func(t *testing.T) {
+		original := binaries
+		t.Cleanup(func() { binaries = original })
+		binaries = slices.Clone(binaries)
+		for i := range binaries {
+			if binaries[i].platform == "win32" {
+				binaries[i].platform = ""
+			}
+		}
+		want := "compatibility.platforms is [darwin linux win32]; the packer stages entry points for [darwin linux]"
+		if problems := checkManifest(good(), packed); !slices.Equal(problems, []string{want}) {
+			t.Errorf("the report is not the one problem %q:\n%s", want, strings.Join(problems, "\n"))
+		}
+	})
 }
 
 // TestTheBundleIsAZipWithTheModesItNeeds. A zip records the mode, and
@@ -889,6 +972,12 @@ func TestTheBundleSettingsRefuseEachBreak(t *testing.T) {
 		{"a sharing field that does not list the modes", func(d map[string]any) {
 			dig(d, "user_config", "sharing")["description"] = "Which sharing tools to register."
 		}, `user_config.sharing does not say "all or off", which is what GDRIVE_SHARING accepts`},
+		{"a default the host expands", func(d map[string]any) {
+			dig(d, "user_config", "local_dir")["default"] = "${HOME}/Drive"
+		}, `user_config.local_dir defaults to "${HOME}/Drive"; the host expands a ${ reference in a default`},
+		{"a default holding another key", func(d map[string]any) {
+			dig(d, "user_config", "profile")["default"] = "${user_config.sharing}"
+		}, `user_config.profile defaults to "${user_config.sharing}"; the host expands a ${ reference in a default`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			problems := settingProblems(editedManifest(t, tc.edit), config.Vars(), bundleLeftOut)
@@ -996,9 +1085,10 @@ func refusingPair(t *testing.T, edit func(map[string]any)) map[string]any {
 }
 
 // A field the defaults change is named, an unexported one included
-// where every value of its type compares; an unexported one that does
-// not, such as an interface holding a slice, is reported unnamed rather
-// than panicking.
+// where its type compares strictly; an unexported one that does not,
+// such as an interface holding a slice, is reported unnamed rather than
+// panicking, whatever else differs. A pointer is compared by what it
+// points at, not by its address.
 func TestTheConfigDiffNamesTheFieldsThatDiffer(t *testing.T) {
 	type inner struct{ held any }
 	type cfg struct {
@@ -1007,8 +1097,14 @@ func TestTheConfigDiffNamesTheFieldsThatDiffer(t *testing.T) {
 		rest   []string
 		held   any
 		nested inner
+		ptr    *int
+		boxed  struct{ p *int }
+		opts   map[string]int
 	}
-	base := cfg{Shown: 1, hidden: 1, held: []string{"x"}, nested: inner{[]string{"x"}}}
+	one, alsoOne, two := 1, 1, 2
+	base := cfg{Shown: 1, hidden: 1, held: []string{"x"}, nested: inner{[]string{"x"}}, ptr: &one}
+	base.boxed.p = &one
+	base.opts = map[string]int{"a": 1}
 	for _, tc := range []struct {
 		edit func(*cfg)
 		want []string
@@ -1018,6 +1114,16 @@ func TestTheConfigDiffNamesTheFieldsThatDiffer(t *testing.T) {
 		{func(c *cfg) { c.rest = []string{"x"} }, []string{"an unexported field"}},
 		{func(c *cfg) { c.held = []string{"y"} }, []string{"an unexported field"}},
 		{func(c *cfg) { c.nested = inner{[]string{"y"}} }, []string{"an unexported field"}},
+		{func(c *cfg) { c.Shown, c.rest = 2, []string{"x"} }, []string{"Shown", "an unexported field"}},
+		{func(c *cfg) { c.held, c.rest = []string{"y"}, []string{"x"} }, []string{"an unexported field"}},
+		{func(c *cfg) { c.ptr = &alsoOne }, nil},
+		{func(c *cfg) { c.ptr = &two }, []string{"an unexported field"}},
+		{func(c *cfg) { c.ptr = nil }, []string{"an unexported field"}},
+		{func(c *cfg) { c.boxed.p = &alsoOne }, nil},
+		{func(c *cfg) { c.boxed.p = &two }, []string{"an unexported field"}},
+		{func(c *cfg) { c.opts = map[string]int{"a": 1} }, nil},
+		{func(c *cfg) { c.opts = map[string]int{"a": 2} }, []string{"an unexported field"}},
+		{func(c *cfg) { c.opts = map[string]int{"b": 1} }, []string{"an unexported field"}},
 		{func(*cfg) {}, nil},
 	} {
 		b := base
@@ -1114,7 +1220,8 @@ func TestTheRefusalsTurnASwitchOnWhateverItsDefault(t *testing.T) {
 // version, so a hint left behind sends somebody to an old one.
 func TestTheLauncherInstallHintIsGoModsModule(t *testing.T) {
 	const hint = `echo "no binary." "Install with: go install example.com/m/v3/cmd/google-drive-mcp@latest" >&2`
-	for _, goMod := range []string{"module example.com/m/v3\n\ngo 1.27\n", "module example.com/m/v3\r\n\r\ngo 1.27\r\n"} {
+	for _, goMod := range []string{"module example.com/m/v3\n\ngo 1.27\n", "module example.com/m/v3\r\n\r\ngo 1.27\r\n",
+		"module\texample.com/m/v3\n", "module example.com/m/v3 // the server\n", "module example.com/m/v3// the server\r\n"} {
 		if problems := installHintProblems(hint, goMod); len(problems) > 0 {
 			t.Errorf("go.mod %q: %v", goMod, problems)
 		}

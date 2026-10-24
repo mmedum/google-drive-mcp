@@ -1512,7 +1512,8 @@ honest option and the one a model can act on.
   new variable fails it until the bundle asks for it or a reason is
   written. Each switch defaults to off and every other optional key,
   the OAuth client file included, to `""`, which the server reads as
-  unset. The gate starts the server through `config.Load` from the
+  unset; no default holds a `${` reference, which the host would expand.
+  The gate starts the server through `config.Load` from the
   environment the reference host builds from those defaults and from
   none, and names any field that differs. Claude Desktop approves each
   tool, and a person can set a tool to always allow, so a switch left
@@ -1537,8 +1538,8 @@ honest option and the one a model can act on.
   manifest, the launcher, `go.mod` and `.goreleaser.yaml` once from one
   root, refuses a key repeated in one object and a version other than
   the placeholder; the packer validates the stamped manifest it ships
-  against the vendored schema, and a failed close of the bundle fails
-  the pack.
+  against the vendored schema, with a Semantic Versioning version, and
+  a failed close of the bundle fails the pack.
 - **Setup guide** in the README, in the order `doctor` checks it (§10).
 - **Versioning.** Semantic versions; Keep a Changelog; the schema diff in
   CI fails on a removed or renamed tool or resource, a field removed at
@@ -2161,7 +2162,41 @@ object is refused, and the packer validates the stamped manifest it
 ships. The configuration page is held by whole word, both ways, and
 states `config.ProfileRule`. Already held: a failed close of the bundle
 fails the pack. Not carried: a check of the manifest's `license` against
-`LICENSE`, which no row of the table asks for.
+`LICENSE`, which no row of the table asks for. `/simplify` (one agent,
+four angles), `/code-review medium` and `/security-review` then ran
+over `main...family-rules`, with the family's second round of fixes.
+Fixed, each with a test that failed first: `fieldDiff` reported an
+unexported field it cannot name only when no named field differed, and
+compared a pointer by its address; the repeated-key refusal named a key
+holding a dot ambiguously, and passed a manifest whose keys it could
+not walk; `mcpb-manifest` wrote its refusal where the stamped manifest
+goes, and its help said `MANIFEST` where it takes a root; a refusal
+named the manifest when a problem can be in a file beside it; the
+stamped version was only stripped of a `v`, twice, and is now held to
+Semantic Versioning, which the schema does not hold, so the stamped
+check can fail; the configuration page check counted `xGDRIVE_LABELS`
+and `GDRIVE_LABELSx` as `GDRIVE_LABELS` and read `GDRIVE_ENABLE_*` as a
+variable; the name scan read `EnvPrefix + "ENABLE_" + kind` as a
+variable `GDRIVE_ENABLE_`; a default holding a `${` reference, which
+the host expands, was not refused by name; the install hint check
+missed a `module` line with a trailing comment; and `config` and
+`userconfig` each spelled the default profile, which is now
+`config.DefaultProfile` alone. The integration test reads the profile
+through `config.Load` rather than its own `os.Getenv`, a one-use alias
+of the server's name is gone, and the scan test no longer promises a
+list of the live driver's variables that does not exist. Kept: the
+override check's guard for a manifest that claims no platform, and the
+skip of a claimed platform with no staged file, which the review called
+dead: each stops a second report of what the identity check reports,
+and a test now fails without each. `userconfig.BaseDir` reads the
+process environment rather than an injected one, which only a test
+would use; the server reads the process environment either way.
+Repeated keys are compared exactly, not under case folding: the
+manifest decodes into a map, which keeps `command` and `Command` apart
+as the host does. Not carried: spelling the names typed outside
+`config` through its constants, since the name scan already holds each
+one to `EnvVars`. `/security-review`: no finding at confidence 8 or
+above.
 
 ## 17. Open decisions
 

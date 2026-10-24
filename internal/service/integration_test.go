@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/auth"
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 	"github.com/mmedum/google-drive-mcp/v3/internal/credentials"
 	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/v3/internal/service"
@@ -34,10 +35,13 @@ func live(t *testing.T) (*service.Service, *gapi.Client) {
 	if os.Getenv("GDRIVE_INTEGRATION") != "1" {
 		t.Skip("set GDRIVE_INTEGRATION=1 to run against a real account")
 	}
-	profile := os.Getenv("GDRIVE_PROFILE")
-	if profile == "" {
-		profile = userconfig.DefaultProfile
+	// The profile as the server reads it: trimmed, lowered, and the
+	// default one when unset.
+	cfg, err := config.Load(nil, os.Getenv)
+	if err != nil {
+		t.Fatalf("the environment does not start the server: %v", err)
 	}
+	profile := cfg.Profile
 
 	user, err := userconfig.Load(profile)
 	if err != nil {
