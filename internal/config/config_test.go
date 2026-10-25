@@ -93,10 +93,10 @@ func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 }
 
 // The scan reads a + chain in order, so a name built after another
-// operand is seen, and reads inside an operand it cannot join. A run
-// whose last word runs into an operand it cannot join starts a name
-// built at run time, and is not a name; a word the run ends before it
-// is one.
+// operand is seen, and reads inside an operand it cannot join. Each run
+// is read whole: one ending in _ before an operand starts a name built
+// at run time, and one ending in a name's last character ends in that
+// name.
 func TestTheNameScanReadsEveryChainInOrder(t *testing.T) {
 	const src = `package p
 
@@ -111,6 +111,7 @@ var (
 	i = "GDRIVE_SAID is set to " + x
 	j = config.EnvPrefix + "SET=" + x
 	k = "GDRIVE_KEPT or " + EnvPrefix + "BUILT_" + x
+	l = EnvPrefix + "WHOLE" + suffix
 )
 `
 	f, err := parser.ParseFile(token.NewFileSet(), "p.go", src, 0)
@@ -118,15 +119,16 @@ var (
 		t.Fatal(err)
 	}
 	got := slices.Sorted(maps.Keys(spelled(f)))
-	want := []string{"GDRIVE_AFTER_OPERAND", "GDRIVE_B", "GDRIVE_IN_CALL", "GDRIVE_IN_PARENS", "GDRIVE_KEPT",
-		"GDRIVE_LITERAL", "GDRIVE_SAID", "GDRIVE_SET"}
+	want := []string{"GDRIVE_A", "GDRIVE_AFTER_OPERAND", "GDRIVE_B", "GDRIVE_IN_CALL", "GDRIVE_IN_PARENS",
+		"GDRIVE_KEPT", "GDRIVE_LITERAL", "GDRIVE_SAID", "GDRIVE_SET", "GDRIVE_WHOLE"}
 	if !slices.Equal(got, want) {
 		t.Errorf("spelled = %v, want %v", got, want)
 	}
 }
 
-// envName is a whole GDRIVE_ variable name.
-var envName = regexp.MustCompile(`^GDRIVE_[A-Z0-9][A-Z0-9_]*$`)
+// envName is a whole GDRIVE_ variable name. A name ends in a capital or
+// a digit, so GDRIVE_ENABLE_ is a prefix, not one.
+var envName = regexp.MustCompile(`^GDRIVE_[A-Z0-9_]*[A-Z0-9]$`)
 
 // nameChar is a character a variable name is made of.
 func nameChar(r rune) bool { return r == '_' || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') }
@@ -134,18 +136,13 @@ func nameChar(r rune) bool { return r == '_' || (r >= 'A' && r <= 'Z') || (r >= 
 // spelled is every GDRIVE_ name f spells, each with where. A name is
 // seen as a string literal, or as a run of literals and EnvPrefix joined
 // by +, read in order: any other operand ends the run and is read on its
-// own. A run's last word that runs into such an operand, as
-// EnvPrefix + "ENABLE_" + kind would, starts a name built at run time
-// and is not one. A name built from any other constant, or through a
+// own. Each run is read whole, so EnvPrefix + "ENABLE_" + kind spells
+// only a prefix, which is no name. A name built from any other constant, or through a
 // format verb, is not seen.
 func spelled(f *ast.File) map[string]token.Pos {
 	found := map[string]token.Pos{}
-	spell := func(s string, at token.Pos, joinedOnto bool) {
-		words := strings.FieldsFunc(s, func(r rune) bool { return !nameChar(r) })
-		if joinedOnto && s != "" && nameChar(rune(s[len(s)-1])) {
-			words = words[:len(words)-1]
-		}
-		for _, word := range words {
+	spell := func(s string, at token.Pos) {
+		for _, word := range strings.FieldsFunc(s, func(r rune) bool { return !nameChar(r) }) {
 			if envName.MatchString(word) {
 				found[word] = at
 			}
@@ -167,15 +164,15 @@ func spelled(f *ast.File) map[string]token.Pos {
 					run += s
 					continue
 				}
-				spell(run, at, true)
+				spell(run, at)
 				run = ""
 				ast.Inspect(op, visit)
 			}
-			spell(run, at, false)
+			spell(run, at)
 			return false
 		case *ast.BasicLit:
 			if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil {
-				spell(s, n.Pos(), false)
+				spell(s, n.Pos())
 			}
 		}
 		return true
