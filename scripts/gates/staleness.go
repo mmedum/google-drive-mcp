@@ -338,10 +338,10 @@ func tagExists(tag string) bool {
 // A setup instruction that names fewer scopes than the code asks for is
 // disprovable in one command, which for a setup step is the same as
 // being wrong: the reader adds what they were told to, runs login, and
-// is refused by a consent screen that does not carry the rest. This
-// README named one scope where the code can ask for five — the label and
-// activity pairs are requested only with their features on, which is
-// exactly why nobody noticed.
+// is refused, on an External app, by a consent screen that does not
+// carry the rest. This README named one scope where the code can ask for
+// five — the label and activity pairs are requested only with their
+// features on, which is exactly why nobody noticed.
 //
 // Found by the first outside person to install this family of servers,
 // who checked the equivalent instruction in a sibling repository against
@@ -365,8 +365,8 @@ func checkScopesDocumented() []string {
 		if !strings.Contains(string(readme), m[1]) {
 			problems = append(problems, fmt.Sprintf(
 				"login can request %s and README.md does not name it. A setup step that lists fewer "+
-					"scopes than the code asks for sends somebody to a consent screen that will "+
-					"refuse them", m[1]))
+					"scopes than the code asks for sends somebody with an External app to a consent "+
+					"screen that will refuse them", m[1]))
 		}
 	}
 	return problems

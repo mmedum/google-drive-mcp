@@ -162,7 +162,7 @@ func NewSharing(shared bool, perms []*gdrive.Permission, known bool) Sharing {
 func GrantOf(p *gdrive.Permission) Grant {
 	g := Grant{
 		PermissionID: p.ID, Type: p.Type, Role: p.Role, Name: p.DisplayName,
-		Discoverable: p.AllowFileDiscovery, Expires: p.ExpirationTime,
+		Discoverable: p.AllowFileDiscovery, Expires: KnownTime(p.ExpirationTime),
 		PendingOwner: p.PendingOwner, Deleted: p.Deleted, NameOnly: p.View == gdrive.ViewMetadata,
 	}
 	// An owner's grant is made on the item, even when the owner also

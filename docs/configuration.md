@@ -112,11 +112,12 @@ scopes the login asks for. Changing any of them means running
 the ones the current configuration wants and names any that are missing.
 
 The two extra APIs also have to be enabled in the Cloud project — the
-**Drive Labels API** and the **Drive Activity API** — and their scopes
-added to the consent screen. Enabling the scope without enabling the API,
-or the other way round, both end in a 403 saying only that the token had
-insufficient scopes; the tools name the setup step in their refusal so
-that message is not the last word.
+**Drive Labels API** and the **Drive Activity API** — and, on an External
+app, their scopes added to the consent screen; an Internal app needs no
+scope list. A missing API, or a missing scope on an External app, ends
+in a 403 saying only that the token had insufficient scopes; the tools
+name the setup step in their refusal so that message is not the last
+word.
 
 ## Reading the setup from a script
 

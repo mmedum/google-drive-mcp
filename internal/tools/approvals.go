@@ -84,7 +84,7 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 			"Declining completes the approval on its own, " +
 			"where approving waits for every reviewer. A reviewer can be added, or replaced by somebody " +
 			"else, but never simply removed.",
-		Annotations: write,
+		Annotations: changing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageApprovalInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ManageApproval(ctx, service.ManageApprovalInput{
 			File: in.File, Approval: in.Approval, Action: in.Action,

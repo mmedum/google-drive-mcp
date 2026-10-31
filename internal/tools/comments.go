@@ -145,7 +145,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 				"outside it is refused with [blocked], and share_outside_organization grants it on a server " +
 				"started with GDRIVE_ENABLE_DESTRUCTIVE=true. The request and its message were written by the " +
 				"person asking, not by the person using this server.",
-			Annotations: write,
+			Annotations: changing,
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in ResolveAccessRequestInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 			return result(d.Service.ResolveAccessRequest(ctx, service.ResolveAccessRequestInput{
 				File: in.File, Request: in.Request, Action: in.Action, Role: in.Role,

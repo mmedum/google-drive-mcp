@@ -525,11 +525,12 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// The two APIs that are not Drive. They are the likeliest thing to be
-	// wrong in a setup — each needs enabling in the Cloud project AND a
-	// scope on the consent screen, and the two fail identically — so
-	// doctor saying "all checks passed" without having called either of
-	// them is the report a deployer least needs. §10 has said doctor
-	// checks the Labels API since phase 0; until phase 4 it did not.
+	// wrong in a setup — each needs enabling in the Cloud project AND, on
+	// an External app, a scope on the consent screen, and the two fail
+	// identically — so doctor saying "all checks passed" without having
+	// called either of them is the report a deployer least needs. §10 has
+	// said doctor checks the Labels API since phase 0; until phase 4 it did
+	// not.
 	if cfg.Labels {
 		if _, err := api.ListLabelDefinitions(ctx, gapi.ListLabelDefinitionsOptions{PageSize: 1}); err != nil {
 			check("Drive Labels API (labels.list)", fmt.Errorf(

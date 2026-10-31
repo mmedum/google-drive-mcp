@@ -1,7 +1,11 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 10 complete (2026-10-23), released as v3.1.2
-(2026-10-24). v3.1.2 is the family sweep of 2026-10-24 (§16): every
+**Status:** phase 10 complete (2026-10-23), released as v3.2.0
+(2026-11-01). v3.2.0 marks every write that changes or removes what is
+there `destructiveHint: true`, as the MCP schema reads `false` as only
+additive, reading the epoch as no time, and asks for the consent
+screen's scope list on External apps only (§16); a live run with
+`-write` of 252 calls passed, its transcript read. v3.1.2 (2026-10-24) is the family sweep of 2026-10-24 (§16): every
 reader trims through `config.Lookup`, the refresh token and config
 directory included, and the bundle gate holds the identity, refuses a
 repeated key, needs a semver release version and reads names whole-word;
@@ -55,8 +59,8 @@ A default build registers **33** tools; twelve more exist
 behind a flag — the nine `GDRIVE_ENABLE_DESTRUCTIVE` registers, plus
 `list_labels` and `manage_labels` under `GDRIVE_LABELS` and
 `list_activity` under `GDRIVE_ACTIVITY`. Those last three each need a
-Google API enabled in the Cloud project AND a scope the consent screen
-would otherwise not carry, which is why they are off by default — 45
+Google API enabled in the Cloud project AND a scope login would
+otherwise not ask for, which is why they are off by default — 45
 tools in all, and 13 in read-only mode. Neither phase 5 nor
 phase 6 added a tool. Every method of all three APIs is recorded as used
 on purpose or left out on purpose, and a gate holds that record to the
@@ -1219,7 +1223,8 @@ other tool does (§4a).
 `GDRIVE_READ_ONLY=true` registers only the readOnly rows, and
 `download_file`, which writes only a new local file, and requests
 `drive.readonly`. Every write states `destructiveHint`: the
-specification reads an unset one as true. `GDRIVE_SHARING=off` removes the rows marked *sharing*
+specification reads an unset one as true, and `false` as "only additive
+updates", so only the eight writes that add say it. `GDRIVE_SHARING=off` removes the rows marked *sharing*
 — which includes `resolve_access_request`, because accepting a request
 grants a permission.
 
@@ -1236,26 +1241,26 @@ grants a permission.
 | `upload_file` | A local file, multipart or resumable, optional conversion | — | 1 |
 | `update_content` | Replace a blob's content; the old one stays a revision for about 30 days unless pinned | destructive | 1 |
 | `create_folder` | New folder; refuses a duplicate name unless allowed | — | 1 |
-| `update_file` | Rename, describe, star, color, properties, sharing switches, download restriction, a folder's limited access (refused off when that reaches past the organization) | idempotent | 1 |
-| `move_file` | Move one item, or up to 50, to a folder or shared drive; single parent; who can reach each before and after, refusing an item it would open past the organization; dry run | idempotent | 1 |
+| `update_file` | Rename, describe, star, color, properties, sharing switches, download restriction, a folder's limited access (refused off when that reaches past the organization) | destructive, idempotent | 1 |
+| `move_file` | Move one item, or up to 50, to a folder or shared drive; single parent; who can reach each before and after, refusing an item it would open past the organization; dry run | destructive, idempotent | 1 |
 | `copy_file` | Copy, optionally converting (OCR); `recursive` walks a folder, refusing a tree over budget rather than copying half of it | — | 1, 3 |
 | `create_shortcut` | Shortcut to a file or folder | — | 1 |
-| `trash_file`, `restore_file` | Reversible removal and its undo | idempotent | 1 |
+| `trash_file`, `restore_file` | Reversible removal and its undo | destructive, idempotent | 1 |
 | `list_permissions` | Who has access, how, inherited from where, link state | readOnly | 2 |
-| `share_file` | Grant or change access for named people and groups inside the organization; policy-checked; before/after | *sharing* | 2, 10 |
-| `unshare_file` | Revoke a grant or a link | *sharing* | 2 |
+| `share_file` | Grant or change access for named people and groups inside the organization; policy-checked; before/after | *sharing*, destructive | 2, 10 |
+| `unshare_file` | Revoke a grant or a link | *sharing*, destructive, idempotent | 2 |
 | `list_drives` | Shared drives with your role and restrictions | readOnly | 2 |
-| `manage_drive` | Create, rename, hide, unhide, restrict a shared drive; never turns `domain_users_only` off | — | 2 |
+| `manage_drive` | Create, rename, hide, unhide, restrict a shared drive; never turns `domain_users_only` off | destructive, idempotent | 2 |
 | `list_revisions` | Version history with the incompleteness caveat | readOnly | 2 |
-| `manage_revision` | Keep or unkeep a revision | idempotent | 2 |
+| `manage_revision` | Keep or unkeep a revision | destructive, idempotent | 2 |
 | `list_changes` | The changes feed: start token, then changes since | readOnly | 2 |
 | `list_comments` | Threads on any file | readOnly | 3 |
 | `add_comment`, `reply_comment` | Unanchored comment; reply, resolve, reopen, edit (which replaces the text with no history) | — / destructive | 3, 10 |
 | `list_access_requests` | Who has asked to be let in, and for what | readOnly | 3 |
-| `resolve_access_request` | Accept one from inside the organization, or deny any; accepting grants a permission, so it is policy-checked with before and after | *sharing* | 3 |
+| `resolve_access_request` | Accept one from inside the organization, or deny any; accepting grants a permission, so it is policy-checked with before and after | *sharing*, destructive | 3 |
 | `list_labels`, `manage_labels` | Workspace labels: the definitions this account may use, and applying one to a file. Registered only with `GDRIVE_LABELS=true` | readOnly / destructive | 4, 10 |
 | `list_approvals` | The reviews on a file, and whether one waits on you | readOnly | 4 |
-| `manage_approval` | Start, decline, withdraw, comment on or reassign a review. Every action mails somebody; an approval can lock the file once approved, unless started with `on_content_change: no_action` | — | 4 |
+| `manage_approval` | Start, decline, withdraw, comment on or reassign a review. Every action mails somebody; an approval can lock the file once approved, unless started with `on_content_change: no_action` | destructive | 4 |
 | `approve_file` | Approve a review you were asked for: your sign-off, which Drive cannot withdraw and which can lock the file for good | destructive | 10 |
 | `list_activity` | What happened to a file or inside a folder. Registered only with `GDRIVE_ACTIVITY=true` | readOnly | 4 |
 | `delete_file` | Gated: permanent, skips the trash | destructive | 2 |
@@ -1357,7 +1362,8 @@ whose result is a file's text, returned as a text block alone (§4).
   `doctor` checks it: project → enable the **Google Drive API** (and the
   Drive Labels API when labels are on) → consent screen (**Internal** for
   Workspace, **External + Testing** with the user added for consumer
-  accounts, which means weekly `login`) → add the scopes → Desktop-app
+  accounts, which means weekly `login`) → add the scopes, on an External
+  app only → Desktop-app
   client → download `client_secret.json` → `login` → `doctor`.
 - **No Developer Preview is needed.** Everything this server uses is GA.
   Google's own Drive MCP is in the preview program and is a comparison
@@ -2204,6 +2210,28 @@ as the host does. Not carried: spelling the names typed outside
 one to `EnvVars`. `/security-review`: no finding at confidence 8 or
 above.
 
+**Destructive by the letter (v3.2.0). Done 2026-11-01.** The nine writes
+that change or remove what is there, `update_file`, `move_file`,
+`trash_file`, `restore_file`, `share_file`, `unshare_file`,
+`manage_drive`, `manage_approval` and `resolve_access_request`, say
+`destructiveHint: true`, reversing the 2026-09-30 reading that a write
+which can be set back may say false (§18). They stay ungated, with no
+confirm. `TestOnlyToolsThatAddSayTheyAreNotDestructive` holds the eight
+that may say false over the full surface. `parseTime` reads the epoch,
+Google's way of writing a time it does not have, as no time, through
+`KnownTime`, which the times shown as written use too. The README, the
+configuration guide and the labels and activity refusal ask for the
+scope list on External apps only. `/simplify` and `/code-review medium`
+ran over the branch. Fixed: `manage_revision` reuses `idempotentWrite`;
+the test covers the full surface, `manage_labels` included; the epoch
+rule has one owner; an `[ambiguous]` list's time goes through it.
+Reverted: reading an epoch `sharedWithMeTime` as absent, which would
+have flipped whether a file was shared with you. Not carried: a wire
+type for every time, since the model is this repository's parse point
+and the two raw reads that reach output now go through `KnownTime`;
+merging the annotation variables of equal value, which name intents.
+A live run with `-write` of 252 calls passed.
+
 ## 17. Open decisions
 
 Two, waiting on a live probe:
@@ -3009,7 +3037,10 @@ live run of it found.
 | Convention | Verdict | Effect |
 |---|---|---|
 | `drives.update` replaces the whole `restrictions` object, so a patch re-sends the switches it keeps (§7.5 as written, and the fake) | **Refuted by a live probe, 2026-09-30,** on a shared drive the probe made and deleted. A body with only `copyRequiresWriterPermission: true` changed that switch and kept the others; a body that left a switch out kept it; only an explicit `false` turned one off. A body carrying `downloadRestriction` — `{}`, or the values Drive already held — was refused, 400 `badRequest`, "Bad Request". Turning `copyRequiresWriterPermission` on set `downloadRestriction.restrictedForReaders` too, and turning it off cleared it | The patch is `DriveRestrictionsPatch`: pointer switches, only the ones that change, no `downloadRestriction`. The result reads the change from the response and names a switch Drive did not apply. The fake merges and refuses the same way. `manage_drive restrict` had failed on every call since 1.1.0 and had never turned a switch off |
-| An unset `destructiveHint` means not destructive | **Refuted.** The specification's `ToolAnnotations` in `schema/2026-07-28/schema.ts`, read 2026-09-30: "Default: true", and `false` means "the tool performs only additive updates" | Every write states the hint, and a test fails on one that does not. Trash, move, restore, rename, unshare and the drive settings say `false`: each can be set back, and a client that confirms on the hint would otherwise ask as it does for a permanent delete. That is a reading, not the letter, which calls any non-additive update destructive. `update_content` says `true`: the old content survives only as a revision Drive may purge |
+| An unset `destructiveHint` means not destructive | **Refuted.** The specification's `ToolAnnotations` in `schema/2026-07-28/schema.ts`, read 2026-09-30: "Default: true", and `false` means "the tool performs only additive updates" | Every write states the hint, and a test fails on one that does not. Trash, move, restore, rename, unshare and the drive settings say `false`: each can be set back, and a client that confirms on the hint would otherwise ask as it does for a permanent delete. That is a reading, not the letter, which calls any non-additive update destructive. `update_content` says `true`: the old content survives only as a revision Drive may purge *(Superseded 2026-10-31: next row.)* |
+| A write that can be set back may say `destructiveHint: false` | **Refuted 2026-10-31**, by the letter of the row above: the MCP schema (2025-11-25), `ToolAnnotations`, "If false, the tool performs only additive updates". Trashing, moving, restoring, renaming, unsharing, a drive's settings, a grant's role, an approval's reviewers and a pending access request all change what is there | Every write says true but the eight that add: `create_file`, `create_folder`, `create_shortcut`, `upload_file`, `copy_file`, `add_comment`, `download_file`, and `extract_text`, which deletes only the temporary copy it made. The nine that flip stay ungated, with no confirm. `TestOnlyToolsThatAddSayTheyAreNotDestructive` holds it |
+| Google writes a time it does not have as the Unix epoch | Seen live on 2026-10-31 from Google Chat's API: an administrator's read of a space answered `1970-01-01T00:00:00Z` for a time it lacked. Not seen yet from Drive, but nothing in Drive dates from 1970, so reading the epoch as no time loses nothing | `parseTime` reads the epoch as no time through `KnownTime`, which the times shown as written go through too: a grant's expiry, and a file's time in an `[ambiguous]` list. Whether a file was shared with you still reads the field's presence, not its time |
+| A scope must be on the consent screen to be granted | **Refined 2026-10-31.** Google's configure-oauth-consent guide (updated 2026-09-03): "you only need to list scopes for apps used by people outside your Google Workspace organization", and for internal apps "scopes aren't listed on the consent screen". Confirmed live the same day on an Internal app, whose token held scopes its Data Access page does not list | The README, the configuration guide and the labels and activity refusal ask for the scope list on External apps only |
 | `readOnlyHint` is about Drive | **Refuted**, same source: "the tool does not modify its environment" | `download_file` writes a local file, so it is not read-only; read-only mode still registers it, since it changes nothing in Drive |
 | Drive keeps a replaced file's old content | **Refined.** The revisions overview (<https://developers.google.com/workspace/drive/api/guides/change-overview>), read 2026-09-30: a blob revision not kept forever "is purgeable", "typically preserved for 30 days", and purged sooner once a file has 100 such revisions | `update_content`'s description and `keep_previous_revision` say so |
 | The Go SDK's typed handler can return a question | **Confirmed** in MCP Go SDK v1.8.0, `mcp/server.go`, read 2026-09-30: when a handler's result carries `InputRequests`, the output is not marshaled or validated against the output schema | The asking tools keep their typed handlers and output schema *(Superseded 2026-10-23: the server asks nobody, §4a.)* |
