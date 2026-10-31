@@ -1,7 +1,11 @@
 # Architecture — google-drive-mcp
 
-**Status:** phase 10 complete (2026-10-23), released as v3.1.2
-(2026-10-24). v3.1.2 is the family sweep of 2026-10-24 (§16): every
+**Status:** phase 10 complete (2026-10-23), released as v3.2.0
+(2026-11-01). v3.2.0 marks every write that changes or removes what is
+there `destructiveHint: true`, as the MCP schema reads `false` as only
+additive, reading the epoch as no time, and asks for the consent
+screen's scope list on External apps only (§16); a live run with
+`-write` of 252 calls passed, its transcript read. v3.1.2 (2026-10-24) is the family sweep of 2026-10-24 (§16): every
 reader trims through `config.Lookup`, the refresh token and config
 directory included, and the bundle gate holds the identity, refuses a
 repeated key, needs a semver release version and reads names whole-word;
@@ -2205,6 +2209,28 @@ as the host does. Not carried: spelling the names typed outside
 `config` through its constants, since the name scan already holds each
 one to `EnvVars`. `/security-review`: no finding at confidence 8 or
 above.
+
+**Destructive by the letter (v3.2.0). Done 2026-11-01.** The nine writes
+that change or remove what is there, `update_file`, `move_file`,
+`trash_file`, `restore_file`, `share_file`, `unshare_file`,
+`manage_drive`, `manage_approval` and `resolve_access_request`, say
+`destructiveHint: true`, reversing the 2026-09-30 reading that a write
+which can be set back may say false (§18). They stay ungated, with no
+confirm. `TestOnlyToolsThatAddSayTheyAreNotDestructive` holds the eight
+that may say false over the full surface. `parseTime` reads the epoch,
+Google's way of writing a time it does not have, as no time, through
+`KnownTime`, which the times shown as written use too. The README, the
+configuration guide and the labels and activity refusal ask for the
+scope list on External apps only. `/simplify` and `/code-review medium`
+ran over the branch. Fixed: `manage_revision` reuses `idempotentWrite`;
+the test covers the full surface, `manage_labels` included; the epoch
+rule has one owner; an `[ambiguous]` list's time goes through it.
+Reverted: reading an epoch `sharedWithMeTime` as absent, which would
+have flipped whether a file was shared with you. Not carried: a wire
+type for every time, since the model is this repository's parse point
+and the two raw reads that reach output now go through `KnownTime`;
+merging the annotation variables of equal value, which name intents.
+A live run with `-write` of 252 calls passed.
 
 ## 17. Open decisions
 

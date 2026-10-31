@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-11-01
+
 ### Changed
 
 - The nine tools that change or remove something now say `destructiveHint: true`, as the MCP spec reads `false` as "only additive updates": `update_file`, `move_file`, `trash_file`, `restore_file`, `share_file`, `unshare_file`, `manage_drive`, `manage_approval` and `resolve_access_request`. claude.ai, ChatGPT and Codex may now ask before these; if you run them unattended there, allow them again. They still need no `GDRIVE_ENABLE_DESTRUCTIVE` and no `confirm`.
