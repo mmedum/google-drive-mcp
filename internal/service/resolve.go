@@ -222,8 +222,8 @@ func (s *Service) ambiguous(name, where string, files []*gdrive.File) error {
 	fmt.Fprintf(&b, "%d items in %s are named %q. Pass one of these ids instead of a path:", len(files), where, name)
 	for _, f := range files {
 		fmt.Fprintf(&b, "\n  %s  %s", f.ID, model.Kind(f))
-		if f.ModifiedTime != "" {
-			fmt.Fprintf(&b, ", modified %s", f.ModifiedTime)
+		if at := model.KnownTime(f.ModifiedTime); at != "" {
+			fmt.Fprintf(&b, ", modified %s", at)
 		}
 	}
 	return &Error{Class: ClassAmbiguous, Message: b.String()}

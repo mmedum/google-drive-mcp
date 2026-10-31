@@ -131,14 +131,20 @@ func requiresUserInteraction() mcp.Meta {
 
 var (
 	readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)}
-	// write adds something without removing anything.
+	// write adds something without removing anything. Only such a tool,
+	// and localWrite below, may say destructiveHint false, which the MCP
+	// schema defines as "the tool performs only additive updates"; the
+	// specification's default for an unset hint is true, which is why it
+	// is written out.
 	write = &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}
+	// changing changes or removes what is there: a grant's role, an
+	// approval's reviewers, a pending access request. It is not gated.
+	changing = &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)}
 	// idempotentWrite sets a state rather than adding to one, so calling
-	// it twice with the same arguments leaves the same result. Each one
-	// can be set back, so none is destructive: the specification's
-	// default for an unset destructiveHint is true, which is why it is
-	// written out.
-	idempotentWrite = &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}
+	// it twice with the same arguments leaves the same result. Setting a
+	// state replaces the one before, so it is destructive in the
+	// schema's sense, though each can be set back and none is gated.
+	idempotentWrite = &mcp.ToolAnnotations{DestructiveHint: new(true), IdempotentHint: true, OpenWorldHint: new(false)}
 	// replacing overwrites what is there. The old content survives only
 	// as a revision Drive may purge, or, for a comment's text or a
 	// label's field, not at all, so it is destructive.

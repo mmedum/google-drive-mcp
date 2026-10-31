@@ -252,7 +252,7 @@ func metaPatch(f *gdrive.File, in UpdateFileInput, color string, now time.Time) 
 		// the point of asking.
 		meta.ViewedByMeTime = now.UTC().Format(time.RFC3339)
 		changes = append(changes, render.Change{Field: "last opened by you",
-			From: orNever(f.ViewedByMeTime), To: meta.ViewedByMeTime})
+			From: orNever(model.KnownTime(f.ViewedByMeTime)), To: meta.ViewedByMeTime})
 	}
 	propertyChanges, err := propertyPatch(f, in.Properties, meta)
 	if err != nil {

@@ -83,7 +83,8 @@ func TestStatusVersionsBeforeTheFirstRelease(t *testing.T) {
 // scope where the code can ask for five: the label and activity pairs
 // are requested only with their features on, which is exactly why nobody
 // noticed. A reader adds what they were told to, turns a feature on, and
-// is refused by a consent screen that does not carry the rest.
+// is refused, on an External app, by a consent screen that does not
+// carry the rest.
 func TestEveryScopeLoginCanRequestIsInTheReadme(t *testing.T) {
 	t.Chdir("../..")
 	if problems := checkScopesDocumented(); len(problems) > 0 {

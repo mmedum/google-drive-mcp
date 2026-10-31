@@ -367,15 +367,31 @@ func userWords(u *gdrive.User) string {
 	return u.EmailAddress
 }
 
+// parseTime reads a time Google wrote. Google writes a time it does not
+// have as the Unix epoch, a protobuf Timestamp of zero: Google Chat's API
+// sent 1970-01-01T00:00:00Z for one, live, on 2026-10-31. So the epoch
+// reads as no time, as an empty or unreadable value does.
 func parseTime(s string) time.Time {
 	if s == "" {
 		return time.Time{}
 	}
-	t, err := time.Parse(time.RFC3339, s)
+	t, err := time.Parse(time.RFC3339, KnownTime(s))
 	if err != nil {
 		return time.Time{}
 	}
 	return t
+}
+
+// KnownTime is a time Google wrote, kept as text, or "" when it is the
+// epoch. parseTime goes through it, and so does a time shown as written.
+func KnownTime(s string) string {
+	if s == "" {
+		return s
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil && t.Equal(time.Unix(0, 0)) {
+		return ""
+	}
+	return s
 }
 
 // HumanSize renders a byte count the way a file manager does.

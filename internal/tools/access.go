@@ -114,7 +114,7 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 			"personal Google account that is every address. What may actually be shared is decided by the " +
 			"organization's own policy, which Google enforces: a refusal comes back as [blocked] with Google's " +
 			"own words.",
-		Annotations: write,
+		Annotations: changing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ShareInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ShareFile(ctx, service.ShareFileInput{
 			File: in.File, Principal: in.Principal, Role: in.Role, Notify: in.Notify,

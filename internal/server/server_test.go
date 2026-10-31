@@ -168,11 +168,6 @@ func TestToolsListed(t *testing.T) {
 		if want := isRead && !writesLocally[tool.Name]; want != tool.Annotations.ReadOnlyHint {
 			t.Errorf("%s: readOnlyHint = %v, want %v", tool.Name, tool.Annotations.ReadOnlyHint, want)
 		}
-		// An unset destructiveHint means true, so a reversible write that
-		// leaves it out warns like a permanent delete.
-		if !tool.Annotations.ReadOnlyHint && tool.Annotations.DestructiveHint == nil {
-			t.Errorf("%s writes and leaves destructiveHint unset, which reads as destructive", tool.Name)
-		}
 		if strings.Contains(tool.Name, ".") {
 			t.Errorf("tool names carry no dots: %q", tool.Name)
 		}
@@ -953,6 +948,39 @@ func TestTheActionSchemaNamesEveryActionTheCodeCanProduce(t *testing.T) {
 		if !strings.Contains(described, action) {
 			t.Errorf("the schema does not name the action %q the code can produce: %s", action, described)
 		}
+	}
+}
+
+// destructiveHint false means "the tool performs only additive updates"
+// (MCP schema, ToolAnnotations), so only the tools that add say it: a new
+// file, folder, shortcut, copy or comment, a local download, and
+// extract_text, which deletes only the temporary copy it made. Every
+// other write says true, gated or not.
+func TestOnlyToolsThatAddSayTheyAreNotDestructive(t *testing.T) {
+	adds := map[string]bool{"add_comment": true, "copy_file": true, "create_file": true, "create_folder": true,
+		"create_shortcut": true, "download_file": true, "extract_text": true, "upload_file": true}
+	cs, _ := sessionAndFake(t, tools.FullSurface(defaultConfig()), true)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	seen := 0
+	for _, tool := range res.Tools {
+		a := tool.Annotations
+		if a == nil || a.ReadOnlyHint {
+			continue // TestToolsListed refuses a tool with no annotations
+		}
+		if adds[tool.Name] {
+			seen++
+		}
+		if a.DestructiveHint == nil {
+			t.Errorf("%s leaves destructiveHint unset, which reads as true; want %v", tool.Name, !adds[tool.Name])
+		} else if *a.DestructiveHint == adds[tool.Name] {
+			t.Errorf("%s says destructiveHint %v; want %v", tool.Name, *a.DestructiveHint, !adds[tool.Name])
+		}
+	}
+	if seen != len(adds) {
+		t.Fatalf("found %d of the %d tools that add", seen, len(adds))
 	}
 }
 

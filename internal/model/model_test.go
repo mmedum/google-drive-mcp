@@ -696,3 +696,31 @@ func TestMergeGrantsKeepsTheWidestAccessEachPrincipalHas(t *testing.T) {
 		t.Errorf("MergeGrants =\n%+v\nwant\n%+v", got, want)
 	}
 }
+
+// Google writes a time it does not have as the Unix epoch, so the epoch
+// reads as no time: a file's dates, a grant's expiry. Any other time is
+// kept.
+func TestTheEpochReadsAsNoTime(t *testing.T) {
+	const epoch = "1970-01-01T00:00:00Z"
+	f := New(&gdrive.File{ID: "f1", CreatedTime: epoch, ModifiedTime: "2026-10-31T09:00:00.123Z", TrashedTime: "1970-01-01T00:00:00.000Z"}, Options{})
+	if !f.Created.IsZero() || !f.TrashedAt.IsZero() {
+		t.Errorf("epoch read as created %v, trashed %v", f.Created, f.TrashedAt)
+	}
+	if want := time.Date(2026, 10, 31, 9, 0, 0, 123e6, time.UTC); !f.Modified.Equal(want) {
+		t.Errorf("modified = %v, want %v", f.Modified, want)
+	}
+	if g := GrantOf(&gdrive.Permission{ID: "p1", ExpirationTime: epoch}); g.Expires != "" {
+		t.Errorf("grant expires %q", g.Expires)
+	}
+	for _, tc := range []struct{ sent, want string }{
+		{epoch, ""},
+		{"1970-01-01T01:00:00+01:00", ""},
+		{"1970-01-01T00:00:01Z", "1970-01-01T00:00:01Z"},
+		{"2026-10-31T09:00:00Z", "2026-10-31T09:00:00Z"},
+		{"not a time", "not a time"},
+	} {
+		if got := KnownTime(tc.sent); got != tc.want {
+			t.Errorf("KnownTime(%q) = %q, want %q", tc.sent, got, tc.want)
+		}
+	}
+}

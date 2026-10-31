@@ -83,9 +83,7 @@ func registerHistory(s *mcp.Server, d Deps) []string {
 			"that is not current is for good: Drive refuses to unpin it, and only deleting the version removes " +
 			"the pin. A file keeps at most 200. Actions: " +
 			strings.Join(service.RevisionActions(), ", ") + ".",
-		// unkeep lets Drive purge the current revision once it is
-		// replaced, so the tool is destructive even though keep is not.
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true), IdempotentHint: true, OpenWorldHint: new(false)},
+		Annotations: idempotentWrite,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageRevisionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
 		return result(d.Service.ManageRevision(ctx, service.ManageRevisionInput{
 			File: in.File, Revision: in.Revision, Action: in.Action,

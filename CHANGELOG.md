@@ -6,8 +6,14 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The nine tools that change or remove something now say `destructiveHint: true`, as the MCP spec reads `false` as "only additive updates": `update_file`, `move_file`, `trash_file`, `restore_file`, `share_file`, `unshare_file`, `manage_drive`, `manage_approval` and `resolve_access_request`. claude.ai, ChatGPT and Codex may now ask before these; if you run them unattended there, allow them again. They still need no `GDRIVE_ENABLE_DESTRUCTIVE` and no `confirm`.
+
 ### Fixed
 
+- Google writes a time it does not have as 1970-01-01. A file's, a comment's, a revision's or a grant's time is now left out in that case rather than shown as 1970.
+- The README and the configuration guide said every app must list its scopes on the consent screen. Google asks for that list only from External apps, so an Internal app can skip the step, and the labels and activity tools' refusal says so.
 - The configuration scan reads a whole variable name joined before another operand, such as `EnvPrefix + "NAME" + suffix`, which it used to skip, so a misspelling built that way is caught. Nothing a person running the server sees changes.
 
 ## [3.1.2] - 2026-10-24

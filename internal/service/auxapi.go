@@ -69,7 +69,7 @@ func (a auxAPI) refused(err error, doing string) error {
 	case ClassAuth, ClassForbidden:
 		return &Error{Class: ClassForbidden, Message: fmt.Sprintf(
 			"%s failed because the %s refused the token. It is a separate API from Drive: enable the %s "+
-				"in the Cloud project, add %s to the consent screen, and run `google-drive-mcp login` "+
+				"in the Cloud project, add %s to the consent screen if the app is External, and run `google-drive-mcp login` "+
 				"again with %s=true. Google said: %s",
 			doing, a.name, a.name, a.scopes, a.env, gapi.Message(err)), Err: err}
 	}

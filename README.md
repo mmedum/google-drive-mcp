@@ -119,7 +119,10 @@ step you missed.
      and add your own address as a test user. Google expires refresh
      tokens for a Testing app after **7 days**, so you will re-run
      `login` about once a week.
-4. **Add the scopes this server asks for.** Which ones depends on how you
+4. **On an External app, add the scopes this server asks for.** Google
+   asks for that list only from apps used by people outside your
+   Workspace organization, so an **Internal** app can skip this step;
+   listing them anyway does no harm. Which ones depends on how you
    run it, and `login` requests exactly the set your configuration needs
    — so add the ones you will use, and re-run `login` if you turn a
    feature on later. All of them are restricted scopes, which is fine for
@@ -223,11 +226,10 @@ rather than quietly allow what you set it to stop.
 ### Who approves each call
 
 Your MCP client approves each call; the server does not ask you
-itself. claude.ai and Codex prompt for the tools marked destructive:
-the deletes, the four that reach past your organization,
-`approve_file`, and the writes that replace what was there
-(`update_content`, `manage_revision`, `reply_comment` and
-`manage_labels`). VS Code prompts for every tool not marked read-only,
+itself. claude.ai and Codex prompt for the tools marked destructive,
+which is every write but the eight that only add something new:
+`create_file`, `create_folder`, `create_shortcut`, `upload_file`,
+`copy_file`, `add_comment`, `download_file` and `extract_text`. VS Code prompts for every tool not marked read-only,
 which is every tool that writes, `download_file` included. In Claude
 Code, `delete_file`, `empty_trash`, `delete_drive` and `share_by_link`
 ask on every call whatever your rules say, and are refused where no
@@ -312,7 +314,7 @@ What holds whatever the client does:
 | `approve_file` | Approve a review you were asked for, which can lock the file for good |
 
 Three more are registered only when the deployer turns their feature on,
-because each needs a scope the consent screen would otherwise not carry:
+because each needs another Google API and a scope login would otherwise not ask for:
 `list_labels` and `manage_labels` with `GDRIVE_LABELS=true`, and
 `list_activity` with `GDRIVE_ACTIVITY=true`.
 
