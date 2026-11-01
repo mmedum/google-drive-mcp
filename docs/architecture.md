@@ -518,7 +518,8 @@ internal/version/
 testdata/                 synthetic fixtures (§14) and golden outputs
 docs/
 scripts/gates/            the repository's own checks, as Go: coverage floor, schema diff,
-                          stdio smoke, staleness, leaks, pins, error classes, pre-commit;
+                          schema-ack, stdio smoke, staleness, leaks, pins, error classes,
+                          pre-commit;
                           never shipped
 scripts/livedrive/        drives the built binary against a real account, redacting ids,
                           links, addresses, people and the names of what is not its own
@@ -1557,7 +1558,9 @@ honest option and the one a model can act on.
   CI fails on a removed or renamed tool or resource, a field removed at
   any depth, a type change a caller would notice, an output newly
   optional, an input that loses a listed value, and a newly required
-  input.
+  input. On a pull request, `schema-ack` fails unless a commit footer
+  names each item of the surface that changed, an annotation, a title,
+  a `_meta` mark or the instructions included.
 - **Documentation set.** README, this file, `docs/configuration.md`,
   `docs/security.md`, `docs/development.md`, `CONTRIBUTING.md`,
   `SECURITY.md`, `CHANGELOG.md`. Apache-2.0.
@@ -3155,3 +3158,4 @@ rests on. The last row was found by the live runs of the same day.
 | `privacy_policies` is optional for a bundle | **Refuted, 2026-10-23 (the specification).** anthropics/mcpb `MANIFEST.md`: "Required when the extension connects to external services (first- or third-party) that process user data"; added in manifest_version 0.2, and enforced by neither the schema nor `mcpb validate` | The manifest names https://policies.google.com/privacy, which answered 200 on 2026-10-24, and `gates mcpb` refuses an empty list |
 | A platform override adds to `mcp_config`, and a bundle's settings reach the server only through `env` | **Refuted, 2026-10-24 (the reference host; Claude Desktop not probed).** anthropics/mcpb v2.1.2 `src/shared/config.ts` L114-120 take `platformConfig.args \|\| result.args` and `platformConfig.env \|\| result.env`, and L173-176 substitute variables over the whole result, `args` included. An override's `args` or `env` replaces the base's, and an empty `[]` or `{}` is truthy, so it replaces the base too. An argument such as `--enable-destructive=true` reaches the server past every check on `env`; the 3.1.0 gate passed one | `gates mcpb` refuses `args` and `env` on any override, an empty one included, and holds the base `args` to `[]`, refusing it missing, null or not empty. The key stays, since no Claude Desktop launch has shown it optional |
 | Any `command` the specification shows runs from the bundle | **Refined, 2026-10-24 (the specification and the reference host; Claude Desktop not probed).** anthropics/mcpb v2.1.2: `MANIFEST.md` L497 and L510-515 give a binary the command `server/my-server`, and L532 says `${__dirname}` "is replaced with the absolute path to the extension's directory"; `src/shared/config.ts` L118, L133 and L173-176 substitute variables in `command` and resolve no path. The specification shows a relative command and never says what it is resolved against, and the reference host passes it to the spawn as written. `${__dirname}` is the one form whose meaning the specification fixes. The 3.1.0 gate stripped `${__dirname}` and a leading `/`, so `/server/x` passed | `gates mcpb` requires every command to start with `${__dirname}/`, as the committed manifest's do, refuses a relative or absolute one, and resolves a command and `entry_point` only against the programs staged, never `LICENSE` or `README.md`. A probe of Claude Desktop's working directory would settle the relative form |
+| A commit footer's token is matched exactly, so `SCHEMA-CHANGE:` must be written in capitals | **Refuted, 2026-11-01 (the specification).** Conventional Commits 1.0.0, item 15: "The units of information that make up Conventional Commits MUST NOT be treated as case-sensitive by implementors, with the exception of BREAKING CHANGE which MUST be uppercase"; item 16: "BREAKING-CHANGE MUST be synonymous with BREAKING CHANGE" | `schema-ack` reads `SCHEMA-CHANGE:` in any case, and `BREAKING CHANGE:` and `BREAKING-CHANGE:` only in capitals |

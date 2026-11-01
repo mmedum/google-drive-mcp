@@ -35,7 +35,7 @@ func TestBrokenFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := brokenFields(old.fields, cur.fields)
+	got := texts(brokenFields(old.fields, cur.fields))
 	want := []string{
 		`get_file: input field labels removed`,
 		`get_file: output field exposure.after removed`,
@@ -68,19 +68,25 @@ func TestARemovedToolOrResourceIsBreaking(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out strings.Builder
-	got := compareSurfaces(&out, base, cur)
-	want := []string{"delete_file", "resource gdrive://{file}/meta"}
-	if !slices.Equal(got, want) {
-		t.Errorf("breaking = %q, want %q", got, want)
+	compareSurfaces(base, cur).write(&out, "the baseline")
+	want := "against the baseline: 2 added, 1 changed, 2 breaking\n" +
+		"  + list_labels\n" +
+		"  + resource gdrive://{file}/children\n" +
+		"  ~ read_file (description)\n" +
+		"  ! delete_file removed  BREAKING\n" +
+		"  ! resource gdrive://{file}/meta removed  BREAKING\n"
+	if out.String() != want {
+		t.Errorf("the report is\n%s\nwant\n%s", out.String(), want)
 	}
-	for _, line := range []string{"  + list_labels\n", "  + resource gdrive://{file}/children\n", "  ~ read_file "} {
-		if !strings.Contains(out.String(), line) {
-			t.Errorf("the report does not say %q:\n%s", line, out.String())
-		}
+}
+
+// texts is the report line of each change.
+func texts(cs []change) []string {
+	out := make([]string, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, c.text)
 	}
-	if strings.Contains(out.String(), "get_file") {
-		t.Errorf("a schema spelled another way is reported as changed:\n%s", out.String())
-	}
+	return out
 }
 
 // A schema the walk cannot see into is refused, not read as having no
@@ -302,7 +308,7 @@ func TestATypeChangeBreaksOneWay(t *testing.T) {
 		if c.side == "output" {
 			was, now = fieldsOf(t, empty, field(c.was)), fieldsOf(t, empty, field(c.now))
 		}
-		got := strings.Join(brokenFields(was, now), "; ")
+		got := strings.Join(texts(brokenFields(was, now)), "; ")
 		if got != c.want {
 			t.Errorf("%s %s → %s: got %q, want %q", c.side, c.was, c.now, got, c.want)
 		}
@@ -321,7 +327,7 @@ func TestABooleanItemsSchemaIsAnyValue(t *testing.T) {
 	}
 	want := []string{`get_file: output field extra{} changed type from "string" to any`,
 		`get_file: output field rows[] changed type from "string" to any`}
-	if got := brokenFields(fieldsOf(t, `{}`, list(`{"type":"string"}`)), fieldsOf(t, `{}`, list(`true`))); !slices.Equal(got, want) {
+	if got := texts(brokenFields(fieldsOf(t, `{}`, list(`{"type":"string"}`)), fieldsOf(t, `{}`, list(`true`)))); !slices.Equal(got, want) {
 		t.Errorf("an output list and map that may return any value: got %q, want %q", got, want)
 	}
 }
@@ -338,7 +344,7 @@ func TestRequiredOutputsAndListedValues(t *testing.T) {
 		`{"type":"object","properties":{"mode":{"type":"string","enum":["a","c"]},"free":{"type":"string","enum":["z"]}}}`,
 		`{"type":"object","properties":{"id":{"type":"string"},"state":{"type":"string","enum":["x","y"]}}}`)
 	want := []string{`get_file: input field mode no longer takes "b"`, `get_file: output field id no longer required`}
-	if got := brokenFields(was, now); !slices.Equal(got, want) {
+	if got := texts(brokenFields(was, now)); !slices.Equal(got, want) {
 		t.Errorf("breaking = %q, want %q", got, want)
 	}
 	notes := []string{`get_file: output field state may now be "y"`, `get_file: input field free now takes only "z"`}
@@ -347,7 +353,7 @@ func TestRequiredOutputsAndListedValues(t *testing.T) {
 	}
 	// The other way round, an output newly required and an input that
 	// takes any value where it took a list break nobody; mode loses c.
-	if got, want := brokenFields(now, was), []string{`get_file: input field mode no longer takes "c"`}; !slices.Equal(got, want) {
+	if got, want := texts(brokenFields(now, was)), []string{`get_file: input field mode no longer takes "c"`}; !slices.Equal(got, want) {
 		t.Errorf("the reverse = %q, want %q", got, want)
 	}
 }

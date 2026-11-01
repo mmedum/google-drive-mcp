@@ -444,6 +444,46 @@ func TestDumpSchemas(t *testing.T) {
 	}
 }
 
+// A fixed resource, a prompt and the instructions are in the dump, so no
+// schema gate misses a change to them. The server has no fixed resource
+// or prompt today, so this test builds one that does.
+func TestDumpSchemasListsEverythingAClientIsTold(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, &mcp.ServerOptions{Instructions: "Read before writing."})
+	mcp.AddTool(s, &mcp.Tool{Name: "noop", Description: "d"},
+		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, struct{}, error) {
+			return nil, struct{}{}, nil
+		})
+	s.AddResource(&mcp.Resource{URI: "gdrive://example", Name: "example"},
+		func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) { return nil, nil })
+	s.AddPrompt(&mcp.Prompt{Name: "summarize"},
+		func(context.Context, *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) { return nil, nil })
+	var buf bytes.Buffer
+	if err := server.DumpSchemas(context.Background(), s, &buf, "test"); err != nil {
+		t.Fatal(err)
+	}
+	var dump struct {
+		Instructions string `json:"instructions"`
+		Resources    []struct {
+			URI string `json:"uri"`
+		} `json:"resources"`
+		Prompts []struct {
+			Name string `json:"name"`
+		} `json:"prompts"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &dump); err != nil {
+		t.Fatal(err)
+	}
+	if len(dump.Resources) != 1 || dump.Resources[0].URI != "gdrive://example" {
+		t.Errorf("resources = %+v, want gdrive://example", dump.Resources)
+	}
+	if len(dump.Prompts) != 1 || dump.Prompts[0].Name != "summarize" {
+		t.Errorf("prompts = %+v, want summarize", dump.Prompts)
+	}
+	if dump.Instructions != "Read before writing." {
+		t.Errorf("instructions = %q, want the server's", dump.Instructions)
+	}
+}
+
 func TestServerRunsWithoutAService(t *testing.T) {
 	// --dump-schemas builds a server with no service at all; registering
 	// the tools must not need one.

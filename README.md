@@ -472,6 +472,7 @@ redactor, a live-coverage gate holding every tool option to a decision
 about whether the live driver drives it, an outcome gate refusing a
 result sentence written from the request rather than from the response, a
 stdio smoke test, a schema diff against the released tool surface, a
+pull-request gate wanting a commit footer for each tool-surface change, a
 staleness gate that fails when this README, the docs or the changelog
 drift from the code, and a parity gate asserting that `make check` and CI
 run the same set of gates.

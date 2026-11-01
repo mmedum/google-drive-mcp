@@ -154,7 +154,7 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 				want, schemaBaselineFile, want)
 		}
 		// Before the first release there is nothing to be compatible with.
-		_, _ = fmt.Fprintf(out, "no baseline yet; %d tools and resources in the current surface\n", len(cur.entries))
+		_, _ = fmt.Fprintf(out, "no baseline yet; %d items in the current surface\n", len(cur.items))
 		return nil
 	}
 	base, err := readSurface(baseline)
@@ -162,7 +162,9 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 		return fmt.Errorf("parse %s: %w", schemaBaselineFile, err)
 	}
 
-	breaking := compareSurfaces(out, base, cur)
+	changes := compareSurfaces(base, cur)
+	changes.write(out, againstBaseline(base))
+	breaking := changes.breaking
 	var problems []string
 	if want != "" && base.version != want {
 		problems = append(problems, fmt.Sprintf("the baseline is the %q surface, but CHANGELOG.md's newest release is %s; "+
@@ -177,7 +179,7 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 		_, _ = fmt.Fprintf(out, "%d breaking change(s), each declared under **Breaking:** in [Unreleased]; "+
 			"`make schema-baseline` records them only as a new major version\n", len(breaking))
 	}
-	if len(problems) == 0 && want != "" && countEntries(changelog, "## [Unreleased]") == 0 && !sameSurface(baseline, current) {
+	if len(problems) == 0 && want != "" && countEntries(changelog, "## [Unreleased]") == 0 && !changes.empty() {
 		problems = append(problems, fmt.Sprintf("nothing is under [Unreleased], so this build is %s, "+
 			"and its surface differs from the baseline. In %s's release commit, run "+
 			"`make schema-baseline VERSION=%s`; otherwise, say what changed under [Unreleased]", want, want, want))
@@ -188,31 +190,40 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 	return nil
 }
 
-// undeclaredBreaks is each breaking change whose tool, or resource
-// template, no **Breaking:** line in the CHANGELOG's [Unreleased]
-// section names in backticks.
-func undeclaredBreaks(breaking []string, changelog string) []string {
+// undeclaredBreaks is each break whose item, a tool by its name or a
+// resource by its URI template, no **Breaking:** line in the CHANGELOG's
+// [Unreleased] section names in backticks.
+func undeclaredBreaks(breaking []change, changelog string) []string {
 	named := map[string]bool{}
 	for line := range strings.Lines(sectionFor(changelog, "Unreleased")) {
 		if !strings.Contains(line, "**Breaking:**") {
 			continue
 		}
-		for _, m := range codeSpan.FindAllStringSubmatch(line, -1) {
-			named[m[1]] = true
+		for _, span := range codeSpans(line) {
+			named[span] = true
 		}
 	}
 	var out []string
 	for _, b := range breaking {
-		subject, _, _ := strings.Cut(strings.TrimPrefix(b, resourcePrefix), ": ")
-		if !named[subject] {
-			out = append(out, b)
+		if !named[b.item] {
+			out = append(out, b.text)
 		}
 	}
 	return out
 }
 
-// codeSpan is text in backticks.
-var codeSpan = regexp.MustCompile("`([^`]+)`")
+// codeSpanRe is one code span: text in backticks.
+var codeSpanRe = regexp.MustCompile("`([^`]+)`")
+
+// codeSpans is the text of each code span in s.
+func codeSpans(s string) []string {
+	spans := codeSpanRe.FindAllStringSubmatch(s, -1)
+	out := make([]string, 0, len(spans))
+	for _, m := range spans {
+		out = append(out, m[1])
+	}
+	return out
+}
 
 // schemaBaseline records the surface of the release being cut as the
 // baseline. The release commit runs it, so the baseline lands with the
@@ -262,7 +273,9 @@ func checkBaseline(out io.Writer, current, baseline []byte, changelog string) er
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", schemaBaselineFile, err)
 	}
-	if breaking := compareSurfaces(out, base, cur); len(breaking) > 0 && !newMajor(base.version, want) {
+	changes := compareSurfaces(base, cur)
+	changes.write(out, againstBaseline(base))
+	if breaking := changes.breaking; len(breaking) > 0 && !newMajor(base.version, want) {
 		msg := fmt.Sprintf("%s breaks a caller of %s in %d way(s) above, and is not a new major version; %s is unchanged",
 			want, base.version, len(breaking), schemaBaselineFile)
 		if base.version == want {
@@ -306,37 +319,38 @@ func newMajor(from, to string) bool {
 // surface is one schema dump, read for the diff.
 type surface struct {
 	version string
-	// entries is every tool and resource, keyed by tool name or by
-	// "resource " and the URI template, with what a person should read
-	// when it changes.
-	entries map[string]string
 	fields  map[string]toolFields
+	// items is every item of every list in the dump, keyed by itemKey,
+	// and rest is every other key; neither holds the build stamp. A
+	// change anywhere in either is a change to what a client sees: a
+	// title, an annotation or a _meta mark as much as a schema.
+	items map[string]map[string]any
+	rest  map[string]any
 }
+
+// stampKeys are the dump's build stamp. They change with every build and
+// are not part of the surface; what an SDK bump changes on the wire shows
+// up inside the tools.
+var stampKeys = []string{"server", "version", "sdk"}
 
 func readSurface(data []byte) (surface, error) {
 	var dump struct {
 		Version string `json:"version"`
 		Tools   []struct {
 			Name         string          `json:"name"`
-			Description  string          `json:"description"`
 			InputSchema  json.RawMessage `json:"inputSchema"`
 			OutputSchema json.RawMessage `json:"outputSchema"`
-			Annotations  json.RawMessage `json:"annotations"`
 		} `json:"tools"`
-		ResourceTemplates []struct {
-			Name        string `json:"name"`
-			Title       string `json:"title"`
-			URITemplate string `json:"uriTemplate"`
-			MIMEType    string `json:"mimeType"`
-			Description string `json:"description"`
-		} `json:"resourceTemplates"`
 	}
 	if err := json.Unmarshal(data, &dump); err != nil {
 		return surface{}, err
 	}
-	s := surface{version: dump.Version, entries: map[string]string{}, fields: map[string]toolFields{}}
+	items, rest, err := dumpItems(data)
+	if err != nil {
+		return surface{}, err
+	}
+	s := surface{version: dump.Version, fields: map[string]toolFields{}, items: items, rest: rest}
 	for _, t := range dump.Tools {
-		s.entries[t.Name] = strings.Join([]string{t.Description, canonical(t.InputSchema), canonical(t.OutputSchema), canonical(t.Annotations)}, "\x00")
 		f := toolFields{inputs: newFieldSet(), outputs: newFieldSet()}
 		if err := walkSchema(t.InputSchema, f.inputs); err != nil {
 			return surface{}, fmt.Errorf("%s input: %w", t.Name, err)
@@ -346,87 +360,211 @@ func readSurface(data []byte) (surface, error) {
 		}
 		s.fields[t.Name] = f
 	}
-	// A resource whose URI changed breaks a client exactly as a renamed
-	// tool does.
-	for _, r := range dump.ResourceTemplates {
-		s.entries[resourcePrefix+r.URITemplate] = strings.Join([]string{r.Name, r.Title, r.MIMEType, r.Description}, "\x00")
-	}
 	return s, nil
 }
 
-// canonical is a JSON value with its keys sorted and no spacing, so two
-// spellings of one schema compare equal.
-func canonical(raw json.RawMessage) string {
-	var v any
-	if json.Unmarshal(raw, &v) != nil {
-		return string(raw)
+// dumpItems reads every item of every list in a dump, keyed by itemKey,
+// and every other key but the build stamp. A list with an item that has
+// no identity is compared as one value, since a position is no identity.
+func dumpItems(data []byte) (map[string]map[string]any, map[string]any, error) {
+	var whole map[string]any
+	if err := json.Unmarshal(data, &whole); err != nil {
+		return nil, nil, err
 	}
-	out, err := json.Marshal(v)
-	if err != nil {
-		return string(raw)
+	for _, k := range stampKeys {
+		delete(whole, k)
 	}
-	return string(out)
+	items := map[string]map[string]any{}
+	rest := map[string]any{}
+	for key, v := range whole {
+		list, isList := v.([]any)
+		keyed := map[string]map[string]any{}
+		for _, item := range list {
+			obj, _ := item.(map[string]any)
+			id := itemKey(key, obj)
+			if id == "" {
+				keyed = nil
+				break
+			}
+			if _, twice := keyed[id]; twice {
+				return nil, nil, fmt.Errorf("the dump names %q twice", id)
+			}
+			keyed[id] = obj
+		}
+		if !isList || keyed == nil {
+			rest[key] = v
+			continue
+		}
+		for id, obj := range keyed {
+			if _, twice := items[id]; twice {
+				return nil, nil, fmt.Errorf("the dump names %q twice", id)
+			}
+			items[id] = obj
+		}
+	}
+	return items, rest, nil
+}
+
+// itemKey is how an item of a dumped list is named in the diff: a tool
+// by its name, a resource by the template or URI a client asks for, and
+// an item of any other list by the list and its name. Empty when the
+// item has none. A resource whose template changed breaks a client
+// exactly as a renamed tool does.
+func itemKey(list string, item map[string]any) string {
+	id := ""
+	for _, k := range []string{"uriTemplate", "uri", "name"} {
+		if v, ok := item[k].(string); ok && v != "" {
+			id = v
+			break
+		}
+	}
+	switch {
+	case id == "":
+		return ""
+	case list == "tools":
+		return id
+	case list == "resourceTemplates" || list == "resources":
+		return resourcePrefix + id
+	}
+	return list + " " + id
 }
 
 // resourcePrefix keeps a resource's key apart from a tool's.
 const resourcePrefix = "resource "
 
-// compareSurfaces prints what changed from base to cur and returns what
-// breaks a caller.
-func compareSurfaces(out io.Writer, base, cur surface) []string {
-	var removed, changed, added []string
-	for name, prev := range base.entries {
-		now, still := cur.entries[name]
-		switch {
-		case !still:
-			removed = append(removed, name)
-		case prev != now:
-			changed = append(changed, name)
-		}
+// itemName is what a footer or a **Breaking:** entry names an item by,
+// from its key in the surface. A tool's key is its name; every other key
+// is a word for its list, a space and the name, as itemKey builds it,
+// and a tool's name has no space.
+func itemName(key string) string {
+	if _, name, ok := strings.Cut(key, " "); ok {
+		return name
 	}
-	for name := range cur.entries {
-		if _, had := base.entries[name]; !had {
-			added = append(added, name)
-		}
-	}
-	sort.Strings(removed)
-	sort.Strings(changed)
-	sort.Strings(added)
-
-	_, _ = fmt.Fprintf(out, "against %s (%s): %d added, %d changed, %d removed\n",
-		schemaBaselineFile, base.version, len(added), len(changed), len(removed))
-	for _, n := range added {
-		_, _ = fmt.Fprintf(out, "  + %s\n", n)
-	}
-	for _, n := range changed {
-		_, _ = fmt.Fprintf(out, "  ~ %s (description, schema or annotations changed)\n", n)
-	}
-	for _, n := range removed {
-		_, _ = fmt.Fprintf(out, "  - %s  BREAKING\n", n)
-	}
-	for _, n := range valueNotes(base.fields, cur.fields) {
-		_, _ = fmt.Fprintf(out, "  ~ %s\n", n)
-	}
-	fields := brokenFields(base.fields, cur.fields)
-	for _, b := range fields {
-		_, _ = fmt.Fprintf(out, "  ! %s  BREAKING\n", b)
-	}
-	return append(removed, fields...)
+	return key
 }
 
-// sameSurface reports whether two dumps publish the same tools and
-// resources, field for field. The version and SDK stamps are not part of
-// it, and neither is key order.
-func sameSurface(a, b []byte) bool {
-	type published struct {
-		Tools             any `json:"tools"`
-		ResourceTemplates any `json:"resourceTemplates"`
+// againstBaseline is how the diff names the baseline it compares with.
+func againstBaseline(base surface) string {
+	return fmt.Sprintf("%s (%s)", schemaBaselineFile, base.version)
+}
+
+// A change is one difference between two dumps: the item it is to, which
+// is what a footer or a **Breaking:** entry names, and how the report
+// shows it. The item is a tool's name, a resource's URI template, a list
+// item's name, or a top-level key such as instructions. field is, on the
+// break of a tool still there, the field it breaks, such as "input file".
+type change struct {
+	item, text, field string
+}
+
+// surfaceChanges is what differs between two surfaces. breaking is what
+// breaks a caller; changed is every other difference, a title, an
+// annotation or a _meta mark included, named by the part that moved.
+// notes are values a kept field lists that a person should look at.
+type surfaceChanges struct {
+	added, changed, breaking []change
+	notes                    []string
+}
+
+func (c surfaceChanges) empty() bool {
+	return len(c.added) == 0 && len(c.changed) == 0 && len(c.breaking) == 0
+}
+
+// compareSurfaces is what changed from base to cur. An item gone breaks
+// a caller, and so does a tool still there that broke at any depth
+// (brokenFields). A tool that broke lists its other changes, such as a
+// flipped hint, but not its schemas again, which the break already names.
+func compareSurfaces(base, cur surface) surfaceChanges {
+	var c surfaceChanges
+	var removed []change
+	fields := brokenFields(base.fields, cur.fields)
+	broken := map[string]bool{}
+	for _, b := range fields {
+		broken[b.item] = true
 	}
-	var x, y published
-	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
-		return false
+	for _, key := range sortedUnion(base.items, cur.items) {
+		was, inBase := base.items[key]
+		now, inCur := cur.items[key]
+		name := itemName(key)
+		switch {
+		case !inCur:
+			removed = append(removed, change{item: name, text: key + " removed"})
+		case !inBase:
+			c.added = append(c.added, change{item: name, text: key})
+		default:
+			parts := changedParts(was, now)
+			if broken[key] {
+				parts = slices.DeleteFunc(parts, func(p string) bool {
+					return strings.HasPrefix(p, "inputSchema") || strings.HasPrefix(p, "outputSchema")
+				})
+			}
+			if len(parts) > 0 {
+				c.changed = append(c.changed, change{item: name, text: key + " (" + strings.Join(parts, ", ") + ")"})
+			}
+		}
 	}
-	return reflect.DeepEqual(x, y)
+	for _, part := range changedParts(base.rest, cur.rest) {
+		top, _, _ := strings.Cut(part, ".")
+		c.changed = append(c.changed, change{item: top, text: part})
+	}
+	c.breaking = slices.Concat(removed, fields)
+	c.notes = valueNotes(base.fields, cur.fields)
+	return c
+}
+
+// write prints the changes to w, under a header naming what they are
+// against.
+func (c surfaceChanges) write(w io.Writer, against string) {
+	_, _ = fmt.Fprintf(w, "against %s: %d added, %d changed, %d breaking\n", against, len(c.added), len(c.changed), len(c.breaking))
+	for _, n := range c.added {
+		_, _ = fmt.Fprintf(w, "  + %s\n", n.text)
+	}
+	for _, n := range c.changed {
+		_, _ = fmt.Fprintf(w, "  ~ %s\n", n.text)
+	}
+	for _, n := range c.notes {
+		_, _ = fmt.Fprintf(w, "  ~ %s\n", n)
+	}
+	for _, b := range c.breaking {
+		_, _ = fmt.Fprintf(w, "  ! %s  BREAKING\n", b.text)
+	}
+}
+
+// changedParts names what differs between two dumped objects, one level
+// deep, so a flipped hint reads as annotations.destructiveHint. Values
+// are compared decoded, so a schema spelled another way, its keys in
+// another order, is the same schema.
+func changedParts(o, n map[string]any) []string {
+	var parts []string
+	for _, k := range sortedUnion(o, n) {
+		if reflect.DeepEqual(o[k], n[k]) {
+			continue
+		}
+		om, oMap := o[k].(map[string]any)
+		nm, nMap := n[k].(map[string]any)
+		if !oMap || !nMap {
+			parts = append(parts, k)
+			continue
+		}
+		for _, sub := range sortedUnion(om, nm) {
+			if !reflect.DeepEqual(om[sub], nm[sub]) {
+				parts = append(parts, k+"."+sub)
+			}
+		}
+	}
+	return parts
+}
+
+// sortedUnion is every key of a and b, sorted.
+func sortedUnion[V any](a, b map[string]V) []string {
+	keys := sortedKeys(a)
+	for k := range b {
+		if _, ok := a[k]; !ok {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // toolFields is what a caller relies on in one tool, at any depth: the
@@ -573,13 +711,18 @@ func parentPath(path string) string {
 	return ""
 }
 
-// brokenFields lists what a tool kept by name breaks: a field removed,
-// an input that takes fewer types or values, an output that may return
-// more types or may now be missing, or an input newly required. A field
-// inside one that was removed is not listed again. A removed tool is the
-// caller's to report.
-func brokenFields(prev, cur map[string]toolFields) []string {
-	var out []string
+// brokenFields lists, as changes to each tool, what a tool kept by name
+// breaks: a field removed, an input that takes fewer types or values, an
+// output that may return more types or may now be missing, or an input
+// newly required. A field inside one that was removed is not listed
+// again. A removed tool is the caller's to report.
+func brokenFields(prev, cur map[string]toolFields) []change {
+	var out []change
+	// broke records that name's field on side broke, in the way the
+	// format says, so the text and the field cannot drift apart.
+	broke := func(name, side, field, format string, args ...any) {
+		out = append(out, change{name, name + ": " + side + " field " + field + " " + fmt.Sprintf(format, args...), side + " " + field})
+	}
 	for _, name := range sortedKeys(prev) {
 		now, kept := cur[name]
 		if !kept {
@@ -596,25 +739,24 @@ func brokenFields(prev, cur map[string]toolFields) []string {
 				n, still := side.now.fields[f]
 				if !still {
 					if _, parentKept := side.now.fields[parentPath(f)]; parentPath(f) == "" || parentKept {
-						out = append(out, fmt.Sprintf("%s: %s field %s removed", name, side.what, f))
+						broke(name, side.what, f, "removed")
 					}
 					continue
 				}
 				if typeBreaks(w.typ, n.typ, side.input) {
-					out = append(out, fmt.Sprintf("%s: %s field %s changed type from %s to %s",
-						name, side.what, f, typeWord(w.typ), typeWord(n.typ)))
+					broke(name, side.what, f, "changed type from %s to %s", typeWord(w.typ), typeWord(n.typ))
 				}
 				// A caller sent this value, and it is refused now.
 				if side.input && n.enum != nil {
 					for _, v := range w.enum {
 						if !slices.Contains(n.enum, v) {
-							out = append(out, fmt.Sprintf("%s: input field %s no longer takes %s", name, f, v))
+							broke(name, "input", f, "no longer takes %s", v)
 						}
 					}
 				}
 				// A caller read this field as always there.
 				if !side.input && side.was.required[f] && !side.now.required[f] {
-					out = append(out, fmt.Sprintf("%s: output field %s no longer required", name, f))
+					broke(name, "output", f, "no longer required")
 				}
 			}
 		}
@@ -625,7 +767,7 @@ func brokenFields(prev, cur map[string]toolFields) []string {
 			parent := parentPath(f)
 			_, parentWas := was.inputs.fields[parent]
 			if !was.inputs.required[f] && (parent == "" || parentWas) {
-				out = append(out, fmt.Sprintf("%s: input field %s newly required", name, f))
+				broke(name, "input", f, "newly required")
 			}
 		}
 	}

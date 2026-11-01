@@ -65,7 +65,7 @@ check: leaks pins
 			t.Chdir(dir)
 
 			var out bytes.Buffer
-			err := parityAgainst(&out, []string{"leaks", "pins", "schema-diff"})
+			err := parityAgainst(&out, []string{"leaks", "pins", "schema-diff"}, nil)
 			if err == nil {
 				t.Fatalf("parity accepted a drifted pair:\n%s", out.String())
 			}
@@ -83,7 +83,7 @@ check: leaks pins
 		"      - run: go run ./scripts/gates leaks\n      - run: go run ./scripts/gates pins\n")
 	t.Chdir(dir)
 	var out bytes.Buffer
-	if err := parityAgainst(&out, []string{"leaks", "pins"}); err != nil {
+	if err := parityAgainst(&out, []string{"leaks", "pins"}, nil); err != nil {
 		t.Errorf("parity rejected a matching pair: %v\n%s", err, out.String())
 	}
 }
@@ -113,7 +113,7 @@ check: shallow
 	t.Chdir(dir)
 
 	var out bytes.Buffer
-	if err := parityAgainst(&out, []string{"leaks"}); err != nil {
+	if err := parityAgainst(&out, []string{"leaks"}, nil); err != nil {
 		t.Errorf("a gate reached through a second-level target was not seen: %v\n%s",
 			err, out.String())
 	}
@@ -132,11 +132,46 @@ func TestParityNoticesAGateNothingRuns(t *testing.T) {
 	t.Chdir(dir)
 
 	var out bytes.Buffer
-	if err := parityAgainst(&out, []string{"leaks", "pins"}); err == nil {
+	if err := parityAgainst(&out, []string{"leaks", "pins"}, nil); err == nil {
 		t.Fatalf("parity accepted a repository running only one of its gates:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "nothing runs it") {
 		t.Errorf("the report does not name a gate nothing runs:\n%s", out.String())
+	}
+}
+
+// A pull-request gate measures from a merge-base, which `make check` does
+// not have: it runs in a ci.yml run: step, and never in `make check`.
+func TestParityHoldsAPullRequestGateToCIAlone(t *testing.T) {
+	const (
+		checkOnly = "GO ?= go\n\nleaks:\n\t$(GO) run ./scripts/gates leaks\n\ncheck: leaks\n"
+		checkToo  = "GO ?= go\n\nleaks:\n\t$(GO) run ./scripts/gates leaks\n\n" +
+			"ack:\n\t$(GO) run ./scripts/gates schema-ack origin/main HEAD\n\ncheck: leaks ack\n"
+		ciLeaks = "      - run: go run ./scripts/gates leaks\n"
+		ciAck   = ciLeaks + "      - run: go run ./scripts/gates schema-ack \"$PR_BASE_REF\" \"$PR_HEAD\"\n"
+		// A commented-out step is not a step.
+		ciAckOff = ciLeaks + "      # - run: go run ./scripts/gates schema-ack \"$PR_BASE_REF\" \"$PR_HEAD\"\n"
+	)
+	for _, c := range []struct{ name, makefile, ci, wantErr string }{
+		{"in ci.yml alone", checkOnly, ciAck, ""},
+		{"in make check too", checkToo, ciAck, "schema-ack runs in `make check`, which has no pull request to measure from"},
+		{"in neither", checkOnly, ciLeaks, "schema-ack is a pull-request gate and ci.yml never runs it"},
+		{"in a commented-out step", checkOnly, ciAckOff, "schema-ack is a pull-request gate and ci.yml never runs it"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			write(t, filepath.Join(dir, "Makefile"), c.makefile)
+			write(t, filepath.Join(dir, ".github", "workflows", "ci.yml"), c.ci)
+			t.Chdir(dir)
+			var out bytes.Buffer
+			err := parityAgainst(&out, []string{"leaks"}, []string{"schema-ack"})
+			switch {
+			case c.wantErr == "" && err != nil:
+				t.Errorf("parity = %v, want it to pass\n%s", err, out.String())
+			case c.wantErr != "" && !strings.Contains(out.String(), c.wantErr):
+				t.Errorf("parity = %v, want the report to say %q\n%s", err, c.wantErr, out.String())
+			}
+		})
 	}
 }
 
