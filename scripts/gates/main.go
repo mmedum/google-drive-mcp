@@ -14,6 +14,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,12 +27,26 @@ type command struct {
 	// args is how the arguments are spelled in the usage text.
 	args string
 	doc  string
-	// gate marks a command that has to run in BOTH `make check` and the
-	// CI workflow. The two that are not gates are developer
-	// conveniences, and api-diff refetches Google's discovery documents
-	// over the network, which neither of those places may depend on.
-	gate bool
+	// runs says where the command has to run, and is what parity reads.
+	runs where
 }
+
+// where is the pipeline a command has to run in. Three states, because a
+// gate that only a pull request can run is neither a gate `make check`
+// runs nor a convenience nothing does.
+type where int
+
+const (
+	// manual is a developer convenience or a release step. Nothing
+	// holds it to a pipeline: api-diff refetches Google's discovery
+	// documents over the network, which no pipeline may depend on.
+	manual where = iota
+	// inCheck has to run in BOTH `make check` and the CI workflow.
+	inCheck
+	// inPR has to run in CI on a pull request and NOT in `make check`:
+	// it measures from the merge-base, which only a pull request has.
+	inPR
+)
 
 // commands is the one list of what this program does.
 //
@@ -48,34 +63,36 @@ var commands map[string]command
 
 func init() {
 	commands = map[string]command{
-		"coverage":    {run: coverage, args: "[PROFILE] [MIN]", doc: "statement-coverage floor per core package", gate: true},
-		"schema-diff": {run: schemaDiff, args: "[BINARY]", doc: "tool surface against the newest release's baseline", gate: true},
-		"smoke":       {run: smoke, args: "[BINARY]", doc: "drive the binary over stdio, no credentials", gate: true},
-		"staleness":   {run: staleness, args: "[BINARY]", doc: "documentation must match the code", gate: true},
-		"leaks":       {run: leaks, args: "[history]", doc: "nothing from a real Drive is in the tree, or the history", gate: true},
-		"pins":        {run: pins, doc: "every tool a workflow installs is one exact version", gate: true},
-		"classes":     {run: classes, doc: "the error classes the code emits are the ones it declares", gate: true},
+		"coverage":    {run: coverage, args: "[PROFILE] [MIN]", doc: "statement-coverage floor per core package", runs: inCheck},
+		"schema-diff": {run: schemaDiff, args: "[BINARY]", doc: "tool surface against the newest release's baseline", runs: inCheck},
+		"schema-ack": {run: schemaAck, args: "BASE HEAD",
+			doc: "a pull request's commits name each item of the tool surface it changes", runs: inPR},
+		"smoke":     {run: smoke, args: "[BINARY]", doc: "drive the binary over stdio, no credentials", runs: inCheck},
+		"staleness": {run: staleness, args: "[BINARY]", doc: "documentation must match the code", runs: inCheck},
+		"leaks":     {run: leaks, args: "[history]", doc: "nothing from a real Drive is in the tree, or the history", runs: inCheck},
+		"pins":      {run: pins, doc: "every tool a workflow installs is one exact version", runs: inCheck},
+		"classes":   {run: classes, doc: "the error classes the code emits are the ones it declares", runs: inCheck},
 		"api-coverage": {run: apiCoverage,
-			doc: "every API method is used on purpose or left out on purpose", gate: true},
+			doc: "every API method is used on purpose or left out on purpose", runs: inCheck},
 		"api-fields": {run: apiFields,
-			doc: "every published field is modeled on purpose or left out on purpose", gate: true},
-		"parity": {run: parity, doc: "`make check` and CI run the same gates", gate: true},
+			doc: "every published field is modeled on purpose or left out on purpose", runs: inCheck},
+		"parity": {run: parity, doc: "`make check` and CI run the same gates", runs: inCheck},
 		"release-notes": {run: releaseNotes, args: "VERSION [CHANGELOG]",
 			doc: "one version's CHANGELOG section, which is the release note"},
 		"schema-baseline": {run: schemaBaseline, args: "[BINARY]",
 			doc: "record the release being cut as the tool-surface baseline, in its release commit"},
 		"transcript": {run: transcript,
-			doc: "a program that drives a real account cannot reach a terminal except through the redactor", gate: true},
+			doc: "a program that drives a real account cannot reach a terminal except through the redactor", runs: inCheck},
 		"live-cover": {run: liveCover, args: "[BINARY]",
-			doc: "every tool option is driven live or recorded as not, with the reason", gate: true},
+			doc: "every tool option is driven live or recorded as not, with the reason", runs: inCheck},
 		"outcomes": {run: outcomes,
-			doc: "no result sentence is written from the request rather than from the response", gate: true},
+			doc: "no result sentence is written from the request rather than from the response", runs: inCheck},
 		"registry": {run: registry,
-			doc: "the committed MCP registry entry obeys the rules that registry enforces in code", gate: true},
+			doc: "the committed MCP registry entry obeys the rules that registry enforces in code", runs: inCheck},
 		"registry-publish": {run: registryPublish, args: "VERSION [DIST]",
 			doc: "print the registry entry to publish, with the bundle's hash from the signed checksums"},
 		"mcpb": {run: mcpbCheck,
-			doc: "the committed bundle manifest names files the packer will stage", gate: true},
+			doc: "the committed bundle manifest names files the packer will stage", runs: inCheck},
 		"api-diff": {run: apiDiff,
 			doc: "refetch the discovery documents and report what changed (needs the network)"},
 		"schema-refetch": {run: schemaRefetchCmd,
@@ -89,11 +106,11 @@ func init() {
 	}
 }
 
-// gateNames are the commands that must run in both places, sorted.
-func gateNames() []string {
+// commandsIn are the commands that have to run in w, sorted.
+func commandsIn(w where) []string {
 	var out []string
 	for name, c := range commands {
-		if c.gate {
+		if c.runs == w {
 			out = append(out, name)
 		}
 	}
@@ -119,8 +136,27 @@ func main() {
 	}
 	if err := c.run(os.Stdout, os.Args[2:]); err != nil {
 		fmt.Fprintf(os.Stderr, "gates: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
+}
+
+// couldNotRun is an error that stopped schema-ack before it could judge:
+// a build or a git call that failed. Its message says so, which is what
+// tells it from a refusal in CI, since `go run` exits 1 whatever the
+// program's own status was.
+type couldNotRun struct{ error }
+
+func (e couldNotRun) Error() string { return "could not run: " + e.error.Error() }
+
+func (e couldNotRun) Unwrap() error { return e.error }
+
+// exitCode is 2 for a gate that could not run and 1 for any other
+// error, a refusal or a command's usage. A built binary exits with it.
+func exitCode(err error) int {
+	if errors.As(err, new(couldNotRun)) {
+		return 2
+	}
+	return 1
 }
 
 func usage(w io.Writer) {

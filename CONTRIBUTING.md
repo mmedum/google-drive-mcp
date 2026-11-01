@@ -67,13 +67,26 @@ Also:
 - Add or update tests (golden files with `go test ./internal/render -update`).
 - Update `README.md`, `docs/`, and `CHANGELOG.md` under `[Unreleased]`
   when behavior or the tool surface changes.
-- Read what `make schema-diff` prints. It compares the tool surface with
-  the newest release's, recorded in `testdata/schema-baseline.json`, and
-  fails on a removed tool or resource, a field removed at any depth, an
-  input that takes fewer types or loses a listed value, an output that
-  may return another type or may now be missing, or a newly required
-  input. An input that takes more and an output that returns less pass.
-  Such a break ships only as a new major version.
+- Read what `make schema-diff` prints. It compares the whole dump, the
+  tools, the resource templates and the instructions, with the newest
+  release's, recorded in `testdata/schema-baseline.json`. It fails on a
+  removed tool or resource, a field removed at any depth, an input that
+  takes fewer types or loses a listed value, an output that may return
+  another type or may now be missing, or a newly required input. An
+  input that takes more and an output that returns less pass. Such a
+  break ships only as a new major version. Anything else that moved is
+  reported and allowed: a description, an annotation, a title, a
+  `_meta` mark, the instructions. A client decides from those whether
+  to ask, so a reviewer has to see them.
+
+  On a pull request, CI also runs `schema-ack`. A commit footer has to
+  name each item that changed since the merge-base:
+  `SCHEMA-CHANGE: update_file, move_file: destructiveHint true`. Name a
+  tool by its name, a resource template by its URI, and the
+  instructions as `instructions`. Put a name with a comma in it in
+  backticks. If the change breaks something a release shipped, name
+  that item in a `BREAKING CHANGE:` footer instead. When it fails, it
+  prints the footer to add, in an empty commit, never an amend.
 
 ## Layout
 

@@ -186,15 +186,7 @@ func gitRepo(t *testing.T, identity, message string) string {
 	dir := t.TempDir()
 	run := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=A Tester", "GIT_AUTHOR_EMAIL="+identity,
-			"GIT_COMMITTER_NAME=A Tester", "GIT_COMMITTER_EMAIL="+identity,
-			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+		gitAs(t, dir, identity, args...)
 	}
 	run("init", "-q", "-b", "main")
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("nothing to see\n"), 0o600); err != nil {
@@ -204,6 +196,28 @@ func gitRepo(t *testing.T, identity, message string) string {
 	run("commit", "-q", "-m", message)
 	run("tag", "-a", "v1.0.0", "-m", message)
 	return dir
+}
+
+// gitAs runs git in dir, the working directory when it is empty, as a
+// fixture identity, reading none of the machine's configuration: no
+// signing key, no hooks, no default branch of its own.
+func gitAs(t *testing.T, dir, identity string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=A Tester", "GIT_AUTHOR_EMAIL="+identity,
+		"GIT_COMMITTER_NAME=A Tester", "GIT_COMMITTER_EMAIL="+identity,
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// gitIn runs git in the working directory as the fixture identity.
+func gitIn(t *testing.T, args ...string) {
+	t.Helper()
+	gitAs(t, "", "a@example.com", args...)
 }
 
 func TestHistoryScansMessagesAndNotTheIdentitiesGitWrites(t *testing.T) {
@@ -282,15 +296,8 @@ func TestAnAllowedBlobIsSkippedAndNothingElse(t *testing.T) {
 	if err := os.WriteFile("contact.md", []byte("Write to "+address+".\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"add", "contact.md"}, {"commit", "-q", "-m", "Add the contact"}} {
-		cmd := exec.Command("git", args...)
-		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=A", "GIT_AUTHOR_EMAIL=a@example.com",
-			"GIT_COMMITTER_NAME=A", "GIT_COMMITTER_EMAIL=a@example.com",
-			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
+	gitIn(t, "add", "contact.md")
+	gitIn(t, "commit", "-q", "-m", "Add the contact")
 	var out strings.Builder
 	if err := leaksInHistory(&out); err == nil {
 		t.Fatalf("an address in a file version nobody allowed was not caught:\n%s", out.String())

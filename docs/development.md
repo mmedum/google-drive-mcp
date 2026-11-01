@@ -47,6 +47,7 @@ make licenses       # allowed licenses only
 make smoke          # drive the binary over stdio, without credentials
 make schemas        # write schemas.json
 make schema-diff    # compare the tool surface with the newest release's
+make schema-ack     # commit footers name each tool-surface change; CI runs it on a pull request
 make staleness      # docs must match the code
 make pins           # every tool a workflow installs is one exact version
 make gate-classes   # the error classes the code emits are the ones it declares
@@ -75,6 +76,7 @@ connection, which is how the retry and backoff paths are exercised.
 ```
 go run ./scripts/gates coverage cov.out 80    statement-coverage floor per core package
 go run ./scripts/gates schema-diff BINARY     tool surface against the newest release's
+go run ./scripts/gates schema-ack BASE HEAD   a pull request's commits name each tool-surface change
 go run ./scripts/gates smoke BINARY           drive the binary over stdio, no credentials
 go run ./scripts/gates staleness BINARY       documentation must match the code
 go run ./scripts/gates pins                   workflow tool versions are exact, not ranges
@@ -319,4 +321,8 @@ public the moment the repository is.
    depth, an input that takes fewer types or loses a listed value, an
    output that may return another type or may now be missing, or a newly
    required input is a breaking change, and fails it. A type change the
-   other way, such as an input that may now be null, passes.
+   other way, such as an input that may now be null, passes. On the pull
+   request, `schema-ack` wants a commit footer naming each item that
+   changed: `SCHEMA-CHANGE: <tool>: what changed`, or `BREAKING CHANGE:`
+   for a break of the newest release. When it fails, it prints the
+   footer.

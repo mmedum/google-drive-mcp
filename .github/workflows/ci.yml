@@ -129,6 +129,12 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The flags `make build` and schema-ack build the server with. Set for
+    # the job, so `go run ./scripts/gates`, which imports most of the
+    # server, compiles with them too rather than compiling it twice.
+    env:
+      CGO_ENABLED: "0"
+      GOFLAGS: -trimpath
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -146,3 +152,30 @@ jobs:
         with:
           name: schemas
           path: schemas.json
+
+  # A pull request whose tool surface changes says so in a commit footer
+  # naming each item, since an annotation or an instruction change breaks
+  # no schema and still changes what a client does. It measures from the
+  # merge-base, which only a pull request has, so it is not in `make
+  # check`.
+  pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PR_BASE_REF: origin/${{ github.base_ref }}
+      # The head commit, not the merge commit the checkout sits on.
+      PR_HEAD: ${{ github.event.pull_request.head.sha }}
+      # schema-ack builds both sides with these; `go run` uses them too.
+      CGO_ENABLED: "0"
+      GOFLAGS: -trimpath
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: schema change acknowledged
+        run: go run ./scripts/gates schema-ack "$PR_BASE_REF" "$PR_HEAD"

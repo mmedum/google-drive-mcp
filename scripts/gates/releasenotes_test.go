@@ -116,8 +116,8 @@ func TestReleaseNotesIsRegisteredAndIsNotAGate(t *testing.T) {
 	if !ok {
 		t.Fatal("release-notes is not in the registry")
 	}
-	if c.gate {
-		t.Error("release-notes is marked as a gate; it runs at release time, not in make check")
+	if c.runs != manual {
+		t.Error("release-notes is held to a pipeline; it runs at release time, not in make check")
 	}
 }
 

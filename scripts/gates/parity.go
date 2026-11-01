@@ -31,13 +31,15 @@ import (
 // in neither list and why this reads `check`'s own prerequisites rather
 // than every target in the file.
 func parity(out io.Writer, _ []string) error {
-	return parityAgainst(out, gateNames())
+	return parityAgainst(out, commandsIn(inCheck), commandsIn(inPR))
 }
 
-// parityAgainst is parity with the list of gates that ought to run given
-// rather than read from the registry, so a test can present a small
-// repository without restating every gate this program implements.
-func parityAgainst(out io.Writer, want []string) error {
+// parityAgainst is parity with the gates that ought to run given rather
+// than read from the registry, so a test can present a small repository
+// without restating every gate this program implements. want runs in
+// both places; prOnly runs in ci.yml and never in `make check`, which
+// has no pull request to measure from.
+func parityAgainst(out io.Writer, want, prOnly []string) error {
 	makeGates, err := gatesInCheck("Makefile")
 	if err != nil {
 		return err
@@ -70,11 +72,20 @@ func parityAgainst(out io.Writer, want []string) error {
 				"so it can only fail after a push")
 		default:
 			problems = append(problems, g+" is a gate this program implements and nothing runs it; "+
-				"add it to both, or drop `gate: true` if it is not one")
+				"add it to both, or mark it `runs: manual` if it is not one")
 		}
 	}
-	for _, g := range append(slices.Clone(makeGates), ciGates...) {
-		if !slices.Contains(want, g) && !slices.Contains(problems, g) {
+	for _, g := range prOnly {
+		if slices.Contains(makeGates, g) {
+			problems = append(problems, g+" runs in `make check`, which has no pull request to measure from; "+
+				"it runs in ci.yml only")
+		}
+		if !slices.Contains(ciGates, g) {
+			problems = append(problems, g+" is a pull-request gate and ci.yml never runs it, so it guards nothing")
+		}
+	}
+	for _, g := range slices.Compact(slices.Sorted(slices.Values(append(slices.Clone(makeGates), ciGates...)))) {
+		if !slices.Contains(want, g) && !slices.Contains(prOnly, g) {
 			problems = append(problems, g+" is run as a gate but is not marked one in commands; "+
 				"either it belongs in both lists or the marking is wrong")
 		}
@@ -86,7 +97,8 @@ func parityAgainst(out io.Writer, want []string) error {
 		}
 		return fmt.Errorf("%d gate(s) are not run in both places", len(problems))
 	}
-	_, _ = fmt.Fprintf(out, "gate parity ok (%d gates, in both `make check` and ci.yml)\n", len(want))
+	_, _ = fmt.Fprintf(out, "gate parity ok (%d gates, in both `make check` and ci.yml; %d on pull requests only)\n",
+		len(want), len(prOnly))
 	return nil
 }
 

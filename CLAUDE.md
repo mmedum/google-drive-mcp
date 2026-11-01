@@ -96,7 +96,9 @@ govulncheck, stdio smoke, staleness check of README/docs/CHANGELOG
 against the code) plus tests for new behavior, the live driver against
 a scratch folder, `/simplify` and `/code-review high` on the changed
 files with findings resolved or explained, and a look at
-`--dump-schemas` for breaking changes. A phase ends with a release
+`--dump-schemas` for breaking changes. On a pull request CI also runs
+`schema-ack`: a commit footer names each changed item of the tool
+surface. A phase ends with a release
 commit on a topic branch, a pull request, CI green on three platforms,
 a merge, and the tag pushed on its own; then it waits for an explicit
 "go".

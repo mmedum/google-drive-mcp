@@ -83,6 +83,16 @@ schemas: build ## Dump tool schemas
 schema-diff: build ## Diff tool schemas against the newest release's recorded baseline
 	$(GO) run ./scripts/gates schema-diff $(BIN)
 
+# A pull request's commits name each item of the tool surface they change.
+# CI runs it on every pull request; it is not in `check`, which has no
+# pull request to measure from. Locally: make schema-ack PR_BASE_REF=origin/main
+PR_BASE_REF ?= origin/main
+PR_HEAD     ?= HEAD
+
+.PHONY: schema-ack
+schema-ack: ## Commit footers name each tool-surface change since the merge-base with PR_BASE_REF
+	$(GO) run ./scripts/gates schema-ack $(PR_BASE_REF) $(PR_HEAD)
+
 .PHONY: schema-baseline
 schema-baseline: build ## Record the release being cut as the baseline: VERSION=vX.Y.Z, in its release commit
 	$(GO) run ./scripts/gates schema-baseline $(BIN)
