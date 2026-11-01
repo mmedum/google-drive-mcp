@@ -141,13 +141,17 @@ func main() {
 }
 
 // couldNotRun is an error that stopped a gate before it could judge,
-// such as a build or a git call that failed.
+// such as a build or a git call that failed. Its message says so, which
+// is what tells it from a refusal in CI: `go run` exits 1 whatever the
+// program's own status was.
 type couldNotRun struct{ error }
+
+func (e couldNotRun) Error() string { return "could not run: " + e.error.Error() }
 
 func (e couldNotRun) Unwrap() error { return e.error }
 
 // exitCode is 2 for a gate that could not run, as for a usage error, and
-// 1 for a gate that ran and refused.
+// 1 for a gate that ran and refused. A built binary exits with it.
 func exitCode(err error) int {
 	if errors.As(err, new(couldNotRun)) {
 		return 2

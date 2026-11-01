@@ -20,8 +20,8 @@ import (
 // the merge-base and the head, never from the checkout, which in CI is
 // the merge commit.
 //
-// A refusal exits 1 and a gate that could not run exits 2, so a job that
-// retries a failed build never retries a missing footer.
+// A gate that could not run, a failed build or git call, says so, and a
+// built binary exits 2 for it; a refusal exits 1.
 func schemaAck(out io.Writer, args []string) error {
 	if len(args) != 2 || args[0] == "" || args[1] == "" {
 		return couldNotRun{errors.New("usage: gates schema-ack BASE HEAD")}

@@ -240,19 +240,27 @@ func TestReleasedBreaksReadTheBaseBranchBaseline(t *testing.T) {
 	}
 }
 
-// A refusal exits 1 and a gate that could not run exits 2, so a job that
-// retries a failed build never retries a missing footer.
+// A gate that could not run says so and exits 2; a refusal exits 1. The
+// message is what tells them apart in CI, where `go run` exits 1 for
+// both.
 func TestSchemaAckTellsARefusalFromAFailure(t *testing.T) {
 	refused := checkAck(io.Discard, compareSurfaces(surfaceOf(t, plain), surfaceOf(t, flipped)), nil, "base")
-	if refused == nil || exitCode(refused) != 1 {
-		t.Errorf("a refusal (%v) exits %d, want 1", refused, exitCode(refused))
+	if refused == nil || exitCode(refused) != 1 || strings.HasPrefix(refused.Error(), "could not run") {
+		t.Errorf("a refusal (%v) exits %d, want 1 and no word of not running", refused, exitCode(refused))
 	}
 	t.Chdir(t.TempDir())
 	gitIn(t, "init", "-q")
 	gitIn(t, "commit", "--quiet", "--allow-empty", "-m", "Start")
-	for _, args := range [][]string{{"no-such-ref", "HEAD"}, {"HEAD"}} {
-		if err := schemaAck(io.Discard, args); exitCode(err) != 2 {
-			t.Errorf("schemaAck(%q) = %v, exit %d; want 2", args, err, exitCode(err))
+	for _, tc := range []struct {
+		args    []string
+		wantErr string
+	}{
+		{[]string{"no-such-ref", "HEAD"}, "could not run: git merge-base no-such-ref HEAD: "},
+		{[]string{"HEAD"}, "could not run: usage: gates schema-ack BASE HEAD"},
+	} {
+		err := schemaAck(io.Discard, tc.args)
+		if exitCode(err) != 2 || err == nil || !strings.HasPrefix(err.Error(), tc.wantErr) {
+			t.Errorf("schemaAck(%q) = %v, exit %d; want exit 2 and %q", tc.args, err, exitCode(err), tc.wantErr)
 		}
 	}
 }
