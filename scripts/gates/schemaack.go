@@ -239,11 +239,12 @@ var nameSeparator = regexp.MustCompile("[\\s,;()'\"]+")
 
 // footerNames is every name a footer's text may carry, each a whole
 // token. A colon and a full stop are trimmed from a name rather than
-// split on, since a URI holds both; a name in backticks is taken whole,
-// so a URI with a comma in it can be named.
+// split on, since a URI holds both. A name in backticks is taken whole,
+// trimmed of nothing, so a URI with a comma in it, or one ending in a
+// full stop, can be named.
 func footerNames(text string) []string {
-	var out []string
-	for _, n := range append(codeSpans(text), nameSeparator.Split(codeSpanRe.ReplaceAllString(text, " "), -1)...) {
+	out := codeSpans(text)
+	for _, n := range nameSeparator.Split(codeSpanRe.ReplaceAllString(text, " "), -1) {
 		if n = strings.TrimRight(n, ":."); n != "" {
 			out = append(out, n)
 		}

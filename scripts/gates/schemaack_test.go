@@ -138,18 +138,22 @@ func TestAFooterCanNameAURIWithACommaInBackticks(t *testing.T) {
 	}
 }
 
-// The fix a refusal prints puts a name the footer would split in
+// The fix a refusal prints puts a name the footer would split or trim in
 // backticks, so the footer it prints is one that passes.
-func TestARefusalQuotesANameWithAComma(t *testing.T) {
-	was := strings.Replace(plain, `"gdrive://{file}"`, `"gdrive://{file}{?view,page}"`, 1)
-	c := compareSurfaces(surfaceOf(t, was), surfaceOf(t, strings.Replace(was, `"name":"file text"`, `"name":"text"`, 1)))
-	err := checkAck(io.Discard, c, []string{"Rename it"}, "base")
-	_, fix, _ := strings.Cut(fmt.Sprint(err), "\n\n")
-	if want := "SCHEMA-CHANGE: `gdrive://{file}{?view,page}`: what changed"; fix != want {
-		t.Fatalf("the refusal's fix is %q, want %q", fix, want)
-	}
-	if err := checkAck(io.Discard, c, []string{"Rename it", "Name it\n\n" + fix}, "base"); err != nil {
-		t.Errorf("checkAck = %v after the fix it named", err)
+func TestARefusalQuotesANameTheFooterWouldSplit(t *testing.T) {
+	for _, uri := range []string{"gdrive://{file}{?view,page}", "gdrive://{file}."} {
+		t.Run(uri, func(t *testing.T) {
+			was := strings.Replace(plain, `"gdrive://{file}"`, `"`+uri+`"`, 1)
+			c := compareSurfaces(surfaceOf(t, was), surfaceOf(t, strings.Replace(was, `"name":"file text"`, `"name":"text"`, 1)))
+			err := checkAck(io.Discard, c, []string{"Rename it"}, "base")
+			_, fix, _ := strings.Cut(fmt.Sprint(err), "\n\n")
+			if want := "SCHEMA-CHANGE: `" + uri + "`: what changed"; fix != want {
+				t.Fatalf("the refusal's fix is %q, want %q", fix, want)
+			}
+			if err := checkAck(io.Discard, c, []string{"Rename it", "Name it\n\n" + fix}, "base"); err != nil {
+				t.Errorf("checkAck = %v after the fix it named", err)
+			}
+		})
 	}
 }
 

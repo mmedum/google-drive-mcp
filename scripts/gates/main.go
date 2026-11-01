@@ -150,8 +150,8 @@ func (e couldNotRun) Error() string { return "could not run: " + e.error.Error()
 
 func (e couldNotRun) Unwrap() error { return e.error }
 
-// exitCode is 2 for a gate that could not run, as for a usage error, and
-// 1 for a gate that ran and refused. A built binary exits with it.
+// exitCode is 2 for a gate that could not run and 1 for any other
+// error, a refusal or a command's usage. A built binary exits with it.
 func exitCode(err error) int {
 	if errors.As(err, new(couldNotRun)) {
 		return 2
