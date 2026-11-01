@@ -140,6 +140,24 @@ func TestParityNoticesAGateNothingRuns(t *testing.T) {
 	}
 }
 
+// A gate both files run that the registry does not mark is named once,
+// not once for each file.
+func TestParityNamesAnUnmarkedGateOnce(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "Makefile"), "GO ?= go\n\nleaks:\n\t$(GO) run ./scripts/gates leaks\n\n"+
+		"pins:\n\t$(GO) run ./scripts/gates pins\n\ncheck: leaks pins\n")
+	write(t, filepath.Join(dir, ".github", "workflows", "ci.yml"),
+		"      - run: go run ./scripts/gates leaks\n      - run: go run ./scripts/gates pins\n")
+	t.Chdir(dir)
+	var out bytes.Buffer
+	err := parityAgainst(&out, []string{"leaks"}, nil)
+	const want = "  pins is run as a gate but is not marked one in commands; " +
+		"either it belongs in both lists or the marking is wrong\n"
+	if err == nil || out.String() != want {
+		t.Errorf("parity = %v, report\n%s\nwant\n%s", err, out.String(), want)
+	}
+}
+
 // A pull-request gate measures from a merge-base, which `make check` does
 // not have: it runs in a ci.yml run: step, and never in `make check`.
 func TestParityHoldsAPullRequestGateToCIAlone(t *testing.T) {

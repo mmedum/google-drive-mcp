@@ -84,8 +84,8 @@ func parityAgainst(out io.Writer, want, prOnly []string) error {
 			problems = append(problems, g+" is a pull-request gate and ci.yml never runs it, so it guards nothing")
 		}
 	}
-	for _, g := range append(slices.Clone(makeGates), ciGates...) {
-		if !slices.Contains(want, g) && !slices.Contains(prOnly, g) && !slices.Contains(problems, g) {
+	for _, g := range slices.Compact(slices.Sorted(slices.Values(append(slices.Clone(makeGates), ciGates...)))) {
+		if !slices.Contains(want, g) && !slices.Contains(prOnly, g) {
 			problems = append(problems, g+" is run as a gate but is not marked one in commands; "+
 				"either it belongs in both lists or the marking is wrong")
 		}

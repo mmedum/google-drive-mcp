@@ -12,7 +12,7 @@ import (
 // returned, at any depth, when a field or a map's values change type,
 // or when an input is newly required; adding fields does not.
 func TestBrokenFields(t *testing.T) {
-	old, err := readSurface([]byte(`{"tools":[
+	old := surfaceOf(t, `{"tools":[
 		{"name":"get_file","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"fields":{"type":"string"},"labels":{"type":"boolean"}},"required":["file"]},
 		 "outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"size":{"type":"integer"},
 		   "exposure":{"type":"object","properties":{"before":{"type":"string"},"after":{"type":"string"}}}}}},
@@ -20,21 +20,15 @@ func TestBrokenFields(t *testing.T) {
 		   "restrictions":{"type":"object","additionalProperties":{"type":"boolean"}}}},
 		 "outputSchema":{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"owner":{"type":"string"}}}},
 		   "dropped":{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}}}}}},
-		{"name":"gone","inputSchema":{"type":"object","properties":{"x":{"type":"string"}}}}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cur, err := readSurface([]byte(`{"tools":[
+		{"name":"gone","inputSchema":{"type":"object","properties":{"x":{"type":"string"}}}}]}`)
+	cur := surfaceOf(t, `{"tools":[
 		{"name":"get_file","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"fields":{"type":"string"},"etag":{"type":"string"}},"required":["file","fields"]},
 		 "outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":["null","string"]},"etag":{"type":"string"},
 		   "exposure":{"type":"object","properties":{"before":{"type":"string"}}}}}},
 		{"name":"list_folder","inputSchema":{"type":"object","properties":{"folder":{"type":"string"},
 		   "restrictions":{"type":"object","additionalProperties":{"type":"string"}},
 		   "page":{"type":"object","properties":{"size":{"type":"integer"}},"required":["size"]}}},
-		 "outputSchema":{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"}}}}}}}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+		 "outputSchema":{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"}}}}}}}]}`)
 	got := texts(brokenFields(old.fields, cur.fields))
 	want := []string{
 		`get_file: input field labels removed`,
@@ -55,18 +49,12 @@ func TestBrokenFields(t *testing.T) {
 // and a changed description, are printed and do not. A schema spelled
 // another way is not a change.
 func TestARemovedToolOrResourceIsBreaking(t *testing.T) {
-	base, err := readSurface([]byte(`{"tools":[{"name":"read_file","description":"a"},{"name":"delete_file"},
+	base := surfaceOf(t, `{"tools":[{"name":"read_file","description":"a"},{"name":"delete_file"},
 		{"name":"get_file","inputSchema":{"type":"object","properties":{"file":{"type":"string","description":"a <b>"}}}}],
-		"resourceTemplates":[{"name":"file text","uriTemplate":"gdrive://{file}"},{"name":"card","uriTemplate":"gdrive://{file}/meta"}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cur, err := readSurface([]byte(`{"tools":[{"name":"read_file","description":"b"},{"name":"list_labels"},
+		"resourceTemplates":[{"name":"file text","uriTemplate":"gdrive://{file}"},{"name":"card","uriTemplate":"gdrive://{file}/meta"}]}`)
+	cur := surfaceOf(t, `{"tools":[{"name":"read_file","description":"b"},{"name":"list_labels"},
 		{"name":"get_file","inputSchema":{"properties":{"file":{"description":"a \u003cb\u003e","type":"string"}},"type":"object"}}],
-		"resourceTemplates":[{"name":"file text","uriTemplate":"gdrive://{file}"},{"name":"children","uriTemplate":"gdrive://{file}/children"}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+		"resourceTemplates":[{"name":"file text","uriTemplate":"gdrive://{file}"},{"name":"children","uriTemplate":"gdrive://{file}/children"}]}`)
 	var out strings.Builder
 	compareSurfaces(base, cur).write(&out, "the baseline")
 	want := "against the baseline: 2 added, 1 changed, 2 breaking\n" +
@@ -260,11 +248,7 @@ func TestTheDumpIsTheWholeSurface(t *testing.T) {
 // input and output schemas given.
 func fieldsOf(t *testing.T, input, output string) map[string]toolFields {
 	t.Helper()
-	s, err := readSurface([]byte(`{"tools":[{"name":"get_file","inputSchema":` + input + `,"outputSchema":` + output + `}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s.fields
+	return surfaceOf(t, `{"tools":[{"name":"get_file","inputSchema":`+input+`,"outputSchema":`+output+`}]}`).fields
 }
 
 // A type change breaks a caller in one direction only: an input that

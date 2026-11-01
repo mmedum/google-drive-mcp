@@ -140,9 +140,9 @@ func main() {
 	}
 }
 
-// couldNotRun is an error that stopped a gate before it could judge,
-// such as a build or a git call that failed. Its message says so, which
-// is what tells it from a refusal in CI: `go run` exits 1 whatever the
+// couldNotRun is an error that stopped schema-ack before it could judge:
+// a build or a git call that failed. Its message says so, which is what
+// tells it from a refusal in CI, since `go run` exits 1 whatever the
 // program's own status was.
 type couldNotRun struct{ error }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"reflect"
@@ -472,16 +473,12 @@ func (c surfaceChanges) empty() bool {
 
 // compareSurfaces is what changed from base to cur. An item gone breaks
 // a caller, and so does a tool still there that broke at any depth
-// (brokenFields). A tool that broke lists its other changes, such as a
-// flipped hint, but not its schemas again, which the break already names.
+// (brokenFields). A tool that broke lists every other change to it too,
+// its schemas' included: the break names only the fields it broke, and
+// anything else that moved there is a change a reviewer has to see.
 func compareSurfaces(base, cur surface) surfaceChanges {
 	var c surfaceChanges
 	var removed []change
-	fields := brokenFields(base.fields, cur.fields)
-	broken := map[string]bool{}
-	for _, b := range fields {
-		broken[b.item] = true
-	}
 	for _, key := range sortedUnion(base.items, cur.items) {
 		was, inBase := base.items[key]
 		now, inCur := cur.items[key]
@@ -492,13 +489,7 @@ func compareSurfaces(base, cur surface) surfaceChanges {
 		case !inBase:
 			c.added = append(c.added, change{item: name, text: key})
 		default:
-			parts := changedParts(was, now)
-			if broken[key] {
-				parts = slices.DeleteFunc(parts, func(p string) bool {
-					return strings.HasPrefix(p, "inputSchema") || strings.HasPrefix(p, "outputSchema")
-				})
-			}
-			if len(parts) > 0 {
+			if parts := changedParts(was, now); len(parts) > 0 {
 				c.changed = append(c.changed, change{item: name, text: key + " (" + strings.Join(parts, ", ") + ")"})
 			}
 		}
@@ -507,7 +498,7 @@ func compareSurfaces(base, cur surface) surfaceChanges {
 		top, _, _ := strings.Cut(part, ".")
 		c.changed = append(c.changed, change{item: top, text: part})
 	}
-	c.breaking = slices.Concat(removed, fields)
+	c.breaking = slices.Concat(removed, brokenFields(base.fields, cur.fields))
 	c.notes = valueNotes(base.fields, cur.fields)
 	return c
 }
@@ -557,14 +548,9 @@ func changedParts(o, n map[string]any) []string {
 
 // sortedUnion is every key of a and b, sorted.
 func sortedUnion[V any](a, b map[string]V) []string {
-	keys := sortedKeys(a)
-	for k := range b {
-		if _, ok := a[k]; !ok {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	return keys
+	keys := slices.AppendSeq(slices.Collect(maps.Keys(a)), maps.Keys(b))
+	slices.Sort(keys)
+	return slices.Compact(keys)
 }
 
 // toolFields is what a caller relies on in one tool, at any depth: the

@@ -129,6 +129,12 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The flags `make build` and schema-ack build the server with. Set for
+    # the job, so `go run ./scripts/gates`, which imports most of the
+    # server, compiles with them too rather than compiling it twice.
+    env:
+      CGO_ENABLED: "0"
+      GOFLAGS: -trimpath
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -137,9 +143,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      # Built as `make build` and schema-ack build it, so the three share
-      # one build cache.
-      - run: CGO_ENABLED=0 go build -trimpath -o google-drive-mcp ./cmd/google-drive-mcp
+      - run: go build -o google-drive-mcp ./cmd/google-drive-mcp
       - run: go run ./scripts/gates smoke ./google-drive-mcp
       - run: go run ./scripts/gates schema-diff ./google-drive-mcp
       - run: go run ./scripts/gates staleness ./google-drive-mcp
@@ -162,6 +166,9 @@ jobs:
       PR_BASE_REF: origin/${{ github.base_ref }}
       # The head commit, not the merge commit the checkout sits on.
       PR_HEAD: ${{ github.event.pull_request.head.sha }}
+      # schema-ack builds both sides with these; `go run` uses them too.
+      CGO_ENABLED: "0"
+      GOFLAGS: -trimpath
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

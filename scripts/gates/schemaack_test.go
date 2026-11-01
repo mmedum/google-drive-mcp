@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -166,7 +164,8 @@ func TestABreakIsABreakOfARelease(t *testing.T) {
 	if !slices.Equal(c.breaking, renameBreak) {
 		t.Errorf("breaking = %v, want %v", c.breaking, renameBreak)
 	}
-	if want := []change{{item: "draft_tool", text: "draft_tool removed"}}; !slices.Equal(c.changed, want) {
+	if want := []change{{item: "update_file", text: "update_file (inputSchema.properties)"},
+		{item: "draft_tool", text: "draft_tool removed"}}; !slices.Equal(c.changed, want) {
 		t.Errorf("changed = %v, want %v", c.changed, want)
 	}
 	var report strings.Builder
@@ -174,7 +173,8 @@ func TestABreakIsABreakOfARelease(t *testing.T) {
 	if err := checkAck(&report, c, []string{footer}, "base"); err != nil {
 		t.Errorf("checkAck = %v, want both acknowledged", err)
 	}
-	want := "against the merge-base base: 0 added, 1 changed, 1 breaking\n" +
+	want := "against the merge-base base: 0 added, 2 changed, 1 breaking\n" +
+		"  ~ update_file (inputSchema.properties)\n" +
 		"  ~ draft_tool removed\n" +
 		"  ! update_file: input field file removed  BREAKING\n" +
 		"the change since base is acknowledged\n"
@@ -218,10 +218,8 @@ func TestABreakOfTheReleaseIsNotMatchedByItsText(t *testing.T) {
 // The release is the baseline the base branch records. Before the first
 // release there is none, and nothing breaks one.
 func TestReleasedBreaksReadTheBaseBranchBaseline(t *testing.T) {
-	dir := t.TempDir()
+	dir := gitRepo(t, "a@example.com", "Start")
 	t.Chdir(dir)
-	gitIn(t, "init", "-q")
-	gitIn(t, "commit", "--quiet", "--allow-empty", "-m", "Start")
 	head := surfaceOf(t, renamed)
 
 	breaks, err := releasedBreaks("HEAD", head)
@@ -248,32 +246,9 @@ func TestSchemaAckTellsARefusalFromAFailure(t *testing.T) {
 	if refused == nil || exitCode(refused) != 1 || strings.HasPrefix(refused.Error(), "could not run") {
 		t.Errorf("a refusal (%v) exits %d, want 1 and no word of not running", refused, exitCode(refused))
 	}
-	t.Chdir(t.TempDir())
-	gitIn(t, "init", "-q")
-	gitIn(t, "commit", "--quiet", "--allow-empty", "-m", "Start")
-	for _, tc := range []struct {
-		args    []string
-		wantErr string
-	}{
-		{[]string{"no-such-ref", "HEAD"}, "could not run: git merge-base no-such-ref HEAD: "},
-		{[]string{"HEAD"}, "could not run: usage: gates schema-ack BASE HEAD"},
-	} {
-		err := schemaAck(io.Discard, tc.args)
-		if exitCode(err) != 2 || err == nil || !strings.HasPrefix(err.Error(), tc.wantErr) {
-			t.Errorf("schemaAck(%q) = %v, exit %d; want exit 2 and %q", tc.args, err, exitCode(err), tc.wantErr)
-		}
-	}
-}
-
-// gitIn runs git in the working directory as a fixture identity that
-// never signs, whatever the machine's own configuration says.
-func gitIn(t *testing.T, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=A Tester", "GIT_AUTHOR_EMAIL=a@example.com",
-		"GIT_COMMITTER_NAME=A Tester", "GIT_COMMITTER_EMAIL=a@example.com",
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
+	t.Chdir(gitRepo(t, "a@example.com", "Start"))
+	const wantErr = "could not run: git merge-base no-such-ref HEAD: "
+	if err := schemaAck(io.Discard, []string{"no-such-ref", "HEAD"}); exitCode(err) != 2 || err == nil || !strings.HasPrefix(err.Error(), wantErr) {
+		t.Errorf("schemaAck with no base = %v, exit %d; want exit 2 and %q", err, exitCode(err), wantErr)
 	}
 }

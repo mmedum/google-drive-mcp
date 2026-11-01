@@ -24,7 +24,7 @@ import (
 // built binary exits 2 for it; a refusal exits 1.
 func schemaAck(out io.Writer, args []string) error {
 	if len(args) != 2 || args[0] == "" || args[1] == "" {
-		return couldNotRun{errors.New("usage: gates schema-ack BASE HEAD")}
+		return errors.New("usage: gates schema-ack BASE HEAD")
 	}
 	c, messages, base, err := ackInputs(args[0], args[1])
 	if err != nil {
@@ -42,22 +42,17 @@ func ackInputs(baseRef, head string) (surfaceChanges, []string, string, error) {
 	if err != nil {
 		return surfaceChanges{}, nil, "", err
 	}
-	var sides [2]surface
-	for i, rev := range []string{base, head} {
-		raw, err := dumpAt(rev)
-		if err != nil {
-			return surfaceChanges{}, nil, "", err
-		}
-		if sides[i], err = readSurface(raw); err != nil {
-			return surfaceChanges{}, nil, "", fmt.Errorf("%s: %w", rev, err)
-		}
-		if len(sides[i].fields) == 0 {
-			return surfaceChanges{}, nil, "", fmt.Errorf("the build at %s registered no tools; that is not a server's surface", rev)
-		}
+	was, err := surfaceAt(base)
+	if err != nil {
+		return surfaceChanges{}, nil, "", err
 	}
-	c := compareSurfaces(sides[0], sides[1])
+	now, err := surfaceAt(head)
+	if err != nil {
+		return surfaceChanges{}, nil, "", err
+	}
+	c := compareSurfaces(was, now)
 	if len(c.breaking) > 0 {
-		released, err := releasedBreaks(baseRef, sides[1])
+		released, err := releasedBreaks(baseRef, now)
 		if err != nil {
 			return surfaceChanges{}, nil, "", err
 		}
@@ -68,6 +63,22 @@ func ackInputs(baseRef, head string) (surfaceChanges, []string, string, error) {
 		return surfaceChanges{}, nil, "", err
 	}
 	return c, strings.Split(log, "\x00"), base[:min(12, len(base))], nil
+}
+
+// surfaceAt is the tool surface of the server built at rev.
+func surfaceAt(rev string) (surface, error) {
+	raw, err := dumpAt(rev)
+	if err != nil {
+		return surface{}, err
+	}
+	s, err := readSurface(raw)
+	if err != nil {
+		return surface{}, fmt.Errorf("%s: %w", rev, err)
+	}
+	if len(s.fields) == 0 {
+		return surface{}, fmt.Errorf("the build at %s registered no tools; that is not a server's surface", rev)
+	}
+	return s, nil
 }
 
 // releasedBreaks is what head breaks of the newest release's surface: the
