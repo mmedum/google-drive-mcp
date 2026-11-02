@@ -9,7 +9,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - `--dump-schemas` also prints the server's instructions.
-- For contributors: CI fails a pull request that changes the tool surface until a commit footer names each item that changed. `SCHEMA-CHANGE:` names a change and `BREAKING CHANGE:` a break of the newest release. `make schema-diff` now compares the whole dump, so it also reports a changed title, `_meta` mark or instructions.
+- For contributors: CI fails a pull request that changes the tool surface until a commit footer names each item that changed. `SCHEMA-CHANGE:` names a change and `BREAKING CHANGE:` a break of the newest release. Only the names before the first colon followed by white space in a footer's value count. A footer's value may run on over several lines, and a footer beside it, such as `Closes #12`, does not drop it. `make schema-diff` now compares the whole dump, so it also reports a changed title, `_meta` mark or instructions.
 
 ## [3.2.0] - 2026-11-01
 
