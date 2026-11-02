@@ -452,8 +452,10 @@ func againstBaseline(base surface) string {
 // A change is one difference between two dumps: the item it is to, which
 // is what a footer or a **Breaking:** entry names, and how the report
 // shows it. The item is a tool's name, a resource's URI template, a list
-// item's name, or a top-level key such as instructions. field is, on the
-// break of a tool still there, the field it breaks, such as "input file".
+// item's name, or a top-level key such as instructions. field is what a
+// break is matched by across two comparisons: on a tool still there the
+// field it breaks, such as "input file", and on a removed item its whole
+// key, list included, so a removed prompt and a tool of one name differ.
 type change struct {
 	item, text, field string
 }
@@ -485,7 +487,7 @@ func compareSurfaces(base, cur surface) surfaceChanges {
 		name := itemName(key)
 		switch {
 		case !inCur:
-			removed = append(removed, change{item: name, text: key + " removed"})
+			removed = append(removed, change{item: name, text: key + " removed", field: key})
 		case !inBase:
 			c.added = append(c.added, change{item: name, text: key})
 		default:
