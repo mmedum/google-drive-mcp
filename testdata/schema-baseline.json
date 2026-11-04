@@ -1,7 +1,8 @@
 {
   "server": "google-drive-mcp",
-  "version": "v3.2.0",
+  "version": "v3.2.1",
   "sdk": "v1.8.0",
+  "instructions": "Google Drive tools, at the file boundary: finding files, where they live, who can see them, folders, transfers, sharing and history. What is inside a Google Doc, Sheet or Slides deck is out of scope; those have their own APIs. Start with get_file on any id, URL or path: it is cheap and it shows the folder a file sits in and who can reach it, both of which change what an action means. Use list_folder when you know where something is and search_files when you do not; a listing costs twenty times a read, so do not walk a tree to find one file. Drive has no substring search: `name` matches the beginnings of words, in any order, and `text` is searched by whole words, since how Drive matches part of a word is not documented. Ids are the contract. A name or path that matches more than one item comes back as [ambiguous] with the candidates; pick one and pass its id rather than retrying the name. Three of the reads are also resources, for a client that attaches them rather than calling a tool: gdrive://\u003cid\u003e is the file's text, gdrive://\u003cid\u003e/meta is the card, and gdrive://\u003cid\u003e/children is a folder's first page. A reference with a slash in it has to be percent-encoded there, so pass an id. share_file reaches named people and groups inside the organization. A link for anyone, a whole domain, someone outside the organization and a new owner each have their own tool, which only a server started with GDRIVE_ENABLE_DESTRUCTIVE=true registers. A move, a copy, or a folder's limited access turned off, that would let anyone with the link, a domain or someone outside the organization reach a file is refused [blocked], naming who; share with them first only when the person asked for that.",
   "tools": [
     {
       "annotations": {
@@ -5916,7 +5917,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Find files across My Drive, files shared with you, and every shared drive, by name, content, kind, folder, owner, star, date, who it is shared with or who can open it. Each hit shows its kind, name, id, folder and last change. IMPORTANT: Drive does not do substring search. `name` matches the beginnings of words and `text` matches whole words, so \"udget\" will never find \"Budget\". Use list_folder when you know where something is: a search costs twenty times what a read does. `in_folder` reaches direct children only; `under_folder` reaches every folder below as well. With no filter at all it returns everything you can see, in the order order_by names.",
+      "description": "Find files across My Drive, files shared with you, and every shared drive, by name, content, kind, folder, owner, star, date, who it is shared with or who can open it. Each hit shows its kind, name, id, folder and last change. IMPORTANT: Drive has no substring search: `name` matches the beginnings of words, in any order, and `text` is searched by whole words, since how Drive matches part of a word is not documented. \"udget\" never finds \"Budget\" by name. Use list_folder when you know where something is: a search costs twenty times what a read does. `in_folder` reaches direct children only; `under_folder` reaches every folder below as well. With no filter at all it returns everything you can see, in the order order_by names.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5953,7 +5954,7 @@
             "type": "string"
           },
           "name": {
-            "description": "match the file name. Drive matches the BEGINNINGS OF WORDS, not any substring: \"Bud\" finds \"Budget 2026\" but \"udget\" finds nothing. Several words must appear next to each other in that order.",
+            "description": "match the file name. Drive matches the BEGINNINGS OF WORDS, not any substring: \"Bud\" finds \"Budget 2026\" but \"udget\" finds nothing. Each word must begin some word of the name, in any order and not necessarily adjacent: \"Identity Decentralized\" finds \"Decentralized Identity\".",
             "type": "string"
           },
           "order_by": {
@@ -5989,7 +5990,7 @@
             "type": "boolean"
           },
           "text": {
-            "description": "match whole words in the file's content and name. Wrap in double quotes for an exact phrase. Not a substring match.",
+            "description": "match words in the file's content and name. Wrap in double quotes for an exact phrase. Search by whole words: how Drive matches part of a word is not documented.",
             "type": "string"
           },
           "trashed": {
