@@ -94,11 +94,10 @@ func (s *Server) createFile(meta *gdrive.FileMeta, contentType string, content [
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
-	// Drive's own words, observed live on 2026-09-05, and there are two
-	// of them: the Docs Editors formats and a shortcut refuse a
-	// pre-generated id with different messages and different statuses. A
-	// fake that accepts what Drive refuses lets the bug through, and this
-	// one accepted both until a real account said no — twice.
+	// Drive's own words, observed live, and there are two of them: the
+	// Docs Editors formats and a shortcut refuse a pre-generated id with
+	// different messages and different statuses. A fake that accepts what
+	// Drive refuses lets the bug through.
 	if meta.ID != "" && !gapi.AcceptsGeneratedID(mimeType) {
 		if mimeType == gdrive.MimeShortcut {
 			return nil, &apiFailure{http.StatusBadRequest, "invalid",
@@ -254,7 +253,7 @@ func setItemRestriction(f *gdrive.File, r gdrive.DownloadRestriction) {
 // restriction or of limited access that it does not allow: a capability
 // the account lacks, or limited access on a file, which the access guide
 // says "isn't available for files". The shape of that last answer is not
-// documented (§18).
+// documented.
 func restrictionRefusal(f *gdrive.File, meta *gdrive.FileMeta) error {
 	c := f.Capabilities
 	if c == nil {

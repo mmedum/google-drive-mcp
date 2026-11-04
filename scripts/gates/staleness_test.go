@@ -10,72 +10,114 @@ import (
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 )
 
-// TestStatusVersionsMatchTheChangelog runs the check against the real
-// repository, so a status line left behind by a release fails here as
-// well as in CI.
-func TestStatusVersionsMatchTheChangelog(t *testing.T) {
-	t.Chdir("../..")
-	if problems := checkStatusVersions(); len(problems) > 0 {
-		t.Errorf("status lines disagree with CHANGELOG.md:\n%s", strings.Join(problems, "\n"))
-	}
-}
+// The changelog fixtures: a released v0.9.0, a v0.9.1 with and without
+// notes, and an [Unreleased] section with and without them. This
+// repository never had a 0.9 tag, so a git call that reads the wrong
+// checkout finds neither.
+const (
+	clReleased   = "## [0.9.0] - 2026-01-01\n\n### Added\n\n- The first tool.\n"
+	clNext       = "## [0.9.1] - 2026-02-01\n\n### Added\n\n- A second tool.\n\n"
+	clNextEmpty  = "## [0.9.1] - 2026-02-01\n\n"
+	clUnreleased = "# Changelog\n\n## [Unreleased]\n\n"
+	clWritten    = clUnreleased + "### Added\n\n- A second tool.\n\n"
+	clEmpty      = "source changed but CHANGELOG.md [Unreleased] is empty"
+)
 
-// TestAStaleStatusLineIsCaught is the case that went unnoticed for two
-// releases: the README said v0.3.0 while v0.4.0 and then v1.0.0 shipped,
-// and every list inside it was correct the whole time.
-func TestAStaleStatusLineIsCaught(t *testing.T) {
-	cases := []struct {
-		name    string
-		readme  string
-		arch    string
-		want    string
-		wantAny bool
+// The CHANGELOG rule: a change to Go source is written up under
+// [Unreleased], or, on the release commit before its tag, under the
+// version that commit releases.
+func TestTheChangelogRule(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name          string
+		changelog     string
+		sourceChanged bool
+		// tagged are the versions that have a tag.
+		tagged []string
+		want   []string
 	}{
-		{
-			name:   "the architecture status is behind",
-			readme: "**Status: v1.0.0, phase 5 of the plan.**\n",
-			arch:   "**Status:** phase 4 complete (2026-09-06), released as v0.4.0.\n",
-			want:   "docs/architecture.md says the status is v0.4.0",
-		},
-		{
-			name:   "a status line that no longer has the shape this reads",
-			readme: "no status line here at all\n",
-			arch:   "**Status:** phase 5 complete, released as v1.0.0.\n",
-			want:   "docs/architecture.md has no status line naming a version",
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			dir := t.TempDir()
-			write(t, filepath.Join(dir, "CHANGELOG.md"),
-				"# Changelog\n\n## [1.0.0] - 2026-09-06\n\n### Added\n\n- something\n")
-			write(t, filepath.Join(dir, "README.md"), c.readme)
-			write(t, filepath.Join(dir, "docs", "architecture.md"), c.arch)
-			t.Chdir(dir)
-
-			problems := checkStatusVersions()
-			if len(problems) == 0 {
-				t.Fatal("a stale status line was accepted")
-			}
-			if !strings.Contains(strings.Join(problems, "\n"), c.want) {
-				t.Errorf("the report does not say %q:\n%s", c.want, strings.Join(problems, "\n"))
+		{"an undocumented source change", clUnreleased + clReleased, true, []string{"0.9.0"}, []string{clEmpty}},
+		{"a documented source change", clWritten + clReleased, true, []string{"0.9.0"}, nil},
+		{"the release commit before its tag", clUnreleased + clNext + clReleased, true, []string{"0.9.0"}, nil},
+		{"a release commit with nothing under its version", clUnreleased + clNextEmpty + clReleased, true,
+			[]string{"0.9.0"},
+			[]string{"source changed but CHANGELOG.md [0.9.1] (untagged, so this is a release commit) is empty"}},
+		{"an undocumented source change after the release is tagged", clUnreleased + clNext + clReleased, true,
+			[]string{"0.9.0", "0.9.1"}, []string{clEmpty}},
+		{"no change to Go source", clUnreleased + clReleased, false, []string{"0.9.0"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := changelogRule(tc.changelog, tc.sourceChanged, func(v string) bool { return slices.Contains(tc.tagged, v) })
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("changelogRule() = %q, want %q", got, tc.want)
 			}
 		})
 	}
 }
 
-// TestStatusVersionsBeforeTheFirstRelease keeps the check quiet where
-// there is nothing to be stale against: a changelog with no version
-// heading yet is a repository that has never released.
-func TestStatusVersionsBeforeTheFirstRelease(t *testing.T) {
-	dir := t.TempDir()
-	write(t, filepath.Join(dir, "CHANGELOG.md"), "# Changelog\n\n## [Unreleased]\n\n- something\n")
-	write(t, filepath.Join(dir, "README.md"), "**Status: pre-release.**\n")
-	write(t, filepath.Join(dir, "docs", "architecture.md"), "**Status:** no code yet.\n")
-	t.Chdir(dir)
+// What changelogRule is told comes from git: whether Go source differs
+// from the last tag, which is not always the commit before HEAD, and
+// whether a version is tagged. Each row is a repository whose v0.9.0 tag
+// is followed by one more commit.
+func TestTheChangelogRuleReadsGit(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		changelog string
+		// source and readme say which files the commit after v0.9.0 changes,
+		// and later commits a change to the README alone after it.
+		source, readme, later bool
+		// tag tags that commit, and edit then changes Go source uncommitted.
+		tag, edit bool
+		want      []string
+	}{
+		{name: "an undocumented source change after the release is tagged", changelog: clUnreleased + clNext + clReleased,
+			source: true, tag: true, edit: true, want: []string{clEmpty}},
+		{name: "an undocumented source change two commits after the tag", changelog: clUnreleased + clReleased,
+			source: true, later: true, want: []string{clEmpty}},
+		{name: "a change to no Go source", changelog: clUnreleased + clReleased, readme: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateGit(t)
+			dir := t.TempDir()
+			git := func(args ...string) { t.Helper(); gitAs(t, dir, "a@example.com", args...) }
+			put := func(name, body string) { t.Helper(); write(t, filepath.Join(dir, name), body) }
+			git("init", "-q", "-b", "main")
+			put("main.go", "package main\n")
+			put("README.md", "# Fixture\n")
+			put("CHANGELOG.md", clUnreleased+clReleased)
+			git("add", "-A")
+			git("commit", "-q", "-m", "Release 0.9.0")
+			git("tag", "-a", "v0.9.0", "-m", "v0.9.0")
 
-	if problems := checkStatusVersions(); len(problems) > 0 {
-		t.Errorf("an unreleased repository was reported as stale:\n%s", strings.Join(problems, "\n"))
+			if tc.source {
+				put("main.go", "package main\n\nfunc main() {}\n")
+			}
+			if tc.readme {
+				put("README.md", "# Fixture\n\nMore words.\n")
+			}
+			put("CHANGELOG.md", tc.changelog)
+			git("add", "-A")
+			git("commit", "-q", "-m", "The next change")
+			if tc.later {
+				put("README.md", "# Fixture\n\nA later change.\n")
+				git("commit", "-q", "-am", "A later change")
+			}
+			if tc.tag {
+				git("tag", "-a", "v0.9.1", "-m", "v0.9.1")
+			}
+			if tc.edit {
+				put("main.go", "package main\n\nfunc main() { main() }\n")
+			}
+
+			got, err := checkChangelog(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("checkChangelog() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

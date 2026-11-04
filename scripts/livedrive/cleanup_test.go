@@ -277,7 +277,8 @@ func TestAFileNotBackInTheScratchFolderFailsLoudly(t *testing.T) {
 			f.movedBackTo = tc.landsIn
 			w, out := testRun(t, f, options{drive: "Team drive"})
 			w.scratchName = scratch
-			w.scratchID = w.createAndKeepID("create_folder", map[string]any{"name": w.scratchName})
+			w.scratchID = w.createAndKeepID(call{name: "the scratch folder is created", tool: "create_folder",
+				args: map[string]any{"name": w.scratchName}})
 			w.sharedDrive(made{small: small, folder: "id-folder-fixture"})
 			if !slices.ContainsFunc(f.calls, func(c sentCall) bool {
 				return c.tool == "move_file" && c.text("to") == "drive:Team drive" && c.text("file") == small &&
@@ -397,7 +398,7 @@ func TestAStopEndsTheReadsBeforeTheNextCall(t *testing.T) {
 	stop.set(os.Interrupt)
 	var out bytes.Buffer
 	tr := transcript.NewTo(redact.NewRedactor(true), &out, &out)
-	_, err := runReads(f, tr, []call{{tool: "get_account", args: map[string]any{}}}, stop)
+	_, err := runReads(f, tr, []call{{name: "the signed-in account is read", tool: "get_account", args: map[string]any{}}}, stop)
 	if err == nil || len(f.calls) != 0 {
 		t.Errorf("a stopped read run returned %v after %d calls, want an error and none", err, len(f.calls))
 	}

@@ -144,7 +144,7 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 }
 
 // registerWideShares adds the shares that reach past the people inside
-// the organization, or hand a file over (§4a). Each is its own tool
+// the organization, or hand a file over. Each is its own tool (D-40)
 // because a client remembers an approval per tool, never per argument,
 // and each exists only on a server started with
 // GDRIVE_ENABLE_DESTRUCTIVE=true, with confirm: true on the call.

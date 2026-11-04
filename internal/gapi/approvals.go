@@ -19,8 +19,8 @@ import (
 // retrieve approval details, you must explicitly specify the fields you
 // want." A caller who omits it gets a successful, empty-looking answer —
 // which is worse than an error, because it reads as "no approvals".
-// Phase 3 met the same shape on comments and it cost a live run to find;
-// this time the document was read first.
+// Checked by the live step "a document's approvals are listed".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/approvals/list
 const ApprovalFields = "approvalId,targetFileId,status,createTime,modifyTime,completeTime," +
 	"dueTime,fileContentChangeBehavior,initiator(displayName,emailAddress,me)," +
 	"reviewerResponses(response,reviewer(displayName,emailAddress,me))"

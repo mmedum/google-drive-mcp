@@ -7,10 +7,9 @@ import (
 
 // The two drivers under scripts/ both read values back out of a rendered
 // file card, because the card is what a write returns and its id is what
-// the next call needs. One parser, because two had already drifted: one
-// required the whole line to be "id: <value>" and the other took any
-// line beginning "id: ", so a change to the renderer would have broken
-// one of them and not the other.
+// the next call needs. One parser, because two drift apart: one that
+// requires the whole line to be "id: <value>" and one that takes any
+// line beginning "id: " break differently when the renderer changes.
 
 // idLine matches the "id: <value>" line every card carries.
 var idLine = regexp.MustCompile(`(?m)^id:[ \t]*(\S+)[ \t]*$`)
@@ -36,16 +35,20 @@ func FirstLine(s string) string {
 
 // A comment listing prints ids INSIDE the listing rather than on an
 // `id:` line: a thread's id opens its line, and a reply's is indented
-// under it. IDIn cannot see either, which is why three of the driver's
-// last uncovered options were uncovered — every one of them needs an id
-// that only a listing carries.
+// under it. IDIn cannot see either, and the options that act on one
+// reply need an id that only a listing carries.
 //
 // The patterns are anchored on internal/render's own shape, and a test
 // renders a real listing through it rather than describing one. That is
-// the same guard the id reader above needed: the renderer decides these,
-// and nothing else here would notice it changing them. Drive's comment
-// and reply ids can carry a dot: every reply in a live run was "doco."
-// and an id, and patterns without the dot read none of them.
+// the same guard the id reader above needs: the renderer decides these,
+// and nothing else here would notice it changing them.
+//
+// Drive's comment and reply ids can carry a dot, which the reference
+// does not say: a live run's reply ids are "doco." and an id, so a
+// pattern without the dot reads none of them. Checked by the live steps
+// "one reply is edited by its id" and "one reply is removed from its
+// thread".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/replies
 var (
 	threadIDLine = regexp.MustCompile(`(?m)^([A-Za-z0-9_.\-]+)  \S`)
 	replyIDLine  = regexp.MustCompile(`(?m)^  ([A-Za-z0-9_.\-]+)  \S`)

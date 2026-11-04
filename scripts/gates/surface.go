@@ -10,7 +10,7 @@ import (
 // carries the whole registrable surface rather than a default build's.
 //
 // It is every switch config.Vars records but read-only, rather than a
-// list here: a list written from memory falls behind the moment a phase
+// list here: a list written from memory falls behind the moment a change
 // adds a flag, and the gate that was supposed to notice goes quiet
 // instead of failing. Every other switch registers tools. GDRIVE_READ_ONLY
 // REMOVES them, so turning it on would shrink the surface it is meant to

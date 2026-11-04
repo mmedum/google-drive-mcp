@@ -1,21 +1,18 @@
 // Package transcript is how a program that drives a real Google account
 // prints: through one function, which redacts.
 //
-// Redaction used to be a habit rather than a construction. Every line
-// HAPPENED to go through the redactor, which is not the same as every
-// line HAVING to: phase 4 found the live driver echoing each call's
-// arguments unredacted, which was arguably nobody's problem while the
-// only address there was one the operator had typed — and became one the
-// moment starting an approval put the SIGNED-IN account's own address
-// into the arguments of every write run. It was fixed line by line, and
-// the next print somebody added while debugging would have looked
-// exactly like the two beside it that are safe.
+// Redaction is a construction rather than a habit. Every line HAPPENING
+// to go through the redactor is not the same as every line HAVING to:
+// addresses arrive in places nobody typed them, such as the signed-in
+// account's own address in the arguments of every approval a write run
+// starts, and a print somebody adds while debugging looks exactly like
+// the safe ones beside it.
 //
-// So the rule is structural now. `gates transcript` forbids fmt.Print,
+// So the rule is structural. `gates transcript` forbids fmt.Print,
 // fmt.Fprint, os.Stdout and os.Stderr in every program that talks to a
 // real account, which leaves write below as the single place a line
 // reaches a terminal — and it redacts what passes through it. A print
-// that bypasses the redactor is no longer something to remember; it is
+// that bypasses the redactor is not something to remember; it is
 // something the gate refuses.
 //
 // Two programs share this rather than one having it, because they are

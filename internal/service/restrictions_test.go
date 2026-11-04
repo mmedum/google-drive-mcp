@@ -160,8 +160,7 @@ func TestTurningLimitedAccessOffToPeopleInsideGoes(t *testing.T) {
 }
 
 // Turning limited access off is refused when the folder above would let
-// anyone with the link open it, naming them, and nothing is changed
-// (§4a).
+// anyone with the link open it, naming them, and nothing is changed.
 func TestTurningLimitedAccessOffToAnyoneIsRefused(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	linkShared(fake)

@@ -132,7 +132,9 @@ const (
 // builtinKind is what one of the number formats ECMA-376 builds in
 // shows: 14 to 17 dates, 18 to 21 times, 22 both, 45 to 47 minutes and
 // seconds, of which 46 counts hours past a day. Every other built-in is
-// a number, a percentage, a fraction or text.
+// a number, a percentage, a fraction or text. The list is ECMA-376 Part 1,
+// section 18.8.30 (numFmt), and Apache POI's
+// DateUtil.isInternalDateFormat names the same set.
 func builtinKind(id int) numKind {
 	switch {
 	case id >= 14 && id <= 17:
@@ -213,9 +215,9 @@ func formatKind(code string) numKind {
 // separators, and the zeros of fractional seconds.
 const dateRunes = "ymdhs-/.,: 0年月日"
 
-// Serial number ranges, from ECMA-376's date systems: the 1900 base
-// runs from serial 1 to 2 958 465 (31 December 9999), the 1904 base
-// from 0 to 2 957 003.
+// Serial number ranges, from ECMA-376's date systems (Part 1, section
+// 18.17.4.1): the 1900 base runs from serial 1 to 2 958 465 (31 December
+// 9999), the 1904 base from 0 to 2 957 003.
 const (
 	maxSerial1900 = 2958465
 	maxSerial1904 = 2957003

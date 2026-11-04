@@ -89,8 +89,11 @@ func (r Ref) Display() string {
 // long enough that no plausible file name collides with it. Drive issues
 // file ids of 28 to 44 characters and shared-drive ids of 19, so the
 // floor sits well below anything real and well above a file name that
-// happens to contain no space, dot or punctuation. A word that clears
+// happens to contain no space, dot or punctuation. No Google page
+// documents an id's length; the lengths are observed. A word that clears
 // the bar but names no file is retried as a name (see internal/service).
+// Checked by the live step "an unknown id is refused rather than looked
+// up as a name".
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{15,}$`)
 
 // IsID reports whether s has the shape of a Drive id.

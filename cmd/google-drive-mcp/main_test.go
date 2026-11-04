@@ -44,7 +44,7 @@ func TestIsDisconnect(t *testing.T) {
 		// A wire error that is not a shutdown must still be a failure.
 		fmt.Errorf("%w", &jsonrpc.Error{Code: -32603, Message: "internal error"}),
 		// And a message that merely reads like one, with no code, is not
-		// enough: this is what the string check used to accept.
+		// enough, though a string match would accept it.
 		errors.New("the server is closing time at the pub"),
 	}
 	for _, err := range broken {
@@ -57,11 +57,9 @@ func TestIsDisconnect(t *testing.T) {
 // A mistyped subcommand and a flag reach the default path the same way,
 // and the leading dash is all that tells them apart.
 //
-// This drives run() rather than a predicate. The predicate version of
-// this test passed with the guard deleted from main entirely, which is
-// the whole reason main was reshaped to take its arguments and streams:
-// a test that cannot fail when the behavior is removed is not holding
-// the behavior.
+// This drives run() rather than a predicate. A test of a predicate
+// passes with the guard deleted from main entirely, and a test that
+// cannot fail when the behavior is removed is not holding the behavior.
 func TestAnUnknownCommandIsReported(t *testing.T) {
 	for _, arg := range []string{"statsu", "zzz-bogus", "Status"} {
 		var stdout, stderr bytes.Buffer

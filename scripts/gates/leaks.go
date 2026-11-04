@@ -29,6 +29,7 @@ import (
 // GitHub-provided noreply email address" (docs.github.com, Email
 // addresses reference). Anything else that looks like an address belongs
 // to a real person.
+// https://docs.github.com/en/account-and-profile/reference/email-addresses-reference
 var documentedDomains = map[string]bool{
 	"example.com": true, "example.org": true, "example.net": true,
 	"anthropic.com": true, "users.noreply.github.com": true,
@@ -43,8 +44,7 @@ var documentedDomains = map[string]bool{
 // It is a suffix rule rather than three more map entries because a
 // fixture wanting to read as "a different organization" will reach for a
 // subdomain again, and the alternative is weakening the fixture to suit
-// the gate. Which is backwards: this one bit while a test was being
-// written to close a real leak.
+// the gate, which is backwards.
 func isDocumented(host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	for documented := range documentedDomains {
@@ -79,8 +79,7 @@ var (
 // account can reach either. They have to be skipped rather than allowed
 // name by name, because the Labels API prefixes every schema with its
 // own product and version, and the result is long CamelCase with a digit
-// in it — indistinguishable from an id by shape. Writing one of those
-// names into this comment is what flagged this file the first time.
+// in it — indistinguishable from an id by shape.
 //
 // Keyed by repo-relative path, not by base name. A base-name key exempts
 // any file anywhere that happens to be called api-fields.json, which is
@@ -280,8 +279,8 @@ func abbreviate(s string) string {
 // is scanned from its message down, because the lines above it are the
 // author, committer and tagger that git writes itself: an identity is
 // public in every commit of every repository by construction, and
-// scanning it made this check fail on its own tags and pass on nothing
-// — a gate that always fails is a gate that gets ignored.
+// scanning it fails every annotated tag — a gate that always fails is a
+// gate that gets ignored.
 func leaksInHistory(out io.Writer) error {
 	revs, err := exec.Command("git", "rev-list", "--all", "--objects").Output()
 	if err != nil {
@@ -367,35 +366,50 @@ func gitMessage(body string) string {
 // attribute a commit to multiple authors" (docs.github.com, Creating a
 // commit with multiple authors). Only a line that starts with one; the
 // words anywhere else are prose.
+// https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---signoff
+// https://docs.github.com/en/pull-requests/committing-changes-to-your-project/creating-and-editing-commits/creating-a-commit-with-multiple-authors
 var attribution = regexp.MustCompile(`(?im)^(?:signed-off-by|co-authored-by):.*$`)
 
-// scannableFiles lists what the working-tree scan reads: everything git
-// tracks, plus everything untracked that is not ignored.
+// scannableFiles lists what the working-tree scan reads: the text files
+// lsFiles lists in the working directory.
+func scannableFiles() ([]string, error) {
+	listed, err := lsFiles(".")
+	if err != nil {
+		return nil, fmt.Errorf("list files: %w", err)
+	}
+	var files []string
+	for _, name := range listed {
+		if isText(name) {
+			files = append(files, name)
+		}
+	}
+	return files, nil
+}
+
+// lsFiles is everything git tracks under root, plus everything untracked
+// that is not ignored, slash-separated and relative to root, each once.
 //
-// The second half was missing, and a sibling repository found the same
-// hole in its own copy the same week. `git ls-files` lists the INDEX, so
-// a file nobody has staged yet is invisible — and a phase's new files
-// are precisely the ones nobody has scanned before. `make check` would
-// go green all afternoon over the files of the last phase while this
-// phase's fixtures, written that afternoon, went unread; the leak would
-// arrive with the commit that finally staged them, at which point the
-// gate is being run by whoever is trying to push.
+// The second half matters. `git ls-files` lists the INDEX, so a file
+// nobody has staged yet is invisible, and new files are precisely the
+// ones nobody has scanned before. Without it `make check` goes green over
+// the staged files while new fixtures go unread, and the leak arrives
+// with the commit that stages them.
 //
 // `--exclude-standard` keeps .gitignore's word: a build output at the
 // repository root is not something to scan, and it is the one thing the
 // ignore file is there to keep out of the tree in the first place.
-func scannableFiles() ([]string, error) {
-	out, err := exec.Command("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard").Output()
+func lsFiles(root string) ([]string, error) {
+	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard").Output()
 	if err != nil {
-		return nil, fmt.Errorf("list files: %w", err)
+		return nil, fmt.Errorf("git -C %s ls-files: %w", root, err)
 	}
 	var files []string
 	seen := map[string]bool{}
 	for _, name := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
 		// A file that is both tracked and modified is listed once by
 		// git, but --cached and --others can overlap after a rename, and
-		// scanning one twice would report one leak twice.
-		if name == "" || seen[name] || !isText(name) {
+		// reading one twice would report one finding twice.
+		if name == "" || seen[name] {
 			continue
 		}
 		seen[name] = true

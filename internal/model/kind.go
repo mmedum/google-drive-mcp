@@ -96,7 +96,12 @@ func BoundaryNote(mime string) string {
 // ones: a Doc, a Sheet and a deck each pin through their own API, which
 // this server does not use. For a Markdown file, the comments made in
 // Google Docs are not in the listing at all. It is "" for every other
-// kind, whose comments are all on the file.
+// kind, whose comments are all on the file. Each of the three APIs has an
+// InsertCommentRequest, tied to a Range in a document, a GridCoordinate
+// in a sheet, and a page or page element in a deck.
+// https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request#InsertCommentRequest
+// https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/request#InsertCommentRequest
+// https://developers.google.com/workspace/slides/api/reference/rest/v1/presentations/request#InsertCommentRequest
 func CommentsNote(f *gdrive.File) string {
 	if mediatype.IsMarkdown(f.MimeType) {
 		return "this is a Markdown file: " + markdownComments

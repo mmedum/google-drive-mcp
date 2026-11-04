@@ -37,9 +37,8 @@ func setup(t testing.TB, o service.Options) (*service.Service, *drivetest.Server
 }
 
 // hitCount reads the count out of a rendered listing head without
-// keeping any of the names in it. The integration tests need the same
-// thing, and had their own copy with its own hand-rolled digit loop:
-// one that returned 0 for anything unparseable, where this one says so.
+// keeping any of the names in it. The integration tests use it too. A
+// head it cannot parse fails the test rather than reading as 0.
 func hitCount(t *testing.T, out string) int {
 	t.Helper()
 	head := strings.SplitN(out, "\n", 2)[0]
@@ -1182,7 +1181,7 @@ func TestASharedDriveFileWithNoGrantsIsNotCalledUnknown(t *testing.T) {
 
 func TestNamesDifferingOnlyInCaseAreAmbiguous(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
-	// Drive's `name =` ignores case (observed live, spike A), so two
+	// Drive's `name =` ignores case (TestLiveNameEqualsIgnoresCase), so two
 	// siblings differing only in case both match one lookup. Taking
 	// either would be taking the first match.
 	fake.AddFile("id-budget-lower-fixture", "budget.xlsx", "text/plain", "id-2026-fixture")

@@ -39,11 +39,9 @@ func staleness(out io.Writer, args []string) error {
 	problems = append(problems, checkReadmeTools(dump.names())...)
 
 	problems = append(problems, checkConfigDocs(config.EnvVars())...)
-	problems = append(problems, checkArchitectureStatus()...)
-	problems = append(problems, checkStatusVersions()...)
 	problems = append(problems, checkScopesDocumented()...)
 
-	changelog, err := checkChangelog()
+	changelog, err := checkChangelog(".")
 	if err != nil {
 		return err
 	}
@@ -128,8 +126,9 @@ var permissionRule = regexp.MustCompile(`"mcp__google-drive__([a-z0-9_]+)"`)
 // checkPermissionRules holds the README's Claude Code permission rules
 // to the registered tools. A rule for a tool that does not exist matches
 // nothing, so the person it was meant to ask is never asked. A README
-// with no rule at all is reported too: the rules are §4a's advice, and
-// a check that read none passes everything.
+// with no rule at all is reported too: the server asks nobody itself, so
+// the rules are how a person gets asked, and a check that read none
+// passes everything.
 func checkPermissionRules(readme string, registered []string) []string {
 	rules := permissionRule.FindAllStringSubmatch(readme, -1)
 	if len(rules) == 0 {
@@ -196,120 +195,47 @@ var (
 	settingName = regexp.MustCompile(`^` + config.EnvPrefix + `[A-Z0-9_]+$`)
 )
 
-func checkArchitectureStatus() []string {
-	arch, err := os.ReadFile("docs/architecture.md")
-	if err != nil {
-		return []string{"cannot read docs/architecture.md: " + err.Error()}
-	}
-	if strings.Contains(strings.ToLower(string(arch)), "no code yet") {
-		return []string{"docs/architecture.md still says 'no code yet'"}
-	}
-	return nil
-}
-
-// statusVersion matches the version a status line claims, in either of
-// the two spellings the two documents use.
-//
-// The README is no longer among them. It used to carry "Status: vX.Y.Z"
-// and this gate held it honest, which worked — but the honest fix for a
-// copy of a fact going stale is to delete the copy, not to build
-// machinery that maintains it. The release badge shows the version,
-// updates itself and cannot be wrong, so the line is gone and so is the
-// rule. What the README kept is the part no badge can carry: which phase
-// the work is in and which paths are unverified. The sibling servers
-// settled it the same way.
-var statusVersion = map[string]*regexp.Regexp{
-	"docs/architecture.md": regexp.MustCompile(`(?m)^\*\*Status:\*\* phase [0-9]+ complete \([^)]*\), released as v([0-9]+\.[0-9]+\.[0-9]+)`),
-}
-
-// checkStatusVersions holds the two status lines to the newest version
-// in the changelog.
-//
-// The README said "Status: v0.3.0, phase 3" for two whole releases, and
-// promised Workspace labels as something that would "arrive in v0.4.0"
-// after they had shipped. Nothing noticed, because the gate beside this
-// one reads the README's tool TABLE — which was correct throughout — and
-// checkArchitectureStatus above greps for one phase-0 placeholder. A
-// document can be wrong about what it is while every list in it is right.
-//
-// Only the version is checked. The prose around it is a human's to keep
-// honest; a number that has to match another number in the repository is
-// the part a gate can hold.
-func checkStatusVersions() []string {
-	raw, err := os.ReadFile("CHANGELOG.md")
-	if err != nil {
-		return []string{"cannot read CHANGELOG.md: " + err.Error()}
-	}
-	m := versionHeading.FindStringSubmatch(string(raw))
-	if m == nil {
-		// Before the first release there is nothing to be stale against.
-		return nil
-	}
-	released := m[1]
-
-	var problems []string
-	for _, path := range slices.Sorted(maps.Keys(statusVersion)) {
-		doc, err := os.ReadFile(path) //nolint:gosec // a path this repository owns
-		if err != nil {
-			problems = append(problems, "cannot read "+path+": "+err.Error())
-			continue
-		}
-		found := statusVersion[path].FindStringSubmatch(string(doc))
-		if found == nil {
-			problems = append(problems, path+" has no status line naming a version, "+
-				"or it no longer has the shape this gate reads")
-			continue
-		}
-		if found[1] != released {
-			problems = append(problems, fmt.Sprintf(
-				"%s says the status is v%s and the newest version in CHANGELOG.md is v%s",
-				path, found[1], released))
-		}
-	}
-	return problems
-}
-
+// versionHeading is a released version's heading in the changelog.
 var versionHeading = regexp.MustCompile(`(?m)^## \[([0-9]+\.[0-9]+\.[0-9]+)\]`)
 
-// checkChangelog requires source changes to be written up. Normally that
+// checkChangelog holds the checkout at dir to changelogRule.
+func checkChangelog(dir string) ([]string, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, changelogPath))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", changelogPath, err)
+	}
+	tagged := func(version string) bool { return tagExists(dir, "v"+version) }
+	return changelogRule(string(raw), goFilesChanged(dir), tagged), nil
+}
+
+// changelogRule requires source changes to be written up. Normally that
 // means content under [Unreleased]; on a release commit those notes have
 // just moved under the new version heading, which is only acceptable
 // while that version has no tag yet.
-func checkChangelog() ([]string, error) {
-	if !goFilesChanged() {
-		return nil, nil
+func changelogRule(text string, sourceChanged bool, tagged func(version string) bool) []string {
+	if !sourceChanged {
+		return nil
 	}
-	raw, err := os.ReadFile("CHANGELOG.md")
-	if err != nil {
-		return nil, fmt.Errorf("read CHANGELOG.md: %w", err)
-	}
-	text := string(raw)
-	if countEntries(text, "## [Unreleased]") > 0 {
-		return nil, nil
+	lines := strings.Split(text, "\n")
+	if countEntries(lines, "Unreleased") > 0 {
+		return nil
 	}
 	where := "[Unreleased]"
-	if m := versionHeading.FindStringSubmatch(text); m != nil {
-		if !tagExists("v" + m[1]) {
-			if countEntries(text, "## ["+m[1]+"]") > 0 {
-				return nil, nil
-			}
-			where = "[" + m[1] + "] (untagged, so this is a release commit)"
+	if m := versionHeading.FindStringSubmatch(text); m != nil && !tagged(m[1]) {
+		if countEntries(lines, m[1]) > 0 {
+			return nil
 		}
+		where = "[" + m[1] + "] (untagged, so this is a release commit)"
 	}
-	return []string{"source changed but CHANGELOG.md " + where + " is empty"}, nil
+	return []string{"source changed but " + changelogPath + " " + where + " is empty"}
 }
 
-// countEntries counts the bullet points in the section under heading.
-func countEntries(text, heading string) int {
-	_, rest, ok := strings.Cut(text, heading)
-	if !ok {
-		return 0
-	}
-	if next := strings.Index(rest, "\n## ["); next >= 0 {
-		rest = rest[:next]
-	}
+// countEntries counts the bullet points in the section for version of a
+// changelog's lines.
+func countEntries(lines []string, version string) int {
+	from, to := changelogSection(lines, version)
 	n := 0
-	for _, line := range strings.Split(rest, "\n") {
+	for _, line := range lines[from:to] {
 		if strings.HasPrefix(strings.TrimSpace(line), "- ") {
 			n++
 		}
@@ -317,19 +243,21 @@ func countEntries(text, heading string) int {
 	return n
 }
 
-func goFilesChanged() bool {
+// goFilesChanged reports whether Go source in the checkout at dir differs
+// from the last tag, or from the commit before HEAD when there is none.
+func goFilesChanged(dir string) bool {
 	rev := "HEAD~1"
-	if last := lastTag(); last != "" {
+	if last := lastTag(dir); last != "" {
 		rev = last
 	}
 	// A non-zero status means either a difference or no such revision;
 	// on the very first commit there is nothing to compare against, and
 	// requiring the notes then is the safe way round.
-	return exec.Command("git", "diff", "--quiet", rev, "--", "*.go").Run() != nil
+	return exec.Command("git", "-C", dir, "diff", "--quiet", rev, "--", "*.go").Run() != nil
 }
 
-func tagExists(tag string) bool {
-	return exec.Command("git", "rev-parse", "-q", "--verify", "refs/tags/"+tag).Run() == nil
+func tagExists(dir, tag string) bool {
+	return exec.Command("git", "-C", dir, "rev-parse", "-q", "--verify", "refs/tags/"+tag).Run() == nil
 }
 
 // checkScopesDocumented holds the README's setup step to the scopes
@@ -339,14 +267,8 @@ func tagExists(tag string) bool {
 // disprovable in one command, which for a setup step is the same as
 // being wrong: the reader adds what they were told to, runs login, and
 // is refused, on an External app, by a consent screen that does not
-// carry the rest. This README named one scope where the code can ask for
-// five — the label and activity pairs are requested only with their
-// features on, which is exactly why nobody noticed.
-//
-// Found by the first outside person to install this family of servers,
-// who checked the equivalent instruction in a sibling repository against
-// its code and reported the gap. The sibling's instruction turned out to
-// be right and unexplained; this one was neither.
+// carry the rest. The label and activity scopes are requested only with
+// their features on, which is exactly why a missing one goes unnoticed.
 func checkScopesDocumented() []string {
 	source, err := os.ReadFile(filepath.Join("internal", "auth", "auth.go"))
 	if err != nil {
@@ -375,11 +297,11 @@ func checkScopesDocumented() []string {
 // scopeConstant matches the Scope* constants internal/auth declares.
 var scopeConstant = regexp.MustCompile(`Scope[A-Za-z]*\s*=\s*"(https://www\.googleapis\.com/auth/[a-z.]+)"`)
 
-// lastTag returns the most recent tag, or "" when there is none. Having
-// no tags is the normal state before the first release, so it is not an
-// error and this cannot fail.
-func lastTag() string {
-	out, err := exec.Command("git", "describe", "--tags", "--abbrev=0").Output()
+// lastTag returns the most recent tag in the checkout at dir, or "" when
+// there is none. Having no tags is the normal state before the first
+// release, so it is not an error and this cannot fail.
+func lastTag(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "describe", "--tags", "--abbrev=0").Output()
 	if err != nil {
 		return ""
 	}

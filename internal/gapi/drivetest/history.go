@@ -363,8 +363,8 @@ func (s *Server) recordDriveChangeLocked(d *gdrive.Drive) {
 
 // decodeDriveMeta decodes a drives.create or drives.update body the way
 // Drive takes it: a restrictions object that carries downloadRestriction
-// is refused outright, even with the values the drive already holds
-// (§18, live 2026-09-30), and Drive's answer is a bare "Bad Request".
+// is refused outright, even with the values the drive already holds,
+// and Drive's answer is a bare "Bad Request".
 func (s *Server) decodeDriveMeta(w http.ResponseWriter, r *http.Request, meta *gdrive.DriveMeta) bool {
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
 	if err != nil {
@@ -390,7 +390,7 @@ func (s *Server) decodeDriveMeta(w http.ResponseWriter, r *http.Request, meta *g
 // mergeRestrictions applies a patch the way Drive does: switch by
 // switch, a switch left out keeping its value. Turning
 // copyRequiresWriterPermission on or off sets the download restriction
-// for readers with it, as Drive was seen to (§18, live 2026-09-30).
+// for readers with it, as Drive does.
 func mergeRestrictions(cur *gdrive.DriveRestrictions, p *gdrive.DriveRestrictionsPatch) *gdrive.DriveRestrictions {
 	out := &gdrive.DriveRestrictions{}
 	if cur != nil {

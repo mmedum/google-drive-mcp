@@ -120,7 +120,7 @@ func TestShareFileSaysNothingChangedWhenTheGrantIsAlreadyThere(t *testing.T) {
 // share_file grants named people and groups inside the organization.
 // A link for anyone, a domain, someone outside and a new owner are each
 // another tool's, behind the destructive flag, and are refused [blocked]
-// naming it, before anything is written (§4a).
+// naming it, before anything is written.
 func TestShareFileRefusesWhatReachesPastTheOrganization(t *testing.T) {
 	for _, tc := range []struct{ principal, role, tool string }{
 		{"anyone", "reader", "share_by_link"},
@@ -923,9 +923,8 @@ func TestAnExpiryCanBeRemoved(t *testing.T) {
 }
 
 func TestAnOwnershipTransferDescribesOnlyWhatItKnows(t *testing.T) {
-	// The note used to assert a consumer pending-acceptance flow this
-	// code does not perform and nobody has observed. The demotion is
-	// certain; the rest is read off the answer.
+	// The note says only what is known: the demotion is certain, and a
+	// pending acceptance is read off the answer, never asserted.
 	svc, _ := setup(t, service.Options{Destructive: true})
 	got, err := svc.TransferOwnership(t.Context(), service.TransferOwnershipInput{
 		File: "id-budget-fixture", FileName: "Budget.xlsx", To: "alice@example.com", Confirm: true,

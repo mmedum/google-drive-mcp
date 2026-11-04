@@ -51,7 +51,7 @@ type pattern struct {
 
 var patterns = []pattern{
 	// A link ends before the punctuation that ends a sentence: a period
-	// after one belongs to the prose, and taking it ran two sentences
+	// after one belongs to the prose, and taking it runs two sentences
 	// into one.
 	{"LINK", regexp.MustCompile(`https://(?:drive|docs)\.google\.com/[^\s"'<>)\]]*[^\s"'<>)\].,;:!?]`)},
 	{"EMAIL", regexp.MustCompile(`[A-Za-z0-9._%+\-…]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)},
@@ -62,7 +62,7 @@ var patterns = []pattern{
 	// before pasting it.
 	//
 	// A permission id for a person is the exception: it is twenty digits
-	// with no letter at all, so that rule let one through in a live run.
+	// with no letter at all, so that rule alone lets one through.
 	// It identifies a Google account, so it is an id in every sense that
 	// matters here.
 	{"ID", regexp.MustCompile(`[A-Za-z0-9_\-]{19,}={0,2}`)},
@@ -71,20 +71,19 @@ var patterns = []pattern{
 // personName is the shape of a display name: capitalized words of two
 // letters or more, with the usual lowercase particles allowed between
 // them. Requiring the capital keeps the match off the words around it —
-// without it, "13:17Z by Kim" was swallowed whole, timestamp and all.
+// without it, "13:17Z by Jane" is swallowed whole, timestamp and all.
 //
 // A name has no shape of its own that tells it from a file's, which is
 // why it is never matched on its own. What identifies it is the POSITION
 // this server printed it in, and those positions are a closed set
 // because internal/render wrote every one of them.
 //
-// The capital is not enough on its own, which a live run found the hard
-// way: a Workspace account whose display name was never set shows the
-// address's local part instead, and "first.middle.last" has no
-// capital anywhere. It survived every position — beside "(you)", after
-// "by", after "owner:" — because the shape, not the position, refused
-// it. The fixtures could not have caught it either: every invented name
-// in them was capitalized, so the test agreed with the bug.
+// The capital is not enough on its own: a Workspace account whose
+// display name is not set shows the address's local part instead, and
+// "first.middle.last" has no capital anywhere. A capitalized shape
+// refuses it in every position — beside "(you)", after "by", after
+// "owner:" — and fixtures whose invented names are all capitalized
+// agree with that bug.
 //
 // So a dotted lowercase token is a name shape too. It is safe only
 // BECAUSE the positions are anchored: matched loose it would swallow
@@ -95,7 +94,7 @@ const personName = `(?:` + capitalizedName + `|` + dottedName + `)`
 // capitalizedName is the ordinary shape: capitalized words of two
 // letters or more, with the usual lowercase particles between them.
 // Requiring the capital keeps the match off the words around it —
-// without it, "13:17Z by Kim" was swallowed whole, timestamp and all.
+// without it, "13:17Z by Jane" is swallowed whole, timestamp and all.
 const capitalizedName = `(?:\p{Lu}[\p{L}'\-.]+)(?: (?:\p{Lu}[\p{L}'\-.]+|van|von|der|den|de|del|di|du|la|le|bin|al)){0,4}`
 
 // dottedName is what Google shows for an account with no display name
@@ -107,13 +106,12 @@ const dottedName = `(?:[\p{Ll}\d]+(?:[.\-_][\p{Ll}\d]+)+)`
 // personPositions are those positions. internal/model prints a person in
 // exactly three forms (userWords): "Name (you)", "Name <address>", and
 // the bare "Name" — and only the middle one has an address beside it to
-// be found by, which is all the earlier version of this file could see.
+// be found by.
 //
 // The bare form is not an edge case. Drive populates no email on a
 // COMMENT author, so a comment listing carries somebody's name and
-// nothing else; phase 3 added that surface and the redactor did not
-// learn about it. Nor did it ever hide the signed-in account's own name,
-// which prints beside "(you)" in almost every result there is.
+// nothing else. The signed-in account's own name prints beside "(you)"
+// in almost every result there is.
 var personPositions = []*regexp.Regexp{
 	// A name opening a line with an angle bracket after it, which is how
 	// get_account prints the signed-in person. The address position
@@ -128,7 +126,7 @@ var personPositions = []*regexp.Regexp{
 	// "unknown" when there is none, or "shared with you". A column break,
 	// a semicolon or the end of the line closes it. The time is the
 	// anchor: without it, a file called "copy of a file shared by
-	// link.txt" lost "link.txt" to a person placeholder in a live run.
+	// link.txt" loses "link.txt" to a person placeholder.
 	regexp.MustCompile(`(?m)(?:\)|\dZ|unknown|shared with you:?) by (` + personName + `)(?:  |;|$)`),
 	// "trashed: yes, by Name on 2026-…", a shared drive's record of who
 	// put an item in the trash.
@@ -139,12 +137,11 @@ var personPositions = []*regexp.Regexp{
 	// person under it: "owner:" in a file card, and the three an
 	// approval's reviewers appear under.
 	//
-	// Phase 4's live run is why this is a list rather than just "owner":
-	// the approvals renderer prints "approved by: Name" for a reviewer
-	// Drive gives no address for, and the "by Name" position above did
-	// not match it — that one wants a space after "by", and this has a
-	// colon. A new key belongs here the day the renderer that prints it
-	// is written.
+	// This is a list rather than just "owner" because the approvals
+	// renderer prints "approved by: Name" for a reviewer Drive gives no
+	// address for, and the "by Name" position above does not match it —
+	// that one wants a space after "by", and this has a colon. A new key
+	// belongs here the day the renderer that prints it is written.
 	regexp.MustCompile(`(?m)^\s*(?:owner|asked by|approved by|declined by|waiting on|no answer from): (` +
 		personName + `)\s*$`),
 	// "Name, 2026-03-04 …" — a comment or reply author, which is the
@@ -156,7 +153,7 @@ var personPositions = []*regexp.Regexp{
 // once it is a placeholder, a group's address, and "(you)", which
 // follows the signed-in account and nothing else. Each anchors a name of
 // any case or shape, which is what makes these the safe positions for
-// one: a live run printed a name as lowercase initials.
+// one: a display name can be lowercase initials.
 var (
 	addressAnchor = regexp.MustCompile(` <<EMAIL_\d+>>`)
 	groupAnchor   = regexp.MustCompile(` \(group <EMAIL_\d+>\)`)
@@ -165,7 +162,7 @@ var (
 
 // nameWord is one word of a display name beside an address, in any
 // case: the shape matters less here than anywhere else, because the
-// address is the anchor. A live run printed one as lowercase initials.
+// address is the anchor. A display name can be lowercase initials.
 var nameWord = regexp.MustCompile(`^[\p{L}\d][\p{L}\d'.\-_]*$`)
 
 // leadIns are the words this server prints in front of a name and an
@@ -178,9 +175,8 @@ var leadIns = map[string]bool{
 }
 
 // commentPositions are where this server prints a comment's or a
-// reply's id. Drive's are eleven characters in a live run, so the ID
-// pattern, which wants nineteen, never saw them, and a transcript went
-// out with twenty of them in it.
+// reply's id. Drive's are eleven characters, and the ID pattern wants
+// nineteen, so it never sees them; these positions are what hide them.
 var commentPositions = []struct {
 	kind string
 	re   *regexp.Regexp
@@ -250,9 +246,9 @@ func (r *Redactor) placeholder(kind, value string) string {
 // person is the placeholder for a display name. Case does not matter:
 // one person is one placeholder however an answer capitalizes them.
 // Every name printed with "(you)" is the signed-in account's, so those
-// share one placeholder however the answers spell it: a live run found
-// approvals giving the account another display name than files.get, and
-// the account appeared as two people.
+// share one placeholder however the answers spell it: approvals can give
+// the account another display name than files.get, which would otherwise
+// make it two people.
 func (r *Redactor) person(name string, you bool) string {
 	key := "person:" + strings.ToLower(name)
 	if got, ok := r.seen[key]; ok {
@@ -274,8 +270,8 @@ func (r *Redactor) person(name string, you bool) string {
 
 // namesBefore hides the display name in front of each anchor, whatever
 // its case or shape: the anchor says a name is there, so the name needs
-// no shape of its own. A live run printed one as lowercase initials,
-// which no name shape here accepted, beside an address that was hidden.
+// no shape of its own. A display name can be lowercase initials, which
+// no name shape here accepts, beside an address that is hidden.
 func (r *Redactor) namesBefore(text string, anchor *regexp.Regexp, you bool) string {
 	locs := anchor.FindAllStringIndex(text, -1)
 	for i := len(locs) - 1; i >= 0; i-- {
@@ -372,10 +368,9 @@ func idChar(c byte) bool {
 // own when it starts with prefix, or sits in a path through a folder or
 // drive whose name does.
 //
-// A live run read the account's own Drive before it made its scratch
-// folder, and its transcript carried the names of the organization's
-// drives, its customers and its contracts. Ids and addresses were
-// hidden; those were not, and they say more.
+// A live run reads the account's own Drive before it makes its scratch
+// folder, and the names there — the organization's drives, its
+// customers and its contracts — say more than its ids and addresses do.
 func (r *Redactor) KeepNamesUnder(prefix string) { r.keep = prefix }
 
 var (

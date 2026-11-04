@@ -177,7 +177,7 @@ func downloadRank(level string) int { return slices.Index(model.DownloadLevels()
 // openFolderRefused refuses turning a folder's limited access off when
 // that would let anyone with the link, a domain or someone outside the
 // organization open it, naming who, or when who could open it cannot be
-// read (§4a). Who could then open it is everyone who reaches the folder
+// read. Who could then open it is everyone who reaches the folder
 // above and does not reach this one now: what a move into the folder
 // above would give it, so it is worked out by the same prediction.
 func (s *Service) openFolderRefused(ctx context.Context, res *Resolved) error {
@@ -292,6 +292,12 @@ func restrictionPatch(f *gdrive.File, in UpdateFileInput, p *patch) ([]render.Ch
 	if in.LimitedAccess == nil {
 		return changes, nil
 	}
+	// Limited access is a folder's. Only its owner, its shared drive's
+	// organizer, or in My Drive a writer when writersCanShare is true may
+	// change it, as the inherited-permissions capabilities say. What Drive
+	// answers for a file is not documented, so a file is refused here.
+	// Checked by the live step "a folder is given limited access".
+	// https://developers.google.com/workspace/drive/api/guides/limited-expansive-access
 	if !f.IsFolder() {
 		return nil, Errorf(ClassInvalid, "limited access is a folder's: Drive does not offer it on files, and %s is %s",
 			f.Name, model.KindWithArticle(f))
@@ -378,7 +384,7 @@ type CopyFileInput struct {
 //
 // A copy takes on who can reach the folder it lands in, and none of the
 // grants made on the original, so it can reach people the original does
-// not. The rule is the move's (§4a): the result shows who reaches the
+// not. The rule is the move's: the result shows who reaches the
 // original and who reaches the copy, a copy that anyone with the link, a
 // domain or someone outside the organization could reach when they
 // cannot reach the original is refused, and with GDRIVE_SHARING=off any
@@ -482,14 +488,13 @@ func (s *Service) CopyFile(ctx context.Context, in CopyFileInput) (*Result, erro
 			model.KindNameWithArticle(convert), f.Name))
 	}
 	if in.CopyComments {
-		// What was ASKED for, not what happened. files.copy answers with a
-		// File and says nothing about comments, so this cannot know: the
-		// sentence here used to be "the comment threads were copied with
-		// it", which is the lock_file mistake with somebody else's words
-		// in place of a restriction. The caller is pointed at the one call
-		// that settles it. Live runs found Drive's own formats carry their
-		// threads and uploaded files do not, and an empty listing of an
-		// uploaded file's copy stayed empty minutes later (§18).
+		// What was ASKED for, not what happened: files.copy answers with
+		// a File and says nothing about comments, so the caller is pointed
+		// at the one call that settles it. Drive's own formats carry their
+		// threads and uploaded files do not: a Doc's and a Sheet's come
+		// across, and a CSV's copy has none, minutes later too. Checked by
+		// the live step "a copy is made with copy_comments".
+		// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/copy
 		notes = append(notes, "Drive was asked to bring the comment threads along, and its answer "+
 			"says nothing about whether it did. It does not always: live runs found a Google Doc's "+
 			"and a Google Sheet's threads came across and an uploaded CSV's did not, with the same "+
@@ -765,7 +770,10 @@ func (s *Service) trashable(f *gdrive.File, trashed bool) error {
 }
 
 // trashError explains Drive's refusals of a trash in the terms that
-// caused them.
+// caused them. Drive's guide lets only the owner trash a My Drive file,
+// and refuses anyone else with insufficientFilePermissions. No live step
+// reaches another owner's file, so that refusal rests on the guide.
+// https://developers.google.com/workspace/drive/api/guides/delete
 func (s *Service) trashError(err error, f *gdrive.File, trashed bool) error {
 	if gapi.IsNotOwner(err) && trashed {
 		return &Error{Class: ClassForbidden, Message: fmt.Sprintf(

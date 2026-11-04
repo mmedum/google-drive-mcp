@@ -41,11 +41,13 @@ const (
 	// ocrAdvised is the size the Help Center asks for: "The file should
 	// be 2 MB or smaller." It is advice, so past it the read goes ahead
 	// with a warning.
+	// https://support.google.com/drive/answer/176692
 	ocrAdvised = 2 << 20
 	// ocrLargest is the most Google converts into a Doc: "If you convert
 	// a text document to Google Docs format, it can be up to 50 MB". The
-	// Help Center says it of text documents; for a PDF or an image it is
-	// recorded as unverified (§18).
+	// Help Center says it of text documents and nothing of a PDF or an
+	// image, and no live step converts one that large.
+	// https://support.google.com/drive/answer/37603
 	ocrLargest = 50 << 20
 	// detachedTimeout bounds the work that runs on when the call itself
 	// is canceled: waiting for Google's answer to the copy, and deleting
@@ -57,7 +59,9 @@ const (
 // ocrTypes are the types Google's import guide lists as becoming a
 // Google Doc with their text read: PDF, JPEG, PNG, GIF and BMP. The
 // account's own import formats decide when Drive hands them out; this
-// list stands in when it does not.
+// list stands in when it does not. Checked by the live step
+// "extract_text reads the words in a scanned PDF".
+// https://developers.google.com/workspace/drive/api/guides/manage-uploads
 var ocrTypes = map[string]bool{
 	"application/pdf": true, "image/jpeg": true, "image/png": true, "image/gif": true, "image/bmp": true,
 }
@@ -197,11 +201,18 @@ func (s *Service) ocr(ctx context.Context, f *gdrive.File, lang string, keep boo
 	}
 	// The root of My Drive, and ignoreDefaultVisibility: a copy there
 	// inherits nobody's access, and skips an organization's rule that
-	// shares every new file with everyone in it. The copy carries no id
-	// from files.generateIds, because Drive refuses one for a Google Doc
-	// (§2), so the POST cannot be repeated safely and the client does
-	// not repeat it. A copy whose answer is lost is the one way this
-	// call can leave a file behind, and the marker is how to find it.
+	// shares every new file with everyone in it. files.copy takes the
+	// language hint as ocrLanguage, an ISO 639-1 code in the reference
+	// and BCP 47 in the upload guide; a two-letter code is both. Checked
+	// by the live steps "extract_text takes a language hint and a window"
+	// and "extract_text reads the words in a scanned PDF".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/copy
+	//
+	// The copy carries no id from files.generateIds, because Drive
+	// refuses one for a Google Doc, so the POST cannot be repeated safely
+	// and the client does not repeat it. A copy whose answer is lost is
+	// the one way this call can leave a file behind, and the marker is
+	// how to find it.
 	//
 	// The copy runs on when the call is canceled, under a bound of its
 	// own, so that Google's answer still arrives and names the copy to
@@ -233,6 +244,9 @@ func (s *Service) ocr(ctx context.Context, f *gdrive.File, lang string, keep boo
 		return "", "", &Error{Class: ClassUnexpected, Err: ctx.Err(), Message: fmt.Sprintf(
 			"the call was canceled while Google made the temporary Google Doc copy of %s. %s", f.Name, note)}
 	}
+	// The copy exports as soon as files.copy answers, which the
+	// reference does not say. Checked by the live step "extract_text
+	// reads the words in a scanned PDF".
 	text, exportErr := s.copyText(ctx, copied)
 	reading := "reading the text of " + f.Name + " from the copy Google made"
 	if keep {
@@ -264,7 +278,8 @@ func (s *Service) ocr(ctx context.Context, f *gdrive.File, lang string, keep boo
 func (s *Service) copyText(ctx context.Context, copied *gdrive.File) (string, error) {
 	text, err := s.exportAll(ctx, copied.ID, "text/plain")
 	// Google's plain-text export of a Doc may start with a byte-order
-	// mark, which is not text.
+	// mark, which is not text. The reference does not say, and no live
+	// step looks.
 	return strings.TrimPrefix(text, "\ufeff"), err
 }
 
@@ -341,7 +356,11 @@ func newMarker() (string, error) {
 	return extractMarkerPrefix + hex.EncodeToString(b), nil
 }
 
-// markerQuery is the search that finds a copy by its marker.
+// markerQuery is the search that finds a copy by its marker. The
+// search-terms guide lists appProperties with has, and Drive refuses the
+// key alone, so the query names both. That key and value together find
+// an app property is unverified: no live step searches by the marker.
+// https://developers.google.com/workspace/drive/api/guides/ref-search-terms
 func markerQuery(marker string) string {
 	return fmt.Sprintf("appProperties has { key='%s' and value='%s' }", ExtractMarkerKey, marker)
 }

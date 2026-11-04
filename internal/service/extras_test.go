@@ -10,10 +10,9 @@ import (
 	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
-// Phase 1 read the reference, found no copyComments on files.copy, and
-// recorded it as refuted (§18). The discovery document lists it. This is
-// the assertion that keeps the second answer honest: if Drive drops the
-// parameter again, the live run says so and this test says where.
+// files.copy takes copyComments, off by default, as the discovery
+// document lists it. If Drive drops the parameter, the live run says so
+// and this test says where.
 func TestCopyCanBringTheCommentsWithIt(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddComment("id-budget-fixture", "id-comment-1", "check row 4",
@@ -26,12 +25,8 @@ func TestCopyCanBringTheCommentsWithIt(t *testing.T) {
 		t.Fatalf("CopyFile: %v", err)
 	}
 	// The result says what was ASKED for and points at the call that
-	// settles it. It used to say "the comment threads were copied with
-	// it", which files.copy cannot know — it answers with a File and
-	// says nothing about comments — and this test asserted that claim,
-	// which is how a fixture written from a belief keeps the belief
-	// alive. `gates outcomes` found it, and it is the same shape as
-	// lock_file with somebody else's words in place of a restriction.
+	// settles it: files.copy answers with a File and says nothing about
+	// comments, so "were copied" would be an outcome built from the request.
 	if !strings.Contains(res.Text, "asked to bring the comment threads along") {
 		t.Errorf("the result does not say what was asked for:\n%s", res.Text)
 	}
@@ -109,8 +104,7 @@ func TestSearchByPropertyMatchesAKeyAndValue(t *testing.T) {
 }
 
 // Drive requires both halves. Its own search guide gives the key-only
-// form as an example and the API answers it 400 "Invalid Value" —
-// confirmed live in phase 4, twice in each of three spellings and for
+// form as an example and the API answers it 400 "Invalid Value", for
 // appProperties too. Refusing it here says why; sending it spends a
 // round trip to be told less.
 func TestSearchByPropertyRefusesAHalfWrittenPair(t *testing.T) {

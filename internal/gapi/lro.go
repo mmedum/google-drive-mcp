@@ -24,8 +24,11 @@ import (
 //   - a new operation is often pending, with `done: null` rather than
 //     `done: false`, "especially for Vids files";
 //   - polling is operations.get with an exponential backoff, and an
-//     operation lives "a minimum of 12 hours". Section 2 recorded 24,
-//     which phase 4 corrected against the guide.
+//     operation lives "a minimum of 12 hours", a duration the guide says
+//     may change and differs between file types.
+//
+// No live step downloads a Vid.
+// https://developers.google.com/workspace/drive/api/guides/long-running-operations
 
 // Polling bounds for a download operation. The guide suggests around ten
 // seconds between polls; the ceiling here is this server's, so a tool

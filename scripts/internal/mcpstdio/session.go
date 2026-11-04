@@ -130,7 +130,7 @@ func (s *Session) request(method string, params any) (map[string]any, error) {
 		}
 		if m, ok := reply["method"].(string); ok && reply["id"] != nil {
 			// The server's own request, made while this call waits on it:
-			// a question to the person, before 2026-07-28.
+			// a ping, or a question to the person, which answer replies to.
 			if err := s.answer(reply["id"], m, reply["params"]); err != nil {
 				return nil, fmt.Errorf("answer %s: %w", m, err)
 			}
@@ -166,8 +166,8 @@ func (s *Session) answer(id any, method string, params any) error {
 		message, _ := p["message"].(string)
 		result := map[string]any{"action": s.onElicit(message)}
 		if result["action"] == "accept" {
-			// The question's form has no fields (docs/architecture.md
-			// §4a): the accept is the answer.
+			// An accept carries empty content: the session fills in no
+			// field of the form, so accepting is its whole answer.
 			result["content"] = map[string]any{}
 		}
 		frame["result"] = result

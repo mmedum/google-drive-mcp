@@ -17,24 +17,20 @@ import (
 )
 
 // A redactor tested against lines somebody typed out is a redactor that
-// covers the surface as it was on the day they typed them. Phase 3 added
-// comments, whose author Drive gives no address for, and the redactor
-// went on reporting a clean transcript because nothing tied it to the
-// renderers.
+// covers the surface as it was on the day they typed them: a renderer
+// added later, such as comments, whose author Drive gives no address
+// for, leaks while the test reports a clean transcript.
 //
 // So this test does not describe the output. It RENDERS it, through the
 // same functions the server uses, and fails if a name survives.
 //
-// That was once claimed to catch a renderer which starts printing a
-// person somewhere new "without anybody remembering to add a case", and
-// it did not: rendered() below is a map somebody types, and phase 4
-// added two renderers, added neither, and watched one leak a name into a
-// live transcript while this test passed. TestEveryRendererIsCovered at
-// the bottom of this file is what makes the claim true now — it reads
+// rendered() below is a map somebody types, so on its own it does not
+// catch a renderer that starts printing a person somewhere new.
+// TestEveryRendererIsCovered at the bottom of this file does: it reads
 // internal/render's syntax tree and fails on a renderer nothing here
-// produces. The fixtures are still written by hand, because each
-// renderer takes its own arguments; what is no longer possible is
-// forgetting one in silence.
+// produces. The fixtures are written by hand, because each renderer
+// takes its own arguments; what that test rules out is forgetting one
+// in silence.
 
 // The names are invented and unmistakable: an incidental match would
 // make this test pass for the wrong reason, and a name copied from a
@@ -209,12 +205,11 @@ var noPersonToday = map[string]string{
 	"wide reach":      "a refusal names a person or a group by address, which share_outside_organization takes, and drops the display name Drive attached",
 }
 
-// TestTheFixturesReallyCarrySomethingToHide is the floor. Three of these
-// fixtures proved nothing on the first run: one because the renderer has
-// no person in it, one because a proposal has only addresses, and one
-// because the grants were passed on the wire type when model.New reads
-// them from its options — so the permissions listing rendered "no
-// grants" and the leak test passed over an empty page.
+// TestTheFixturesReallyCarrySomethingToHide is the floor. A fixture can
+// prove nothing: a renderer with no person in it, a proposal with only
+// addresses, or grants passed on the wire type when model.New reads them
+// from its options — so the permissions listing renders "no grants" and
+// the leak test passes over an empty page.
 func TestTheFixturesReallyCarrySomethingToHide(t *testing.T) {
 	names, addresses := 0, 0
 	for what, text := range rendered() {
@@ -299,13 +294,12 @@ func TestActivityNamesNobody(t *testing.T) {
 // TestEveryRendererIsCovered is what makes the claim at the top of this
 // file true rather than aspirational.
 //
-// rendered() is a map somebody types, and until phase 4 the comment above
-// it said a new renderer "fails here without anybody remembering to come
-// and add a case". It does not: two renderers were added, neither was
-// added here, the test passed, and one of them leaked a name into a live
-// transcript. A guard described as automatic because describing it is
-// free is worse than one honestly described as remembered — people stop
-// checking the thing they have been told is checked.
+// rendered() is a map somebody types, so a new renderer does not fail
+// there unless somebody remembers to add a case, and one left out can
+// leak a name into a live transcript while the test passes. A guard
+// described as automatic because describing it is free is worse than one
+// honestly described as remembered — people stop checking the thing
+// they have been told is checked.
 //
 // So this reads internal/render's own syntax tree. Every exported
 // function returning a string is a renderer; each must appear in

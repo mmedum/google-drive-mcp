@@ -21,7 +21,9 @@ type ListingOptions struct {
 	// NextPageToken, when set, is offered as the way to see more.
 	NextPageToken string
 	// IncompleteSearch passes on Drive's own warning that it could not
-	// search every corpus.
+	// search every corpus. Drive documents it for a search across all
+	// drives and sends it rarely; no live step can force it.
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 	IncompleteSearch bool
 	// Note is a closing line, e.g. where a budget stopped a walk.
 	Note string
@@ -44,7 +46,8 @@ func Listing(files []*model.File, o ListingOptions) string {
 		}
 		// An empty page is not the end of the story: Drive can return one
 		// with a continuation token, and a search it could not complete
-		// is most misleading precisely when it matched nothing.
+		// is most misleading precisely when it matched nothing. No live
+		// step can force either.
 		writeListingFooter(&b, o)
 		return b.String()
 	}

@@ -46,11 +46,10 @@ type ApproveFileInput struct {
 // restriction rather than an exposure, and the tool says so where it
 // matters.
 //
-// Both descriptions used to promise that lock_file locks the file. A
-// live run found it does not — no content restriction, and the next
-// content change went through — while APPROVING locks it exactly as
-// described. A schema is read before the call rather than after, so an
-// argument that overpromises there is worse than a result that does.
+// lock_file is described as a request, not a lock: Drive does not
+// reliably lock the content when an approval starts, and approving does. A schema is
+// read before the call rather than after, so an argument that
+// overpromises there is worse than a result that does.
 func registerApprovals(s *mcp.Server, d Deps) []string {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "list_approvals",

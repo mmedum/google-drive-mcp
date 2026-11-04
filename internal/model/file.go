@@ -211,6 +211,13 @@ func New(f *gdrive.File, o Options) *File {
 		CopyRequiresWriterPermission: f.CopyRequiresWriterPermission,
 		LimitedAccess:                f.InheritedPermissionsDisabled,
 	}
+	// The download level comes from downloadRestrictions, never from
+	// copyRequiresWriterPermission: that field reads only whether viewers
+	// and commenters are restricted, and writing false to it clears both
+	// switches. Checked by the live step "the legacy download switch is
+	// turned on".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files#DownloadRestrictionsMetadata
+	// https://developers.google.com/workspace/drive/release-notes
 	if r := f.DownloadRestrictions; r != nil {
 		m.DownloadsOnFile = ItemDownloads(f)
 		m.Downloads = DownloadLevel(r.EffectiveDownloadRestrictionWithContext)
@@ -228,7 +235,9 @@ func New(f *gdrive.File, o Options) *File {
 	// it, not the size of anything a person can get: a new, empty Doc
 	// reports one byte, and so does a long one. Showing it invites a
 	// reading it cannot support, and the export formats line already says
-	// what can actually be had.
+	// what can actually be had. Checked by the live step "the Google Doc's
+	// card is read back".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files
 	if !f.IsWorkspaceDoc() {
 		m.Size, m.HasSize = f.SizeBytes()
 	}
@@ -369,8 +378,9 @@ func userWords(u *gdrive.User) string {
 
 // parseTime reads a time Google wrote. Google writes a time it does not
 // have as the Unix epoch, a protobuf Timestamp of zero: Google Chat's API
-// sent 1970-01-01T00:00:00Z for one, live, on 2026-10-31. So the epoch
-// reads as no time, as an empty or unreadable value does.
+// sends 1970-01-01T00:00:00Z for one. Drive has not been seen to, but
+// nothing in Drive dates from 1970, so the epoch reads as no time, as an
+// empty or unreadable value does. No live step can provoke it.
 func parseTime(s string) time.Time {
 	if s == "" {
 		return time.Time{}

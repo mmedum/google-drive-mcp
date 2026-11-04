@@ -33,7 +33,11 @@ const ListFileFields = "id,name,mimeType,parents,starred,trashed,createdTime,mod
 	"sharedWithMeTime,sharingUser(displayName,emailAddress,me)," +
 	"size,driveId,resourceKey,shortcutDetails,webViewLink"
 
-// MaxPageSize is Drive's hard limit for a listing page.
+// MaxPageSize is Drive's hard limit for a listing page: files.list
+// coerces a larger pageSize down to it. Checked by the live steps "the
+// root of My Drive is listed a page at a time" and "a folder search
+// covers every drive in modified order".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 const MaxPageSize = 1000
 
 // About returns the signed-in account, its storage and whether it can
@@ -63,7 +67,9 @@ type GetFileOptions struct {
 	// labelInfo. Drive's includeLabels parameter is a list of ids and
 	// nothing else: there is no wildcard, and asking for one is a 400.
 	// Reading a file's labels without knowing their ids is
-	// ListFileLabels.
+	// ListFileLabels. Checked by the live step "a card is read with its
+	// labels".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/get
 	IncludeLabelIDs []string
 	// ResourceKey is a key learned from a URL; it is remembered for the
 	// process before the call goes out.
@@ -135,7 +141,13 @@ type ListQuery struct {
 
 // ListFiles returns one page of files. Listings default to every drive
 // the account can see, because a server that hides shared drives is the
-// single most common complaint about the alternatives.
+// single most common complaint about the alternatives. Drive lists
+// shared-drive items only with supportsAllDrives and
+// includeItemsFromAllDrives, and corpora allDrives may answer
+// incompleteSearch, which the page carries. TestLiveSharedDrives and the
+// live step "a folder search covers every drive in modified order" check
+// it.
+// https://developers.google.com/workspace/drive/api/guides/enable-shareddrives
 func (c *Client) ListFiles(ctx context.Context, lq ListQuery) (*gdrive.FileList, error) {
 	v := url.Values{}
 	if lq.Q != "" {
@@ -286,15 +298,22 @@ type WriteOptions struct {
 	KeepRevisionForever bool
 	// UseContentAsIndexableText makes Drive index the uploaded bytes as
 	// the file's searchable text. It applies to a create and an update
-	// that carry content, and to nothing else.
+	// that carry content, and to nothing else. The reference says only
+	// "Whether to use the uploaded content as indexable text." For a type
+	// Drive does not read it makes the words searchable; for a type Drive
+	// reads its effect is unverified, and Drive sometimes reads
+	// application/octet-stream itself. Checked by the live steps "an
+	// upload is made with use_content_as_indexable_text", "the same bytes
+	// are uploaded without the flag" and "use_content_as_indexable_text
+	// makes an upload's words searchable".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/create
 	UseContentAsIndexableText bool
-	// CopyComments brings a file's comment threads along on a copy.
-	//
-	// Phase 1 recorded this parameter as not existing in v3 (§18) and
-	// dropped it. The discovery document lists it, and phase 4's reading
-	// of that document is what found the entry wrong: either it was added
-	// since, or the check read the reference page rather than the
-	// document. It is only meaningful on files.copy.
+	// CopyComments asks files.copy to bring the file's open comment
+	// threads along; Drive's default is false, and no other method takes
+	// it. files.copy answers with the File and says nothing of comments,
+	// so only list_comments on the copy shows what came. Checked by the
+	// live step "a copy is made with copy_comments".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/copy
 	CopyComments bool
 	// IgnoreDefaultVisibility makes a create or a copy skip the domain's
 	// default visibility, which an administrator can set to share every
@@ -307,10 +326,13 @@ type WriteOptions struct {
 
 // carriesID reports whether a create body holds a pre-generated id,
 // which is the one thing that makes a POST to Drive safe to repeat:
-// Drive refuses the second attempt as a duplicate rather than making a
-// second file. Drive will not accept one for its own formats
+// files.create and files.copy take an id from files.generateIds in the
+// body, and Drive refuses the second attempt as a duplicate rather than
+// making a second file. Drive will not accept one for its own formats
 // (AcceptsGeneratedID), so those creates are not repeatable and are not
-// marked as such.
+// marked as such. TestLiveGenerateIDsAreUsableAndUnique and the live
+// step "a folder is created with a description" check it.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/generateIds
 func carriesID(meta *gdrive.FileMeta) bool {
 	return meta != nil && meta.ID != ""
 }
@@ -379,7 +401,10 @@ func (c *Client) writeFile(ctx context.Context, method, u string, meta *gdrive.F
 
 // UpdateOptions add the move parameters to a metadata patch. Drive has
 // allowed one parent since 2020, so a move is a patch that names the
-// parent to add and the one to remove.
+// parent to add and the one to remove. A My Drive folder cannot move into
+// a shared drive. Checked by the live steps "a file moves into a folder"
+// and "a My Drive folder is refused a move into a shared drive".
+// https://developers.google.com/workspace/drive/api/guides/folder#move-files
 type UpdateOptions struct {
 	WriteOptions
 	AddParents    string
@@ -421,8 +446,8 @@ func (c *Client) CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta,
 // AcceptsGeneratedID reports whether a file of this type may be created
 // with an id from files.generateIds.
 //
-// Four answers are confirmed live, 2026-09-05, and they do not follow
-// one rule that Google states anywhere:
+// Four answers hold, and they do not follow one rule that Google states
+// anywhere:
 //
 //   - a file with bytes of its own takes an id;
 //   - a folder takes one;
@@ -436,7 +461,9 @@ func (c *Client) CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta,
 // Vids, Jamboards, Apps Script — falls on the safe side by default.
 // Withholding an id costs idempotency, which the duplicate-name guard
 // then has to catch; sending one where Drive refuses it costs the whole
-// call, as it did twice.
+// call. Checked by the live steps "a Google Doc is created", "a file of
+// every Google kind is created" and "a shortcut to a file is created".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/generateIds
 func AcceptsGeneratedID(mime string) bool {
 	mime = strings.TrimSpace(mime)
 	return mime == gdrive.MimeFolder || !gdrive.IsGoogleMime(mime)
@@ -452,10 +479,10 @@ func AcceptsGeneratedID(mime string) bool {
 // files.emptyTrash, so DeleteFile("trash") would build
 // DELETE /files/trash and destroy an entire trash instead of one file —
 // a bounded destructive call silently becoming an unbounded one. The
-// resolve step in internal/service happens to catch it today, because
-// Drive answers 404 for GET /files/trash, but that is protection by
-// accident at three layers' distance from the URL being built. It
-// belongs here, where the segment is made.
+// resolve step in internal/service would catch it only because Drive
+// answers 404 for GET /files/trash, which is protection by accident at
+// three layers' distance from the URL being built. It belongs here,
+// where the segment is made.
 var reservedFileSegments = map[string]bool{"trash": true, "generateIds": true}
 
 // fileSegment turns a file id into a path segment, refusing one that

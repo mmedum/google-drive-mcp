@@ -325,9 +325,13 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 	beforeSize := sizeOf(f)
 
 	// The file keeps its type unless the caller names another, local
-	// file or not. Drive makes the uploaded bytes' type the file's, so a
-	// Markdown file sent as text/plain becomes a plain text file, and
-	// setting the type back afterwards is ignored (§18).
+	// file or not. Drive makes the uploaded bytes' Content-Type the
+	// file's, so a Markdown file sent as text/plain becomes a plain text
+	// file, and a metadata mimeType change back answers 200 and is
+	// ignored; the reference says neither. Checked by the live steps
+	// "content sent as text/plain is taken when comment changes are
+	// allowed" and "content sent as text/markdown gives the type back".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/update
 	sending, err := contentType(in.MimeType, f.MimeType)
 	if err != nil {
 		return nil, err
@@ -447,7 +451,7 @@ func replacedNote(f, updated *gdrive.File, beforeSize int64, kept int, replaced 
 // it a few seconds after each change, and the comment check spent a
 // read; looking once more just before the upload narrows the window in
 // which an upload replaces a save it never saw. It cannot close it:
-// Drive has no precondition to hold a write on (§18). A look that fails
+// Drive v3 offers no precondition to hold a write on. A look that fails
 // does not stop the write, which is what was asked for.
 func (s *Service) stillAt(ctx context.Context, f *gdrive.File) error {
 	if f.HeadRevisionID == "" {
@@ -499,9 +503,9 @@ func (s *Service) replacedSaves(ctx context.Context, fileID, checked, ours strin
 const skipCommentCheck = " To replace it without that check, pass allow_comment_changes."
 
 // keepComments refuses new content for a Markdown file that would lose a
-// comment Google Docs keeps in the file's text, and returns how many it
-// holds. Nothing else carries those comments: Drive's comments do not
-// list them, so content that drops one deletes it (§7.2), and so does
+// comment Google Docs keeps in the file's text (D-33), and returns how
+// many it holds. Nothing else carries those comments: Drive's comments do
+// not list them, so content that drops one deletes it, and so does
 // sending the file as a type that is not Markdown, which Drive makes the
 // file's own. The file and the new content are each read as a stream,
 // never held whole.
@@ -681,7 +685,7 @@ func convertName(mime string) string {
 
 // typeByName is the type a file's name gives it, or "" when its
 // extension says nothing: the registry's answer first, because the
-// platform's differs from machine to machine (§18), and the platform's
+// platform's differs from machine to machine, and the platform's
 // for the long tail.
 func typeByName(name string) string {
 	ext := filepath.Ext(name)
@@ -856,8 +860,8 @@ func (s *Service) report(ctx context.Context, res *Resolved, out outcome) *Resul
 // Two different things go stale. The path that now leads to this file is
 // stale whatever the write was: putting a second "notes.txt" beside the
 // first makes that name ambiguous, and a cached entry would go on
-// answering with the older file's id — the one thing hard rule 3 exists
-// to prevent. The paths that *led* to the file go stale only when it
+// answering with the older file's id where the name should now be
+// [ambiguous]. The paths that *led* to the file go stale only when it
 // moved, was renamed or was trashed, and those are cleared by value: a
 // create cannot falsify a path that already resolved, and clearing the
 // whole map on every create cost a 100-unit listing per path segment on

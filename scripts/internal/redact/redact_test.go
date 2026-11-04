@@ -146,7 +146,7 @@ func TestALinkEndsBeforeTheSentenceDoes(t *testing.T) {
 
 func TestANumericPermissionIDIsRedacted(t *testing.T) {
 	// A permission id for a person is twenty digits with no letter, so
-	// the "a capital and a digit" rule let one through in a live run. It
+	// the "a capital and a digit" rule alone lets one through. It
 	// identifies a Google account, which is an id in every sense that
 	// matters here.
 	r := NewRedactor(false)
@@ -167,9 +167,9 @@ func TestANumericPermissionIDIsRedacted(t *testing.T) {
 	}
 }
 
-// TestANameWithNoAddressBesideItIsHidden is the gap phase 3 opened and
-// this file did not notice. internal/model prints a person three ways
-// and only one of them has an address; the redactor could see that one.
+// TestANameWithNoAddressBesideItIsHidden: internal/model prints a person
+// three ways and only one of them has an address, so the other two need
+// positions of their own.
 //
 // Every line below is the shape a renderer in internal/render actually
 // emits, with invented names. A live transcript is never the fixture:
@@ -228,11 +228,10 @@ func TestRedactionLeavesTheProseAlone(t *testing.T) {
 }
 
 // A Workspace account with no display name set shows the address's local
-// part instead, which has no capital in it anywhere. The live run of
-// phase 4 found one surviving every position the redactor knows —
-// beside "(you)", after "by", after "owner:" — because the NAME SHAPE
-// refused it, not the position. Every invented name in the fixtures was
-// capitalized, so the tests agreed with the bug.
+// part instead, which has no capital in it anywhere. A capitalized NAME
+// SHAPE refuses it in every position the redactor knows — beside
+// "(you)", after "by", after "owner:" — and fixtures whose invented names
+// are all capitalized agree with that bug.
 func TestALowercaseDisplayNameIsStillAName(t *testing.T) {
 	cases := []string{
 		"modified 2026-09-06 09:50Z by first.last  ",
@@ -278,8 +277,8 @@ func TestAnAlreadyMaskedAddressIsStillRedacted(t *testing.T) {
 }
 
 // A display name beside an address is hidden whatever its case or
-// shape: a live run printed one as lowercase initials beside an address
-// it hid. The words this server prints in front of a name stay.
+// shape: a display name can be lowercase initials. The words this server
+// prints in front of a name stay.
 func TestAnyNameBesideAnAddressIsHidden(t *testing.T) {
 	for _, tc := range []struct{ in, name, kept string }{
 		{"modified 2026-03-04 09:00Z (2 days ago) by jd <jd@example.com>; shared with you", "jd",
@@ -300,8 +299,8 @@ func TestAnyNameBesideAnAddressIsHidden(t *testing.T) {
 
 // One person is one placeholder however an answer capitalizes them,
 // and every "(you)" is the signed-in account however an answer spells
-// it: a live run showed the account as two people because approvals
-// give it another display name.
+// it: approvals give the account another display name than a file card
+// does, and it must not read as two people.
 func TestOnePersonIsOnePlaceholder(t *testing.T) {
 	r := NewRedactor(false)
 	token := regexp.MustCompile(`<PERSON_\d+>`)
@@ -320,8 +319,8 @@ func TestOnePersonIsOnePlaceholder(t *testing.T) {
 	}
 }
 
-// "by" is a person only after a time. A live run lost the file name
-// "link.txt" in "copy of a file shared by link.txt" to a placeholder.
+// "by" is a person only after a time, or the file name "link.txt" in
+// "copy of a file shared by link.txt" is lost to a placeholder.
 func TestAFileNameAfterByIsNotAPerson(t *testing.T) {
 	r := NewRedactor(false)
 	row := "text file  copy of a file shared by link.txt  <ID_1>  My Drive  modified 2026-03-04 09:00Z (just now) by first.last"

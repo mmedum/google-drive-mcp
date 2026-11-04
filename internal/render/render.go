@@ -12,7 +12,9 @@ import (
 // DefaultMaxChars is the output budget a listing or read uses when the
 // caller names none. Claude Code warns above 10 000 tokens and truncates
 // above 25 000, so a result that plans its own size keeps the model in
-// control of what it asks for next.
+// control of what it asks for next. Checked by the live step "a read
+// stops at its window".
+// https://code.claude.com/docs/en/mcp#mcp-output-limits-and-warnings
 const DefaultMaxChars = 20000
 
 // MaxMaxChars is the largest budget a caller may ask for.
@@ -56,12 +58,10 @@ func (b *buf) String() string { return b.sb.String() }
 // writeFooter closes a listing: anything the caller should know, then
 // how to get the next page.
 //
-// The sentence matters as much as the token. Every listing this server
-// had before phase 4 says "more X: call again with page_token …", and
-// the three phase 4 added each printed a bare next_page_token field
-// instead — three listings describing continuation differently from the
-// three beside them, for no reason but that they were written later.
-// noun names what there is more of.
+// The sentence matters as much as the token. Every listing says "more X:
+// call again with page_token …", so the ones that close here say it too
+// rather than printing a bare next_page_token field. noun names what
+// there is more of.
 func writeFooter(b *buf, note, nextPageToken, noun string) {
 	if note != "" {
 		b.line(note)

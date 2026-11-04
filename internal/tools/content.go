@@ -88,13 +88,13 @@ func registerContent(s *mcp.Server, d Deps) []string {
 // is what destructiveHint asks about. Two calls make two copies, so it
 // is not idempotent. It needs no destructive flag: the only thing it
 // removes for good is the copy it made a moment earlier, which nobody
-// else has seen, and §4a gates a write that cannot be undone on
-// something that was already there.
+// else has seen, and the destructive flag gates a write that cannot be
+// undone on something that was already there.
 //
-// Like read_file it returns text only. Its result is a window of up to
-// 400 000 characters, and a structured copy of the same text would
+// Like read_file it returns text only (D-25). Its result is a window of
+// up to 400 000 characters, and a structured copy of the same text would
 // double it in every client that shows both, while Claude Code shows the
-// model only the structured half (§4, §18). What a write's record would
+// model only the structured half. What a write's record would
 // carry, the kept copy's id and link or a leftover copy's, is in the
 // text's header.
 func registerExtract(s *mcp.Server, d Deps) []string {

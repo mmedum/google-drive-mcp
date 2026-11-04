@@ -24,8 +24,8 @@ type FileInput struct {
 
 // SearchInput is the typed search surface.
 type SearchInput struct {
-	Name           string `json:"name,omitempty" jsonschema:"match the file name. Drive matches the BEGINNINGS OF WORDS, not any substring: \"Bud\" finds \"Budget 2026\" but \"udget\" finds nothing. Several words must appear next to each other in that order."`
-	Text           string `json:"text,omitempty" jsonschema:"match whole words in the file's content and name. Wrap in double quotes for an exact phrase. Not a substring match."`
+	Name           string `json:"name,omitempty" jsonschema:"match the file name. Drive matches the BEGINNINGS OF WORDS, not any substring: \"Bud\" finds \"Budget 2026\" but \"udget\" finds nothing. Each word must begin some word of the name, in any order and not necessarily adjacent: \"Identity Decentralized\" finds \"Decentralized Identity\"."`
+	Text           string `json:"text,omitempty" jsonschema:"match words in the file's content and name. Wrap in double quotes for an exact phrase. Search by whole words: how Drive matches part of a word is not documented."`
 	Kind           string `json:"kind,omitempty" jsonschema:"limit to one kind: folder, doc, sheet, slides, form, drawing, pdf, image, video, audio, shortcut, office, or any (the default)"`
 	MimeType       string `json:"mime_type,omitempty" jsonschema:"limit to one exact MIME type, for kinds the kind field does not name"`
 	InFolder       string `json:"in_folder,omitempty" jsonschema:"only items DIRECTLY inside this folder; this does not reach subfolders, under_folder does. Takes the same forms as file."`
@@ -99,8 +99,8 @@ func registerRead(s *mcp.Server, d Deps) []string {
 		Description: "Find files across My Drive, files shared with you, and every shared drive, by name, content, " +
 			"kind, folder, owner, star, date, who it is shared with or who can open it. Each hit shows its kind, " +
 			"name, id, folder and last change. " +
-			"IMPORTANT: Drive does not do substring search. `name` matches the beginnings of words and `text` matches " +
-			"whole words, so \"udget\" will never find \"Budget\". Use list_folder when you know where something is: " +
+			"IMPORTANT: " + service.SearchRule + " \"udget\" never finds \"Budget\" by name. " +
+			"Use list_folder when you know where something is: " +
 			"a search costs twenty times what a read does. `in_folder` reaches direct children only; `under_folder` " +
 			"reaches every folder below as well. " +
 			"With no filter at all it returns everything you can see, in the order order_by names.",

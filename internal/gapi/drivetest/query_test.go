@@ -28,8 +28,8 @@ func TestNameContainsMatchesWordPrefixesOnly(t *testing.T) {
 		"name contains 'udget'":      false, // the middle of a word
 		"name contains 'inal'":       false,
 		"name contains '2026 final'": true,
-		// Observed live (spike A): the order of the words does not
-		// matter, and they need not be adjacent.
+		// On Drive the order of the words does not matter, and they
+		// need not be adjacent.
 		"name contains 'final 2026'":   true,
 		"name contains 'Budget final'": true,
 		"name contains 'Bud fin'":      true,
@@ -46,8 +46,8 @@ func TestNameEqualsMatchesTheWholeNameIgnoringCase(t *testing.T) {
 	s := New()
 	defer s.Close()
 	f := &gdrive.File{Name: "Q3"}
-	// Observed live (spike A): `name =` matches the whole name but is not
-	// case-sensitive. Path resolution leans on this — a folder holding
+	// Drive's `name =` matches the whole name but is not case-sensitive.
+	// Path resolution leans on this — a folder holding
 	// "Budget" and "budget" makes one lookup return two, which is how the
 	// ambiguity guard gets reached rather than one silently winning.
 	for _, q := range []string{"name = 'Q3'", "name = 'q3'", "name = 'Q3'"} {

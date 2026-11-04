@@ -67,11 +67,11 @@ func (s *Service) DeleteFile(ctx context.Context, in DeleteFileInput) (*Result, 
 // root folder's id, so either can be passed anywhere a file can — and a
 // call meant to remove one file would take an entire Drive with it.
 //
-// Google refuses both today through capabilities.canDelete, and that is
-// the whole reason to state it here as well: a bounded call becoming an
+// Google refuses both through capabilities.canDelete, and that is the
+// whole reason to state it here as well: a bounded call becoming an
 // unbounded one must not rest on a field the other side computes. Drive
-// answering differently one day, or not sending capabilities at all,
-// would be enough.
+// answering differently, or not sending capabilities at all, would be
+// enough. No live step tries to delete a root.
 func (s *Service) notADriveRoot(ctx context.Context, f *gdrive.File) error {
 	switch {
 	case f.ID == RootAlias || f.ID == s.rootID(ctx):
@@ -133,6 +133,10 @@ func (s *Service) EmptyTrash(ctx context.Context, in EmptyTrashInput) (*Result, 
 		return fmt.Sprintf("%s (%s in it right now)", whose, model.Plural(count, "item", "items"))
 	}
 
+	// A listing of a shared drive's trash lags its writes: an item
+	// trashed seconds ago counts as nothing, so the note says the count
+	// lags. Checked by the live step "the drive's trash is emptied".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 	if in.DryRun {
 		return emptyTrashResult(outcome{Action: render.ActionEmptied, DryRun: true,
 			Note: "everything in " + what() + " would be gone for good. The count is what Drive's " +
@@ -150,13 +154,13 @@ func (s *Service) EmptyTrash(ctx context.Context, in EmptyTrashInput) (*Result, 
 	if err := s.api.EmptyTrash(ctx, driveID); err != nil {
 		return nil, wrap(err, "emptying "+whose)
 	}
-	// files.emptyTrash has NO response — the reference gives it none — so
-	// nothing here knows what went or whether it has finished. It said
-	// "is empty. Everything that was in it is gone for good" anyway,
-	// until a live run trashed a file, emptied that drive's trash, and
-	// restored the file from the trash on the very next call. Drive's
-	// view of its own trash lags, and a claim of completion is not one
-	// this call can make.
+	// files.emptyTrash has NO response, so nothing here knows what went
+	// or whether it has finished. Drive's view of its own trash lags: an
+	// item trashed seconds earlier survives the call and can still be
+	// restored, so a claim of completion is not one this call can make.
+	// Checked by the live steps "the drive's trash is emptied" and "a file
+	// is looked for after the drive's trash is emptied".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/emptyTrash
 	return emptyTrashResult(outcome{Action: render.ActionEmptied,
 		Note: "Drive accepted the call and reports nothing back about it — the method has no " +
 			"response at all, so this cannot say what went. It removes what Drive's own view of " +
@@ -280,7 +284,7 @@ type DeleteRevisionInput struct {
 
 // DeleteRevision removes one version of a file's content for good. Drive
 // allows it only for a file with bytes of its own, and never for the
-// version the file is currently at.
+// file's current version.
 func (s *Service) DeleteRevision(ctx context.Context, in DeleteRevisionInput) (*Result, error) {
 	if err := s.destructive("delete_revision"); err != nil {
 		return nil, err

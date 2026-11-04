@@ -1,22 +1,19 @@
 // Package livecover measures how much of the tool surface a live run
 // actually drives.
 //
-// A live run is the only check that Drive agrees with this server, and
-// until now nobody knew what fraction of the surface one exercises. The
-// shared standard names this gate for every repository with a live
-// driver; the one place it had been measured read 14 of 28 options on
-// the day it was written, and a number nobody has is not evidence of a
-// good one.
+// A live run is the only check that Drive agrees with this server, so
+// what fraction of the surface one exercises is measured rather than
+// assumed: a number nobody has is not evidence of a good one.
 //
 // There are two halves here and they answer different questions.
 // FromSource reads the driver's own source and says which options a step
 // SENDS — that runs in CI, where there are no credentials. A Recorder
 // says which options a run actually sent, which is not the same thing: a
 // step can exist in a slice nobody passes to run, or behind a condition
-// that was false, and the source cannot tell. A sibling repository
-// demonstrated exactly that by deleting one call and watching its static
-// gate still report full coverage, which is why the driver compares the
-// two at the end of every run rather than trusting the first.
+// that was false, and the source cannot tell. A driver with one call
+// deleted from its run still reads as fully covered in its source, which
+// is why the driver compares the two at the end of every run rather than
+// trusting the first.
 package livecover
 
 import (
@@ -33,22 +30,177 @@ import (
 	"strings"
 )
 
+// DriverDir is the live driver's source, from the module root.
+const DriverDir = "scripts/livedrive"
+
+// StepTypes are the driver's step types, each with a name field: a tool
+// call, and a read of a resource.
+var StepTypes = []string{"call", "resourceRead"}
+
+// A Step is one literal of a step type in the driver's source: a step,
+// or the call a helper builds for the step its caller named.
+type Step struct {
+	Pos token.Pos
+	// Name is the step's name. It is empty when the literal passes on its
+	// caller's step name, and when Problem says why it has none.
+	Name string
+	// Problem says why the literal's name is refused: it is neither a
+	// string literal nor a `call` parameter's name.
+	Problem string
+	// Tool is the tool a call names as a string literal, and Args the
+	// value of its args field.
+	Tool string
+	Args ast.Expr
+	// Func is the function the literal is written in, nil outside one,
+	// and Callee the function it is passed to directly, by name.
+	Func   *ast.FuncDecl
+	Callee string
+}
+
+// StepLiterals is every step literal in files, both types in one pass:
+// each literal of a step type, and each entry of a slice of one, written
+// with its type left out as a table of steps is.
+//
+// A step's name is a string literal, so the name the transcript prints
+// is the one a reader of the source finds. The one other name a literal
+// may carry is p.name, where p is a `call` parameter of the function it
+// is written in: a helper building the call for a step its caller named.
+func StepLiterals(files []*ast.File) []Step {
+	var out []Step
+	for _, file := range files {
+		var stack []ast.Node
+		ast.Inspect(file, func(n ast.Node) bool {
+			if n == nil {
+				stack = stack[:len(stack)-1]
+				return true
+			}
+			if lit, ok := n.(*ast.CompositeLit); ok {
+				switch {
+				case slices.Contains(StepTypes, identName(lit.Type)):
+					out = append(out, newStep(lit, stack))
+				case slices.Contains(StepTypes, sliceOf(lit.Type)):
+					for _, elt := range lit.Elts {
+						if entry, ok := elt.(*ast.CompositeLit); ok && entry.Type == nil {
+							out = append(out, newStep(entry, append(slices.Clip(stack), lit)))
+						}
+					}
+				}
+			}
+			stack = append(stack, n)
+			return true
+		})
+	}
+	return out
+}
+
+// newStep reads one step literal, given the nodes that enclose it.
+func newStep(lit *ast.CompositeLit, enclosing []ast.Node) Step {
+	s := Step{Pos: lit.Pos(), Args: keyed(lit, argsField)}
+	s.Tool, _ = stringLit(keyed(lit, "tool"))
+	if call, ok := enclosing[len(enclosing)-1].(*ast.CallExpr); ok && slices.Contains(call.Args, ast.Expr(lit)) {
+		s.Callee = calleeName(call)
+	}
+	// The innermost function, a closure among them, says which
+	// parameters may pass a name on.
+	var params []string
+	for i := len(enclosing) - 1; i >= 0 && s.Func == nil; i-- {
+		var typ *ast.FuncType
+		switch fn := enclosing[i].(type) {
+		case *ast.FuncLit:
+			typ = fn.Type
+		case *ast.FuncDecl:
+			typ, s.Func = fn.Type, fn
+		}
+		if typ != nil && params == nil {
+			params = callParams(typ)
+		}
+	}
+	switch name := keyed(lit, "name").(type) {
+	case nil:
+		s.Problem = "a step has no name"
+	case *ast.BasicLit:
+		var ok bool
+		switch s.Name, ok = stringLit(name); {
+		case !ok:
+			s.Problem = notLiteral
+		case s.Name == "":
+			s.Problem = "a step's name is empty"
+		}
+	case *ast.SelectorExpr:
+		if x, ok := name.X.(*ast.Ident); !ok || name.Sel.Name != "name" || !slices.Contains(params, x.Name) {
+			s.Problem = notLiteral
+		}
+	default:
+		s.Problem = notLiteral
+	}
+	return s
+}
+
+const notLiteral = "a step's name is neither a string literal nor the name of the step a `call` parameter carries"
+
+// callParams is the names of a function's `call` parameters.
+func callParams(typ *ast.FuncType) []string {
+	names := []string{}
+	for _, field := range typ.Params.List {
+		if identName(field.Type) == "call" {
+			for _, name := range field.Names {
+				names = append(names, name.Name)
+			}
+		}
+	}
+	return names
+}
+
+// keyed is the value a keyed literal gives key, or nil.
+func keyed(lit *ast.CompositeLit, key string) ast.Expr {
+	for _, elt := range lit.Elts {
+		if kv, ok := elt.(*ast.KeyValueExpr); ok && identName(kv.Key) == key {
+			return kv.Value
+		}
+	}
+	return nil
+}
+
+func identName(e ast.Expr) string {
+	if id, ok := e.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
+}
+
+// sliceOf is the element type's name when e is a slice of a named type.
+func sliceOf(e ast.Expr) string {
+	if arr, ok := e.(*ast.ArrayType); ok && arr.Len == nil {
+		return identName(arr.Elt)
+	}
+	return ""
+}
+
+// calleeName is the name of the function a call calls.
+func calleeName(call *ast.CallExpr) string {
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name
+	case *ast.SelectorExpr:
+		return fn.Sel.Name
+	}
+	return ""
+}
+
 // FromSource reads a driver's source and returns, per tool, the options
 // some step passes.
 //
 // known is the tool surface the server publishes, and it is what keeps
-// this honest in the loose direction: a call whose first argument is a
-// string literal is only read as a tool call when that literal is a tool
-// that exists. Without it, every two-argument helper taking a name and a
-// map would look like one.
+// this honest in the loose direction: a tool name is only read as a tool
+// call when it names a tool that exists.
 //
-// The shapes it reads are the ones this driver uses: a `call` literal
-// carrying tool and args, a helper taking the tool name and an argument
-// map, and a map built into a variable and then handed over — including
-// the one place a tool name is assigned to a field rather than written
-// at the call. Anything it cannot read is simply not counted, which
-// makes a miss show up as an option demanding an excuse it does not
-// need, rather than as coverage nobody has.
+// The shapes it reads are the ones this driver uses: a step literal
+// carrying tool and args, a map built into a variable and then handed
+// over, and a helper that assigns the tool to the `call` its caller
+// passed it, which then carries the step's name and its arguments.
+// Anything it cannot read is simply not counted, which makes a miss show
+// up as an option demanding an excuse it does not need, rather than as
+// coverage nobody has.
 func FromSource(dir string, known map[string][]string) (map[string]map[string]bool, error) {
 	steps, err := ReadSteps(dir, known)
 	if err != nil {
@@ -101,42 +253,67 @@ func ReadSteps(dir string, known map[string][]string) (Steps, error) {
 		return nil, fmt.Errorf("no Go source in %s; has the driver moved?", dir)
 	}
 	flags := flagNames(files)
-	r := &reader{known: known, naming: toolNamingFuncs(files), flags: flags,
-		within: callerGates(files, flags), steps: Steps{}}
+	r := &reader{known: known, flags: flags, within: callerGates(files, flags), steps: Steps{},
+		funcs: map[*ast.FuncDecl]funcInfo{}}
+	naming := toolNamingFuncs(files)
+	for _, s := range StepLiterals(files) {
+		// A helper that names the tool for its caller: the caller passes
+		// the step's name and arguments and never writes the tool's.
+		tool := s.Tool
+		if tool == "" {
+			tool = naming[s.Callee]
+		}
+		r.record(s.Func, tool, s.Pos, keysOf(s.Args, r.info(s.Func).built))
+	}
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
+			if !ok || fn.Body == nil || naming[fn.Name.Name] == "" {
 				continue
 			}
-			r.readFunction(fn)
+			// Keys added to that call's argument map belong to the tool it
+			// was given, wherever in the function they were added.
+			//
+			// The ARGUMENT map only. Recording every map the function
+			// builds is silently wrong for a helper that builds a second
+			// map for something else — the keys of that one would be
+			// recorded as options of this tool, coverage would go UP, and
+			// the rows excusing those options would be deleted as driven.
+			// A measurement that fails by growing is the worst kind.
+			r.record(fn, naming[fn.Name.Name], fn.Body.Pos(), r.info(fn).built[argsField])
 		}
 	}
 	return r.steps, nil
 }
 
-// reader holds what reading one function needs from the whole driver.
+// reader holds what reading one step needs from the whole driver.
 type reader struct {
-	known  map[string][]string
-	naming map[string]string
-	flags  map[string]bool
+	known map[string][]string
+	flags map[string]bool
 	// within is, per function, the flags every call of it waits for.
 	within map[string]map[string]bool
+	funcs  map[*ast.FuncDecl]funcInfo
 	steps  Steps
+}
+
+// funcInfo is what reading a step needs from the function it is in: the
+// maps it builds and the stretches of it that wait for a flag.
+type funcInfo struct {
+	built  map[string][]keyAt
+	guards guards
 }
 
 // toolNamingFuncs finds the functions that name a tool for their caller:
 // a helper taking a `call` and assigning its tool, so the caller passes
-// arguments and never writes the tool's name.
+// the step's name and arguments and never writes the tool's.
 //
-// There is one in this driver and it is there on purpose. empty_trash
-// without a drive empties the whole ACCOUNT's trash, so the tool is
-// named in exactly one method and that method always scopes it — a rule
-// the code enforces rather than one the next person has to remember, and
-// TestEmptyTrashIsNamedInOnePlace holds it. A reader that could not see
-// through that one indirection reported its confirm and dry_run as
-// undriven, which would have put two lies in the decision file: those
-// options are driven, twice each, on every destructive run.
+// emptyTrash is the one that has to be. empty_trash without a drive
+// empties the whole ACCOUNT's trash, so the tool is named in exactly one
+// method and that method always scopes it — a rule the code enforces
+// rather than one the next person has to remember, and
+// TestEmptyTrashIsNamedInOnePlace holds it. A reader that cannot see
+// through that indirection reports its confirm and dry_run as undriven,
+// when they are driven, twice each, on every destructive run.
 func toolNamingFuncs(files []*ast.File) map[string]string {
 	out := map[string]string{}
 	for _, file := range files {
@@ -166,128 +343,56 @@ func toolNamingFuncs(files []*ast.File) map[string]string {
 	return out
 }
 
-// readFunction collects the pairs one function sends.
-//
-// It works a function at a time because that is the scope a map variable
-// lives in: `args := map[string]any{...}` followed by `args["parent"] =
-// parent` is one statement's worth of meaning split over two, and
-// resolving it anywhere wider would join two functions' variables that
-// happen to share a name.
-func (r *reader) readFunction(fn *ast.FuncDecl) {
-	built := mapsIn(fn)
-	assigned := r.naming[fn.Name.Name]
-	guards := guardsIn(fn.Body, r.flags)
-	// at is a step's gate: what every call of the function waits for,
-	// what the call waits for inside it, and what the line that wrote
-	// the option waits for, which is narrower when a key is added to a
-	// map under a condition of its own.
-	at := func(call token.Pos, key keyAt) Gate {
-		set := map[string]bool{}
-		for f := range r.within[fn.Name.Name] {
-			set[f] = true
-		}
-		for _, pos := range []token.Pos{call, key.pos} {
-			for f := range guards.at(pos) {
-				set[f] = true
-			}
-		}
-		return Sorted(set)
+// info reads fn once. A map variable lives in its function: `args :=
+// map[string]any{...}` followed by `args["parent"] = parent` is one
+// statement's worth of meaning split over two, and resolving it anywhere
+// wider would join two functions' variables that happen to share a name.
+// A step outside any function has neither.
+func (r *reader) info(fn *ast.FuncDecl) funcInfo {
+	if fn == nil {
+		return funcInfo{}
 	}
-	record := func(tool string, call token.Pos, keys []keyAt) {
-		if _, ok := r.known[tool]; !ok || len(keys) == 0 {
-			return
-		}
-		if r.steps[tool] == nil {
-			r.steps[tool] = map[string][]Gate{}
-		}
-		for _, k := range keys {
-			gate := at(call, k)
-			if !slices.ContainsFunc(r.steps[tool][k.name], func(g Gate) bool { return slices.Equal(g, gate) }) {
-				r.steps[tool][k.name] = append(r.steps[tool][k.name], gate)
-			}
-		}
+	if i, ok := r.funcs[fn]; ok {
+		return i
 	}
+	i := funcInfo{built: mapsIn(fn), guards: guardsIn(fn.Body, r.flags)}
+	r.funcs[fn] = i
+	return i
+}
 
-	ast.Inspect(fn, func(n ast.Node) bool {
-		switch v := n.(type) {
-		case *ast.CompositeLit:
-			tool, args := callLiteral(v)
-			if tool != "" {
-				record(tool, v.Pos(), keysOf(args, built))
-			}
-		case *ast.CallExpr:
-			// A helper that names the tool for its caller: the caller
-			// passes arguments and never writes the tool's name.
-			if named := namedTool(v, r.naming); named != "" {
-				for _, arg := range v.Args {
-					if lit, ok := arg.(*ast.CompositeLit); ok {
-						if _, args := callLiteral(lit); args != nil {
-							record(named, v.Pos(), keysOf(args, built))
-						}
-					}
-				}
-			}
-			// The first string-literal argument is the tool name in
-			// every helper this driver has.
-			tool := ""
-			for _, arg := range v.Args {
-				if lit, ok := stringLit(arg); ok {
-					tool = lit
-					break
-				}
-			}
-			if tool == "" {
-				return true
-			}
-			for _, arg := range v.Args {
-				record(tool, v.Pos(), keysOf(arg, built))
-			}
+// record files the options keys under tool, for a step written at pos in
+// fn. A tool the server does not publish is not a tool call.
+func (r *reader) record(fn *ast.FuncDecl, tool string, pos token.Pos, keys []keyAt) {
+	if _, ok := r.known[tool]; !ok || len(keys) == 0 {
+		return
+	}
+	if r.steps[tool] == nil {
+		r.steps[tool] = map[string][]Gate{}
+	}
+	g := r.info(fn).guards
+	set := map[string]bool{}
+	if fn != nil {
+		maps.Copy(set, r.within[fn.Name.Name])
+	}
+	for _, k := range keys {
+		// A step's gate: what every call of the function waits for, what
+		// the step waits for inside it, and what the line that wrote the
+		// option waits for, which is narrower when a key is added to a
+		// map under a condition of its own.
+		gate := maps.Clone(set)
+		for _, at := range []token.Pos{pos, k.pos} {
+			maps.Copy(gate, g.at(at))
 		}
-		return true
-	})
-
-	if assigned != "" {
-		// Keys added to that call's argument map belong to the tool it was
-		// given, wherever in the function they were added.
-		//
-		// The ARGUMENT map only. An earlier version recorded every map
-		// the function built, which is right for the one function that
-		// has this shape today and silently wrong the day it builds a
-		// second map for something else — the keys of that one would be
-		// recorded as options of this tool, coverage would go UP, and the
-		// rows excusing those options would be deleted as driven. A
-		// measurement that fails by growing is the worst kind.
-		record(assigned, fn.Body.Pos(), built[argsField])
+		sorted := Sorted(gate)
+		if !slices.ContainsFunc(r.steps[tool][k.name], func(have Gate) bool { return slices.Equal(have, sorted) }) {
+			r.steps[tool][k.name] = append(r.steps[tool][k.name], sorted)
+		}
 	}
 }
 
 // argsField is the field a call carries its arguments in, and the name
 // mapsIn files a `c.args["k"] = v` assignment under.
 const argsField = "args"
-
-// callLiteral reads a `call{tool: "x", args: ...}` literal.
-func callLiteral(lit *ast.CompositeLit) (string, ast.Expr) {
-	tool, args := "", ast.Expr(nil)
-	for _, elt := range lit.Elts {
-		kv, ok := elt.(*ast.KeyValueExpr)
-		if !ok {
-			continue
-		}
-		key, ok := kv.Key.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		switch key.Name {
-		case "tool":
-			if s, ok := stringLit(kv.Value); ok {
-				tool = s
-			}
-		case argsField:
-			args = kv.Value
-		}
-	}
-	return tool, args
-}
 
 // keyAt is an option name and where it was written.
 type keyAt struct {
@@ -296,7 +401,8 @@ type keyAt struct {
 }
 
 // mapsIn collects every `map[string]any` a function builds, by variable
-// name, including the keys assigned into it afterwards.
+// name, including the keys assigned into it afterwards: `x["k"] = v`,
+// and `c.args["k"] = v`, filed under args.
 func mapsIn(fn *ast.FuncDecl) map[string][]keyAt {
 	out := map[string][]keyAt{}
 	ast.Inspect(fn, func(n ast.Node) bool {
@@ -315,7 +421,6 @@ func mapsIn(fn *ast.FuncDecl) map[string][]keyAt {
 				}
 				continue
 			}
-			// x["k"] = v, and c.args["k"] = v
 			if idx, ok := lhs.(*ast.IndexExpr); ok {
 				key, ok := stringLit(idx.Index)
 				if !ok {
@@ -406,18 +511,6 @@ func Sorted[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// namedTool reports the tool a call gets from the function it is calling
-// rather than from an argument.
-func namedTool(call *ast.CallExpr, naming map[string]string) string {
-	switch fn := call.Fun.(type) {
-	case *ast.Ident:
-		return naming[fn.Name]
-	case *ast.SelectorExpr:
-		return naming[fn.Sel.Name]
-	}
-	return ""
 }
 
 // flagNames is every flag the driver declares, by the name a person

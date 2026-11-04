@@ -270,11 +270,11 @@ func (s *Service) copyOne(ctx context.Context, item *gdrive.File, parent string,
 		return made.ID, nil
 	case item.IsShortcut():
 		// A shortcut is made again rather than copied: what files.copy
-		// does with one has not been verified against Drive, and making
-		// one is a path phase 1 ran live. The new shortcut points where
-		// the old one points, including at a file inside the tree that
-		// was just copied — a copy of a pointer is a pointer to the same
-		// thing.
+		// does with one is not verified against Drive, and making one is
+		// checked by the live step "a shortcut to a file is created". The
+		// new shortcut points where the old one points, including at a
+		// file inside the tree that was just copied — a copy of a pointer
+		// is a pointer to the same thing.
 		meta := &gdrive.FileMeta{
 			Name: item.Name, MimeType: gdrive.MimeShortcut, Parents: []string{parent},
 			ShortcutDetails: &gdrive.ShortcutDetails{},

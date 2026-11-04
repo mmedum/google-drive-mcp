@@ -49,6 +49,8 @@ var (
 // exact camelCase comparison would miss every reason that arrived the
 // modern way — classifying a throttled read as a permission error, which
 // is the failure this vocabulary exists to prevent.
+// https://docs.cloud.google.com/apis/design/errors
+// https://developers.google.com/workspace/drive/api/guides/handle-errors
 const (
 	reasonRateLimit               = "rateLimitExceeded"
 	reasonUserRateLimit           = "userRateLimitExceeded"
@@ -122,18 +124,19 @@ func (e *APIError) Unwrap() error {
 		return ErrRateLimited
 	// A policy refusal is a 403. invalidSharingRequest is the reason to
 	// be careful with: Google uses it for a genuine policy refusal AND
-	// for a request that is simply malformed, and the second arrives as
-	// a 400.
+	// for a request the caller can fix, and the second arrives as a 400.
+	// Sharing with an address that has no Google account behind it
+	// answers 400 invalidSharingRequest, "you must check the Notify
+	// people box to invite this recipient", which notify: true fixes.
+	// [blocked] says give up; [invalid] keeps Google's message and says
+	// fix it and try again.
 	//
-	// Seen live 2026-09-06: sharing with an address that has no Google
-	// account behind it answers 400 invalidSharingRequest with the
-	// message "you must check the Notify people box to invite this
-	// recipient". This mapping called that a policy refusal, so the
-	// server told the caller that their organization forbade it and that
-	// no option here could work around it — when the truth was that the
-	// request was fixable, by the caller, with notify: true. [blocked]
-	// says give up; [invalid] says fix it and try again, which is what a
-	// model needed to hear.
+	// The handle-errors guide documents 400 invalidSharingRequest and 403
+	// domainPolicy; 400 shareOutNotPermittedForContent, for restricted
+	// content, is not documented there. The live step "a share the
+	// organization's policy refuses is classified as blocked" checks the
+	// class where a run has an address the organization refuses.
+	// https://developers.google.com/workspace/drive/api/guides/handle-errors
 	case sameReason(e.Reason, reasonDomainPolicy) || sameReason(e.Reason, reasonShareOutBlocked):
 		return ErrBlocked
 	case e.Status == 403 && sameReason(e.Reason, reasonInvalidSharing):
@@ -143,7 +146,9 @@ func (e *APIError) Unwrap() error {
 	// Drive answers a structural refusal — moving a My Drive folder into
 	// a shared drive — with a 403 as well, so the reason has to be read
 	// before the status: "you may not" and "this cannot be done" lead a
-	// model to different next steps.
+	// model to different next steps. Checked by the live step "a My
+	// Drive folder is refused a move into a shared drive".
+	// https://developers.google.com/workspace/drive/api/guides/handle-errors
 	case sameReason(e.Reason, reasonFolderMove):
 		return ErrUnsupported
 	case e.Status == 403:
@@ -237,7 +242,11 @@ func IsPinnedForGood(err error) bool {
 // account is being throttled for, and waiting is exactly the answer. The
 // fourth is a daily project quota: no amount of backing off frees it
 // before it resets, and retrying sends a model round a loop until the
-// quota's own clock rolls over.
+// quota's own clock rolls over. Over a quota Google answers 403 with one
+// of these reasons, or 429, and asks for exponential backoff; sharing has
+// a quota of its own. No live step can provoke a rate limit.
+// https://developers.google.com/workspace/drive/api/guides/limits
+// https://developers.google.com/workspace/drive/api/guides/handle-errors
 var rateReasons = map[string]bool{
 	normalReason(reasonRateLimit):        true,
 	normalReason(reasonUserRateLimit):    true,
@@ -434,8 +443,8 @@ const (
 	// `server`, which says something went wrong, and not `rate_limited`,
 	// which says you asked too often. Nothing is wrong and nothing needs
 	// backing off from — the same call in a minute picks up the finished
-	// work. Phase 4 added it for files.download, which is the only
-	// long-running operation this server starts.
+	// work. files.download is the only long-running operation this
+	// server starts.
 	ClassPending = "pending"
 	// ClassStale is a witness the call carried that is not what Drive
 	// has: a wide share's file_name is not the name of the item it

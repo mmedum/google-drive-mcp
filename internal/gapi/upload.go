@@ -17,7 +17,12 @@ import (
 	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 )
 
-// Upload sizes Google documents.
+// Upload sizes Google documents: a simple or multipart upload takes up to
+// 5 MB, and a larger file goes up resumable, in chunks of whole 256 KiB
+// blocks. Checked by the live steps "a small file is uploaded in one
+// request", "a large file is uploaded in resumable chunks" and "markdown
+// is imported as a Google Doc".
+// https://developers.google.com/workspace/drive/api/guides/manage-uploads
 const (
 	// MaxMultipartUpload is the ceiling for a simple or multipart upload;
 	// above it the upload has to be resumable.
@@ -166,6 +171,13 @@ const maxNoProgress = 8
 // stored, and continue from there. Only one chunk is ever held in
 // memory, so the size of the file does not decide the size of the
 // process.
+//
+// A chunk is not stored whole or not at all: the 308 carries a Range
+// naming what the session holds, which may be less than the chunk just
+// sent, so the chunk is kept and resent from there. Checked by the live
+// step "a large file is uploaded in resumable chunks"; no live step can
+// make Drive store part of a chunk, and drivetest's ChunkLimit does.
+// https://developers.google.com/workspace/drive/api/guides/manage-uploads#resumable
 func (c *Client) UploadResumable(ctx context.Context, r UploadRequest, content io.Reader, size int64, o ResumableOptions) (*gdrive.File, error) {
 	if size < 0 {
 		return nil, fmt.Errorf("%w: a resumable upload needs the size in advance", ErrInvalid)
@@ -293,7 +305,9 @@ func (c *Client) startResumable(ctx context.Context, r UploadRequest, size int64
 		// until the chunks are committed, so a second attempt abandons
 		// the first session and creates nothing. Without this a 503 on
 		// the opening request would abort a whole large upload before a
-		// byte was sent.
+		// byte was sent. The live step "a large file is uploaded in
+		// resumable chunks" opens a session; none forces a 503.
+		// https://developers.google.com/workspace/drive/api/guides/manage-uploads#resumable
 		idempotent: true,
 		header: http.Header{
 			"X-Upload-Content-Type":   {contentType},

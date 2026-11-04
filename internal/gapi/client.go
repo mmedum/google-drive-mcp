@@ -62,9 +62,11 @@ type Options struct {
 	// Timeout applies per attempt and per transfer chunk.
 	Timeout time.Duration
 	Retry   RetryPolicy
-	// Limiters keep the process inside Drive's per-user unit budget. A
-	// list costs 100 units against a read's 5, so listings are what the
-	// read limiter is really protecting.
+	// Limiters keep the process inside Drive's per-user unit budget,
+	// 325 000 units a minute. A request costs units by its method: a list
+	// costs 100 against a read's 5, an edit 50 and a download 200, so
+	// listings are what the read limiter is really protecting.
+	// https://developers.google.com/workspace/drive/api/guides/limits
 	ReadLimiter    *rate.Limiter
 	WriteLimiter   *rate.Limiter
 	SharingLimiter *rate.Limiter
@@ -193,7 +195,12 @@ func googleHost(host string) bool {
 }
 
 // RememberResourceKey records a resource key for a file id so later calls
-// for that id carry the X-Goog-Drive-Resource-Keys header.
+// for that id carry the X-Goog-Drive-Resource-Keys header. A file shared
+// by link under Drive's 2021 security update does not open by id alone:
+// it needs its key, which arrives in resourceKey,
+// shortcutDetails.targetResourceKey or a URL's resourcekey parameter. No
+// live step opens such a file from another account.
+// https://developers.google.com/workspace/drive/api/guides/resource-keys
 func (c *Client) RememberResourceKey(id, key string) {
 	if id == "" || key == "" {
 		return
@@ -255,15 +262,12 @@ type request struct {
 	// rate class that the method cannot say, so it is the one thing a
 	// call site declares.
 	//
-	// Everything else is derived. An earlier version of this client had a
-	// `kind` field set by hand at every call site, with kindRead as its
-	// zero value — so a write added later and given no thought took the
-	// read limiter AND inherited a read's willingness to repeat itself
-	// after a network failure. That is the same defect §11 records
-	// fixing one level down, in the rule about which POSTs may be
-	// retried, and the fix there was the same: derive it from the method.
-	// A forgotten `sharing: true` now costs throughput; a forgotten kind
-	// used to cost idempotency.
+	// Everything else is derived from the method, as repeatable is. A
+	// rate class set by hand at every call site, with read as its zero
+	// value, would hand a write added later and given no thought the read
+	// limiter AND a read's willingness to repeat itself after a network
+	// failure. A forgotten `sharing: true` costs throughput, never
+	// idempotency.
 	sharing bool
 	// reads marks a POST that does not WRITE. Two of them exist: the
 	// Drive Activity API's only method, a POST because its query does not
@@ -274,10 +278,7 @@ type request struct {
 	//
 	// Its zero value is the safe one, which is the property that matters:
 	// a write added later and given no thought is still treated as a
-	// write. Section 17a raised this shape as "a POST that only reads
-	// would take the wrong limiter"; deriving from the method alone fixed
-	// the dangerous direction and left this one, which phase 4 met the
-	// first time a read-only POST existed.
+	// write.
 	reads bool
 	// idempotent marks a POST that a second attempt cannot apply twice —
 	// a create carrying a pre-generated id, which Drive collapses into
@@ -291,11 +292,10 @@ type request struct {
 //
 // The default is the safe one. GET, PATCH, PUT and DELETE mean the same
 // thing applied twice as applied once, so they may be repeated; a POST
-// may not, unless whoever built it said why. A POST added in a later
-// phase and given no thought therefore fails closed, which is the whole
-// point: the previous version of this rule read a flag whose zero value
-// was "safe to repeat", so a new write inherited permission to retry by
-// omission — the same shape as the bug that made it necessary.
+// may not, unless whoever built it said why. A POST added later and
+// given no thought therefore fails closed, which is the whole point: a
+// flag whose zero value meant "safe to repeat" would let a new write
+// inherit permission to retry by omission.
 func (r request) repeatable() bool {
 	switch r.method {
 	case http.MethodGet, http.MethodHead, http.MethodPatch, http.MethodPut, http.MethodDelete:
@@ -481,7 +481,8 @@ type attemptResult struct {
 // is a refusal to begin the work, so nothing was applied and repeating
 // it is exactly as safe as repeating a read. A 5xx is the ambiguous one
 // — Google answered, but the answer does not say whether the file was
-// created before it failed.
+// created before it failed. No live step can provoke a rate limit.
+// https://developers.google.com/workspace/drive/api/guides/handle-errors
 type transientError struct {
 	err   error
 	after time.Duration
@@ -709,7 +710,8 @@ func (c *Client) doStream(ctx context.Context, r request) (*stream, error) {
 // transfer fail. What replaces it is a stall guard on the body — each
 // individual Read must make progress within the same timeout — so a
 // connection that stops sending is still cut, and one that is merely
-// slow is not.
+// slow is not. The live step "a large file is downloaded in full" runs
+// this path; no live step can force a stall.
 func (c *Client) onceStream(ctx context.Context, r request) (*stream, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	headers := time.AfterFunc(c.timeout, cancel)

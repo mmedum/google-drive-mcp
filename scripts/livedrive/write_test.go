@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/livecover"
 )
 
 func TestFirstRevisionReadsTheIDOutOfAListing(t *testing.T) {
@@ -71,7 +73,7 @@ func TestAFlagIsGivenWhenItIsSetAwayFromItsDefault(t *testing.T) {
 }
 
 func TestOwnerIsReadFromACardForComparison(t *testing.T) {
-	// Spike F compares the owner before and after a transfer, because a
+	// The ownership transfer compares the owner before and after, because a
 	// call that answers 200 and leaves the owner where it was looks
 	// identical to one that worked. The value is only ever compared,
 	// never printed, so it is read before redaction.
@@ -83,15 +85,16 @@ func TestOwnerIsReadFromACardForComparison(t *testing.T) {
 		t.Errorf("owner = %q", got)
 	}
 	// A card with no owner line means the file could not be read back,
-	// which spike F reports as "unknown" rather than as success.
+	// which the ownership transfer reports as "unknown" rather than as
+	// success.
 	if got := ownerFromResult("id: id-transfer-probe-fixture\n"); got != "" {
 		t.Errorf("owner = %q, want empty when there is no owner line", got)
 	}
 }
 
 func TestTheReviewerAddressLeavesTheAngleBracket(t *testing.T) {
-	// get_account prints "Name <address>". A character class that ran
-	// from + to … took in the <, and Drive refused the reviewer.
+	// get_account prints "Name <address>". A character class that runs
+	// from + to … takes in the <, and Drive refuses the reviewer.
 	out := "Jane Doe <jane.doe@example.com>\nstorage: 1 GiB of 15 GiB used\n"
 	if got := addressInAccount.FindString(out); got != "jane.doe@example.com" {
 		t.Errorf("address = %q, want jane.doe@example.com", got)
@@ -109,21 +112,9 @@ func TestTheReviewerAddressLeavesTheAngleBracket(t *testing.T) {
 // next call. A second mention of the tool name is that rule quietly
 // ending, which is what this fails on.
 func TestEmptyTrashIsNamedInOnePlace(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read the driver's directory: %v", err)
-	}
-	fset := token.NewFileSet()
+	fset, files := driverSource(t)
 	var found []string
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		f, err := parser.ParseFile(fset, name, nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", name, err)
-		}
+	for _, f := range files {
 		ast.Inspect(f, func(n ast.Node) bool {
 			lit, ok := n.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {
@@ -139,6 +130,73 @@ func TestEmptyTrashIsNamedInOnePlace(t *testing.T) {
 		t.Errorf("the empty_trash tool is named in %d places, and the scoping to a scratch "+
 			"shared drive only holds while it is named in one:\n%s",
 			len(found), strings.Join(found, "\n"))
+	}
+}
+
+// A transcript reader sees the name a comment cites, above the call it
+// names, and a step that could not run is reported by its name too.
+func TestTheTranscriptNamesEachStep(t *testing.T) {
+	f := newFakeDrive()
+	w, out := testRun(t, f, options{})
+	w.call(call{name: "a file's card is read back", tool: "get_file", args: map[string]any{"file": "id-file-fixture"}})
+	w.needing("", call{name: "a missing file's card is read", tool: "get_file", args: map[string]any{"file": ""}})
+	for _, want := range []string{
+		"=== a file's card is read back ===\nget_file {\"file\":\"id-file-fixture\"}\n",
+		"=== a missing file's card is read: skipped, the file it needs was never created ===",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the transcript does not say %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// driverSource parses the driver's own files, leaving out its tests.
+func driverSource(t *testing.T) (*token.FileSet, []*ast.File) {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read the driver's directory: %v", err)
+	}
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		files = append(files, f)
+	}
+	return fset, files
+}
+
+// Every step has a name, and no two share one: a comment cites a step by
+// its name, and the transcript prints it above the call. A name a step
+// literal carries is a string literal, or a helper passing on the name of
+// the step its caller named; livecover.StepLiterals reports any other.
+func TestEveryStepHasANameOfItsOwn(t *testing.T) {
+	fset, files := driverSource(t)
+	seen := map[string]string{}
+	for _, step := range livecover.StepLiterals(files) {
+		at := fset.Position(step.Pos).String()
+		switch {
+		case step.Problem != "":
+			t.Errorf("%s: %s", at, step.Problem)
+		case step.Name == "":
+			// A helper's call for the step its caller named.
+		case seen[step.Name] != "":
+			t.Errorf("%s: two steps are named %q; the other is at %s", at, step.Name, seen[step.Name])
+		default:
+			seen[step.Name] = at
+		}
+	}
+	// A floor rather than the count, so that adding a step does not fail
+	// it: what it guards is a walk that has stopped finding the steps.
+	if len(seen) < 300 {
+		t.Errorf("read %d step names, fewer than 300: the step literals are not being read", len(seen))
 	}
 }
 
@@ -165,7 +223,7 @@ func TestTheProbeReadsTheStatusFromTheAnswerOrTheLog(t *testing.T) {
 }
 
 // Drive drops a file's own link grant when the file moves into a folder
-// open to anyone with the link and back out (§18). After that, a move of
+// open to anyone with the link and back out. After that, a move of
 // several, a copy into the folder and removing the link each need the
 // file shared by link, and have it only because the driver shares it
 // again first. This plays Drive's part: share_by_link gives the grant and
@@ -173,7 +231,8 @@ func TestTheProbeReadsTheStatusFromTheAnswerOrTheLog(t *testing.T) {
 func TestTheFileSharedByLinkHasItsGrantAtEachStepThatNeedsIt(t *testing.T) {
 	f := newFakeDrive()
 	w, _ := testRun(t, f, options{destructive: true})
-	w.scratchID = w.createAndKeepID("create_folder", map[string]any{"name": scratchPrefix + " 2026-03-06 12:00:00"})
+	w.scratchID = w.createAndKeepID(call{name: "the scratch folder is created", tool: "create_folder",
+		args: map[string]any{"name": scratchPrefix + " 2026-03-06 12:00:00"}})
 	w.moveExposure()
 
 	var file, open string

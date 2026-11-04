@@ -1,112 +1,120 @@
-# CLAUDE.md — google-drive-mcp project instructions
+# CLAUDE.md — google-drive-mcp
 
-Project-specific rules for Claude Code in this repository. The user's
-global instructions still apply; this file adds to them.
+A Go MCP server for Google Drive over stdio: one binary per person,
+their own OAuth client, nothing hosted (D-01). It stops at the file
+boundary (D-02). Why the code is the way it is lives in
+`docs/architecture.md`, one decision per `D-NN`; read it before changing
+the tool surface, the addressing, the sharing policy or the transfers.
 
-## Mission
+## Commands
 
-A production-grade Go MCP server for Google Drive, distributed to other
-people. The design, its evidence log, the decided constraints and the
-phase plan live in `docs/architecture.md`. Read it before changing the
-tool surface, the addressing model, the sharing policy or the transfer
-paths. The server stops at the file boundary: what happens inside a
-Google Doc, Sheet or Slides deck is out of scope.
+- `make check` runs every gate CI runs; its `check` target is the list.
+  `make hooks`, once per clone, adds the pre-commit scan.
+- `make live` drives the built binary against the signed-in account;
+  `LIVE_ARGS` passes its modes, such as `-write`. Read the transcript.
+  `CONTRIBUTING.md` covers it, `make integration` and `make evals`.
+- `make api-diff` and `make schema-refetch` are release steps in
+  `docs/release.md`.
+- `go run ./scripts/gates` lists the gates; add a name to run one.
 
 ## Hard rules
 
-1. **Nothing internal, ever.** No organization names, file or folder ids
-   or URLs, account emails, Cloud project ids, OAuth client ids or
-   secrets, no names or content of real files, and no reference to any
-   other project, repository, account, machine or tool the maintainers
-   use. This holds for code, docs, fixtures, commit messages, pull
-   requests and logs. Fixtures are synthetic. Logs carry truncated ids,
-   counts and latencies only. Conventions are cited to primary sources.
-2. **Stdout carries only MCP JSON-RPC frames.** This is the protocol, not
-   a house preference. MCP's stdio transport says the server "MUST NOT
-   write anything to its `stdout` that is not a valid MCP message", and
-   "MAY write UTF-8 strings to its standard error (`stderr`) for logging
-   purposes" —
-   <https://modelcontextprotocol.io/specification/2025-06-18/basic/transports>.
-   Logs use `slog` to stderr. A stray print corrupts the JSON-RPC stream
-   and the client silently stops working, which is why this is a hard
-   rule rather than a style note.
-
-   `forbidigo` enforces it: `fmt.Print*` and `os.Stdout` are forbidden
-   outside `main`, which names the process's streams once and passes them
-   down as `io.Writer`. `scripts/` is excluded, being maintainer tooling
-   rather than the server. Check the message text when verifying it — a
-   settings block that fails to load leaves forbidigo on its defaults,
-   firing, looking like it works.
-3. **Ids are the contract.** A name or path that matches more than one
-   item is `[ambiguous]` with the candidates; the server never takes the
-   first match and never guesses an id.
-4. **Never widen access silently.** Google's organization policy decides
-   what may be shared; the server checks `capabilities.canShare` first,
-   shows exposure before and after, and sends no mail unless `notify` is
-   set. `share_file` grants named people and groups inside the
-   organization; a link for anyone, a domain, someone outside it, a new
-   owner and lifting a shared drive's domain restriction are each their
-   own tool, behind `GDRIVE_ENABLE_DESTRUCTIVE`. A move, a copy or a
-   folder's limited access turned off never widens past the organization.
-   `GDRIVE_SHARING=off` removes the sharing tools.
-5. **Never destroy without a way back by default.** Trash and restore
-   are the default surface. Permanent delete, empty trash, delete
-   revision, delete shared drive and delete comment are unregistered
-   unless `GDRIVE_ENABLE_DESTRUCTIVE=true`. No bulk removal tool. The one
-   exception: `extract_text` deletes, for good, the temporary Google Doc
-   it made itself, and nothing else.
-6. **Files only through `GDRIVE_LOCAL_DIR`.** Downloads land there and
-   uploads read from there; unset means no file transfer. Stream in
-   chunks; never hold a whole file in memory.
-7. **Own wire types, raw REST.** Do not import `google.golang.org/api`;
-   extend `internal/gdrive` instead. No code is imported from any other
-   project.
-8. **Branches and commits.** `main` is released code and is never
-   pushed to directly, release commits included. Work on a short topic
-   branch. Commit at milestones and at the end of each phase, with
-   messages that say what and why. Pushing, opening the pull request
-   and merging are the maintainer's.
-9. **Verify conventions against primary sources** before adopting them;
-   record the verdict in the evidence log in `docs/architecture.md`.
-
-## Where things go
-
-- `cmd/google-drive-mcp/` — subcommands and server wiring.
-- `internal/config/` env + bound flags; `internal/credentials/` keyring →
-  file → env; `internal/userconfig/` non-secret profile file;
-  `internal/auth/` loopback OAuth.
-- `internal/gdrive/` wire types; `internal/gapi/` raw REST client, with
-  `drivetest/` the in-memory fake Drive for tests.
-- `internal/office/` Office and OpenDocument text, parsed locally;
-  `internal/mdcomment/` the comments Google Docs keeps in a Markdown
-  file's text;
-  `internal/mediatype/` what each file type is called, filtered and
-  exported as, and which extensions name it.
-- `internal/ref/` file references and paths (no network);
-  `internal/model/` the server's view of a file; `internal/render/` text
-  output; `internal/service/` orchestration and policy;
-  `internal/tools/` MCP tools; `internal/server/` SDK wiring and schema
-  dump.
-- `testdata/` synthetic fixtures and renderer goldens.
+1. **Never commit anything internal**: file or folder ids or URLs, the
+   names or content of real files, account addresses, organization
+   names, Cloud project ids, OAuth client ids or secrets. Not in code,
+   docs, fixtures, transcripts, commits, pull requests or logs. Naming a
+   sibling server, such as google-sheets-mcp, is fine. A fixture id says
+   it is synthetic (D-07, D-08). `make leaks` and gitleaks hold it.
+2. **Never write to stdout outside `main`.** Stdout carries only MCP
+   JSON-RPC frames; logs go to stderr through `slog` (D-05). forbidigo
+   and `make smoke` hold it, with `scripts/` excluded.
+3. **Never log a name, path, address, query or content** (D-06).
+   `TestLogsCarryNoTraceOfWhatWasTouched` holds it.
+4. **Never take the first match or guess an id.** A name or path that
+   matches several items is `[ambiguous]` with every candidate (D-12).
+   `TestResolveAmbiguousPathListsCandidates` holds it.
+5. **Never widen access silently.** Check `canShare` first, show who
+   could reach the item before and after, and send no mail unless asked
+   (D-35, D-36, D-37). `share_file` reaches named people and groups
+   inside the organization (D-38), and a move, a copy or a folder's
+   limited access turned off never reaches past it (D-42).
+   `TestShareFileRefusesWhatReachesPastTheOrganization` holds it.
+6. **Never make a risky variant an argument.** A link, a domain, an
+   outside address, a new owner and lifting a drive's restriction are
+   tools of their own behind `GDRIVE_ENABLE_DESTRUCTIVE`, repeating the
+   name of what they open (D-40, D-41).
+   `TestTheWideSharesNeedTheDestructiveFlag` holds it.
+7. **Never destroy without a way back by default.** Trash is the removal;
+   a permanent delete registers only with `GDRIVE_ENABLE_DESTRUCTIVE`
+   and needs `confirm: true` (D-48). No bulk delete (D-49), and a bounded
+   delete names one resource (D-50). `extract_text` deletes only its own
+   copy (D-22). `TestDestructiveToolsExistOnlyWhenAskedFor` holds it.
+8. **Never touch a local file outside `GDRIVE_LOCAL_DIR`**, or hold a
+   whole file in memory (D-23, D-24).
+   `TestUploadsRefuseAPathOutsideTheLocalDirectory` holds it.
+9. **Never ask the person anything, or let a tool write the server's
+   settings** (D-44, D-47). Annotations are exact (D-45), and the
+   `requiresUserInteraction` mark stays on the tools D-46 names.
+   `TestNoToolAsksThePerson` holds it.
+10. **Never repeat a write that may have landed**: it is
+    `[ambiguous_outcome]` (D-28). Never build an outcome from the
+    request (D-29). `TestOnlyAWriteThatMayHaveLandedIsAmbiguous` and
+    `make outcomes` hold them.
+11. **Never import `google.golang.org/api`** or another project's code;
+    extend `internal/gdrive` (D-09). depguard refuses it. Never call a
+    method or model a field without a verdict in
+    `testdata/api-coverage.tsv` or `testdata/api-fields.tsv` (D-69).
+12. **Never rename or drop a released tool, argument, output field or
+    resource template.** `make schema-diff` fails on a break no
+    `**Breaking:**` entry names; a break ships in a new major (D-64).
+13. **Never emit an error outside `[class] message`.** `make classes`
+    holds the vocabulary closed (D-51).
+14. **Never let the live driver or the evals touch what they did not
+    make, or print except through the transcript** (D-71, D-72).
+    `make transcript` holds the second.
+15. **Never commit to `main` or push**; the owner pushes, tags and
+    merges (D-81).
+16. **Never adopt a belief about Google without a primary source**: the
+    discovery document or a live probe (D-68). Record a verified Google
+    behavior in the comment at the line that depends on it, with the
+    source link and the live step that checks it.
 
 ## Definition of done
 
-`make check` (gofmt, vet, golangci-lint, race tests with the 80% floor,
-govulncheck, stdio smoke, staleness check of README/docs/CHANGELOG
-against the code) plus tests for new behavior, the live driver against
-a scratch folder, `/simplify` and `/code-review high` on the changed
-files with findings resolved or explained, and a look at
-`--dump-schemas` for breaking changes. On a pull request CI also runs
-`schema-ack`: a commit footer names each changed item of the tool
-surface. A phase ends with a release
-commit on a topic branch, a pull request, CI green on three platforms,
-a merge, and the tag pushed on its own; then it waits for an explicit
-"go".
+- `make check` passes. On a pull request CI also runs `schema-ack`,
+  which needs a commit footer naming each changed item of the tool
+  surface (`CONTRIBUTING.md`).
+- New behavior has tests, and the schema diff has been read.
+- `/simplify` and `/code-review medium` have run. A fixed finding is one
+  line in the commit body. A declined one goes in the PR body, or
+  becomes a present-tense constraint comment at the line it protects.
+  Never write findings into `docs/`.
+- Anything touching the write path or an API response shape has had a
+  `make live` run whose transcript was read (D-70).
 
-## Working across sessions
+## Traps
 
-Each phase is one session. On a fresh session: read this file, the
-status line and §16 and §17 of `docs/architecture.md`, `CHANGELOG.md`
-under `[Unreleased]`, `git log --oneline -20` and `git status`; run
-`make check`; then continue the phase §16 names on a topic branch. At
-the end of a phase, say which version was tagged and stop.
+- **Green gates are not done.** `internal/gapi/drivetest` is written
+  from belief about Drive; only `make live` and `make integration` test
+  it (D-67, D-70).
+- **`dry_run` is taken by the writes that move, share, copy, trash,
+  grant or destroy, not every write** (D-31). Each returns before
+  sending, with no guard in the API client, so a write that takes it
+  needs its own "sends nothing" test.
+- **A short or empty page is not the end of a listing** (D-16).
+- **Drive's reads lag its writes.** Never assert what the response did
+  not carry, and never sleep and retry in a tool (D-30).
+- **`empty_trash` takes the whole account's trash.** The live driver
+  names it in one place, inside its scratch shared drive;
+  `TestEmptyTrashIsNamedInOnePlace` holds it (D-71).
+- **A linter settings block that fails to load leaves its defaults on**,
+  still firing. Check the message text of forbidigo and depguard.
+- **Never delete a decision or reuse an ID.** Supersede or deprecate it,
+  and take the next ID from the file's `Next ID:` line.
+
+## Writing
+
+Plain and short: lead with the outcome, one idea per sentence, no
+narration, no count a gate does not check. History goes in commit
+messages. `release.yml` lifts the CHANGELOG section verbatim into the
+release notes, so the rules in `CONTRIBUTING.md` are not optional.

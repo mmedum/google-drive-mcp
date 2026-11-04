@@ -206,9 +206,12 @@ func (s *Service) ReplyComment(ctx context.Context, in ReplyCommentInput) (*Resu
 }
 
 // replyTo adds a reply, optionally one that resolves or reopens the
-// thread. Drive expresses both as a reply with an action, so resolving
-// is always visible to everybody as a reply rather than as a silent
-// state change.
+// thread. Comment.resolved is output only, and the one way to set it is
+// a reply whose action is resolve or reopen, so resolving is always
+// visible to everybody as a reply rather than as a silent state change.
+// Checked by the live steps "a thread is resolved" and "resolving a
+// resolved thread changes nothing".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/replies/create
 func (s *Service) replyTo(ctx context.Context, res *Resolved, commentID, action, content string) (*Result, error) {
 	f := res.File
 	if action == CommentReply && content == "" {
@@ -241,9 +244,8 @@ func (s *Service) replyTo(ctx context.Context, res *Resolved, commentID, action,
 	reply, err := s.api.CreateReply(ctx, f.ID, commentID, meta)
 	if err != nil {
 		if gapi.Class(err) == ClassNotFound {
-			// The read that used to happen first is what named the
-			// missing thread; now that a plain reply skips it, the create
-			// has to.
+			// A plain reply skips the read that would name a missing
+			// thread, so the create's 404 names it.
 			return nil, s.commentError(err, f, commentID)
 		}
 		return nil, s.commentWriteError(err, f, "replying to a comment on")

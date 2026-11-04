@@ -118,8 +118,7 @@ func (s *Service) ListActivity(ctx context.Context, in ListActivityInput) (strin
 // entry whose action this server has no words for means Google has
 // added a kind, since the discovery document lists twelve and all twelve
 // are named, and that one is worth acting on. Reporting the first as the
-// second sends somebody looking for a missing case that is not missing,
-// which is what this did for the whole of phase 4.
+// second sends somebody looking for a missing case that is not missing.
 //
 // The new kind is NAMED, because a count alone leaves the reader with a
 // probe to write before they can start; the member name is the word they

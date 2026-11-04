@@ -167,9 +167,9 @@ func TestALockThatWasAlreadyThereIsNotCredited(t *testing.T) {
 	}
 }
 
-// TestApprovingLocksTheFile is the state §17a said needed a shared drive
-// to reach, and the live run reached it: an approved file comes back
-// carrying a content restriction, and the next content change is refused.
+// An approved file comes back carrying a content restriction, as Drive's
+// does in the live step "a content change to an approved file is
+// refused", and the card reports the lock.
 func TestApprovingLocksTheFile(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddApproval("id-budget-fixture", "id-approval-yes", "person@example.com")
@@ -189,7 +189,7 @@ func TestApprovingLocksTheFile(t *testing.T) {
 
 // Approving is approve_file's: manage_approval refuses it, naming the
 // tool, before anything reaches Drive, because a client remembers an
-// approval per tool and approving can lock the file for good (§4a).
+// approval per tool and approving can lock the file for good.
 func TestManageApprovalLeavesApprovingToApproveFile(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddApproval("id-budget-fixture", "id-approval-yes", "person@example.com")

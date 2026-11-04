@@ -1,8 +1,8 @@
 # Configuration
 
-Every setting is an environment variable named `GDRIVE_*`, and every one
-of them also has a command-line flag of the same name in lower case with
-dashes. A flag passed explicitly wins over the environment; the
+Every setting is an environment variable named `GDRIVE_*`, and all but
+[two](#settings-with-no-flag) also have a command-line flag of the same
+name in lower case with dashes. A flag passed explicitly wins over the environment; the
 environment wins over the built-in default. Configuration is
 environment-first because Claude Code, Claude Desktop and Cursor all pass
 only `command`, `args` and `env` to a stdio server.
@@ -12,17 +12,18 @@ before it announces itself, with every problem reported at once rather
 than one per run. The spaces around a value are dropped, and a variable
 of spaces alone is unset, as an empty one is; that holds for the two
 variables with no flag too.
+[`troubleshooting.md`](troubleshooting.md) has each refusal and its fix.
 
 ## Settings
 
 | Variable | Flag | Default | Meaning |
 |---|---|---|---|
 | `GDRIVE_PROFILE` | `--profile` | `default` | Named profile. Each profile keeps its own client secret, refresh token and account, so one machine can hold several Google accounts. A name is up to 64 characters from a to z, 0 to 9, - and _, starting with a letter or digit; A to Z are read as a to z, and any other name stops the server at start. |
-| `GDRIVE_CLIENT_SECRET` | `--client-secret` | the profile's `client_secret.json` | Path to the Desktop-app OAuth client JSON downloaded from the Google Cloud console. |
+| `GDRIVE_CLIENT_SECRET` | `--client-secret` | the path `login` recorded, else the profile's `client_secret.json` | Path to the Desktop-app OAuth client JSON downloaded from the Google Cloud console. |
 | `GDRIVE_LOG_LEVEL` | `--log-level` | `info` | `debug`, `info`, `warn` or `error`. Logs go to stderr; stdout carries only JSON-RPC. |
 | `GDRIVE_LOG_FORMAT` | `--log-format` | `text` | `text` or `json`. |
 | `GDRIVE_READ_ONLY` | `--read-only` | `false` | Register only the read tools, and ask for read-only scopes at login. |
-| `GDRIVE_ENABLE_DESTRUCTIVE` | `--enable-destructive` | `false` | Register the tools that destroy without a way back — `delete_file`, `empty_trash`, `delete_revision`, `delete_drive`, `delete_comment` — and the ones that reach past the organization: `share_by_link` (anyone with the link, or a whole domain), `share_outside_organization`, `transfer_ownership` and `lift_drive_restriction`. The four sharing ones also need `GDRIVE_SHARING=all`. Every one needs `confirm: true` on the call. Without it, trash and restore are the only removal, the exception being the temporary copy `extract_text` makes and deletes within one call, and nothing here shares past the organization. |
+| `GDRIVE_ENABLE_DESTRUCTIVE` | `--enable-destructive` | `false` | Register the tools that destroy without a way back — `delete_file`, `empty_trash`, `delete_revision`, `delete_drive`, `delete_comment` — and the ones that reach past the organization: `share_by_link` (anyone with the link, or a whole domain), `share_outside_organization`, `transfer_ownership` and `lift_drive_restriction`. The sharing ones also need `GDRIVE_SHARING=all`. Every one needs `confirm: true` on the call. Without it, trash and restore are the only removal, the exception being the temporary copy `extract_text` makes and deletes within one call, and nothing here shares past the organization. |
 | `GDRIVE_SHARING` | `--sharing` | `all` | `all` registers the sharing tools — `share_file`, `unshare_file` and `resolve_access_request`, which grants a permission when it accepts one; `off` leaves them unregistered while `list_permissions` and `list_access_requests` still work, since seeing who can reach a file is not widening it, `manage_drive` may turn a shared drive's restriction on but not off, `update_file` may not let viewers copy a file or editors reshare it, lift a download restriction or turn a folder's limited access off, `move_file` refuses a move that would let more people reach an item, or give them more access, and `copy_file` a copy that more people could reach than the original. With `all`, `share_file` still grants only named people and groups inside the organization, and a move, a copy or a folder's limited access turned off that would reach anyone with the link, a domain or someone outside the organization is refused all the same. |
 | `GDRIVE_LOCAL_DIR` | `--local-dir` | unset | The one directory downloads are written to and uploads are read from, as an absolute path. **Unset means no file transfer at all**; inline text still works both ways. |
 | `GDRIVE_MAX_DOWNLOAD` | `--max-download` | `1GiB` | Largest single download. Accepts `1GiB`, `500MB`, `2G` or a plain byte count; IEC units are powers of 1024 and decimal units powers of 1000. |
@@ -34,7 +35,7 @@ variables with no flag too.
 
 | Variable | Removed in | What it did, and what to do instead |
 |---|---|---|
-| `GDRIVE_REQUIRE_PROMPT` | 3.0.0 | Refused the writes that asked the person when the client could not ask. The server asks nobody now, and the client approves each call. `false`, or unset, still starts; anything else is refused at start, since ignoring it would quietly allow what it was set to stop. Leave `GDRIVE_ENABLE_DESTRUCTIVE` off for a client that runs with nobody watching, and list the writes you want to approve under your client's ask rules, as the README shows. The `--require-prompt` flag is gone. |
+| `GDRIVE_REQUIRE_PROMPT` | 3.0.0 | Refused the writes that asked the person when the client could not ask. The server asks nobody, and the client approves each call (D-44). `false`, or unset, starts; anything else is refused at start, since ignoring it would quietly allow what it was set to stop. The `--require-prompt` flag is removed too. |
 
 ## Settings with no flag
 
@@ -64,10 +65,9 @@ back to the `0600` file and warns on stderr every time it uses it.
 ## File transfer
 
 `GDRIVE_LOCAL_DIR` is the only place this server reads local files from
-and writes them to. Unset, `download_file` and `upload_file` are still
-registered — a missing tool tells a model nothing — and both refuse with
-a message naming this setting. `get_account` says which of the two states
-you are in.
+and writes them to (D-23). Unset, `download_file` and `upload_file` stay
+registered, since a missing tool tells a model nothing, and both refuse.
+`get_account` says which of the two states you are in.
 
 - **Uploads** take a bare name in that directory or an absolute path
   inside it. The path is resolved through its symlinks before it is
@@ -111,13 +111,10 @@ scopes the login asks for. Changing any of them means running
 `google-drive-mcp login` again; `doctor` compares the scopes granted with
 the ones the current configuration wants and names any that are missing.
 
-The two extra APIs also have to be enabled in the Cloud project — the
-**Drive Labels API** and the **Drive Activity API** — and, on an External
-app, their scopes added to the consent screen; an Internal app needs no
-scope list. A missing API, or a missing scope on an External app, ends
-in a 403 saying only that the token had insufficient scopes; the tools
-name the setup step in their refusal so that message is not the last
-word.
+The two extra APIs also have to be enabled in the Cloud project: the
+**Drive Labels API** and the **Drive Activity API**. On an External app,
+their scopes go on the consent screen too; an Internal app needs no
+scope list.
 
 ## Reading the setup from a script
 
@@ -134,7 +131,7 @@ $ google-drive-mcp status --json
 {
   "schema_version": 1,
   "binary": "google-drive-mcp",
-  "version": "v1.1.5",
+  "version": "vX.Y.Z",
   "profile": "default",
   "config_dir": "/home/you/.config/google-drive-mcp",
   "account": "…@example.com",

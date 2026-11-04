@@ -147,7 +147,7 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 	// The request and its message come from the person asking, which
 	// under injection is the attacker. Letting in someone inside the
 	// organization is an ordinary grant; anyone outside it is the outside
-	// share's to let in, behind the destructive flag (§4a).
+	// share's to let in, behind the destructive flag (D-38).
 	if action == RequestAccept && s.outside(ctx, request.For) {
 		return nil, Errorf(ClassBlocked, "%s is outside this account's organization, and "+
 			"resolve_access_request lets in only people inside it. Nothing was changed. Deny the request, or "+
@@ -183,8 +183,11 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 
 // roleForRequest decides what an acceptance grants: the role the caller
 // named, or the one the requester asked for when they asked for exactly
-// one. A proposal naming several roles is an ambiguity, and this server
-// never picks between candidates.
+// one. A proposal's rolesAndViews is a list, and so is the role an
+// accept sends, so a proposal naming several roles is an ambiguity, and
+// this server never picks between candidates. No live step can make a
+// proposal.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/accessproposals/resolve
 func (s *Service) roleForRequest(request *model.AccessRequest, asked string) (string, error) {
 	if named := strings.TrimSpace(asked); named != "" {
 		role, err := parseRole(named)

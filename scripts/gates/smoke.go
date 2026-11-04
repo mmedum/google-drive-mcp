@@ -23,9 +23,10 @@ const smokeTimeout = 20 * time.Second
 const syntheticFileID = "1SyntheticFixtureFileIdAAAAAAAAAAAA"
 
 // protocolVersions are the newest version the SDK knows and the one it
-// negotiates down to. go-sdk v1.7.0 answers every initialize with
-// 2025-11-25 — initialize is deprecated in 2026-07-28, so the handshake
-// caps there by design — but both requests must produce a session.
+// negotiates down to. go-sdk v1.8.0's negotiatedVersion answers every
+// initialize with 2025-11-25, because initialize is deprecated in
+// 2026-07-28, but both requests must produce a session.
+// https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/mcp/shared.go
 var protocolVersions = []string{"2026-07-28", "2025-11-25"}
 
 // negotiatedVersion is what the server may answer with.
@@ -281,9 +282,8 @@ func drive(binary string, env, frames []string, wantIDs []int) (map[int]map[stri
 		_ = stdin.Close()
 		// Wait first, then report what the server said. A write that
 		// fails here fails because the server has already gone, so the
-		// error in hand is a broken pipe and the reason is in stderr —
-		// and this returned the pipe alone, discarding the panic that
-		// explained it. A sibling repository found the same in its port.
+		// error in hand is a broken pipe and the reason is in stderr;
+		// the pipe alone would discard the panic that explains it.
 		_ = cmd.Wait()
 		return nil, fmt.Errorf("write frames: %w\nstderr:\n%s", err, stderr.String())
 	}

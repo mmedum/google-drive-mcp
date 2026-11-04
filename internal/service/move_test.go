@@ -92,7 +92,7 @@ func linkShared(fake *drivetest.Server) {
 }
 
 // A move that would let anyone with the link reach the file is refused,
-// dry run included, naming who, and nothing moves (§4a).
+// dry run included, naming who, and nothing moves.
 func TestAMoveThatReachesAnyoneIsRefusedNamingThem(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	linkShared(fake)

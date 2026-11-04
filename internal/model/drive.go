@@ -32,7 +32,9 @@ type Drive struct {
 // "what may this person do", and naming a role from them would be a
 // guess dressed as a fact. list_permissions on the drive gives the
 // membership, this account's own grant included, when the role itself is
-// what is wanted.
+// what is wanted. Checked by the live step "a shared drive is found by
+// name with hidden drives included".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/drives
 var driveCapabilityWords = []struct {
 	name string
 	get  func(*gdrive.DriveCapabilities) bool

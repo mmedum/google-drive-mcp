@@ -30,7 +30,7 @@ const instructions = "Google Drive tools, at the file boundary: finding files, w
 	"Start with get_file on any id, URL or path: it is cheap and it shows the folder a file sits in and who can " +
 	"reach it, both of which change what an action means. Use list_folder when you know where something is and " +
 	"search_files when you do not; a listing costs twenty times a read, so do not walk a tree to find one file. " +
-	"Drive has no substring search: name and text match the beginnings of words and whole words. " +
+	service.SearchRule + " " +
 	"Ids are the contract. A name or path that matches more than one item comes back as [ambiguous] with the " +
 	"candidates; pick one and pass its id rather than retrying the name. " +
 	"Three of the reads are also resources, for a client that attaches them rather than calling a tool: " +

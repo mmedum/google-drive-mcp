@@ -3,10 +3,9 @@
 # It is its own workflow, callable two ways, because the registry sends a
 # HEAD to the bundle's download URL before it accepts an entry — so this
 # can only run AFTER the release exists, and a step that can only run
-# last is a step that needs a way to be run again on its own. The first
-# entry this repository ever published was for a release that had already
-# shipped, and with the publish welded into the release job the only way
-# to get it out would have been to cut another release.
+# last is a step that needs a way to be run again on its own. Welded into
+# the release job, the only way to publish an entry for a release that
+# has already shipped would be to cut another release.
 #
 # Both paths read the PUBLISHED release's checksums.txt rather than a
 # local build, so the hash a client verifies is the number cosign signed,
@@ -44,6 +43,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod

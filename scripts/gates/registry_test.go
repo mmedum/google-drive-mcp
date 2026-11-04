@@ -77,10 +77,8 @@ func TestEveryRuleTheRegistryEnforcesInCodeIsRefusedHere(t *testing.T) {
 			want:   "not 64 hex characters",
 		},
 		{
-			// The one that got through. This gate was written for the
-			// rules the schema does NOT carry and skipped the ones it
-			// does, so a 205-character description passed here and was
-			// refused by the registry after the login had succeeded.
+			// A rule the schema carries and the validator does not: the
+			// registry refuses it only after the login has succeeded.
 			name: "a description longer than the schema allows",
 			break_: func(m map[string]any) {
 				m["description"] = strings.Repeat("a description that is far too long. ", 6)
@@ -129,9 +127,7 @@ func TestEveryRuleTheRegistryEnforcesInCodeIsRefusedHere(t *testing.T) {
 // TestThePublishedEntryTakesItsHashFromTheSignedChecksums, and refuses to
 // invent one. A client checks this number before installing, so a wrong
 // one is an install that fails for everybody — and a bundle missing from
-// checksums.txt is the packing step having silently not run, which is the
-// defect a sibling repository shipped and this repository documented
-// wrongly for a whole morning.
+// checksums.txt is the packing step having silently not run.
 func TestThePublishedEntryTakesItsHashFromTheSignedChecksums(t *testing.T) {
 	t.Chdir("../..")
 	dir := t.TempDir()

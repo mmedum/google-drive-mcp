@@ -311,10 +311,10 @@ func mcpbCheck(out io.Writer, _ []string) error {
 // signature is over that file — but it is not what puts it there.
 // goreleaser hashes the artifacts IT built, and a file a hook drops into
 // dist/ is not one of those: `checksum.extra_files` in .goreleaser.yaml
-// is what covers it, and `release.extra_files` is what uploads it. A
-// sibling repository following this hook alone produced a bundle that
-// packed, agreed about its version everywhere it was asked, and was
-// absent from checksums.txt — which looks exactly like a correct build.
+// is what covers it, and `release.extra_files` is what uploads it.
+// Without them the bundle packs, agrees about its version everywhere it
+// is asked, and is absent from checksums.txt, which looks exactly like a
+// correct build.
 func mcpbPack(out io.Writer, args []string) error {
 	version := arg(args, 0, "")
 	dist := arg(args, 1, "dist")
@@ -494,8 +494,13 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	runs := map[string]string{}
 	resolve := func(platform, where, command string) {
 		// ${__dirname} is the one path the specification fixes to the
-		// bundle; what a relative command is resolved against, it never
-		// says (§18).
+		// bundle, "the absolute path to the extension's directory". It
+		// shows a binary with the relative command server/my-server and
+		// never says what that is resolved against, and the reference
+		// host substitutes variables in command and resolves no path.
+		// Claude Desktop's working directory is unprobed.
+		// https://github.com/anthropics/mcpb/blob/v2.1.2/MANIFEST.md
+		// https://github.com/anthropics/mcpb/blob/v2.1.2/src/shared/config.ts
 		name, ok := strings.CutPrefix(command, "${__dirname}/")
 		switch {
 		case !ok:
@@ -539,12 +544,11 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 
 	// And the direction that matters more, which the check above does
 	// not cover: every platform the bundle CLAIMS must spawn the file
-	// staged for it. A review found that deleting the win32 override
-	// passed — Windows would then have spawned the default command,
-	// which is the darwin universal binary, because that file really is
-	// a staged program. A Mach-O binary on Windows is exactly the "packs
-	// cleanly and then does nothing" failure this function exists to
-	// catch.
+	// staged for it. Without the win32 override, Windows spawns the
+	// default command, which is the darwin universal binary and really
+	// is a staged program. A Mach-O binary on Windows is exactly the
+	// "packs cleanly and then does nothing" failure this function exists
+	// to catch.
 	// A claimed platform nothing is staged for is reported above.
 	for _, platform := range claimed {
 		want := entryPointFor(platform)
@@ -580,7 +584,7 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 }
 
 // identityProblems holds what the manifest says it is: the server's own
-// name, a binary, the family's Claude Desktop floor, a privacy policy,
+// name, a binary, the Claude Desktop floor, a privacy policy,
 // and exactly the platforms the packer stages an entry point for, so
 // dropping one platform and its override together is refused.
 // checkManifest holds each platform to the file staged for it.
@@ -595,7 +599,7 @@ func identityProblems(manifest map[string]any) []string {
 	}
 	compat, _ := manifest["compatibility"].(map[string]any)
 	if got, _ := compat["claude_desktop"].(string); got != claudeDesktopFloor {
-		problems = append(problems, fmt.Sprintf("compatibility.claude_desktop is %q; the family's bundles claim %q",
+		problems = append(problems, fmt.Sprintf("compatibility.claude_desktop is %q; this bundle claims %q",
 			got, claudeDesktopFloor))
 	}
 	platforms, staged := slices.Sorted(slices.Values(manifestPlatforms(manifest))), stagedPlatforms()
@@ -603,9 +607,11 @@ func identityProblems(manifest map[string]any) []string {
 		problems = append(problems, fmt.Sprintf("compatibility.platforms is %v; the packer stages entry points for %v",
 			platforms, staged))
 	}
-	// The manifest specification requires privacy_policies of a server
-	// that connects to a service processing user data, as this one does
-	// to Google, and neither the schema nor `mcpb validate` enforces it.
+	// The manifest specification requires privacy_policies "when the
+	// extension connects to external services (first- or third-party)
+	// that process user data", as this one does to Google, and neither
+	// the schema nor `mcpb validate` enforces it.
+	// https://github.com/anthropics/mcpb/blob/v2.1.2/MANIFEST.md
 	if policies, _ := manifest["privacy_policies"].([]any); len(policies) == 0 {
 		problems = append(problems, "privacy_policies is empty; the manifest specification requires one for a "+
 			"server that connects to a service processing user data, as this one does to Google")
@@ -615,11 +621,10 @@ func identityProblems(manifest map[string]any) []string {
 
 // userConfigKeys reads every ${user_config.x} a value spends.
 //
-// Every one, not the value when it is nothing but a reference. An
-// earlier version matched the whole value, so a composed one —
-// "${user_config.local_dir}/sub" — skipped the check entirely and the
-// server would start with the variable unsubstituted. Found by review,
-// with a probe.
+// Every one, not the value when it is nothing but a reference: matching
+// the whole value lets a composed one — "${user_config.local_dir}/sub" —
+// skip the check, and the server would start with the variable
+// unsubstituted.
 func userConfigKeys(value string) []string {
 	found := userConfigRef.FindAllStringSubmatch(value, -1)
 	out := make([]string, 0, len(found))
@@ -699,9 +704,8 @@ func stagedPlatforms() []string {
 //
 // The launcher picks a binary from `uname -m` and spawns it by name, and
 // those names are written out in a shell script that no manifest
-// mentions — so checkManifest cannot see them, and a review found that
-// renaming a staged Linux binary passed every gate and every test. The
-// bundle would then have failed for every Linux user, with the
+// mentions, so checkManifest cannot see them. A staged Linux binary
+// renamed without the launcher fails for every Linux user, with the
 // launcher's own "missing from the bundle" message, which is the failure
 // this file exists to make impossible.
 //
@@ -856,15 +860,16 @@ var immutableRef = regexp.MustCompile(`^(v[0-9]+\.[0-9]+\.[0-9]+|[0-9a-f]{40})$`
 
 // minManifestVersion is the format version this repository has checked.
 //
-// Checked 2026-09-17 against the published schemas: v0.2, v0.3 and v0.4
-// are served and v0.5 is not, and 0.4's only change is a `uv` value in
-// the `server.type` enum — which a `binary` server gains nothing from.
-// Raise it only after checking what a newer format changes AND that a
-// desktop installs a bundle declaring it.
+// mcpb v2.1.2 publishes schemas up to v0.4, and 0.4's only change from
+// 0.3 is a `uv` value in the `server.type` enum, which a `binary` server
+// gains nothing from. Raise it only after checking what a newer format
+// changes AND that a desktop installs a bundle declaring it.
+// https://github.com/anthropics/mcpb/tree/v2.1.2/schemas
 const minManifestVersion = "0.3"
 
-// claudeDesktopFloor is the Claude Desktop version every bundle in the
-// family claims.
+// claudeDesktopFloor is the oldest Claude Desktop the bundle claims to
+// install in. The gate holds it to this one value, so raising it is a
+// change made here rather than an edit to the manifest alone.
 const claudeDesktopFloor = ">=0.10.0"
 
 // declarationProblems holds what the manifest says about ITSELF: which
@@ -877,7 +882,7 @@ const claudeDesktopFloor = ">=0.10.0"
 // bytes rather than to a branch, and whether the version is one somebody
 // checked. A manifest agreeing with its own $schema is still a manifest
 // a version behind — 0.2 beside a 0.2 schema passes every claim that
-// holds the document against itself, which is how that shape spread.
+// holds the document against itself.
 func declarationProblems(schema, manifestVersion, support string) []string {
 	var problems []string
 
@@ -948,8 +953,8 @@ func majorMinor(v string) (int, int, bool) {
 
 // bundleLeftOut is every variable the server reads that the bundle does
 // not ask for, with why. The bundle asks for every other one, each under
-// its name without the prefix, lowercased, which gives the family's
-// bundles the same keys.
+// its name without the prefix, lowercased, so a key is derived from the
+// variable rather than chosen.
 var bundleLeftOut = map[string]string{
 	config.EnvPrefix + "LOG_LEVEL":      "diagnostics, set by hand while chasing a problem",
 	config.EnvPrefix + "LOG_FORMAT":     "diagnostics, set by hand while chasing a problem",
@@ -1026,6 +1031,12 @@ func settingProblems(manifest map[string]any, vars []config.Var, leftOut map[str
 		}
 		opt, _ := declared[key].(map[string]any)
 		required, _ := opt["required"].(bool)
+		// The reference host builds its variables from the defaults and
+		// the person's values, and leaves a reference it has no variable
+		// for as written, so an optional key with no default reaches the
+		// server as the text "${user_config.x}". Claude Desktop is
+		// unprobed.
+		// https://github.com/anthropics/mcpb/blob/v2.1.2/src/shared/config.ts
 		if _, hasDefault := opt["default"]; !required && !hasDefault {
 			problems = append(problems, fmt.Sprintf("user_config.%s is optional with no default; the reference host "+
 				"passes ${user_config.%s} to the server as written when the field is left blank", key, key))
@@ -1052,10 +1063,12 @@ func settingProblems(manifest map[string]any, vars []config.Var, leftOut map[str
 
 // argsProblems holds the settings to mcp_config.env, which every other
 // check reads. The base args stays [], and a platform override carries
-// neither args nor env, an empty one included, because the reference
-// host takes an override's in place of the base's (§18). An argument
-// such as --enable-destructive=true would configure the server past
-// every check on env.
+// neither args nor env, an empty one included: the reference host takes
+// an override's args and env in place of the base's, an empty [] or {}
+// too, and substitutes variables in args. An argument such as
+// --enable-destructive=true would configure the server past every check
+// on env. Claude Desktop is unprobed.
+// https://github.com/anthropics/mcpb/blob/v2.1.2/src/shared/config.ts#L114-L120
 func argsProblems(cfg map[string]any) []string {
 	const keep = "keep it as [], the shape every released bundle has had, since no Claude Desktop launch " +
 		"has shown the key optional"
@@ -1204,9 +1217,18 @@ func startDefaults(manifest map[string]any) bundleDefaults {
 // otherwise than no environment does, naming the fields that differ. In
 // Claude Desktop the only guard besides the switch is its approval of
 // each tool, which a person can set to always allow, so a bundle install
-// may turn on nothing an unconfigured server leaves off (§18). A list or
+// may turn on nothing an unconfigured server leaves off. A list or
 // object default is reported, every one in key order, and the comparison
 // still runs over the rest.
+//
+// The bundle declares no `tools` list: the reference host reads it only
+// for display, and several settings change what registers. Claude's
+// connector docs say the prompt offers "Allow once" or "Always allow",
+// and that readOnlyHint and destructiveHint "determine auto-permissions
+// in Claude"; nothing like Claude Code's ask rules sits behind them.
+// https://github.com/anthropics/mcpb/blob/v2.1.2/MANIFEST.md
+// https://claude.com/docs/connectors/getting-started
+// https://claude.com/docs/connectors/building/review-criteria
 func defaultsProblems(d bundleDefaults) []string {
 	var problems []string
 	for _, key := range sorted(d.unreadable) {
@@ -1338,7 +1360,7 @@ func sameValue(x, y reflect.Value) bool {
 
 // bundleRefused are the sets of the bundle's switches the server refuses
 // at start, each sorted. Each field in one names the others' titles in
-// its description. Build refuses none today: read-only leaves the
+// its description. Build refuses none: read-only leaves the
 // destructive switch nothing to register rather than refusing it. The
 // gate starts every set of the switches and holds the refused ones to
 // this list, both ways, so a refusal added to Build fails here until it

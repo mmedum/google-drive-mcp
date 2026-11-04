@@ -62,10 +62,9 @@ var placeholder = regexp.MustCompile(`\{[a-z_]+\}`)
 // fill substitutes the recorded values into a prompt and REFUSES a
 // prompt that still has a placeholder in it. An unexpanded placeholder
 // is not a cosmetic problem: it changes what the agent was asked, and
-// the task then scores something nobody meant to test. This repository
-// has shipped one before — §17a records a struct tag that reached a
-// model as "${…}" — which is the argument for failing rather than
-// warning.
+// the task then scores something nobody meant to test. A template
+// nothing expanded reaches a model exactly as written, which is the
+// argument for failing rather than warning.
 func fill(prompt string, values map[string]string) (string, error) {
 	for key, value := range values {
 		prompt = strings.ReplaceAll(prompt, "{"+key+"}", value)
@@ -185,12 +184,11 @@ func run(o options, t *transcript.Transcript) error {
 // goes through the agent.
 func (h *harness) score(o options, config string, t task) []string {
 	state := &taskState{harness: h}
-	// The scratch folder's id is a value like any other, and the first
-	// run of this harness proved why it has to be: it was not, so every
-	// prompt reached the agent with a literal "{folder}" in it. Both
-	// tasks still passed — one found the file by name anyway, the other
-	// wanted a refusal and got one for the wrong reason — which is the
-	// end-state-versus-trace problem happening inside the scorer.
+	// The scratch folder's id is a value like any other, so fill refuses
+	// a prompt that still carries "{folder}". Such a prompt can still
+	// pass — the agent finds the file by name anyway, or a wanted refusal
+	// comes for the wrong reason — which is the end-state-versus-trace
+	// problem happening inside the scorer.
 	state.set("folder", h.folder)
 	// The address a sharing task shares with. example.com is IANA's
 	// reserved documentation domain, and Drive refuses a grant to it, so

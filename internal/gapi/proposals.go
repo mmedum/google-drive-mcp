@@ -17,7 +17,11 @@ const ProposalFields = "proposalId,fileId,requesterEmailAddress,recipientEmailAd
 
 // ListAccessProposals returns every pending request to be let into a
 // file, paging to the end. Only an approver may call it; for anybody
-// else Drive answers 403.
+// else Drive answers 403. The API lists and resolves access requests and
+// has no method to create one, so this client offers no create. Checked
+// by the live steps "a file's access requests are listed" and "an access
+// request that is not pending is refused".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/accessproposals
 func (c *Client) ListAccessProposals(ctx context.Context, fileID string) ([]*gdrive.AccessProposal, error) {
 	segment, err := fileSegment(fileID)
 	if err != nil {
@@ -61,7 +65,9 @@ const maxProposalPageSize = 100
 // Drive answers 200 with an EMPTY BODY — the discovery document gives
 // the method no response type at all — so nothing about the result can
 // be read off the call. Whoever needs to know what access exists
-// afterwards has to go and look, which is what internal/service does.
+// afterwards has to go and look, which is what internal/service does. No
+// live step resolves a pending request.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/accessproposals/resolve
 //
 // It is a POST, so it is not repeated after an ambiguous failure: the
 // proposal may already have been accepted, and a second attempt would

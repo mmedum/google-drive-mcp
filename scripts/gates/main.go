@@ -50,12 +50,10 @@ const (
 
 // commands is the one list of what this program does.
 //
-// It is one list because three had already drifted apart in a single
-// commit: the parity gate below was added to the dispatch switch, to the
-// Makefile and to the workflow, and not to the usage text — by the same
-// change whose entire purpose was to stop a list of gates drifting. The
-// dispatch, the usage and the parity check all read this now, so the
-// only way to add a command is to add it here.
+// It is one list because three lists drift apart: a command added to
+// the dispatch switch, the Makefile and the workflow is easily left out
+// of the usage text. The dispatch, the usage and the parity check all
+// read this, so the only way to add a command is to add it here.
 //
 // Filled in init rather than as a literal because parity reads the list
 // and the list names parity, which Go sees as an initialization cycle.
@@ -69,6 +67,7 @@ func init() {
 			doc: "a pull request's commits name each item of the tool surface it changes", runs: inPR},
 		"smoke":     {run: smoke, args: "[BINARY]", doc: "drive the binary over stdio, no credentials", runs: inCheck},
 		"staleness": {run: staleness, args: "[BINARY]", doc: "documentation must match the code", runs: inCheck},
+		"docs":      {run: docs, doc: "every decision, citation, link, path and live step the docs and code name resolves", runs: inCheck},
 		"leaks":     {run: leaks, args: "[history]", doc: "nothing from a real Drive is in the tree, or the history", runs: inCheck},
 		"pins":      {run: pins, doc: "every tool a workflow installs is one exact version", runs: inCheck},
 		"classes":   {run: classes, doc: "the error classes the code emits are the ones it declares", runs: inCheck},

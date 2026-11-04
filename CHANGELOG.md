@@ -9,7 +9,16 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - `--dump-schemas` also prints the server's instructions.
-- For contributors: CI fails a pull request that changes the tool surface until a commit footer names each item that changed. `SCHEMA-CHANGE:` names a change and `BREAKING CHANGE:` a break of the newest release. Only the names before the first colon followed by white space in a footer's value count, separated by commas. A footer's value may run on over several lines, and a footer beside it, such as `Closes #12`, does not drop it; a `Token #value` footer acknowledges nothing. `make schema-diff` now compares the whole dump, so it also reports a changed title, `_meta` mark or instructions.
+- For contributors: a pull request that changes the tool surface, a description, annotation or the instructions included, needs a commit footer naming each item (`CONTRIBUTING.md`).
+- For contributors: `make docs` holds the docs to their references: decision IDs, heading links, named paths and live steps. `make check` runs it.
+- For contributors: a decision in `docs/architecture.md` is `D-NN`. Cite it by ID, never by section number, and take a new ID from `Next ID:`.
+- For contributors: record a verified Google behavior in the comment at the code that depends on it, with its source link and live step.
+- For contributors: every live driver step has a name, printed above its call; a comment cites a step by that name.
+- For contributors: depguard refuses an import of `google.golang.org/api`; extend the wire types in `internal/gdrive` instead.
+
+### Fixed
+
+- `search_files` said several words in `name` must be adjacent and in order; Drive matches each word's beginning, in any order.
 
 ## [3.2.0] - 2026-11-01
 

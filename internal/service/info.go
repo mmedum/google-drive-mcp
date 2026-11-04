@@ -70,6 +70,7 @@ func (s *Service) labelNames(ctx context.Context, f *gdrive.File) map[string]*mo
 // read look identical otherwise, and calling the second one "private"
 // would understate exposure, which is the one direction that must never
 // happen.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions/list
 func (s *Service) permissionsFor(ctx context.Context, f *gdrive.File) ([]*gdrive.Permission, bool) {
 	if f == nil {
 		return nil, false

@@ -78,10 +78,11 @@ func TestReadingTheThreeResources(t *testing.T) {
 	}
 }
 
-// TestTemplatesWithASharedPrefixDoNotShadowEachOther is the property §8
-// rests on. It is asserted through the server rather than by reading the
-// SDK: what matters is that the URI with a suffix reaches the handler
-// for that suffix, whatever the SDK does internally to decide it.
+// TestTemplatesWithASharedPrefixDoNotShadowEachOther is the property the
+// three resource templates rest on. It is asserted through the server
+// rather than by reading the SDK: what matters is that the URI with a
+// suffix reaches the handler for that suffix, whatever the SDK does
+// internally to decide it.
 func TestTemplatesWithASharedPrefixDoNotShadowEachOther(t *testing.T) {
 	cs, _ := sessionAndFake(t, defaultConfig(), true)
 	text, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "gdrive://id-notes-fixture"})

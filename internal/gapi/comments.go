@@ -12,9 +12,11 @@ import (
 )
 
 // ReplyFields is what a reply is read with. The author's email address
-// is left out because the reference says Drive does not populate it on a
-// comment or a reply: asking would add a field that is always empty and
-// an address to redact for nothing.
+// and permission id are left out because the reference says Drive does
+// not populate them on a comment or a reply: asking would add a field
+// that is always empty and an address to redact for nothing. Checked by
+// the live step "a file's threads are listed with their reply ids".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/comments
 const ReplyFields = "id,createdTime,modifiedTime,author(displayName,me),content,deleted,action"
 
 // CommentFields is what a comment is read with, replies included. Drive
@@ -22,10 +24,10 @@ const ReplyFields = "id,createdTime,modifiedTime,author(displayName,me),content,
 // call rather than one per thread.
 // assigneeEmailAddress is deliberately absent. The discovery document
 // lists it as a property of Comment, but Drive REFUSES it in a field
-// selection — "Invalid field selection assignee_email_address" — so
-// asking for it fails the whole call. Found by the live run, which is
-// the only place it could have been found: the reference says the field
-// exists, and it does; what does not work is asking for it.
+// selection — 400 "Invalid field selection assignee_email_address" — so
+// asking for it fails the whole call. The reference is silent on this.
+// Checked by the live step "a comment thread is added to a file".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/comments
 const CommentFields = "id,createdTime,modifiedTime,author(displayName,me),content,deleted,resolved," +
 	"anchor,quotedFileContent,replies(" + ReplyFields + ")"
 
@@ -43,12 +45,22 @@ const (
 
 // The comment endpoints are the one corner of this API that REQUIRES the
 // fields parameter: comments.list, get, create and update all answer 400
-// without one. Every call below sets it, and drivetest enforces the same
-// rule so a caller that forgets fails here rather than in production.
+// without one, while comments.delete and replies.* do not need it. Every
+// call below that returns a comment or a reply sets it, and drivetest
+// enforces the same rule so a caller that forgets fails here rather than
+// in production. Resolving a thread is a reply with action resolve. An
+// anchor written through the API shows as unanchored in the editors, and
+// an unanchored comment shows only on a Workspace document: a PDF's
+// comments exist through the API but not in the previewer. Checked by the
+// live steps "a comment thread is added to a file", "a file's comment
+// threads are listed" and "a thread is resolved".
+// https://developers.google.com/workspace/drive/api/guides/manage-comments
 //
 // They also take no supportsAllDrives: the discovery document gives the
 // comment and reply methods no such parameter, and a comment on a
-// shared-drive file is reached without it.
+// shared-drive file is reached without it. Checked by the live step "a
+// comment is added to a file in a shared drive".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/comments/create
 
 // ListCommentsOptions tune one page of a file's comments.
 type ListCommentsOptions struct {

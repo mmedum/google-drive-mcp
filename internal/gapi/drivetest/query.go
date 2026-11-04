@@ -296,9 +296,8 @@ func (p *parser) parseHas(field string) (predicate, error) {
 	}
 	// Drive requires BOTH, whatever its search guide says: the key-only
 	// form the guide gives as an example answers 400 "Invalid Value",
-	// confirmed live in phase 4 twice in each of three spellings. A fake
-	// that accepted it would let a test pass on a query production is
-	// refused.
+	// confirmed live in each of three spellings. A fake that accepted it
+	// would let a test pass on a query production is refused.
 	if !haveKey || !haveValue {
 		return nil, fmt.Errorf("`properties has` needs both a key and a value")
 	}
@@ -338,9 +337,9 @@ func inPredicate(field, value string) (predicate, error) {
 	case "writers", "readers":
 		// The reference says readers have "permission to read" and
 		// writers "permission to modify", and not whether readers holds
-		// the writers too. The fake takes the narrow reading, so a query
-		// that needs writers fails here rather than in production; §18
-		// records it as unverified.
+		// the writers too, and which reading Drive takes is unverified.
+		// The fake takes the narrow reading, so a query that needs writers
+		// fails here rather than in production.
 		roles := map[string]bool{"reader": true, "commenter": true}
 		if field == "writers" {
 			roles = map[string]bool{"writer": true, "fileOrganizer": true, "organizer": true, "owner": true}
@@ -436,12 +435,12 @@ func matchString(field, op string, f *gdrive.File, want string, s *Server) bool 
 	case "name":
 		switch op {
 		case "=":
-			// Observed live (spike A): `name =` is a whole-name match but
-			// it is NOT case-sensitive. Conferences, conferences and
-			// CONFERENCES all return the same single item. Path
-			// resolution depends on this: a folder holding both "Budget"
-			// and "budget" makes `name = 'Budget'` return two, which is
-			// how the ambiguity guard is reached.
+			// Drive's `name =` is a whole-name match but it is NOT
+			// case-sensitive: Conferences, conferences and CONFERENCES
+			// return the same single item. Path resolution depends on
+			// this: a folder holding both "Budget" and "budget" makes
+			// `name = 'Budget'` return two, which is how the ambiguity
+			// guard is reached. TestLiveNameEqualsIgnoresCase checks it.
 			return strings.EqualFold(f.Name, want)
 		case "!=":
 			return !strings.EqualFold(f.Name, want)
@@ -467,8 +466,9 @@ func matchString(field, op string, f *gdrive.File, want string, s *Server) bool 
 }
 
 // windowMatch reports whether want appears as a run of consecutive words
-// in hay, with eq deciding what counts as a match for one word. Both of
-// Drive's `contains` operators are this loop; only eq differs.
+// in hay, with eq deciding what counts as a match for one word.
+// fullTextMatch uses it; `name contains` does not, since Drive matches a
+// name's words in any order (wordPrefixMatch).
 func windowMatch(hay, want []string, eq func(have, want string) bool) bool {
 	if len(want) == 0 {
 		return true
@@ -488,11 +488,14 @@ func windowMatch(hay, want []string, eq func(have, want string) bool) bool {
 	return false
 }
 
-// wordPrefixMatch implements `name contains 'x'`. Observed live (spike
-// A): every word of x must prefix SOME word of the name, and the order
-// is irrelevant — "Decentralized Identity" and "Identity Decentralized"
+// wordPrefixMatch implements `name contains 'x'`. On Drive every word of
+// x must prefix SOME word of the name, and order and adjacency are
+// irrelevant: "Decentralized Identity" and "Identity Decentralized"
 // return the same set. "Bud" matches "Budget 2026"; "udget" matches
-// nothing, because it is a prefix match and not a substring one.
+// nothing, because it is a prefix match and not a substring one. The
+// search-terms guide does not describe the word order, and no live step
+// varies it; TestLiveSearchIsPrefixNotSubstring checks the prefix rule.
+// https://developers.google.com/workspace/drive/api/guides/ref-search-terms
 func wordPrefixMatch(name, want string) bool {
 	haystack := words(name)
 	for _, w := range words(want) {
@@ -511,7 +514,12 @@ func wordPrefixMatch(name, want string) bool {
 }
 
 // fullTextMatch implements `fullText contains 'x'`: whole tokens, or a
-// consecutive phrase when x arrives wrapped in double quotes.
+// consecutive phrase when x arrives wrapped in double quotes. Drive's
+// content index matches more than whole tokens ('nferences' finds files),
+// in a way the reference does not describe. The fake stays stricter on
+// purpose: matching less than Drive fails a test production would pass,
+// which gets noticed, while matching more hides a query that finds
+// nothing.
 func fullTextMatch(f *gdrive.File, want string, s *Server) bool {
 	phrase := false
 	if len(want) >= 2 && want[0] == '"' && want[len(want)-1] == '"' {

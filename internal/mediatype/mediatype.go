@@ -3,12 +3,11 @@
 // name it goes by as an export format, and — for Google's own kinds —
 // what a read exports it to and what a download writes by default.
 //
-// It exists because five tables in three packages used to answer those
-// questions separately: a display name in internal/model, a query clause
-// in internal/service, an export name in internal/gapi, and a read
-// format and a download format in internal/service again. Adding a kind
-// meant four edits in three packages, and a typo showed up as a search
-// that silently matched nothing rather than as a failure.
+// One table answers those questions so that no package keeps its own: a
+// display name for internal/model, a query clause and the read and
+// download formats for internal/service, an export name for
+// internal/gapi. Adding a kind is one edit, and a typo cannot show up as
+// a search that silently matches nothing.
 //
 // It is a leaf: it imports internal/gdrive for the media types Drive
 // gives its own kinds and nothing else, so every layer can use it
@@ -24,11 +23,14 @@ import (
 
 // Markdown is a Markdown file's type, as RFC 7763 registers it. Google
 // Docs opens a file of this type in Drive and edits it in place, keeping
-// the comments made on it in the file's own text (architecture §18).
+// the comments made on it in the file's own text (see internal/mdcomment).
 const Markdown = "text/markdown"
 
-// legacyMarkdown is the type older tables give a .md, which Drive keeps
-// as sent and the Docs API reads as Markdown all the same (§18).
+// legacyMarkdown is the type older tables give a .md. Drive keeps a file
+// created or updated with it as sent, and the Docs API reads it exactly
+// as it reads text/markdown. text/x-web-markdown is not an alias: the
+// Docs API refuses it, as it refuses a text/plain .md. Measured by hand;
+// no live step makes a text/x-markdown file.
 const legacyMarkdown = "text/x-markdown"
 
 // IsMarkdown reports whether a file of this type is one Google Docs
@@ -69,15 +71,18 @@ type Entry struct {
 	// mime.TypeByExtension answers from the platform's own tables, which
 	// differ: Go's built-in table has no .md, and a system's tables may
 	// override the built-in entries, so the same name could be uploaded
-	// as two types on two machines (§18). Only the types this server
-	// reads or converts by type carry them.
+	// as two types on two machines. RFC 7763 registers .md and .markdown
+	// for text/markdown. Only the types this server reads or converts by
+	// type carry them.
+	// https://go.dev/src/mime/type.go
+	// https://www.rfc-editor.org/rfc/rfc7763
 	Extensions []string
 	// OperationAs is the file extension a kind gets when its bytes come
 	// only through the long-running files.download. Non-empty says both
 	// things at once: that this kind cannot be exported at all — Drive
 	// answers fileNotExportable and has no bytes on the file endpoint
 	// either — and what the render is written as. A Google Vid is the one
-	// such kind today.
+	// such kind.
 	//
 	// It is deliberately NOT DownloadAs. That field names an export
 	// format, one of the short names Drive offers through files.export,

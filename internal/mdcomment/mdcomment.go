@@ -8,7 +8,11 @@
 // and an entry under the same key in a gdoc_comments block, which must
 // end the file. Replacing the whole text with one that drops a marker
 // unpins the comment, one that drops the entry deletes it, and text
-// after the block turns the block into body text (architecture §18).
+// after the block turns the block into body text. Google publishes none
+// of this, and comments.list does not return these comments; it is
+// measured. Checked by the live steps "new content that loses a kept
+// comment is refused" and "new content that keeps the comment is taken".
+// https://support.google.com/docs/answer/18289341
 //
 // It reads a stream a line at a time and keeps only the keys it finds,
 // so a file of any size is checked without being held in memory, and
@@ -76,8 +80,9 @@ func (m *Markup) Comments() int { return len(m.keys) }
 // Lost says, one phrase each, what next no longer holds of the comments
 // in m, and nothing when every one survives: its entry, both of its
 // markers, and the status the entry had. A status is changed in Google
-// Docs, never in the text: a resolve written into the text made Docs
-// fail to read the whole file (§18).
+// Docs, never in the text: a resolve written into the text, on an entry
+// without the token Docs gives its own, makes the Docs API fail to read
+// the whole file.
 func (m *Markup) Lost(next *Markup) []string {
 	var lost []string
 	if next.displaced && !m.displaced {

@@ -12,11 +12,8 @@ import (
 )
 
 // A write that is not repeatable and fails after it may have reached
-// Google must be reported as [ambiguous_outcome], say it may have been
-// applied, and name the read that settles it. docs/architecture.md §11:
-// "a sharing write that fails, transiently or otherwise, is reported as
-// [ambiguous_outcome] with list_permissions named as the way to find
-// out, rather than repeated."
+// Google is sent once and reported as [ambiguous_outcome], never in words
+// that call it failed or ask for a retry: it may have been applied.
 func TestANonRepeatableWriteThatFailsAfterSendingIsAmbiguous(t *testing.T) {
 	failures := []struct {
 		name string

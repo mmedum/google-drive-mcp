@@ -78,17 +78,17 @@ func (s *taskState) makeFolder(key, name string) error {
 	return nil
 }
 
-// tasks are the thirteen of §13, each phrased the way somebody would say
-// it rather than the way the tool is named: a task that names the tool
-// is testing nothing about the tool descriptions.
+// tasks are the eval tasks, each phrased the way somebody would say it
+// rather than the way the tool is named: a task that names the tool is
+// testing nothing about the tool descriptions.
 //
 // The scratch folder's id is substituted for {folder}; a prompt says
 // "in the folder with id {folder}" so the agent never has to guess where
 // to work, which is the one piece of context a person would have and
 // this harness cannot give any other way.
 //
-// They come in four groups only so that no one function is a hundred
-// lines of literal; nothing depends on which group a task is in.
+// They come in groups only so that no one function is a hundred lines
+// of literal; nothing depends on which group a task is in.
 func tasks() []task {
 	var out []task
 	for _, group := range [][]task{findingTasks(), organizingTasks(), sharingTasks(),
@@ -382,8 +382,7 @@ const commentedPlan = "# Plan\n\nWe <!-- gdoc_comment_begin: c1 -->ship in May<!
 	"---\ngdoc_comments:\n  c1:\n    status: ACTIVE\n    head:\n      author: Ada Example\n" +
 	"      time: '2026-01-02T03:04:05.000Z'\n      body: is that date real?\n      quote: |-\n        ship in May\n---\n"
 
-// collaborationTasks are the transfers and the comment thread: the
-// surface phase 1 and phase 3 added.
+// collaborationTasks are the transfers and the comment thread.
 func collaborationTasks() []task {
 	return []task{
 		{
@@ -411,10 +410,7 @@ func collaborationTasks() []task {
 				// reason download_file appends a short id: they have to
 				// land beside each other rather than on each other. The
 				// task asks for both so that behavior is asserted rather
-				// than explained — an earlier version checked for
-				// "handbook.txt" on disk, failed a download that had
-				// worked, and was then given a comment saying why it did
-				// not check. A comment decays; an assertion does not.
+				// than explained: a comment decays; an assertion does not.
 				if err := s.makeFile("first", "handbook.txt", "the first handbook"); err != nil {
 					return err
 				}
@@ -428,9 +424,8 @@ func collaborationTasks() []task {
 				}
 				// The name on disk is not the name in Drive: download_file
 				// appends a short id, so two files of one name land beside
-				// each other rather than on each other. An earlier version
-				// of this check looked for "handbook.txt" exactly and
-				// failed a download that had worked.
+				// each other rather than on each other, and a check for
+				// "handbook.txt" exactly fails a download that worked.
 				// Both, side by side, under names that differ. That is
 				// the whole point of the short id download_file appends:
 				// the second download must not land on the first.
@@ -519,8 +514,8 @@ var widening = map[string]bool{"share_by_link": true, "share_outside_organizatio
 	"transfer_ownership": true, "lift_drive_restriction": true}
 
 // commonChecks are the trace properties every task is held to,
-// whatever it asked for. They are the half §13 calls the trace score:
-// the end state can be right for the wrong reasons.
+// whatever it asked for. They are the trace half of the score: the end
+// state can be right for the wrong reasons.
 func commonChecks(s *taskState, run agentRun) []string {
 	var out []string
 	for _, c := range run.Calls {
@@ -594,7 +589,7 @@ func nestedUnder(listing, parent, child string) bool {
 			depth = indent
 		case depth >= 0 && indent <= depth:
 			// Back out to the parent's level or above: anything after
-			// this is no longer inside it.
+			// this is outside it.
 			if !strings.Contains(line, parent) {
 				depth = -1
 			}
@@ -632,15 +627,14 @@ func selected(only []string) []task {
 	return out
 }
 
-// workspaceTasks are phase 4's: the surface that needs a Workspace and,
-// for two of the three, an API that is not Drive.
+// workspaceTasks are the surface that needs a Workspace and, for the
+// activity feed and labels, an API that is not Drive.
 //
-// They exist because the thirteen before them cover phases 0 to 3 and
-// nothing else, and an eval is the only thing that tests a tool
-// DESCRIPTION rather than a code path. manage_approval's description
-// carries the two warnings that matter most in this server — every
-// action mails somebody, and an approval can lock the file — and until
-// these ran, nothing had checked whether a model heeds either.
+// An eval is the only thing that tests a tool DESCRIPTION rather than a
+// code path. manage_approval's description carries the two warnings
+// that matter most in this server — every action mails somebody, and an
+// approval can lock the file — and these check whether a model heeds
+// either.
 func workspaceTasks() []task {
 	return []task{
 		{
@@ -648,17 +642,14 @@ func workspaceTasks() []task {
 			setup: func(s *taskState) error {
 				return s.makeFile("target", "Contract draft", "terms\n")
 			},
-			// The first wording of this was "Ask {address} to review
-			// ...", and the model shared the file as a commenter with a
-			// "could you review this?" message — never looking at the
-			// approval tools at all. That is a defensible answer to that
-			// sentence, and arguably the better one, so the task was
-			// wrong rather than the model: it demanded one of two correct
-			// calls. It names the MECHANISM now and still not the tool,
-			// which is the line these prompts are supposed to walk.
-			//
-			// The finding survives in §18: asked in the ordinary words, a
-			// model reaches for sharing and not for approvals.
+			// Asked in the ordinary words, "Ask {address} to review ...", a
+			// model shares the file as a commenter with a "could you review
+			// this?" message and never looks at the approval tools. That is
+			// a defensible answer to that sentence, so a task demanding an
+			// approval from it would demand one of two correct calls. The
+			// prompt names the MECHANISM and still not the tool, which is
+			// the line these prompts are supposed to walk. Where two tools
+			// answer one sentence, the more familiar one wins.
 			prompt: "Start a formal approval on \"Contract draft\" in the folder with id {folder}, " +
 				"with {address} as the reviewer.",
 			check: func(s *taskState, run agentRun) []string {
@@ -675,10 +666,10 @@ func workspaceTasks() []task {
 					// that reaches for lock_file here is doing something
 					// nobody wanted — the same failure as allow_anyone on
 					// a share — and it stays a failure whatever Drive does
-					// with the argument: a live run found Drive applies no
-					// restriction at all, which makes reaching for it a
-					// request for a consequence the model cannot even
-					// deliver.
+					// with the argument: Drive applies no restriction for
+					// it at the start of an approval, which makes reaching
+					// for it a request for a consequence the model cannot
+					// even deliver.
 					if c.truthy("lock_file") {
 						out = append(out, "locked the file, which nobody asked for and which stops "+
 							"everyone editing it until the approval finishes")

@@ -10,10 +10,10 @@ import (
 	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
-// The call counts §11 of docs/architecture.md commits to. They are here
-// rather than in the benchmarks because a round trip to Google is what
-// a person actually waits for, and a target only a hand-run benchmark
-// checks is a target nothing enforces. Against the fake a call costs
+// The call counts this server commits to. They are here rather than in
+// the benchmarks because a round trip to Google is what a person
+// actually waits for, and a target only a hand-run benchmark checks is a
+// target nothing enforces. Against the fake a call costs
 // microseconds, so nothing but the count is being measured.
 
 // calls counts the requests the fake served, by what they were.
@@ -36,13 +36,11 @@ func calls(fake *drivetest.Server) map[string]int {
 	return out
 }
 
-// TestGetFileCostsTheFileAndItsAncestors is the target as the code
-// actually behaves, which is not what §11 first claimed. "At most two
-// calls" holds for a file at the top of My Drive; below that, the card's
-// location line is a climb, and a climb is one read per folder above the
-// file. The alternative would be a card that says where a file is only
-// sometimes, which is worse than a card that costs a read per level and
-// then never costs it again.
+// get_file costs two calls for a file at the top of My Drive; below
+// that, the card's location line is a climb, one read per folder above
+// the file, and the second call costs nothing. A card that says where a
+// file is only sometimes would be worse than one that costs a read per
+// level and then never costs it again.
 func TestGetFileCostsTheFileAndItsAncestors(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddFile("id-toplevel-fixture", "Top", gdrive.MimeDocument, fake.RootID)
@@ -99,8 +97,8 @@ func TestAPathOfDepthDCostsDListingsAndThenNone(t *testing.T) {
 func TestASearchPageCostsOneListAndBoundedParentLookups(t *testing.T) {
 	// The parent of a hit is what turns an id into a location, and a page
 	// of a hundred hits from a hundred folders would be a hundred reads
-	// without a budget. Here they share one folder, so the cache should
-	// make it exactly one.
+	// without a budget. Here they share one folder, and the cache is per
+	// folder, so the reads are the chain above it, once, not once per hit.
 	svc, fake := setup(t, service.Options{})
 	for i := range 100 {
 		fake.AddFile(fmt.Sprintf("id-target-hit-%03d", i), fmt.Sprintf("Report %03d", i),

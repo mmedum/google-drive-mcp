@@ -144,10 +144,14 @@ func TestReleaseNotesLiftHeadingsOneLevel(t *testing.T) {
 	}
 }
 
+// A fence is read as the docs gate reads one: a tilde fence is code, and a
+// line of fence backticks around a code span opens none.
 func TestPromoteHeadingsLeavesFencedCodeAlone(t *testing.T) {
-	const body = "### Added\n- a thing\n\n```bash\n# not a heading\n### also not a heading\n```\n\n#### Deeper\n"
+	const body = "### Added\n- a thing\n\n```bash\n# not a heading\n### also not a heading\n```\n\n#### Deeper\n" +
+		"\n~~~\n### tilde code\n~~~\n\n```go``` is a span.\n### After a span\n"
 	got := promoteHeadings(body)
-	for _, want := range []string{"## Added", "# not a heading", "### also not a heading", "### Deeper"} {
+	for _, want := range []string{"## Added", "# not a heading", "### also not a heading", "### Deeper",
+		"\n### tilde code\n", "\n## After a span\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("promoteHeadings dropped or mangled %q:\n%s", want, got)
 		}

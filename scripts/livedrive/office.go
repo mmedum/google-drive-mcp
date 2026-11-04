@@ -69,15 +69,17 @@ func (w *writeRun) officeFiles() {
 			w.problem("could not write "+f.local+" to upload", err)
 			continue
 		}
-		id := w.createAndKeepID("upload_file", map[string]any{
-			"local_path": f.local, "parent": w.scratchID, "name": f.name,
-		})
+		id := w.createAndKeepID(call{name: "an Office file the driver built is uploaded",
+			tool: "upload_file", args: map[string]any{
+				"local_path": f.local, "parent": w.scratchID, "name": f.name,
+			}})
 		_ = os.Remove(path)
 		if id == "" {
 			w.out.Sayf("\n=== read_file: skipped, %s was never uploaded ===", f.name)
 			continue
 		}
-		whole := w.call(call{tool: "read_file", args: map[string]any{"file": id}})
+		whole := w.call(call{name: "an Office file is read back through byte ranges",
+			tool: "read_file", args: map[string]any{"file": id}})
 		for _, want := range f.want {
 			if !strings.Contains(whole, want) {
 				w.failures++
@@ -90,7 +92,7 @@ func (w *writeRun) officeFiles() {
 			for k, v := range extra {
 				args[k] = v
 			}
-			w.call(call{tool: "read_file", args: args})
+			w.call(call{name: "a workbook is read as tab-separated values", tool: "read_file", args: args})
 		}
 	}
 }
@@ -103,8 +105,10 @@ func (w *writeRun) windows(id, name, whole string) {
 	if len(whole) <= cut {
 		return
 	}
-	first := w.call(call{tool: "read_file", args: map[string]any{"file": id, "max_chars": cut}})
-	rest := w.call(call{tool: "read_file", args: map[string]any{"file": id, "offset": cut, "max_chars": 100000}})
+	first := w.call(call{name: "the first window of an Office file is read",
+		tool: "read_file", args: map[string]any{"file": id, "max_chars": cut}})
+	rest := w.call(call{name: "the rest of an Office file joins its first window",
+		tool: "read_file", args: map[string]any{"file": id, "offset": cut, "max_chars": 100000}})
 	head := textOf(first)
 	if len(head) > cut {
 		head = head[:cut]

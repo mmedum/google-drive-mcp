@@ -172,10 +172,9 @@ func TestEveryPackageUnderInternalIsMeasuredOrExemptOnPurpose(t *testing.T) {
 }
 
 func TestPinsRejectsEveryRangeForm(t *testing.T) {
-	// The forms that have actually appeared here, plus the ones that
-	// would. "~> v2.18.0" is the one that matters: it reads like a pin,
-	// was recorded in the evidence log as the fix, and survived a review
-	// looking straight at it.
+	// Every range form, and every form that reads like one version and
+	// is not. "~> v2.18.0" is the one that matters: it reads like a pin,
+	// and goreleaser-action takes it as the newest 2.18.x.
 	for _, bad := range []string{"~> v2.18.0", "~> v2", "latest", "v2", "v2.18", "nightly", "^1.2.3"} {
 		if exactVersion.MatchString(strings.Trim(bad, `"`)) {
 			t.Errorf("%q was accepted as an exact version", bad)
@@ -213,7 +212,7 @@ func TestPinsPassesOnThisRepositoryAndSaysWhatItChecked(t *testing.T) {
 		t.Fatalf("pins: %v\n%s", err, out.String())
 	}
 	// A check that silently examined nothing would report success too.
-	// Literal floors under today's 5, 24, 13 and 4.
+	// Literal floors under the real counts.
 	var versions, actions, installers, workflows int
 	if _, err := fmt.Sscanf(out.String(), "pin check ok (%d tool versions, %d actions by SHA, %d installers naming their tool's version, %d workflows",
 		&versions, &actions, &installers, &workflows); err != nil {

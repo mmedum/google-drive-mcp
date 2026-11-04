@@ -212,8 +212,8 @@ func TestRestrictTurnsASwitchOffAndSendsOnlyWhatChanges(t *testing.T) {
 // Turning domain_users_only off lets a drive's content reach people
 // outside the organization, so manage_drive refuses it, dry run
 // included, naming lift_drive_restriction; the same call with it on is
-// fine, and so is turning members_only off, which waits on a live probe
-// (§17).
+// fine, and so is turning members_only off, which waits on a live
+// probe.
 func TestManageDriveLeavesDomainUsersOnlyOffToItsOwnTool(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.Drives["id-drive-marketing"].Restrictions.DomainUsersOnly = true
@@ -441,9 +441,8 @@ func TestManageDriveIsNotAvailableReadOnly(t *testing.T) {
 }
 
 func TestRestrictWithNothingToRestrictSaysSo(t *testing.T) {
-	// It used to report "every restriction passed already had that
-	// value" when none had been passed at all — a falsehood in the shape
-	// of a reassurance.
+	// With no restriction named, "every restriction passed already had
+	// that value" would be a falsehood in the shape of a reassurance.
 	svc, _ := setup(t, service.Options{})
 	_, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
 		Action: "restrict", Drive: "Marketing",

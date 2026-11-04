@@ -1,32 +1,27 @@
 # Every method of every API this server can reach, and the verdict on it.
 #
-# Phase 4's last deliverable in §16: the discovery documents diffed
-# against what the client calls, so that the gap between the API and this
-# server is a set of decisions rather than an accident.
+# The discovery documents diffed against what the client calls, so that
+# the gap between the API and this server is a set of decisions rather
+# than an accident.
 #
 # Columns, tab-separated: method, verdict, reason.
 # A verdict of `used` names the gapi.Client method that implements it;
 # `out` gives the reason it is deliberately not used.
 #
-# The HTTP verb and the path used to sit between the name and the
-# verdict. They were typed by hand and read by nothing — a sibling
-# repository found the same two dead columns in its own copy — so a
-# method that kept its name and moved path was invisible to every gate
-# here. They live in testdata/api-methods.json now, which `gates
-# api-diff` writes from the discovery documents and nobody edits.
+# A method's HTTP verb and path live in testdata/api-methods.json, which
+# `gates api-diff` writes from the discovery documents and nobody edits,
+# so a method that keeps its name and moves path shows as a change.
 #
-# That split is what let completeness move into `make check`. It used to
-# rest on api-diff alone, which is manual and needs the network, so
-# CONTRIBUTING claimed this record was held to the API while CI held no
-# such thing. `gates api-coverage` now fails on a method in the snapshot
-# with no verdict here, and on a verdict here for a method the snapshot
-# no longer has.
+# That split puts completeness in `make check`, while api-diff, which is
+# manual and needs the network, does the fetching. `gates api-coverage`
+# fails on a method in the snapshot with no verdict here, and on a
+# verdict here for a method the snapshot does not have.
 #
 # Three parameters are deliberately unused and have no row of their own,
 # because a row is per method:
 #   useDomainAdminAccess  an administrator acting across an organization
 #                         is not what a per-user server is for.
-#   supportsTeamDrives    the pre-2020 spelling of supportsAllDrives,
+#   supportsTeamDrives    the Team Drives spelling of supportsAllDrives,
 #                         which every request already carries.
 #   enforceSingleParent   Google documents it as deprecated and Drive
 #                         gives a file one parent regardless.
@@ -89,7 +84,7 @@ revisions.delete	used	Client.DeleteRevision
 revisions.get	used	Client.GetRevision
 revisions.list	used	Client.ListRevisions
 revisions.update	used	Client.UpdateRevision
-teamdrives.create	out	teamdrives is the pre-2020 name for drives and Google documents it as deprecated; drives.* is the same surface
+teamdrives.create	out	teamdrives is the Team Drives name for drives and Google documents it as deprecated; drives.* is the same surface
 teamdrives.delete	out	as teamdrives.create
 teamdrives.get	out	as teamdrives.create
 teamdrives.list	out	as teamdrives.create

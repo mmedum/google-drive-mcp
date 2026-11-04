@@ -81,9 +81,9 @@ const schemaBaselineFile = "testdata/schema-baseline.json"
 // schemaDiff compares the binary's tool surface with the baseline, the
 // surface of the CHANGELOG's newest release; diffSurface has the rule.
 //
-// The baseline is a committed file, not a tag. A tag-based diff needs the
-// tag in the checkout, rebuilds old source on every run, and cannot let a
-// deliberate break through, because the tag always wins.
+// The baseline is a committed file, not a tag. A tag-based diff rebuilds
+// old source on every run, and cannot let a deliberate break through,
+// because the tag always wins.
 func schemaDiff(out io.Writer, args []string) error {
 	binary := arg(args, 0, "./google-drive-mcp")
 	// The whole registrable surface, not a default build's: --dump-schemas
@@ -180,7 +180,7 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 		_, _ = fmt.Fprintf(out, "%d breaking change(s), each declared under **Breaking:** in [Unreleased]; "+
 			"`make schema-baseline` records them only as a new major version\n", len(breaking))
 	}
-	if len(problems) == 0 && want != "" && countEntries(changelog, "## [Unreleased]") == 0 && !changes.empty() {
+	if len(problems) == 0 && want != "" && countEntries(strings.Split(changelog, "\n"), "Unreleased") == 0 && !changes.empty() {
 		problems = append(problems, fmt.Sprintf("nothing is under [Unreleased], so this build is %s, "+
 			"and its surface differs from the baseline. In %s's release commit, run "+
 			"`make schema-baseline VERSION=%s`; otherwise, say what changed under [Unreleased]", want, want, want))

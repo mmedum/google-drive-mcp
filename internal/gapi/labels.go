@@ -18,13 +18,14 @@ import (
 // and files.modifyLabels writes them, both under the ordinary drive
 // scope. The DEFINITIONS — which labels exist, what fields they have,
 // which values those fields accept — belong to the Drive Labels API on
-// its own host, with its own scopes and its own enablement in the Cloud
-// project.
+// its own host, with its own scopes (drive.labels, drive.labels.readonly)
+// and its own enablement in the Cloud project.
 //
 // The consequence worth stating: reading the labels on a file needs no
-// labels scope at all. Phase 4 found the opposite assumed here, and the
-// file card had been asking for labels the wrong way since it shipped
-// (see ListFileLabels).
+// labels scope at all (see ListFileLabels). Checked by the live step "the
+// labels that can be applied are listed".
+// https://developers.google.com/workspace/drive/labels/reference/rest/v2
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/listLabels
 
 // MaxFileLabelPageSize is Drive's own ceiling for files.listLabels; the
 // discovery document gives it as both the maximum and the default.
@@ -40,12 +41,9 @@ type ListFileLabelsOptions struct {
 //
 // This is the only way to ask for a file's labels without knowing their
 // ids first. files.get takes an includeLabels parameter, but it is a
-// comma-separated list of label IDS — not a flag, and not a wildcard.
-// This client sent `includeLabels=*` from phase 1 until phase 4, which
-// Drive answers 400 badRequest: with GDRIVE_LABELS off by default,
-// nothing ever ran the call that would have said so. The discovery
-// document and a live probe agree, which is what makes it a fact rather
-// than one bad response.
+// comma-separated list of label IDS — not a flag, and not a wildcard:
+// Drive answers `includeLabels=*` with 400 badRequest. The discovery
+// document and a live probe agree.
 func (c *Client) ListFileLabels(ctx context.Context, fileID string, o ListFileLabelsOptions) (*gdrive.LabelList, error) {
 	segment, err := fileSegment(fileID)
 	if err != nil {

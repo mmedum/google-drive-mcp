@@ -91,8 +91,7 @@ func sessionOn(t *testing.T, cfg config.Config, withCredentials bool, protocol s
 // asksNobody is the client's answer to a question the server puts to
 // the person: it fails the test. The client declares that it can ask, so
 // a server that still asked would ask here, and every call in this
-// package is held to asking nobody. Per-call approval is the client's
-// (§4a).
+// package is held to asking nobody. Per-call approval is the client's.
 func asksNobody(t *testing.T) func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 	return func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 		t.Errorf("the server asked the person: %q", req.Params.Message)
@@ -238,14 +237,10 @@ func TestSchemasAreFlat(t *testing.T) {
 // different things), a map of scalars for the custom properties Drive
 // itself stores as a map, or a list of scalars.
 //
-// The list arrived in phase 4 and is the rule §18 always stated — "no
-// nested objects and no arrays of objects" — rather than a loosening of
-// it. This check had been stricter than the written rule since phase 1
-// only because nothing needed a list until an approval wanted its
-// reviewers and a label field wanted its values. Both are lists of
-// strings, which a model writes out in one go; neither is a structure.
-// A list of OBJECTS is still refused, by the items check at the call
-// site.
+// The rule is no nested objects and no arrays of objects (D-65), so a
+// list of scalars is within it: an approval's reviewers and a label
+// field's values are lists of strings, which a model writes out in one
+// go. A list of OBJECTS is refused, by the items check at the call site.
 func flatType(raw json.RawMessage, isMap, isList bool) error {
 	var one string
 	if err := json.Unmarshal(raw, &one); err == nil {
@@ -320,7 +315,7 @@ func TestReadToolsThroughTheProtocol(t *testing.T) {
 func TestExtractTextReturnsTheTextAloneAndLeavesNoCopy(t *testing.T) {
 	// A write that returns text only, as read_file does: its result is a
 	// window of up to 400 000 characters, and Claude Code shows the model
-	// only the structured half when there is one (§4, §18).
+	// only the structured half when there is one (D-25).
 	cs, fake := sessionAndFake(t, defaultConfig(), true)
 	before := len(fake.Files)
 	res := call(t, cs, "extract_text", map[string]any{"file": "id-scan-fixture"})
@@ -518,15 +513,15 @@ func TestSchemaDescriptionsCarryNoUnexpandedPlaceholders(t *testing.T) {
 }
 
 func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
-	// The kind and order lists are prose in a struct tag, so nothing but
-	// a test ties them to the values the service will actually take.
+	// The kind and order lists and the search rule are prose in a struct
+	// tag, so nothing but a test ties them to what the service does.
 	cs := session(t, defaultConfig(), true)
 	res, err := cs.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
 	schemas := map[string]string{}
-	var orderBy, visibility string
+	var orderBy, visibility, name, text string
 	for _, tool := range res.Tools {
 		raw, _ := json.Marshal(tool.InputSchema)
 		schemas[tool.Name] = string(raw)
@@ -541,7 +536,17 @@ func TestSchemasNameTheKindsAndOrdersTheServiceAccepts(t *testing.T) {
 			}
 			orderBy = schema.Properties["order_by"].Description
 			visibility = schema.Properties["visibility"].Description
+			name = schema.Properties["name"].Description
+			text = schema.Properties["text"].Description
 		}
+	}
+	// service.SearchRule says the words of a name match in any order and
+	// text is searched by whole words; a tag cannot use the constant.
+	if !strings.Contains(name, "in any order") || strings.Contains(name, "next to each other") {
+		t.Errorf("name does not say its words match in any order, as service.SearchRule does: %q", name)
+	}
+	if !strings.Contains(text, "whole words") {
+		t.Errorf("text does not say to search by whole words, as service.SearchRule does: %q", text)
 	}
 	for _, tool := range []string{"search_files", "list_folder"} {
 		for _, kind := range service.Kinds() {
@@ -819,7 +824,7 @@ func TestReadOnlyModeRegistersNoWriteTools(t *testing.T) {
 			t.Errorf("read-only mode registered %q, which changes Drive", tool.Name)
 		}
 	}
-	const readOnlyTools = 13 // four reads, two content reads, phase 2's four listings, phase 3's two, and phase 4's list_approvals
+	const readOnlyTools = 13 // four reads, two content reads, six listings and list_approvals
 	if len(res.Tools) != readOnlyTools {
 		t.Errorf("read-only mode registered %d tools, want the %d that only read", len(res.Tools), readOnlyTools)
 	}
@@ -1081,13 +1086,13 @@ func TestDestructiveToolsExistOnlyWhenAskedFor(t *testing.T) {
 	}
 }
 
-// TestTheMarkSitsOnlyWhereItsPromptIsThePoint holds §4a's list: Claude
+// TestTheMarkSitsOnlyWhereItsPromptIsThePoint holds the list (D-46): Claude
 // Code's requiresUserInteraction goes on a permanent delete that skips
 // the trash, an unrecoverable delete of a whole container, and a share
 // to anyone with the link or a whole domain, and nowhere else. A mark on
 // a delete done many times in a row, one revision or one comment of
 // many, makes a person answer a prompt per item. The client here
-// declares that it can ask, and the mark stays: it no longer depends on
+// declares that it can ask, and the mark stays: it does not depend on
 // the client.
 func TestTheMarkSitsOnlyWhereItsPromptIsThePoint(t *testing.T) {
 	cs := session(t, tools.FullSurface(defaultConfig()), true)
@@ -1346,10 +1351,10 @@ func driveEveryTool(t *testing.T, cs *mcp.ClientSession) {
 }
 
 // The server asks the person nothing: per-call approval is the client's
-// (§4a). The client declares that it can ask (asksNobody), and every
-// call toolArgs holds is made, the writes that used to ask among them,
-// on a protocol where a server asks with elicitation/create and on one
-// where it returns the question as an input request.
+// (D-44). The client declares that it can ask (asksNobody), and every
+// call toolArgs holds is made, the destructive writes among them, on a
+// protocol where a server asks with elicitation/create and on one where
+// it returns the question as an input request.
 func TestNoToolAsksThePerson(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.EnableDestructive = true
@@ -1362,7 +1367,7 @@ func TestNoToolAsksThePerson(t *testing.T) {
 	}
 }
 
-// The model never widens its own reach (§4a): no tool writes the
+// The model never widens its own reach (D-47): no tool writes the
 // server's own settings. Those are the GDRIVE_ variables, read once at
 // start, and the profile file login writes. Every call toolArgs holds is
 // made, and neither changes.

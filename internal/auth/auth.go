@@ -28,6 +28,7 @@ import (
 // for a per-user app each deployer owns and never publishes. drive.file
 // is not an option: it reaches only files the app created or the user
 // opened with it through the Picker, which a stdio server cannot show.
+// https://developers.google.com/workspace/drive/api/guides/api-specific-auth
 const (
 	ScopeDrive            = "https://www.googleapis.com/auth/drive"
 	ScopeDriveReadonly    = "https://www.googleapis.com/auth/drive.readonly"
