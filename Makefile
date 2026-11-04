@@ -52,7 +52,7 @@ hooks: ## Install the git pre-commit hook
 	$(GO) run ./scripts/gates install-hooks
 
 .PHONY: integration
-integration: ## Live tests against the signed-in account (writes nothing yet)
+integration: ## Read-only live tests against the signed-in account
 	GDRIVE_INTEGRATION=1 $(GO) test -tags=integration ./... -v -count=1
 
 .PHONY: live
@@ -109,6 +109,10 @@ leaks: ## Nothing from a real Drive may be in the repository
 staleness: build ## Docs must match the code
 	$(GO) run ./scripts/gates staleness $(BIN)
 
+.PHONY: docs
+docs: ## Every decision, citation, link, path and live step the docs and code name resolves
+	$(GO) run ./scripts/gates docs
+
 .PHONY: pins
 pins: ## Every tool a workflow installs must be one exact version
 	$(GO) run ./scripts/gates pins
@@ -161,7 +165,7 @@ schema-refetch: ## Check the vendored schemas against what their sources serve (
 	$(GO) run ./scripts/gates schema-refetch
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins classes api-coverage api-fields mcpb transcript schema-diff smoke staleness live-cover outcomes registry parity ## Everything CI runs
+check: fmt vet lint cover vuln licenses leaks pins classes api-coverage api-fields mcpb transcript schema-diff smoke staleness docs live-cover outcomes registry parity ## Everything CI runs
 
 .PHONY: clean
 clean:

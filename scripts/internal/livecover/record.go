@@ -11,10 +11,9 @@ import (
 //
 // It exists because reading the source is not the same as watching the
 // run. A step can sit in a slice nobody passes on, or behind a condition
-// that was false all evening, and the source cannot tell: it says the
-// option is driven because the words are there. A sibling repository
-// demonstrated this the only way worth doing — by deleting one call and
-// watching its static gate still report full coverage.
+// that was false all run, and the source cannot tell: it says the option
+// is driven because the words are there. Delete one call from a run and
+// a gate over the source still reports full coverage.
 //
 // So the driver records every call it makes, at the one place calls go
 // out, and compares the record against what the source believes. The
@@ -22,8 +21,8 @@ import (
 type Recorder struct {
 	sent map[string]map[string]bool
 	// called counts invocations per tool, which is not derivable from
-	// sent: get_account takes no options at all, so a run that called it
-	// recorded an empty set and then reported the tool as never called.
+	// sent: get_account takes no options at all, so a call of it records
+	// an empty set, which alone would read as the tool never called.
 	called map[string]int
 }
 

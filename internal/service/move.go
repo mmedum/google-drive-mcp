@@ -32,8 +32,12 @@ type MoveFileInput struct {
 }
 
 // MoveFile changes which folder an item is in. Drive allows one parent,
-// so a move is a swap, and a My Drive folder cannot move into a shared
-// drive at all: the result says so and what to do instead.
+// so a move swaps it through addParents and removeParents, and a My
+// Drive folder cannot move into a shared drive at all
+// (teamDrivesFolderMoveInNotSupported): the result says so and what to
+// do instead. Checked by the live step "a My Drive folder is refused a
+// move into a shared drive".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/update
 //
 // A move also changes who can reach the item. The sharing guide says a
 // move "re-evaluates and applies the new parent's permissions to the item
@@ -42,7 +46,7 @@ type MoveFileInput struct {
 // result shows who could reach it before and who can after. A move that
 // would let anyone with the link, a domain or someone outside the
 // organization reach it is refused, dry run included, and so is one
-// whose reach cannot be read (§4a). With GDRIVE_SHARING=off any move
+// whose reach cannot be read. With GDRIVE_SHARING=off any move
 // that lets more people reach it is refused.
 func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, error) {
 	if err := s.writable("move_file"); err != nil {
@@ -96,8 +100,9 @@ func (s *Service) MoveFile(ctx context.Context, in MoveFileInput) (*Result, erro
 // moveMany moves several items to one destination. Each is read and
 // checked first, and gets its own outcome: refused, with the reason,
 // when a check stops it, and failed, with Drive's answer, when the move
-// does. A failure does not undo the moves before it. §18 has why a move
-// may be bulk when removal and sharing are not.
+// does. A failure does not undo the moves before it. A move may be bulk
+// where removal and sharing are not: it removes nothing, grants nothing
+// by name, and moving the item back undoes it.
 func (s *Service) moveMany(ctx context.Context, in MoveFileInput) (*Result, error) {
 	if len(in.Files) > MaxMoveFiles {
 		return nil, Errorf(ClassInvalid, "files holds %d items, and one call moves at most %d. Split them, or "+
@@ -302,7 +307,7 @@ type pastReach struct {
 
 // beyondNamed is what a refusal says the item would reach beyond. A
 // domain, the account's own included, is not a person or a group named
-// one by one, which is what share_file grants (§4a).
+// one by one, which is what share_file grants.
 const beyondNamed = " beyond the people and groups named inside this account's organization"
 
 // widensPast says why the move, the copy or the opening is refused for
@@ -310,7 +315,7 @@ const beyondNamed = " beyond the people and groups named inside this account's o
 //
 // A move, a copy, and a folder's limited access turned off all reach
 // who the destination reaches, and that is nowhere in the call: never
-// by default and never by omission (§4a). So one that would let anyone
+// by default and never by omission (D-42). So one that would let anyone
 // with the link, a domain, or a person or group outside the organization
 // reach it is refused [blocked], naming who; so is one whose reach could
 // not be read, since nothing shows it does not. Sharing it with them
@@ -493,9 +498,13 @@ func (s *Service) predictMove(ctx context.Context, p *movePlan, dest reach) {
 	if item.known {
 		p.before = s.sharingFrom(ctx, f, item.perms, p.res.DriveName)
 	}
-	// A move keeps the grants made on the item; a copy does not, so a
-	// copy's reach is the destination's alone and can be worked out
-	// without the original's.
+	// A move keeps the grants made on the item. A copy takes the
+	// destination's grants and none of the original's, so its reach is
+	// worked out without the original's; the files.copy reference says
+	// only that permissions "are still inherited from parent folders".
+	// Checked by the live steps "a copy into an open folder takes the
+	// folder's link" and "a copy takes none of the original's grants".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/copy
 	carried := item.perms
 	if p.copy {
 		carried = s.copyOwner(ctx, p.target)
@@ -583,11 +592,30 @@ func (s *Service) account(ctx context.Context) string {
 // from what Google documents about a move: grants made on the item
 // directly stay, what it inherited where it was goes, and it inherits
 // everything the destination has. For a copy, item is the copy's owner
-// alone. A My Drive item moved into a shared drive loses its owner,
-// because the drive owns it. An owner of the destination who does not
-// own the item is counted as an editor: what Drive gives them is not
-// documented (§18), and counting them at all errs toward showing more
-// exposure, not less.
+// alone. Checked by the live step "a file shared by link moves into an
+// open folder".
+// https://developers.google.com/workspace/drive/api/guides/manage-sharing
+//
+// A My Drive item moved into a shared drive keeps its direct grants and
+// loses its owner, because the drive owns it; moved back out, it has
+// both again. The Workspace help says so for moves in and out, and no
+// live step moves an item between two shared drives. Checked by the
+// live step "a file moves into a shared drive".
+// https://support.google.com/a/users/answer/12380484
+//
+// Once an item sits where the destination gives the same grant as one
+// made on it directly, Drive lists that grant as inherited only, so it
+// goes when the item moves out again, though the help says direct
+// grants stay. Reading DirectRole drops it as Drive does. Checked by
+// the live step "a file moves out of an open folder".
+//
+// Two cases are undocumented and no live step reaches them. An owner of
+// the destination who does not own the item is counted as an editor,
+// which errs toward showing more exposure, not less. A moved folder with
+// limited access is counted as taking the destination's grants, since
+// inheritedPermissionsDisabled is not read here, so such a move can be
+// refused as widening when it would not.
+// https://developers.google.com/workspace/drive/api/guides/limited-expansive-access
 func movedGrants(f, target *gdrive.File, item, dest []*gdrive.Permission) []model.Grant {
 	intoDrive := f.DriveID == "" && target.DriveID != ""
 	var grants []model.Grant
@@ -660,7 +688,11 @@ func (s *Service) moveNote(ctx context.Context, p *movePlan, after model.Sharing
 		}
 		// The account counts here: the summary shown before counted it,
 		// and an answer that differs only in the account's own access
-		// still differs from what the person was shown.
+		// still differs from what the person was shown. A move's new
+		// sharing is in place when files.update answers, which the
+		// reference does not say; a late one shows here. Checked by the
+		// live steps "a file shared by link moves into an open folder"
+		// and "a move of several gives each item its own outcome".
 		if !p.after.Unknown && !model.SameReach(p.after, after) {
 			parts = append(parts, "that is not who this server worked out would reach it, which was: "+
 				p.after.Summary()+". Drive can take a moment to apply a move's sharing; list_permissions "+

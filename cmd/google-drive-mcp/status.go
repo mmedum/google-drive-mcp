@@ -118,8 +118,8 @@ func newStatusReport(p *profile) statusReport {
 	} else {
 		// Through the redactor for the reason the package documents: this
 		// error is formatted elsewhere and an address can arrive inside
-		// one nothing here wrote. No error this path can currently return
-		// carries one, which is why the text below is unchanged by it.
+		// one nothing here wrote. No error this path returns carries one,
+		// which is why the text below is unchanged by it.
 		r.Credentials.Reason = orNil(redact.Accounts(err.Error()))
 	}
 	return r

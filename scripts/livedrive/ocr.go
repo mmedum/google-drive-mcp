@@ -25,10 +25,10 @@ var keptCopyID = regexp.MustCompile(`, id ([A-Za-z0-9_\-]+), in the root of My D
 // note, which names it as `id <id>, which was deleted for good`.
 var deletedCopyID = regexp.MustCompile(`, id ([A-Za-z0-9_\-]+), which was deleted for good`)
 
-// ocr runs Google's OCR live, which nothing here had ever done: through
-// extract_text, which makes a temporary Google Doc and deletes it, and
-// through the two imports that take an ocr_language. Every belief §18
-// records as unverified about it is checked here or nowhere.
+// ocr runs Google's OCR live: through extract_text, which makes a
+// temporary Google Doc and deletes it, and through the two imports that
+// take an ocr_language. It is the only check of the OCR against Google;
+// the fakes cannot read a scan.
 func (w *writeRun) ocr() {
 	w.out.Say("\n--- Google's OCR: extract_text, and the imports that take ocr_language ---")
 	path := filepath.Join(w.dir, ocrPDF)
@@ -37,59 +37,72 @@ func (w *writeRun) ocr() {
 		return
 	}
 	defer func() { _ = os.Remove(path) }()
-	scan := w.createAndKeepID("upload_file", map[string]any{
-		"local_path": ocrPDF, "parent": w.scratchID, "name": "Driver receipt.pdf",
-	})
+	scan := w.createAndKeepID(call{name: "a scanned PDF is uploaded for the OCR",
+		tool: "upload_file", args: map[string]any{
+			"local_path": ocrPDF, "parent": w.scratchID, "name": "Driver receipt.pdf",
+		}})
 	if scan == "" {
 		w.out.Say("\n=== extract_text: skipped, the PDF was never uploaded ===")
 		return
 	}
-	w.expecting("read_file", scan, map[string]any{"file": scan},
-		"a PDF is not text, and the refusal names extract_text")
+	w.needing(scan, call{name: "read_file refuses a PDF and names extract_text",
+		tool: "read_file", args: map[string]any{"file": scan},
+		why: "a PDF is not text, and the refusal names extract_text"})
 
-	whole := w.call(call{tool: "extract_text", args: map[string]any{"file": scan}})
+	whole := w.call(call{name: "extract_text reads the words in a scanned PDF",
+		tool: "extract_text", args: map[string]any{"file": scan}})
 	w.ocrFound("extract_text", whole)
 	w.goneForGood(whole)
 	// A language hint, which makes a copy of its own, and a window of
 	// the text, then the next window, which reuses the text rather than
 	// making a second copy.
-	hinted := w.call(call{tool: "extract_text", args: map[string]any{
-		"file": scan, "ocr_language": "en", "max_chars": 8,
-	}})
+	hinted := w.call(call{name: "extract_text takes a language hint and a window",
+		tool: "extract_text", args: map[string]any{
+			"file": scan, "ocr_language": "en", "max_chars": 8,
+		}})
 	w.goneForGood(hinted)
-	next := w.call(call{tool: "extract_text", args: map[string]any{
-		"file": scan, "ocr_language": "en", "offset": 8, "max_chars": 200,
-	}})
+	next := w.call(call{name: "the next window of extract_text makes no second copy",
+		tool: "extract_text", args: map[string]any{
+			"file": scan, "ocr_language": "en", "offset": 8, "max_chars": 200,
+		}})
 	if !strings.Contains(next, "no copy was made this time") {
 		w.failures++
 		w.out.Say("!! the second window made a second copy")
 	}
 
-	kept := w.call(call{tool: "extract_text", args: map[string]any{"file": scan, "keep_copy": true}})
+	kept := w.call(call{name: "extract_text keeps its copy when asked",
+		tool: "extract_text", args: map[string]any{"file": scan, "keep_copy": true}})
 	if m := keptCopyID.FindStringSubmatch(kept); len(m) == 2 {
 		// The kept copy is in the root of My Drive, outside the scratch
 		// folder: it is moved in, so trashing the folder takes it too.
-		w.call(call{tool: "move_file", args: map[string]any{"file": m[1], "to": w.scratchID}})
-		w.call(call{tool: "read_file", args: map[string]any{"file": m[1]}})
+		w.call(call{name: "the kept OCR copy is moved into the scratch folder",
+			tool: "move_file", args: map[string]any{"file": m[1], "to": w.scratchID}})
+		w.call(call{name: "the kept OCR copy is read", tool: "read_file", args: map[string]any{"file": m[1]}})
 	} else {
 		w.failures++
 		w.out.Say("!! the kept copy's id is not in the result, so it stays in the root of My Drive; remove it by hand")
 	}
 
-	// The imports that take a language hint, which closes the two
-	// options that were undrivable while every fixture was typed text.
-	copied := w.createAndKeepID("copy_file", map[string]any{
-		"file": scan, "convert_to": "doc", "ocr_language": "en", "to": w.scratchID, "name": "Driver receipt, imported",
-	})
+	// The imports that take a language hint, which need a scan rather
+	// than typed text to show anything.
+	copied := w.createAndKeepID(call{name: "a PDF is copied into a Doc with a language hint",
+		tool: "copy_file", args: map[string]any{
+			"file": scan, "convert_to": "doc", "ocr_language": "en", "to": w.scratchID, "name": "Driver receipt, imported",
+		}})
 	if copied != "" {
-		w.ocrFound("read_file of the copy_file import", w.call(call{tool: "read_file", args: map[string]any{"file": copied}}))
+		read := w.call(call{name: "the Doc copied from a PDF carries the scanned words", tool: "read_file",
+			args: map[string]any{"file": copied}})
+		w.ocrFound("read_file of the copy_file import", read)
 	}
-	uploaded := w.createAndKeepID("upload_file", map[string]any{
-		"local_path": ocrPDF, "parent": w.scratchID, "name": "Driver receipt, uploaded as a Doc",
-		"convert_to": "doc", "ocr_language": "en",
-	})
+	uploaded := w.createAndKeepID(call{name: "a PDF is uploaded as a Doc with a language hint",
+		tool: "upload_file", args: map[string]any{
+			"local_path": ocrPDF, "parent": w.scratchID, "name": "Driver receipt, uploaded as a Doc",
+			"convert_to": "doc", "ocr_language": "en",
+		}})
 	if uploaded != "" {
-		w.ocrFound("read_file of the upload_file import", w.call(call{tool: "read_file", args: map[string]any{"file": uploaded}}))
+		read := w.call(call{name: "the Doc uploaded from a PDF carries the scanned words", tool: "read_file",
+			args: map[string]any{"file": uploaded}})
+		w.ocrFound("read_file of the upload_file import", read)
 	}
 }
 
@@ -104,7 +117,8 @@ func (w *writeRun) goneForGood(result string) {
 		w.out.Say("!! the result does not name the temporary copy it deleted, so nothing can check it is gone")
 		return
 	}
-	out := w.call(call{tool: "get_file", args: map[string]any{"file": m[1]}, expectError: true,
+	out := w.call(call{name: "the temporary copy extract_text deleted is gone for good",
+		tool: "get_file", args: map[string]any{"file": m[1]},
 		why: "the temporary copy extract_text deleted for good"})
 	if !strings.HasPrefix(out, "[not_found]") {
 		w.failures++

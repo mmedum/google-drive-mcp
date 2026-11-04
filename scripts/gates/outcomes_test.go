@@ -9,10 +9,9 @@ import (
 	"testing"
 )
 
-// TestTheGateCatchesTheMistakeItWasWrittenFor. The three phase-5
-// defects were all one shape: the sentence describing the result was
-// written inside the branch that tested the request, and nothing was
-// asked of Drive in between.
+// TestTheGateCatchesTheMistakeItWasWrittenFor. The shape: the sentence
+// describing the result is written inside the branch that tested the
+// request, and nothing is asked of Drive in between.
 func TestTheGateCatchesTheMistakeItWasWrittenFor(t *testing.T) {
 	cases := []struct {
 		name, body string
@@ -46,10 +45,9 @@ func TestTheGateCatchesTheMistakeItWasWrittenFor(t *testing.T) {
 	}`,
 		},
 		{
-			// The hole the first version of this gate left open. It
-			// excluded the FIELD named DryRun, so a branch testing it
-			// could say anything at all for ever. Reading the RESULT's
-			// own marker asks the question that matters: does this
+			// Excluding the FIELD named DryRun would let a branch
+			// testing it say anything at all for ever. Reading the
+			// RESULT's own marker asks the question that matters: does this
 			// branch tell the caller it is describing something that
 			// has not happened?
 			name: "a dry-run branch whose result does not say it is one",
@@ -59,10 +57,9 @@ func TestTheGateCatchesTheMistakeItWasWrittenFor(t *testing.T) {
 			want: true,
 		},
 		{
-			// The hole a review probe found: one ordinary error check
-			// used to silence everything after it, so the phase-5
-			// defect verbatim plus an `if err != nil` produced no
-			// claims at all.
+			// One ordinary error check must not silence everything
+			// after it: the lock_file mistake plus an `if err != nil`
+			// is still a claim.
 			name: "an error propagated, and then an outcome stated anyway",
 			body: `	if in.LockFile {
 		if err := doThing(); err != nil {
@@ -127,9 +124,9 @@ func TestTheGateCatchesTheMistakeItWasWrittenFor(t *testing.T) {
 	}
 }
 
-// TestEveryBooleanInputIsInScope, DryRun included. The first version of
-// this gate dropped that one field from the set, which excused every
-// branch testing it whatever it said. A dry run is excused by its own
+// TestEveryBooleanInputIsInScope, DryRun included. Dropping that one
+// field from the set would excuse every branch testing it, whatever it
+// said. A dry run is excused by its own
 // result saying it is a dry run, which is a fact about the branch rather
 // than about the field's name.
 func TestEveryBooleanInputIsInScope(t *testing.T) {
@@ -223,7 +220,7 @@ func TestTheExemptionRecordIsHeldToTheBranches(t *testing.T) {
 }
 
 // TestTheRealServiceIsChecked runs the gate over this repository, and
-// holds it to having read something: today 24 inputs across 23 files.
+// holds it to having read something.
 func TestTheRealServiceIsChecked(t *testing.T) {
 	t.Chdir("../..")
 	var out strings.Builder
@@ -264,9 +261,8 @@ func claimsIn(t *testing.T, source string) []claim {
 //
 // The claim's path comes from filepath, so on Windows it arrives as
 // `internal\service\drives.go` while the record file names it with
-// forward slashes. Nothing matched: every excused branch was reported
-// unexcused, and every row was reported stale, so the gate failed on a
-// tree it passes on everywhere else.
+// forward slashes. Unconverted, nothing matches: every excused branch is
+// reported unexcused, and every row stale, on Windows only.
 //
 // Linux and macOS cannot reproduce it — a test that only wrote a path
 // and read it back would pass on both and prove nothing — so this asks

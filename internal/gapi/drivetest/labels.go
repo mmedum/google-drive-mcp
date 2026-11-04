@@ -259,9 +259,8 @@ func (s *Server) ApplyLabel(fileID string, label *gdrive.Label) {
 
 // labelIDsFrom reads the includeLabels parameter, which is a
 // comma-separated list of label ids. A wildcard is NOT one: Drive answers
-// 400 to `includeLabels=*`, and this server sent exactly that from phase
-// 1 until phase 4 without a single test noticing, because no test could
-// — the fake accepted anything. It refuses now, with Drive's own status.
+// 400 to `includeLabels=*`, and the fake refuses it with Drive's own
+// status, so a test that sends one fails.
 func labelIDsFrom(raw string) ([]string, bool) {
 	if raw == "" {
 		return nil, true

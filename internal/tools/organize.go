@@ -39,7 +39,12 @@ type UploadFileInput struct {
 	AllowDuplicate            bool   `json:"allow_duplicate,omitempty" jsonschema:"upload it even though the folder already holds something of that name"`
 }
 
-// UpdateContentInput replaces a file's bytes.
+// UpdateContentInput replaces a file's bytes. keep_previous_revision
+// exists because Drive's revisions overview calls a blob revision not
+// kept forever purgeable, "typically preserved for 30 days", and purged
+// sooner once the file has 100 such revisions. No live step waits for a
+// purge.
+// https://developers.google.com/workspace/drive/api/guides/change-overview
 type UpdateContentInput struct {
 	File                 string `json:"file" jsonschema:"the file whose content to replace: an id, a Drive URL, a path from My Drive, or a shared-drive path. A name or path matching more than one item is refused with the candidates listed."`
 	Content              string `json:"content,omitempty" jsonschema:"the new text, written inline. Pass this or local_path."`

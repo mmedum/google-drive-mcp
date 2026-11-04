@@ -29,7 +29,9 @@ const maxDrivePageSize = 100
 // hidden ones included: whether a drive is hidden from the sidebar is a
 // display choice, and the caller is the one that knows what to do with
 // it. Consumer accounts have no shared drives at all, and
-// about.canCreateDrives says so.
+// about.canCreateDrives says so. Checked by the live step "a shared drive
+// is found by name with hidden drives included".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/drives/list
 func (c *Client) ListDrives(ctx context.Context, o ListDrivesOptions) (*gdrive.DriveList, error) {
 	v := url.Values{}
 	size := o.PageSize
@@ -71,7 +73,10 @@ func (c *Client) GetDrive(ctx context.Context, driveID string) (*gdrive.Drive, e
 // CreateDrive makes a shared drive. requestId is what makes the call
 // idempotent: Drive collapses a repeat carrying the same one into the
 // first, so a retry after an ambiguous failure cannot leave two drives
-// behind. It is required, not optional.
+// behind. It is required, not optional. Only a Workspace account can
+// create one: about.canCreateDrives is false on a consumer account.
+// Checked by the live step "a scratch shared drive is created".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/drives/create
 func (c *Client) CreateDrive(ctx context.Context, requestID string, meta *gdrive.DriveMeta) (*gdrive.Drive, error) {
 	if requestID == "" {
 		return nil, fmt.Errorf("%w: drives.create needs a requestId", ErrInvalid)
@@ -112,9 +117,16 @@ func (c *Client) UpdateDrive(ctx context.Context, driveID string, meta *gdrive.D
 	return decodeDrive(body)
 }
 
-// DeleteDrive removes a shared drive. Drive requires it to be empty
-// unless the caller asks otherwise, and this client never does: a switch
-// that deletes a drive's contents along with it is not one to offer.
+// DeleteDrive removes a shared drive, which takes an organizer. The drive
+// must be empty unless allowItemDeletion is sent with
+// useDomainAdminAccess, and this client never sends either: deleting a
+// drive's contents along with it is not a switch to offer. A drive can
+// always be emptied first: the readOnly content restriction an approved
+// file carries does not stop files.delete. Checked by the live steps "an
+// approved, locked file is deleted for good" and "the scratch shared
+// drive is deleted".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/drives/delete
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files#ContentRestriction
 func (c *Client) DeleteDrive(ctx context.Context, driveID string) error {
 	u := c.base + "/drives/" + url.PathEscape(driveID)
 	_, err := c.do(ctx, request{method: http.MethodDelete, url: u})
@@ -130,8 +142,10 @@ func decodeDrive(body []byte) (*gdrive.Drive, error) {
 }
 
 // HideDrive removes a shared drive from the default view, and UnhideDrive
-// puts it back. Drive gives each its own endpoint; both answer with the
-// drive.
+// puts it back. Drive gives each its own endpoint, which is used rather
+// than a patch of the hidden field; both answer with the drive. No live
+// step hides a drive.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/drives/hide
 func (c *Client) HideDrive(ctx context.Context, driveID string) (*gdrive.Drive, error) {
 	return c.setDriveHidden(ctx, driveID, "hide")
 }

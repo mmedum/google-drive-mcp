@@ -20,10 +20,11 @@ const Scheme = service.Scheme
 
 // The three resource templates. A variable in an RFC 6570 simple
 // expansion excludes "/", and the SDK matches a template through an
-// ANCHORED regexp built from it (verified against go-sdk v1.7.0 and
-// uritemplate v3.0.2, §18), so gdrive://{file} does not also match
-// gdrive://{file}/meta and the three cannot shadow each other. A
-// reserved expansion — {+file} — would, and is deliberately not used.
+// ANCHORED regexp built from it, so gdrive://{file} does not also match
+// gdrive://{file}/meta and the three cannot shadow each other.
+// TestTemplatesWithASharedPrefixDoNotShadowEachOther holds it for the
+// SDK version in go.mod. A reserved expansion — {+file} — would shadow,
+// and is deliberately not used.
 //
 // The consequence for a caller is that a reference containing a slash —
 // a path, a URL — has to arrive percent-encoded: gdrive://My%20Drive%2F

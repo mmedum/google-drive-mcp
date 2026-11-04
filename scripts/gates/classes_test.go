@@ -8,12 +8,11 @@ import (
 	"testing"
 )
 
-// TestTheDeclaredValuesAreReadNotDerived is the shape the gate now
-// depends on: internal/gapi/errors.go says what each constant holds, and
-// the gate reads it rather than guessing from the name. Two values here
-// cannot be derived by any convention — ClassAmbiguousIO holds
-// "ambiguous_outcome" — which is the reason the first draft needed
-// hardcoded exceptions and this one does not.
+// TestTheDeclaredValuesAreReadNotDerived is the shape the gate depends
+// on: internal/gapi/errors.go says what each constant holds, and the gate
+// reads it rather than guessing from the name. Two values here cannot be
+// derived by any convention — ClassAmbiguousIO holds "ambiguous_outcome"
+// — so a gate that guessed would need hardcoded exceptions.
 func TestTheDeclaredValuesAreReadNotDerived(t *testing.T) {
 	t.Chdir("../..")
 	declared, err := declaredClasses()
@@ -92,13 +91,12 @@ func TestEveryDeclaredClassIsEmittedAndTheOtherWayRound(t *testing.T) {
 }
 
 // TestThePublishedVocabularyMatchesTheConstants. gapi.Classes() is a
-// third list — what `doctor` prints and what a model is told the
-// vocabulary is — and until a sibling repository reported the same class
-// of hole in its own gate, nothing here read it.
+// third list: what `doctor` prints and what a model is told the
+// vocabulary is.
 //
-// The duplicate case is the one worth watching. Their check used
-// slices.Compact, which removes only ADJACENT equals, so a class written
-// twice anywhere but beside itself passed. Both fixtures here put the
+// The duplicate case is the one worth watching. A check built on
+// slices.Compact removes only ADJACENT equals, so a class written twice
+// anywhere but beside itself passes it. Both fixtures here put the
 // repeat at the far end of the list.
 func TestThePublishedVocabularyMatchesTheConstants(t *testing.T) {
 	const good = `package gapi

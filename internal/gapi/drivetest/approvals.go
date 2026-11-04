@@ -258,9 +258,8 @@ func (s *Server) handleStartApproval(w http.ResponseWriter, r *http.Request, fil
 	// lockFile does NOT put a content restriction on the file by default.
 	// A live run asked for one and Drive applied none: the card came
 	// back unrestricted and the next update_content succeeded. Approving
-	// is what locks a file. A fake that locked here unconditionally —
-	// which this one did — proves the server's old claim rather than
-	// Drive's behavior, and that is how the claim survived a phase.
+	// is what locks a file. A fake that locked here unconditionally would
+	// prove the server's claim rather than Drive's behavior.
 	if body.LockFile && s.LockOnApprovalStart {
 		if f := s.Files[fileID]; f != nil {
 			f.ContentRestrictions = append(f.ContentRestrictions, &gdrive.ContentRestriction{

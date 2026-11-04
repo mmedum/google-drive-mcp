@@ -159,7 +159,7 @@ type TransferOwnershipInput struct {
 	DryRun  bool
 }
 
-// The four share tools each take one kind of grantee (§4a). Clients
+// The four share tools each take one kind of grantee. Clients
 // remember an approval per tool, never per argument, so a wide grant
 // carried as an argument of the ordinary tool would ride along once that
 // tool was always allowed.
@@ -312,7 +312,7 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 // client's prompt shows the call's arguments, and a name is what a person
 // recognizes there, where an id says nothing. It is compared with Drive's
 // own name for the item, so the name in the prompt is the item the call
-// reaches (§4a).
+// reaches (D-41).
 type witness struct {
 	// field is the input that carries it; shownBy is the tool that reads
 	// the name to pass.
@@ -525,6 +525,11 @@ func (s *Service) applyShare(ctx context.Context, f *gdrive.File, p sharePlan) e
 		})
 		return err
 	}
+	// A user or group grant names its emailAddress, a domain grant its
+	// domain, and an anyone grant neither: parsePrincipal sets only the
+	// field its kind takes. Checked by the live step "a file is shared
+	// with anyone who has the link".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions
 	meta.Type = p.principal.kind
 	meta.EmailAddress = p.principal.email
 	meta.Domain = p.principal.domain
@@ -533,10 +538,14 @@ func (s *Service) applyShare(ctx context.Context, f *gdrive.File, p sharePlan) e
 		EmailMessage:      p.message,
 		ResourceIDs:       []string{f.ID},
 	}
-	// The reference allows sendNotificationEmail only for a user or a
-	// group, and refuses it to be disabled for an ownership transfer.
-	// Sending it anywhere else is a 400, so it is left off the request
-	// entirely rather than sent as false.
+	// sendNotificationEmail defaults to true for a user or a group, is
+	// refused for any other grantee, and must not be false for an
+	// ownership transfer. Sent for a domain or anyone grant it is a 400, so
+	// there it is left off the request entirely rather than sent as false.
+	// Checked by the live steps "the second person is granted read access
+	// with an expiry" and "a file is shared with anyone who has the link";
+	// the transfer half rests on the reference alone.
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions/create
 	if p.principal.notifiable() {
 		o.SendNotificationEmail = gdrive.Bool(p.notify || p.role == model.RoleOwner)
 	}
@@ -584,13 +593,13 @@ func (s *Service) shareNote(p sharePlan, after model.Sharing, dryRun bool) strin
 			parts = append(parts, "in a shared drive the drive owns its files, so this "+
 				tense("makes ", "would make ")+p.principal.label()+" an organizer rather than an owner")
 		} else {
-			// What is certain is the demotion. Whether a consumer account
-			// produces a pending transfer is read off the answer rather
-			// than asserted: this server sends role owner with
-			// transferOwnership and never sets pendingOwner itself, and
-			// what Drive does with that on a consumer account has not
-			// been seen here (spike F, §16). Describing an outcome
-			// nobody has observed is how a result becomes wrong.
+			// The demotion is certain. Drive's guide makes a Workspace
+			// transfer immediate and has a consumer account's wait for
+			// acceptance with pendingOwner set. Neither is verified live:
+			// the live step "an ownership transfer hands the file to its new
+			// owner" runs only with -transfer and a second account. So a
+			// pending transfer is read off the answer, never asserted.
+			// https://developers.google.com/workspace/drive/api/guides/transfer-file
 			parts = append(parts, tense("this account is now a writer on it rather than its owner, and cannot ",
 				"this account would become a writer on it rather than its owner, and could not ")+
 				"take that back: only the new owner can hand it on")
@@ -640,10 +649,11 @@ type UnshareFileInput struct {
 	DryRun     bool
 }
 
-// UnshareFile removes one grant and says what access is left. An
-// inherited shared-drive permission is refused with its source named:
-// removing it here would not work, and Drive's own error does not say
-// where to go instead.
+// UnshareFile removes one grant and says what access is left. Drive
+// removes an inherited grant (permissionDetails.inherited) only where it
+// was given, and its own error does not say where that is, so one is
+// refused here with its source named.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions
 func (s *Service) UnshareFile(ctx context.Context, in UnshareFileInput) (*Result, error) {
 	if err := s.sharable("unshare_file"); err != nil {
 		return nil, err
@@ -790,20 +800,12 @@ func (s *Service) exposure(ctx context.Context, res *Resolved, p principal) (mod
 // returns both the resolved file the card is rendered from and the
 // exposure that file now has.
 //
-// Rendering from the file read BEFORE the write left the card's
-// "sharing:" line showing the state the call had just changed — so
-// share_file on a private file reported "sharing: private to you" in the
-// same result whose change line said the file was now reachable by
-// anyone with the link. That line is the one a person checks to see what
-// they just exposed, and it was stale exactly when it mattered most.
-//
-// It also fixes the "after" summary. That was built from the permission
-// list read afresh but the `shared` flag of the stale file, so removing
-// the last grant reported "shared, but no grants are visible to this
-// account" instead of "private to you".
-//
-// One read replaces the separate permission re-read it used to do, since
-// a file read carries its own grants outside a shared drive.
+// The card's "sharing:" line is the one a person checks to see what they
+// just exposed, so it is rendered from the file read AFTER the write; the
+// read from before would show the state the call had just changed. The
+// "after" summary takes the fresh file's `shared` flag with its grants,
+// so removing the last grant reads "private to you". One read serves
+// both, since a file read carries its own grants outside a shared drive.
 func (s *Service) rereadAfterSharing(ctx context.Context, res *Resolved) (*Resolved, model.Sharing) {
 	fresh, err := s.Resolve(ctx, res.File.ID, ResolveOptions{FollowShortcut: false, Fresh: true})
 	if err != nil {
@@ -828,8 +830,7 @@ func (s *Service) rereadAfterSharing(ctx context.Context, res *Resolved) (*Resol
 // empty slice, and the saving is only available on the sharing path,
 // which is the one place where mistaking the second for the first
 // understates exposure. TestUnshareSaysSoWhenItCannotReadWhoHasAccess
-// is that distinction with a test around it. A review proposed the
-// saving in phase 3 and this is why it was not taken.
+// is that distinction with a test around it.
 func (s *Service) sharingNow(ctx context.Context, f *gdrive.File) model.Sharing {
 	perms, err := s.api.ListPermissions(ctx, f.ID)
 	if err != nil {

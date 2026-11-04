@@ -11,15 +11,15 @@ import (
 )
 
 // benchTree builds a tree of n items to lay out. It is the renderer's
-// half of the target in §11: what a walk costs on the wire is one
-// listing per folder, and what it costs here is laying the answer out.
+// half of the target that a 10 000-item tree renders in under 50 ms:
+// what a walk costs on the wire is one listing per folder, and what it
+// costs here is laying the answer out.
 //
 // The shape matters as much as the count. Three folders per folder puts
 // ten thousand items about eight levels down, which is inside the depth
-// a walk will go to (service.MaxMaxDepth); the first version of this
-// made one folder per folder and produced a thousand levels, which is a
-// tree Drive would never hand back and which measured the cost of the
-// indent rather than the cost of the listing.
+// a walk will go to (service.MaxMaxDepth). One folder per folder would
+// make a thousand levels, a tree Drive would never hand back, and would
+// measure the cost of the indent rather than the cost of the listing.
 func benchTree(n int) *TreeNode {
 	root := &TreeNode{File: model.New(&gdrive.File{
 		ID: "id-bench-root", Name: "Everything", MimeType: gdrive.MimeFolder,
@@ -63,7 +63,7 @@ func BenchmarkTree10000(b *testing.B) {
 	}
 }
 
-// TestATenThousandItemTreeStaysLinear is the §11 target in a form make
+// TestATenThousandItemTreeStaysLinear is the 50 ms target in a form make
 // check can run.
 //
 // It does not assert the 50 ms, because make check runs the tests under
@@ -76,13 +76,10 @@ func BenchmarkTree10000(b *testing.B) {
 //
 // The absolute number is in the benchmark, where nothing is instrumented.
 // Sizes are chosen so the smaller measurement is milliseconds rather
-// than microseconds. At 1 000 items it took ~600µs on a shared runner —
-// the same order as scheduling noise — and the ratio blew past the
-// threshold twice in a row on a plain `go test`, blocking a release,
-// while passing every time under `go test -race`. That is the part worth
-// remembering: the race detector's constant overhead was inflating the
-// small side and flattering the ratio, so CI was holding the test up
-// rather than the test holding the renderer.
+// than microseconds. At 1 000 items a render takes about as long as
+// scheduling noise on a shared runner, and the ratio fails a plain `go
+// test` while passing under `go test -race`, whose constant overhead
+// inflates the small side and flatters the ratio.
 const (
 	linearSmallN = 5_000
 	linearLargeN = 50_000

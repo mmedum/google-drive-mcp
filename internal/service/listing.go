@@ -141,8 +141,8 @@ func (s *Service) page(ctx context.Context, folder *gdrive.File, loc model.Locat
 	}
 	empty, note := "this folder is empty.", ""
 	if cannotList(folder) {
-		// Drive answers the listing anyway, so an empty page here does
-		// not mean an empty folder.
+		// What Drive answers here is not documented, so an empty page
+		// does not mean an empty folder.
 		empty = "this account can see this folder but cannot list what is in it, so it may not be empty. " +
 			"Ask its owner for access."
 		if len(files) > 0 {
@@ -161,7 +161,11 @@ func (s *Service) page(ctx context.Context, folder *gdrive.File, loc model.Locat
 
 // cannotList reports whether Drive says this account may not list what
 // is inside a folder. A capability that was not read is no answer, so
-// it is not a refusal.
+// it is not a refusal. The files reference says only "Whether the
+// current user can list the children of this folder", not what a
+// listing then answers. Checked by the live step "an unlistable folder's
+// listing says it cannot list".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files
 func cannotList(f *gdrive.File) bool {
 	return f.Capabilities != nil && !f.Capabilities.CanListChildren
 }

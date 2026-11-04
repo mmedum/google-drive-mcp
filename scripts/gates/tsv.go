@@ -9,14 +9,11 @@ import (
 
 // The record files. Three gates keep one — every API method and its
 // verdict, every tool option the live driver does not send, every branch
-// that states an outcome after testing a request field — and each had
-// its own reader until the three had drifted.
-//
-// The drift was not cosmetic. One trimmed a trailing TAB before counting
-// columns, so an empty final field failed as "wrong number of columns"
-// rather than as the missing reason it was; one checked for a key listed
-// twice and one did not, so a second row for the same key silently won.
-// Both are decided here now, once.
+// that states an outcome after testing a request field — and they share
+// this reader, so an empty final field and a key listed twice mean the
+// same thing in all three. Separate readers drift: one that trims a
+// trailing TAB reports a missing reason as "wrong number of columns",
+// and one that skips the duplicate check lets a second row silently win.
 
 // tsvRow is one record line: its fields, and the line it came from, so a
 // failure can name a place a person can open.

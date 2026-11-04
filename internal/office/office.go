@@ -108,6 +108,7 @@ const (
 	MaxDirectory = 8 << 20
 	// MaxRatio is how far one part may expand: Apache POI refuses a part
 	// that compresses better than 1%, and so does this.
+	// https://poi.apache.org/apidocs/dev/org/apache/poi/openxml4j/util/ZipSecureFile.html
 	MaxRatio = 100
 	// ratioGrace is the size below which a part's ratio is not checked:
 	// a small part cannot cost much however well it compresses.
@@ -220,7 +221,9 @@ const directoryEnd = 22
 // which sits in the last 64 KiB of the file, the first thing archive/zip
 // reads anyway; then it counts the headers the way archive/zip will
 // read them, since archive/zip reads headers until one is not a header
-// and checks only the low 16 bits of the count the end record gives.
+// and checks only the low 16 bits of the count the end record gives, so
+// the end record alone cannot bound it.
+// https://go.dev/src/archive/zip/reader.go
 func checkDirectory(r io.ReaderAt, size int64) error {
 	if size < directoryEnd {
 		return unreadable("it is %d bytes long, too short to be the zip archive every such file is", size)
@@ -421,7 +424,10 @@ func (p *pkg) has(name string) bool { return p.files[name] != nil }
 // the ratio Apache POI calls a zip bomb: before reading, by the sizes
 // the part declares, and while reading, by the bytes it has actually
 // pulled from the file, since a declared compressed size can be a lie
-// in the direction that hides the ratio.
+// in the direction that hides the ratio. archive/zip stops at the
+// declared sizes, but a deflate stream that ends early inflates from
+// fewer bytes than declared, so the declared ratio alone is not enough.
+// https://go.dev/src/archive/zip/reader.go
 func (p *pkg) open(name string) (io.ReadCloser, error) {
 	f := p.files[name]
 	if f == nil {

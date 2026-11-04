@@ -15,19 +15,30 @@ import (
 // take the same set: the reference gives create sendNotificationEmail,
 // emailMessage and moveToNewOwnersRoot, and update removeExpiration, and
 // one struct covering both would offer every caller four parameters that
-// silently do nothing on half the calls.
+// silently do nothing on half the calls. Checked by the live steps "the
+// second person is granted read access with an expiry" and "a second
+// grant to the same person changes the role".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions/create
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions/update
 type ShareOptions struct {
 	// SendNotificationEmail asks Google to mail the new grantee. Drive
 	// defaults it to true for users and groups and REFUSES it for a
 	// domain or anyone grant, so nil means "do not send the parameter at
 	// all" rather than "false": for those two principal types sending it
-	// either way is a 400.
+	// either way is a 400. The reference says it must not be disabled for
+	// an ownership transfer. Checked for a reader grant by the live step
+	// "the second person is granted read access with an expiry"; the
+	// transfer half rests on the reference alone.
 	SendNotificationEmail *bool
 	// EmailMessage rides along with that mail, and only matters when one
 	// is being sent.
 	EmailMessage string
 	// TransferOwnership is required for the owner role; Drive refuses the
-	// role without it, as an acknowledgment of what it does.
+	// role without it, as an acknowledgment of what it does. Drive's guide
+	// has a consumer account's transfer stay pending (pendingOwner) until
+	// the new owner accepts; no default live run reaches a transfer. The
+	// live step "share_file refuses an owner and names transfer_ownership"
+	// checks that the owner role goes only through transfer_ownership.
 	TransferOwnership bool
 	// MoveToNewOwnersRoot puts a transferred file in the new owner's root
 	// folder. It takes effect only outside a shared drive and only on a
@@ -43,7 +54,9 @@ type UpdateShareOptions struct {
 	TransferOwnership bool
 	// RemoveExpiration clears the expiry. It is a query parameter rather
 	// than an empty field in the body: the reference gives update its own
-	// removeExpiration, and Drive does not read "" as "clear this".
+	// removeExpiration, and Drive does not read "" as "clear this". No
+	// live step clears an expiry.
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions/update
 	RemoveExpiration bool
 	ResourceIDs      []string
 }

@@ -104,9 +104,8 @@ func (s *Service) textWindow(ctx context.Context, res *Resolved, plan readPlan, 
 		return s.officeWindow(ctx, res, plan, in, budget)
 	}
 	// A blob's size does not bound this call: only the window shown is
-	// fetched, so the head of a 200 MB log is one small request, and
-	// refusing the file for its size would have contradicted the advice
-	// the refusal itself gave.
+	// fetched, so the head of a 200 MB log is one small request. Checked
+	// by the live step "a read stops at its window".
 	if size, known := f.SizeBytes(); known && in.Offset >= size {
 		// Drive answers a range that starts past the end with a 416,
 		// which says nothing useful. The file's own size already does.
@@ -201,7 +200,10 @@ func stringWindow(text string, budget int) (string, int64) {
 	return text[:cut], int64(cut)
 }
 
-// MaxExport is Google's own ceiling on files.export.
+// MaxExport is Google's own ceiling on files.export, which the reference
+// sets at 10 MB of exported content. Checked by the live step "a Google
+// Doc is exported as a PDF".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/export
 const MaxExport = 10 << 20
 
 // keptText is the text held in slot under key, while it is inside
@@ -334,7 +336,7 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 
 // markdownReadNote is what a read of a Markdown file has to say: Google
 // Docs edits it in place and keeps its comments in this text, which a
-// write that passes the whole text back has to carry (§7.2).
+// write that passes the whole text back has to carry.
 const markdownReadNote = "a Markdown file, which Google Docs opens and edits in place. A comment made on it there " +
 	"is part of this text: a gdoc_comment_begin and a gdoc_comment_end marker around its passage, and an entry " +
 	"in the gdoc_comments block that ends the file. Keep both when you write the text back; update_content " +
@@ -614,8 +616,11 @@ func (s *Service) forgetDownload(key string) {
 }
 
 // exportRevision reaches an old version of a Google-native document.
-// Its bytes are not on the file endpoint: the revision hands out export
-// links, and those are what carry the old content.
+// files.export takes no revision, and the revisions guide's route,
+// files.download with revisionId, is a long-running operation to poll.
+// The Revision carries exportLinks, a direct URL per format, and those
+// carry the old content. No live step exports an old Google Doc revision.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/revisions
 func (s *Service) exportRevision(ctx context.Context, f *gdrive.File, revisionID, mime string) (*gapi.Content, error) {
 	rev, err := s.api.GetRevision(ctx, f.ID, revisionID)
 	if err != nil {
@@ -699,8 +704,12 @@ func writeStream(path string, body io.Reader, checksum bool) (int64, string, err
 }
 
 // isCurrent says whether a download asked for the file's current
-// content: no revision, or the head one by its id. The file's checksum
-// is that content's, and no other revision's.
+// content: no revision, or the head one by its id. md5Checksum is that
+// content's and no other revision's; the reference does not tie it to
+// headRevisionId, and a download by the head's id matches it. Checked by
+// the live steps "the current revision is downloaded and checked against
+// its checksum" and "an older revision is downloaded by id".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files
 func isCurrent(f *gdrive.File, revision string) bool {
 	return revision == "" || revision == f.HeadRevisionID
 }

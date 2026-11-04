@@ -217,11 +217,10 @@ func write(t *testing.T, path, body string) {
 	}
 }
 
-// TestAGateThatIsNamedButNotRunDoesNotCount is the hole a sibling
-// repository found in its own port of this gate, and it is the way a
-// parity check gets defeated in practice: a step commented out to
-// unblock a red build still matched, so the gate stayed green across
-// exactly the divergence it exists to catch.
+// TestAGateThatIsNamedButNotRunDoesNotCount is the way a parity check
+// gets defeated in practice: a step commented out to unblock a red build
+// still matches a plain search, so the gate stays green across exactly
+// the divergence it exists to catch.
 //
 // Four ways a gate's name can be in the workflow file without running.
 func TestAGateThatIsNamedButNotRunDoesNotCount(t *testing.T) {

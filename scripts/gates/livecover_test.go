@@ -103,9 +103,8 @@ func TestTheDriverIsMeasuredAgainstTheBinaryItDrives(t *testing.T) {
 	if err := liveCover(&out, []string{bin}); err != nil {
 		t.Fatalf("live cover: %v\n%s", err, out.String())
 	}
-	// Literal floors under today's 179 of 190 driven, 11 recorded as
-	// not, 10 of them undrivable: a gate that counted nothing would pass
-	// without them.
+	// Literal floors under the summary's counts: a gate that counted
+	// nothing would pass without them.
 	var driven, total, excused, undrivable int
 	if _, err := fmt.Sscanf(out.String(), "live cover ok (%d of %d options driven, %d recorded as not: %d undrivable",
 		&driven, &total, &excused, &undrivable); err != nil {

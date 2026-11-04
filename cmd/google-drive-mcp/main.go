@@ -51,11 +51,9 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 // run is main with its arguments and its two streams passed in, so the
 // dispatch can be exercised by a test instead of only by a person at a
-// terminal. main itself calls os.Exit, which no test survives — which is
-// why the unknown-command guard below first arrived with a test of an
-// extracted predicate rather than of its behavior, and why deleting the
-// guard left every check green. The sibling servers were already shaped
-// this way, and their tests caught exactly that mutation.
+// terminal. main itself calls os.Exit, which no test survives, and a
+// test of an extracted predicate still passes with the unknown-command
+// guard below deleted.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
@@ -528,9 +526,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	// wrong in a setup — each needs enabling in the Cloud project AND, on
 	// an External app, a scope on the consent screen, and the two fail
 	// identically — so doctor saying "all checks passed" without having
-	// called either of them is the report a deployer least needs. §10 has
-	// said doctor checks the Labels API since phase 0; until phase 4 it did
-	// not.
+	// called either of them is the report a deployer least needs.
 	if cfg.Labels {
 		if _, err := api.ListLabelDefinitions(ctx, gapi.ListLabelDefinitionsOptions{PageSize: 1}); err != nil {
 			check("Drive Labels API (labels.list)", fmt.Errorf(

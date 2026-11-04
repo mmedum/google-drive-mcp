@@ -20,15 +20,11 @@ import (
 // The live driver and the eval harness both run against somebody's real
 // Drive and print what comes back: file names, addresses, ids, comment
 // text, the signed-in account's own name. All of it goes through a
-// redactor — and until this gate, it went through by HABIT. Every line
-// happened to call red.Do, which is not at all the same as every line
-// having to. Phase 4 found the proof: the driver echoed each call's
-// ARGUMENTS unredacted, which was arguably nobody's problem while the
-// only address there was one the operator had typed, and became one the
-// moment starting an approval put the signed-in account's own address
-// into the arguments of every write run. It was fixed line by line, and
-// the next print somebody added while debugging would have looked
-// exactly like the two beside it that are safe.
+// redactor, and this gate makes that a rule rather than a habit: a line
+// that happens to call red.Do is not every line having to. A call's
+// ARGUMENTS carry addresses too, such as the signed-in account's own
+// when an approval starts, and a print added while debugging looks
+// exactly like the safe ones beside it.
 //
 // The rule with teeth is not "call the redactor". It is that these
 // packages cannot reach a terminal at all. A terminal is os.Stdout and
@@ -107,14 +103,13 @@ var transcriptPackages = []string{
 	filepath.Join("scripts", "livedrive"),
 	filepath.Join("scripts", "evals"),
 	// Not programs: the stdio session both drivers talk through, and
-	// the redactor itself. Neither prints today, and both are on the
+	// the redactor itself. Neither prints, and both are on the
 	// path of every line the drivers do print, so a debugging Println
 	// in either would leak past every other check in this file.
 	//
 	// The redactor is also the one package unlistedDrivers can never
 	// find, because the mark it looks for is importing the redactor and
-	// the redactor does not import itself. A review found it by adding
-	// a Println there and watching this gate report ok.
+	// the redactor does not import itself, so only this list covers it.
 	filepath.Join("scripts", "internal", "mcpstdio"),
 	filepath.Join("scripts", "internal", "redact"),
 }
@@ -131,16 +126,15 @@ type terminalWrite struct {
 
 // terminalWrites finds every way a file can reach a terminal.
 //
-// Two rules, and the second exists because the first was not enough. The
-// first enumerates the call shapes: fmt.Print, Printf and Println write
+// Two rules, because the first is not enough. The first enumerates the
+// call shapes: fmt.Print, Printf and Println write
 // to os.Stdout without naming it; os.Stdout and os.Stderr name it,
 // however they are then used — handed to fmt.Fprintln, wrapped in a
 // bufio.Writer, or written to directly; and the builtins print and
 // println go to stderr, which is easy to forget is a terminal at all.
 //
-// The second rule is an IMPORT, and it is here because a review of this
-// gate found the hole by trying it: `log.Printf("owner: %s", addr)` in
-// the live driver passed, unredacted, straight to stderr. log and
+// The second rule is an IMPORT: without it `log.Printf("owner: %s",
+// addr)` in the live driver passes, unredacted, straight to stderr. log and
 // log/slog are writes to a terminal with the name left out, exactly as
 // fmt.Print is, and enumerating their calls would be the same list
 // again — log has Print, Printf, Println, Fatal, Fatalf, Fatalln, Panic,
@@ -285,10 +279,9 @@ func goFiles(dir string) ([]string, error) {
 // unlistedDrivers finds a program that prints Drive's answers and is not
 // covered by this gate.
 //
-// A list of packages is only as good as the day it was written, and this
-// one would go quiet the moment somebody wrote a third driver — the
-// worst way for a check to fail, because the new program is exactly the
-// one nobody has thought about yet. What every such program has in
+// A list of packages goes quiet the moment somebody writes a third
+// driver — the worst way for a check to fail, because the new program is
+// exactly the one nobody has thought about yet. What every such program has in
 // common is that it needs the redactor: a program that prints what a
 // real account answered cannot do its job without one. So importing the
 // redactor, or the transcript that wraps it, is the mark, and being

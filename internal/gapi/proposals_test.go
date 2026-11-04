@@ -85,10 +85,9 @@ func TestAcceptingWithoutARoleIsRefused(t *testing.T) {
 	}
 }
 
-// TestResolveIsNeverRepeated is the sharing rule of §11 at the one
-// endpoint phase 3 adds to it: a resolve that fails ambiguously may
-// already have granted the access, so it is reported rather than sent
-// again.
+// TestResolveIsNeverRepeated holds that a sharing write is never sent
+// twice: a resolve that fails ambiguously may already have granted the
+// access, so it is reported rather than sent again.
 func TestResolveIsNeverRepeated(t *testing.T) {
 	s := drivetest.New()
 	defer s.Close()

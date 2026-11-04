@@ -98,9 +98,9 @@ func TestCreateRefusesADuplicateNameUnlessAsked(t *testing.T) {
 
 func TestCreateFileCarriesAPreGeneratedIDWhereDriveTakesOne(t *testing.T) {
 	// A pre-generated id is what makes a create idempotent. Drive refuses
-	// one for the Docs Editors formats — "Generated IDs are not supported
-	// for Docs Editors formats", observed live on 2026-09-05 — so a new
-	// Doc is created without one, and everything else carries one.
+	// one for the Docs Editors formats with "Generated IDs are not
+	// supported for Docs Editors formats", so a new Doc is created
+	// without one, and everything else carries one.
 	svc, fake := setup(t, service.Options{})
 
 	if _, err := svc.CreateFile(t.Context(), service.CreateFileInput{

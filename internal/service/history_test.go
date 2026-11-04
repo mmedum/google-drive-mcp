@@ -307,10 +307,8 @@ func TestANullEntryInTheFeedDoesNotTakeTheServerDown(t *testing.T) {
 }
 
 func TestPinningARevisionThroughAShortcutKeepsTheContext(t *testing.T) {
-	// The path that changed something used to render a poorer card than
-	// the path that changed nothing: pin through a shortcut and the card
-	// did not say a shortcut had been followed, then the same call again
-	// suddenly did.
+	// A pin through a shortcut says the shortcut was followed, on the
+	// call that changes something as on the repeat that changes nothing.
 	svc, fake := setup(t, service.Options{})
 	fake.SetContent("id-budget-fixture", "first")
 	fake.SetContent("id-budget-fixture", "second")

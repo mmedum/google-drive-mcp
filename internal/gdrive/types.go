@@ -120,10 +120,10 @@ type Label struct {
 
 // LabelField is one field of an applied label. Drive names the date
 // member `dateString`, not `date`: it is an RFC 3339 calendar date with
-// no time, and the name says so. Phase 4 read the discovery document and
-// found this tag saying `date`, which decoded every date-valued field to
-// nothing at all — silently, because a missing member is indistinguishable
-// from an unset one.
+// no time, and the name says so. A wrong tag decodes every date-valued
+// field to nothing at all — silently, because a missing member is
+// indistinguishable from an unset one. No live step sets a date field.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/Label
 type LabelField struct {
 	ID        string   `json:"id,omitempty"`
 	ValueType string   `json:"valueType,omitempty"`
@@ -439,8 +439,14 @@ type Permission struct {
 	PendingOwner       bool                 `json:"pendingOwner,omitempty"`
 	Details            []*PermissionDetails `json:"permissionDetails,omitempty"`
 	// View is "metadata" on a grant a limited-access folder keeps out:
-	// it shows the folder without opening it. "published" belongs to a
-	// published view, which this server never makes.
+	// it shows the folder without opening it. Drive lists such a grant
+	// with role reader and every permissionDetails entry inherited, and
+	// the reference supports the metadata view only on folders. That is
+	// confirmed for people and for a link, and unverified for a domain
+	// grant from above. "published" belongs to a published view, which
+	// this server never makes. Checked by the live step "a limited folder
+	// lists who it keeps out".
+	// https://developers.google.com/workspace/drive/api/guides/limited-expansive-access
 	View string `json:"view,omitempty"`
 }
 
@@ -509,9 +515,10 @@ type DownloadRestrictionsMetadata struct {
 // download restriction Drive keeps beside them.
 type DriveRestrictions struct {
 	// DownloadRestriction is read and never written: drives.update
-	// refuses it inside restrictions, and copyRequiresWriterPermission
-	// sets restrictedForReaders along with itself (§18, live
-	// 2026-09-30). Drive publishes it as a $ref rather than as a switch.
+	// refuses it inside restrictions, and turning
+	// copyRequiresWriterPermission on or off sets or clears
+	// restrictedForReaders with it. Drive publishes it as a $ref rather
+	// than as a switch.
 	DownloadRestriction *DownloadRestriction `json:"downloadRestriction,omitempty"`
 
 	AdminManagedRestrictions                  bool `json:"adminManagedRestrictions,omitempty"`
@@ -549,7 +556,10 @@ type StorageQuota struct {
 }
 
 // About is the about.get response. CanCreateDrives is false on consumer
-// accounts, which have no shared drives at all.
+// accounts, which have no shared drives at all: shared drives are a
+// Workspace feature. The live step "the signed-in account is read" and
+// TestLiveSharedDrives check it.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/about
 type About struct {
 	User            *User               `json:"user,omitempty"`
 	StorageQuota    *StorageQuota       `json:"storageQuota,omitempty"`
@@ -692,7 +702,9 @@ type PermissionMeta struct {
 	// ExpirationTime is RFC 3339, and setting it is all this field does.
 	// Clearing one goes through permissions.update's own
 	// removeExpiration parameter, because Drive does not read an empty
-	// string here as "remove it".
+	// string here as "remove it". Drive takes an expiry only on a user or
+	// a group grant, at most a year out.
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions
 	ExpirationTime string `json:"expirationTime,omitempty"`
 	// PendingOwner marks a consumer-account transfer waiting to be
 	// accepted. Workspace transfers do not use it.
@@ -711,8 +723,12 @@ type DriveMeta struct {
 // drives.update body. Drive merges it switch by switch, so a switch left
 // out keeps its value, and each is a pointer because false has to be
 // sent to turn one off. downloadRestriction is not here: drives.update
-// refuses a restrictions object that carries it at all, even with the
-// values Drive already holds (§18, live 2026-09-30).
+// answers 400 badRequest to a restrictions object that carries it at
+// all, even with the values Drive already holds. The reference documents
+// neither the merge nor the refusal. Checked by the live steps "a drive
+// restriction is turned on" and "a drive restriction is turned off
+// again".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/drives/update
 type DriveRestrictionsPatch struct {
 	AdminManagedRestrictions                  *bool `json:"adminManagedRestrictions,omitempty"`
 	CopyRequiresWriterPermission              *bool `json:"copyRequiresWriterPermission,omitempty"`
@@ -723,7 +739,12 @@ type DriveRestrictionsPatch struct {
 
 // DownloadRestrictionsPatch is the downloadRestrictions half of a
 // files.update body. Only itemDownloadRestriction can be written; the
-// effective one is output only.
+// effective one is output only. The guide gives no example body, and
+// each level reads back as sent. What copyRequiresWriterPermission true
+// does to restrictedForWriters is not documented. Checked by the live
+// steps "downloads are restricted for editors too" and "the legacy
+// download switch is turned on".
+// https://developers.google.com/workspace/drive/api/guides/content-restrictions
 type DownloadRestrictionsPatch struct {
 	ItemDownloadRestriction DownloadRestrictionPatch `json:"itemDownloadRestriction"`
 }
@@ -924,7 +945,11 @@ type Approval struct {
 	// FileContentChangeBehavior is RESET_APPROVAL or NO_APPROVAL_ACTION.
 	// RESET_APPROVAL, the default, means a content change while the
 	// approval is in progress clears the approvals given, and that once
-	// approved the file is LOCKED. NO_APPROVAL_ACTION does neither.
+	// approved the file is LOCKED. NO_APPROVAL_ACTION does neither. Every
+	// approval verb also mails somebody, and none takes a notify flag.
+	// Checked by the live steps "an approval is started with a future due
+	// date" and "the started approval is listed".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/approvals/start
 	FileContentChangeBehavior string `json:"fileContentChangeBehavior,omitempty"`
 }
 
@@ -949,7 +974,12 @@ type StartApproval struct {
 	// is not a state the API offers.
 	ReviewerEmails []string `json:"reviewerEmails,omitempty"`
 	Message        string   `json:"message,omitempty"`
-	// LockFile locks the file's content for the duration.
+	// LockFile asks Drive to lock the file when the approval starts.
+	// Drive does not always apply it: live, the file stayed editable
+	// after an approval started with it. Approving under RESET_APPROVAL is
+	// what locks the file. Checked by the live steps "an approval starts
+	// with lock_file set" and "the card shows what lock_file did to the
+	// file".
 	LockFile bool   `json:"lockFile,omitempty"`
 	DueTime  string `json:"dueTime,omitempty"`
 	// FileContentChangeBehavior decides what a content change does to
@@ -976,11 +1006,8 @@ type ApprovalMessage struct {
 // the person arriving together, and there is no way to say only the
 // first.
 //
-// Both members are arrays of OBJECTS, not of addresses. Phase 4 sent
-// bare strings here at first, which Drive answers 400 to on every call:
-// the discovery document was read through a projection that dropped the
-// items' $ref, and the fake decoded into the same wrong struct, so
-// nothing could fail.
+// Both members are arrays of OBJECTS, not of addresses: Drive answers
+// 400 to bare strings on every call.
 type ReassignApproval struct {
 	AddReviewers     []AddReviewer     `json:"addReviewers,omitempty"`
 	ReplaceReviewers []ReplaceReviewer `json:"replaceReviewers,omitempty"`
@@ -1055,7 +1082,10 @@ type ActivityTimeRange struct {
 // empty object and a member no field below covers decode to the same
 // value, every pointer nil. Members keeps them apart, because the
 // difference is the difference between nothing to do and Google having
-// added a kind.
+// added a kind. The reference does not say an empty object is sent.
+// Checked by the live step "the scratch folder's activity is read
+// recursively".
+// https://developers.google.com/workspace/drive/activity/v2/reference/rest/v2/activity/query
 type ActionDetail struct {
 	Create             *ActivityCreate     `json:"create,omitempty"`
 	Edit               *struct{}           `json:"edit,omitempty"`

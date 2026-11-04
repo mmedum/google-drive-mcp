@@ -21,11 +21,13 @@ type walker struct {
 // element fn chose to skip. A start element is on the stack when fn
 // sees it, and an end element is still on it.
 //
-// encoding/xml expands only the five predefined entities and refuses
-// any other, so a part cannot define the entity that expands into a
-// billion copies of itself. Nesting is bounded here, the length of one
-// token by tokenLimit, and the bytes read by the part's reader. The
-// context is checked before every token.
+// encoding/xml expands only the five predefined entities and, strict
+// and given no Entity map, refuses any other, so a part cannot define the
+// entity that expands into a billion copies of itself. Nesting is bounded
+// here, since the decoder does not bound it, the length of one token by
+// tokenLimit, and the bytes read by the part's reader. The context is
+// checked before every token.
+// https://pkg.go.dev/encoding/xml#Decoder
 func (p *pkg) walk(name string, fn func(w *walker, t xml.Token) error) error {
 	rc, err := p.open(name)
 	if err != nil {
@@ -90,6 +92,7 @@ func (w *walker) handle(tok xml.Token, fn func(w *walker, t xml.Token) error) er
 // in memory before it returns it, so without this one run of text
 // hundreds of megabytes long would be held at once. The decoder reads
 // ahead a buffer at a time, so a token may run past max by that much.
+// https://go.dev/src/encoding/xml/xml.go
 type tokenLimit struct {
 	r   io.Reader
 	dec *xml.Decoder

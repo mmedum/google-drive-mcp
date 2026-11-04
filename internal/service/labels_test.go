@@ -195,9 +195,9 @@ func TestManageLabelsChecksTheShapeOfADateAndOfANumber(t *testing.T) {
 	}
 }
 
-// A date field decodes from `dateString`. The tag said `date` until phase
-// 4, which meant every date-valued field read back empty — and nothing
-// noticed, because an absent member and an unset one look the same.
+// A date field decodes from `dateString`, not `date`. A wrong tag reads
+// every date-valued field back empty, and nothing notices, because an
+// absent member and an unset one look the same.
 func TestADateValuedFieldSurvivesTheRoundTrip(t *testing.T) {
 	svc, fake := labeled(t)
 	fake.AddLabelDefinition("id-label-retention", "Retention",
@@ -328,10 +328,8 @@ func TestTheFileCardNamesTheLabelsOnAFile(t *testing.T) {
 	}
 }
 
-// AllFileLabels and allLabelDefinitions both page to the end, and until
-// phase 4's cleanup the fake served every result in one answer with no
-// next token — so neither loop had a test that could fail. These are
-// them.
+// AllFileLabels and allLabelDefinitions both page to the end. The fake
+// serves pages with a next token, so each loop has a test that can fail.
 func TestAFilesLabelsAreReadPastTheFirstPage(t *testing.T) {
 	svc, fake := labeled(t)
 	// More labels on one file than a page holds, which is what makes the

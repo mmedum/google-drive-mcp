@@ -17,11 +17,15 @@ import (
 // Labels arrive in this server through two APIs and one flag.
 //
 // GDRIVE_LABELS registers the two tools and adds the labels scopes at
-// login. Applying a label needs neither — files.modifyLabels runs on the
-// ordinary drive scope — but knowing WHICH label and WHICH field id to
-// set does, because that lives in the definitions. A server that offered
-// manage_labels without list_labels would be asking a model to guess a
-// generated id, so the flag governs both.
+// login. Reading or applying a label on a file needs neither:
+// files.listLabels and files.modifyLabels take the ordinary drive scope,
+// and the labels scopes are the Labels API's. But knowing WHICH label and
+// WHICH field id to set does, because that lives in the definitions. A
+// server that offered manage_labels without list_labels would be asking
+// a model to guess a generated id, so the flag governs both. Checked by
+// the live step "a card is read with its labels", which runs with the
+// labels scopes granted too.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/listLabels
 
 // labelActions are what manage_labels does, in the order they read. The
 // sibling tables in this package (roles, orderByKeys, activityActions)

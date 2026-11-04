@@ -125,7 +125,7 @@ func TestCopyFile(t *testing.T) {
 }
 
 // A copy that anyone with the link could reach when they cannot reach
-// the original is refused, dry run included, naming who (§4a).
+// the original is refused, dry run included, naming who.
 func TestACopyThatReachesAnyoneIsRefused(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	linkShared(fake)

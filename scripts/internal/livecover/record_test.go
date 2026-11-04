@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// TestARunSaysWhatItActuallySent, including the case that made the first
-// version of this wrong: get_account takes no options at all, so a run
-// that called it recorded an empty set of options and then reported the
-// tool as never called.
+// TestARunSaysWhatItActuallySent, including a tool with no options:
+// get_account's call records an empty set of options, and the tool must
+// not be reported as never called.
 func TestARunSaysWhatItActuallySent(t *testing.T) {
 	rec := NewRecorder()
 	rec.Sent("get_account", map[string]any{})
@@ -35,9 +34,8 @@ func TestARunSaysWhatItActuallySent(t *testing.T) {
 }
 
 // TestAStepThatExistsAndDoesNotRunIsNamed is the whole reason there is a
-// recorder as well as a gate over the source. A sibling repository
-// deleted one call and watched its static gate report full coverage;
-// this is the check that would have caught it.
+// recorder as well as a gate over the source: a step the source holds
+// and the run never sends reads as covered to the source alone.
 func TestAStepThatExistsAndDoesNotRunIsNamed(t *testing.T) {
 	rec := NewRecorder()
 	rec.Sent("search_files", map[string]any{"name": "a name"})

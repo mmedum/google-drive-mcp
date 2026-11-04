@@ -13,12 +13,12 @@ import (
 	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
-// The numbers §11 of docs/architecture.md commits to, measured against
-// the in-memory Drive. The fake answers in microseconds, so what these
-// measure is this server's own work: the calls it makes, the parsing and
-// the rendering. Round trips to Google dominate in production, which is
-// why the call counts beside them are asserted in tests of their own
-// (targets_test.go) rather than left to a benchmark nobody runs.
+// Benchmarks against the in-memory Drive. The fake answers in
+// microseconds, so what these measure is this server's own work: the
+// calls it makes, the parsing and the rendering. Round trips to Google
+// dominate in production, which is why the call counts are asserted in
+// tests of their own (targets_test.go) rather than left to a benchmark
+// nobody runs.
 
 func BenchmarkGetFile(b *testing.B) {
 	svc, _ := setup(b, service.Options{})

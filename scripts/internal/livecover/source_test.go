@@ -1,9 +1,13 @@
 package livecover
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -13,9 +17,10 @@ import (
 const driverShapes = `package main
 
 func read() {
-	w.call(call{tool: "get_file", args: map[string]any{"file": id, "include_labels": true}})
-	w.needing("copy_file", id, map[string]any{"file": id, "to": folder})
-	w.expecting("share_file", id, map[string]any{"file": id, "role": "owner"}, "no transfer_ownership")
+	w.call(call{name: "a card is read", tool: "get_file", args: map[string]any{"file": id, "include_labels": true}})
+	w.needing(id, call{name: "a file is copied", tool: "copy_file", args: map[string]any{"file": id, "to": folder}})
+	w.needing(id, call{name: "an owner is refused", tool: "share_file", args: map[string]any{"file": id, "role": "owner"},
+		why: "no transfer_ownership"})
 	got, err := w.fetch(id) // a call returning two values, one right-hand side
 }
 
@@ -24,7 +29,7 @@ func build(parent string) {
 	if parent != "" {
 		args["parent"] = parent
 	}
-	w.createAndKeepID("create_folder", args)
+	w.createAndKeepID(call{name: "a folder is created", tool: "create_folder", args: args})
 }
 
 func scoped(c call) {
@@ -34,7 +39,15 @@ func scoped(c call) {
 }
 
 func caller() {
-	d.scoped(call{args: map[string]any{"dry_run": true, "confirm": true}})
+	d.scoped(call{name: "the trash is emptied", args: map[string]any{"dry_run": true, "confirm": true}})
+}
+
+func built(c call, id string) {
+	d.call(call{name: c.name, tool: "delete_file", args: map[string]any{"file": id, "confirm": true}})
+}
+
+func buildsCaller() {
+	d.built(call{name: "a file is deleted"}, id)
 }
 
 func notATool() {
@@ -53,6 +66,7 @@ func TestEveryShapeTheDriverUsesIsRead(t *testing.T) {
 		"share_file":    {"file", "role"},
 		"create_folder": {"name", "parent"},
 		"empty_trash":   {"confirm", "dry_run", "drive"},
+		"delete_file":   {"confirm", "file"},
 	}
 	sent, err := FromSource(dir, known)
 	if err != nil {
@@ -67,6 +81,8 @@ func TestEveryShapeTheDriverUsesIsRead(t *testing.T) {
 		// The tool named by the helper rather than at the call: the
 		// caller passes arguments and never writes "empty_trash".
 		{"empty_trash", "drive"}, {"empty_trash", "confirm"}, {"empty_trash", "dry_run"},
+		// A helper building the call for the step its caller named.
+		{"delete_file", "file"}, {"delete_file", "confirm"},
 	} {
 		if !sent[c.tool][c.option] {
 			t.Errorf("%s.%s was not read as driven", c.tool, c.option)
@@ -116,11 +132,9 @@ func TestAnEmptyDirectoryIsAnError(t *testing.T) {
 // tool for its caller reads the arguments out of the `call` it was
 // given; every other map in that function belongs to something else.
 //
-// The first version recorded them all, which is right for the one
-// function that has this shape today and silently wrong the day it
-// builds a second map. The failure would be invisible in the worst
-// direction: coverage goes UP, and the rows excusing those options get
-// deleted as driven.
+// Recording them all is silently wrong for a helper that builds a
+// second map, and wrong in the worst direction: coverage goes UP, and
+// the rows excusing those options get deleted as driven.
 func TestOnlyTheArgumentMapBelongsToTheNamedTool(t *testing.T) {
 	dir := t.TempDir()
 	src := `package main
@@ -179,7 +193,7 @@ func run(o options) {
 	if o.parent != "" {
 		args["parent"] = o.parent
 	}
-	w.createAndKeepID("create_folder", args)
+	w.createAndKeepID(call{name: "a folder is created", tool: "create_folder", args: args})
 	if o.destructive {
 		destroy()
 	}
@@ -228,5 +242,72 @@ func (w *writeRun) sharing() {
 		if got := steps[c.tool][c.option]; !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s.%s waits for %v, want %v", c.tool, c.option, got, c.want)
 		}
+	}
+}
+
+// stepsIn parses src as one driver file and walks its step literals.
+func stepsIn(t *testing.T, src string) []Step {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "driver.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return StepLiterals([]*ast.File{f})
+}
+
+// A step's name is a string literal, or the name a helper's own `call`
+// parameter carries; any other name is reported rather than skipped.
+func TestAStepIsNamedByALiteralOrByItsCaller(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, literal, wantName, wantProblem string }{
+		{"a string literal", `call{name: "a card is read"}`, "a card is read", ""},
+		{"the helper's own call parameter", `call{name: c.name, tool: "get_file"}`, "", ""},
+		{"a variable", `call{name: label}`, "", notLiteral},
+		{"two strings joined", `call{name: "a card " + "is read"}`, "", notLiteral},
+		{"another value's name", `call{name: r.name}`, "", notLiteral},
+		{"no name", `call{tool: "get_file"}`, "", "a step has no name"},
+		{"an empty name", `call{name: ""}`, "", "a step's name is empty"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := "package main\n\nfunc helper(c call, r resourceRead, label string) {\n\tw.call(" + tc.literal + ")\n}\n"
+			steps := stepsIn(t, src)
+			if len(steps) != 1 {
+				t.Fatalf("read %d steps, want 1", len(steps))
+			}
+			if steps[0].Name != tc.wantName || steps[0].Problem != tc.wantProblem {
+				t.Errorf("name %q, problem %q; want %q, %q", steps[0].Name, steps[0].Problem, tc.wantName, tc.wantProblem)
+			}
+		})
+	}
+}
+
+// Both step types are read in one walk, a table's entries with their
+// type left out among them, and a literal of any other type is not.
+func TestStepLiteralsReadsBothTypesAndTheirTables(t *testing.T) {
+	t.Parallel()
+	steps := stepsIn(t, `package main
+
+func run() {
+	for _, c := range []call{{name: "a"}, call{name: "b"}} {
+		w.call(c)
+	}
+	for _, r := range []resourceRead{{name: "c"}} {
+		w.read(r)
+	}
+	d.scoped(call{name: "d", tool: "get_file", args: map[string]any{"file": id}})
+	_ = struct{ name string }{name: "not a step"}
+}
+`)
+	var names []string
+	for _, s := range steps {
+		names = append(names, s.Name)
+	}
+	if want := []string{"a", "b", "c", "d"}; !slices.Equal(names, want) {
+		t.Errorf("names %q, want %q", names, want)
+	}
+	last := steps[len(steps)-1]
+	if last.Callee != "scoped" || last.Tool != "get_file" || last.Args == nil || last.Func == nil || last.Func.Name.Name != "run" {
+		t.Errorf("step d: callee %q, tool %q, args %v, func %v", last.Callee, last.Tool, last.Args, last.Func)
 	}
 }

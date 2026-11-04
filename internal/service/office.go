@@ -97,9 +97,13 @@ func (s *Service) extractOffice(ctx context.Context, f *gdrive.File, size int64,
 	return exported{text: got.Text, note: officeNote(got, plan)}, nil
 }
 
-// fetchRange is one byte range of a file. A response that is not the
-// range asked for is refused rather than read as if it were: bytes from
-// the wrong place would parse as damage, or not at all.
+// fetchRange is one byte range of a file. Drive answers a range of a
+// blob with 206 and that range; a response that is not the range asked
+// for is refused rather than read as if it were: bytes from the wrong
+// place would parse as damage, or not at all. Checked by the live steps
+// "an Office file is read back through byte ranges" and "the first
+// window of an Office file is read".
+// https://developers.google.com/workspace/drive/api/guides/manage-downloads
 func (s *Service) fetchRange(ctx context.Context, id string, off, n int64) ([]byte, error) {
 	c, err := s.api.Download(ctx, id, gapi.DownloadOptions{Offset: off, Length: n})
 	if err != nil {

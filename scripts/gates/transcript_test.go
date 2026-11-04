@@ -112,17 +112,10 @@ func TestAHollowExemptionIsRefused(t *testing.T) {
 	}
 }
 
-// The three checks below run the GATE rather than the helper under it.
-//
-// A sibling repository named the pattern that makes this worth doing: a
-// partially tested mechanism reads as a tested one. Their `isBinary` had
-// a unit test since phase 0 and the branch using it had none, so the
-// area looked covered while what the scan actually DID with a binary was
-// answerable only by reading — which is how three of us came to describe
-// it wrongly. The helper was tested; the wiring was the whole claim.
-//
-// Each of these was watched failing by hand when it was written, in a
-// shell, and that proof went away when the shell did.
+// The three checks below run the GATE rather than the helper under it. A
+// partially tested mechanism reads as a tested one: a helper with a unit
+// test says nothing of the branch that acts on it, and the wiring is the
+// whole claim.
 
 // TestTheGateReportsAHollowExemption. exemptionRedacts is tested on its
 // own above; this is the branch that acts on it.
@@ -194,8 +187,7 @@ func writePackage(t *testing.T, dir, source string) {
 // writeDriver is writePackage with enough files to clear the gate's own
 // floor. The floor exists because a scan that read too little reports a
 // clean tree for ever — and it fires before everything else, so a
-// fixture below it makes a test pass for the wrong reason, which is what
-// the first draft of these two did.
+// fixture below it makes a test pass for the wrong reason.
 func writeDriver(t *testing.T, dir string) {
 	t.Helper()
 	writePackage(t, dir, "package main\n\nfunc run() {}\n")

@@ -11,8 +11,8 @@ import (
 // The gate itself, over this repository's own snapshot and record. It
 // reads its two files by the paths `make check` uses, so it runs from
 // the root the way the command does. It passes, and says it compared
-// something: a gate that read nothing would pass too. The floors are well below
-// today's 82 schemas and 140 properties.
+// something: a gate that read nothing would pass too. The floors are
+// well below the real counts.
 func TestAPIFieldsGate(t *testing.T) {
 	t.Chdir("../..")
 	var out strings.Builder
@@ -53,8 +53,8 @@ func TestFieldsProblems(t *testing.T) {
 	// The record this repository's shape needs: one name two APIs share,
 	// and one struct that only shares a name. Built by a function rather
 	// than shared, because appending to a slice of a shared array
-	// overwrites the next case's rows — which is what the first draft of
-	// this table did, and it reported the corruption as a gate failure.
+	// overwrites the next case's rows, and the corruption reports as a
+	// gate failure.
 	ownerRow := fieldsRow{API: "drive", Schema: "Membership", Property: "*", Verdict: "owner", Reason: "Drive's", line: 1}
 	unrelatedRow := fieldsRow{API: "drive", Schema: "Section", Property: "*", Verdict: "unrelated", Reason: "a sidebar section", line: 2}
 	both := func(extra ...fieldsRow) []fieldsRow {

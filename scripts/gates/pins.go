@@ -10,22 +10,17 @@ import (
 	"strings"
 )
 
-// pins fails when a workflow installs a tool at a version that is not
-// exactly one version.
+// pins fails when a workflow references an action by anything but a
+// full commit SHA, or installs a tool at a version that is not exactly
+// one version (D-79).
 //
-// It exists because this repository has made the same mistake twice and
-// written the second one down as the fix. An action pinned by commit SHA
-// still installs a tool whose version is a separate input, and `~> v2`
-// let that tool float across a whole major version. Narrowing it to
-// `~> v2.18.0` read like a pin, was recorded in the evidence log as one,
-// and survived a review looking straight at it — because a narrowed
-// range and a pin look identical unless somebody reads the action's
-// documentation. `~>` is a max-satisfying constraint whatever follows it.
-//
-// A comment cannot hold this shut; the comment beside the wrong value
-// said which half of the pin mattered and the value was still wrong. So
-// it is a gate: the thing that decides what a release artifact is has to
-// be one version, spelled out.
+// An action pinned by commit SHA still installs a tool whose version is
+// a separate input. goreleaser-action reads `~>` as "a max satisfying
+// semver one", so `~> v2.18.0` floats across every 2.18.x and reads like
+// a pin. A comment beside a range cannot hold it shut, so it is a gate:
+// the thing that decides what a release artifact is has to be one
+// version, spelled out.
+// https://github.com/goreleaser/goreleaser-action/blob/v7.3.0/README.md#inputs
 func pins(out io.Writer, _ []string) error {
 	files, err := filepath.Glob(".github/workflows/*.yml")
 	if err != nil {
@@ -51,13 +46,9 @@ func pins(out io.Writer, _ []string) error {
 		problems = append(problems, found...)
 		for i, line := range strings.Split(string(source), "\n") {
 			// A tool downloaded in a run step floats just as a version
-			// input does, and this gate could not see one: it read the
-			// YAML inputs an action takes and nothing else. The MCP
-			// registry's own published example installs its publisher
-			// from `releases/latest/download`, so the first thing this
-			// repository copied from a primary source would have been
-			// the first thing to float past the gate that exists to stop
-			// exactly that.
+			// input does. The MCP registry's own published example
+			// installs its publisher from `releases/latest/download`, so
+			// a step copied from it would float.
 			if floating := floatingDownload.FindString(line); floating != "" {
 				checked++
 				problems = append(problems, fmt.Sprintf(
@@ -165,23 +156,20 @@ var exactVersion = regexp.MustCompile(`^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`)
 var floatingDownload = regexp.MustCompile(`releases/latest/download|@latest\b`)
 
 // The rule above judges a version input that is *written*. Two things it
-// cannot see, both of which this repository was relying on habit for:
+// cannot see:
 //
-//   - an action referenced by a mutable tag rather than a commit SHA.
-//     The doc comment at the top of this file already assumes SHA
-//     pinning ("an action pinned by commit SHA still installs a tool
-//     whose version is a separate input") and nothing checked it. Every
-//     action here is SHA-pinned today; the four sibling servers all hold
-//     that with a gate and this one did not.
+//   - an action referenced by a mutable tag rather than a commit SHA. A
+//     tag "can be moved or deleted if a bad actor gains access to the
+//     repository storing the action", in GitHub's words.
 //
 //   - an action that installs a tool and names no version at all. That
 //     is an absence, not a value, so a check over written versions is
-//     blind to it. A sibling server's release published nothing on
-//     exactly this shape: `sigstore/cosign-installer` pinned by SHA with
-//     no `cosign-release`, so the job installed whatever cosign was
-//     newest, and that cosign had changed its default signing format.
-//     `anchore/sbom-action/download-syft` had the same hole one step
-//     below it. A SHA pins the wrapper, not the tool.
+//     blind to it. `sigstore/cosign-installer` pinned by SHA with no
+//     `cosign-release` installs whatever cosign is newest, whatever its
+//     signing format; `anchore/sbom-action/download-syft` is the same
+//     shape. A SHA pins the wrapper, not the tool.
+//
+// https://docs.github.com/en/actions/reference/security/secure-use#using-third-party-actions
 var (
 	usesRef = regexp.MustCompile(`(?m)^\s*-?\s*uses:\s*([^\s#]+)`)
 	fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)

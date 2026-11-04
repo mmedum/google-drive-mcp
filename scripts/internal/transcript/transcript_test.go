@@ -14,10 +14,10 @@ import (
 // something.
 //
 // The address arrives three ways on purpose, because the three are how
-// it used to get out: in a line somebody wrote as a literal, in a format
-// argument nobody thought about, and in the run's own failure, which was
-// the last line of a session and the one line that never went through
-// the redactor at all.
+// it gets out without this package: in a line somebody wrote as a
+// literal, in a format argument nobody thought about, and in the run's
+// own failure, which is the last line of a session and printed after
+// everything else.
 func TestEveryLinePrintedIsRedacted(t *testing.T) {
 	var out, errOut bytes.Buffer
 	tr := NewTo(redact.NewRedactor(false), &out, &errOut)

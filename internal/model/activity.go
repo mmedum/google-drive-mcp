@@ -12,9 +12,12 @@ import (
 //
 // The honest limit of this resource: the Drive Activity API identifies a
 // person by a People API resource name and nothing else — no display
-// name, no address. So Who below is "you" or "somebody else" or "the
+// name, no address — and a PermissionChange's permissions carry no
+// address either. So Who below is "you" or "somebody else" or "the
 // system", and never a name. Saying more would mean a third API and a
-// third scope for a decoration.
+// third scope for a decoration. Checked by the live step "the scratch
+// folder's activity is read recursively".
+// https://developers.google.com/workspace/drive/activity/v2/reference/rest/v2/activity/query
 type Activity struct {
 	// What is the action in plain words: created, edited, renamed, moved,
 	// shared, commented on, deleted, restored.
@@ -45,7 +48,8 @@ const (
 	// NoAction is an activity Drive sent without saying what happened:
 	// the detail carried no member at all. A live query of 400 found
 	// ten, so this is ordinary rather than exceptional — the entry has a
-	// time and a target and nothing else.
+	// time and a target and nothing else. Checked by the live step "the
+	// scratch folder's activity is read recursively".
 	NoAction
 	// UnknownAction is an activity whose detail carries a member this
 	// server has no words for. That one IS worth acting on: the
@@ -54,7 +58,7 @@ const (
 	//
 	// The member names are the only thing that can tell these two apart
 	// — both leave every field of ActionDetail nil — which is why
-	// gdrive keeps them. §18 has the phase-4 version that did not.
+	// gdrive keeps them.
 	UnknownAction
 )
 

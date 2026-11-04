@@ -86,6 +86,10 @@ func (c *Client) DeleteFile(ctx context.Context, fileID string) error {
 
 // EmptyTrash permanently removes everything in the trash. driveID limits
 // it to one shared drive's trash; without one it is this account's own.
+// It sends nothing else: enforceSingleParent, the one other parameter
+// files.emptyTrash takes, is deprecated. Checked by the live step "the
+// drive's trash is emptied".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/emptyTrash
 func (c *Client) EmptyTrash(ctx context.Context, driveID string) error {
 	v := url.Values{}
 	if driveID != "" {

@@ -12,18 +12,18 @@ import (
 )
 
 // The MCP registry entry. Without one, the only way to find this server
-// is to already know the repository exists — §17a raised that in phase 0
-// and it stayed open until a release with a bundle in it existed to
-// point at.
+// is to already know the repository exists.
 //
-// The rules below are read from the registry's own validator
-// (internal/validators/registries/mcpb.go) rather than from its schema or
-// from another repository's description of it, because the schema does
-// not carry them: the identifier must be HTTPS, must be a GitHub or
-// GitLab release URL, must contain "mcp" somewhere, must not sit beside a
-// registryBaseUrl, and must answer a HEAD with 200 or a redirect. The
-// last one is why publishing runs after the release exists, and the hash
-// is required by the registry and checked by CLIENTS rather than by it.
+// The rules below are read from the registry's own validator rather than
+// from its schema or from another repository's description of it,
+// because the schema does not carry them: the identifier must be HTTPS,
+// must be a GitHub or GitLab release URL, must contain "mcp" somewhere,
+// must not sit beside a registryBaseUrl, and must answer a HEAD with 200
+// or a redirect carrying a Location, which is what GitHub answers for a
+// release asset. No gate here makes the HEAD; it is why publishing runs
+// after the release exists. The hash is required by the registry and
+// checked by CLIENTS rather than by it.
+// https://github.com/modelcontextprotocol/registry/blob/v1.8.1/internal/validators/registries/mcpb.go
 //
 // registryPlaceholder is the version the COMMITTED entry carries, for the
 // reason the bundle manifest carries one: a real version in the tree is a
@@ -234,19 +234,14 @@ func sumFromChecksums(path, name string) (string, error) {
 // checkRegistryLengths holds the entry to the limits in the PUBLISHED
 // SCHEMA, which are a different set from the rules in the validator.
 //
-// This gate was written to catch the rules the schema does not carry, and
-// in aiming at those it skipped the ones it does. The first entry this
-// repository tried to publish was refused with `body.description:
-// expected length <= 100` after the OIDC login had succeeded — a
-// 205-character description that this gate had just passed. The schema
-// and the validator each carry rules the other does not, and checking one
-// is not checking the other.
+// The schema and the validator each carry rules the other does not, and
+// checking one is not checking the other. The registry refuses an entry
+// over these limits at publish time, after the OIDC login has succeeded.
 //
-// The numbers are transcribed from
-// static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json
-// rather than fetched, because a gate that reaches the network fails when
-// somebody else's CDN is slow and CI learns to ignore it. §18 records
-// where they came from and when.
+// The numbers are transcribed from the schema rather than fetched,
+// because a gate that reaches the network fails when somebody else's CDN
+// is slow and CI learns to ignore it.
+// https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json
 func checkRegistryLengths(entry registryEntry) []string {
 	var problems []string
 	limit := func(field, value string, minLen, maxLen int) {

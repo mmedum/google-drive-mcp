@@ -11,7 +11,7 @@ import (
 // The samples below are assembled at run time rather than written out.
 // A leak-shaped literal in this file would make the gate flag its own
 // test, and the fix for that is always to allowlist the file — after
-// which the file is no longer covered.
+// which the file is not covered.
 func sample(parts ...string) string { return strings.Join(parts, "") }
 
 func TestCatchesWhatALiveRunCanDragIn(t *testing.T) {
@@ -230,8 +230,7 @@ func TestHistoryScansMessagesAndNotTheIdentitiesGitWrites(t *testing.T) {
 	// Assembled rather than written out, like every other sample here: a
 	// leak-shaped literal in this file makes the gate flag its own test,
 	// and the fix for that is always to allowlist the file, after which
-	// the file is no longer covered. The comment at the top of this file
-	// says so, and I wrote the literal anyway; the gate caught it.
+	// the file is not covered.
 	identity := sample("a.tester", "@", "gmail", ".com")
 
 	t.Run("an identity header is not a leak", func(t *testing.T) {
@@ -343,15 +342,8 @@ func TestASubdomainOfADocumentedDomainIsDocumented(t *testing.T) {
 }
 
 // TestAFileNobodyHasStagedIsStillScanned. `git ls-files` lists the
-// INDEX, so the working-tree scan used to be blind to a file nobody had
-// staged yet — and a phase's new files are precisely the ones nobody has
-// scanned before. `make check` would go green all afternoon over the
-// last phase's files while this phase's fixtures went unread, and the
-// leak would arrive with the commit that finally staged them, in front
-// of whoever was trying to push.
-//
-// A sibling repository found the same hole in its own copy the same
-// week, and found a real fixture id with the fix.
+// INDEX, so a scan of it alone is blind to a file nobody has staged yet,
+// and new files are precisely the ones nobody has scanned before.
 func TestAFileNobodyHasStagedIsStillScanned(t *testing.T) {
 	dir := gitRepo(t, sample("a.tester", "@", "example", ".com"), "Add a file\n")
 	// Assembled rather than written out, for the reason at the top of
@@ -380,15 +372,10 @@ func TestAFileNobodyHasStagedIsStillScanned(t *testing.T) {
 	}
 }
 
-// TestACompiledBinaryIsAFindingAndNotASkip.
-//
-// Three sessions across sibling repositories concluded from reading this
-// gate that a compiled artifact is invisible to it — that a content
-// scanner cannot see a binary by construction, so only .gitignore stands
-// between a build output and the history. All three were wrong here, and
-// all three found out the same way: by building one and watching the
-// gate name it. Nothing in this file had ever run that check, which is
-// what left the question to be settled by reading.
+// TestACompiledBinaryIsAFindingAndNotASkip. Reading this gate suggests
+// a content scanner cannot see a compiled binary, so only .gitignore
+// would stand between a build output and the history. It does see one:
+// a binary is a finding, and this test holds that.
 //
 // A NUL byte in the first few kilobytes is what git itself uses to
 // decide, so the fixture needs no real executable.

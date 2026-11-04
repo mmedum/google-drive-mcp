@@ -20,8 +20,8 @@ import (
 // `'id' in parents` term, about 56 bytes once the URL encodes it. Google
 // documents no limit on a query's length or its number of terms. A
 // hundred folders is about 5.6 KB, which leaves a search's other fields
-// under the 8 KB request line most HTTP servers accept. Where Drive
-// itself refuses is unverified (§18); the live driver looks for it.
+// under the 8 KB request line most HTTP servers accept, and is half of
+// the 200 terms Drive takes (queryTaken).
 const MaxUnderFolders = 100
 
 // folderSetTTL is how long the folders found under a folder are kept for
@@ -155,6 +155,10 @@ func (s *Service) walkFolders(ctx context.Context, root *gdrive.File, trashed bo
 					set.unlistable = append(set.unlistable, f.Name)
 				}
 			}
+			// Only an empty token ends a level: the files.list reference
+			// says "Partial or empty result pages are possible even before
+			// the end of the files list has been reached".
+			// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 			if list.NextPageToken == "" {
 				break
 			}

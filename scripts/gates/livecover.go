@@ -11,11 +11,8 @@ import (
 )
 
 // The live driver is the only check that Drive agrees with this server,
-// and nobody knew what fraction of the tool surface one run exercises.
-// §17a raised it after phase 5 grew the driver a great deal, including a
-// whole destructive mode, and the honest version of the entry was that a
-// number nobody has is not evidence of a good one. It first read 122 of
-// 188, and prints the count on every run.
+// and this gate says what fraction of the tool surface one run exercises.
+// It prints the count on every run.
 //
 // testdata/live-cover.tsv is the record, in the shape
 // testdata/api-coverage.tsv already uses here: every option the driver
@@ -26,12 +23,9 @@ import (
 //
 // The blindness is worth stating because it decides what this gate is
 // worth. It reads the driver's SOURCE, so a step that exists and never
-// runs — in a slice nobody passes on, behind a condition that was false
-// — reads exactly like a step that runs. A sibling repository proved
-// that by deleting one call and watching its own static gate report full
-// coverage. That is why the driver carries a recorder as well, and why
-// the recorder is the half to build first if only one gets built: it
-// knows what was sent because it sent it.
+// runs — in a slice nobody passes on, behind a condition that is false —
+// reads exactly like a step that runs. That is why the driver carries a
+// recorder as well: it knows what was sent because it sent it.
 const liveCoverFile = "testdata/live-cover.tsv"
 
 // liveCoverEntry is one row: an option the driver does not send, and why.
@@ -64,7 +58,7 @@ func liveCover(out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	sent, err := livecover.FromSource("scripts/livedrive", known)
+	sent, err := livecover.FromSource(livecover.DriverDir, known)
 	if err != nil {
 		return err
 	}
@@ -95,8 +89,8 @@ func liveCover(out io.Writer, args []string) error {
 		}
 	}
 	// The other direction, and the one that rots quietly: a row for an
-	// option that no longer exists outlives the option by years, and
-	// reads as a decision somebody made about today's surface.
+	// option that is gone outlives the option by years, and reads as a
+	// decision somebody made about the surface as it stands.
 	for _, name := range livecover.Sorted(recorded) {
 		tool, option, _ := strings.Cut(name, ".")
 		if _, ok := known[tool]; !ok {

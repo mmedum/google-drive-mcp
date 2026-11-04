@@ -13,17 +13,15 @@ import (
 	"strings"
 )
 
-// outcomes holds §11's rule — never assert an outcome the response did
-// not carry — to the one shape of it a machine can check.
+// outcomes holds the rule that a result never asserts an outcome the
+// response did not carry (D-29) to the one shape of it a machine can
+// check.
 //
-// Phase 5 fixed three violations by hand and every one was found by a
-// live run, because nothing here could see them. `lock_file` said "the
-// file is LOCKED: nobody can change its content" directly above a card
-// showing no restriction, and the next content change succeeded.
-// `empty_trash` said "everything that was in it is gone for good", from
-// a method the reference gives no response at all, while a file trashed
-// seconds earlier survived. Each was written by somebody who knew what
-// the call was supposed to do.
+// A sentence written from the request says what the call was supposed to
+// do: "the file is LOCKED" above a card that shows no restriction, or
+// "everything that was in it is gone for good" from a method whose
+// reference gives no response body, while a file trashed seconds
+// earlier survives.
 //
 // The checkable shape is: a caller asks Drive to make something so, and
 // the code writes the sentence describing the result inside the branch
@@ -32,20 +30,19 @@ import (
 //
 // What it cannot do is judge the WORDS. It flags a shape, and the
 // honest form of that shape looks the same to a parser: "Drive was asked
-// to bring the comment threads along" tests the same field and states no
-// less prose than the sentence it replaced. So a branch that is right
+// to bring the comment threads along" tests the same field and states as
+// much prose as a sentence that claims the threads came. So a branch that is right
 // anyway carries a row in the record with the reason, and the gate's job
 // is the one a machine can do — make somebody look at every branch of
 // this shape, and refuse a new one that nobody has looked at.
 //
-// §17a proposed a different rule — fail if the field is read in the same
-// function that builds the note — and it is wrong, which reading the
-// code says and thinking about it did not. Two correct sites read the
-// field exactly there: the lock sentence branches on `in.LockFile` and
-// then calls lockWords(after.File), which reads the file back; the
-// pinning note branches on `in.KeepPreviousRevision` and then asks Drive
-// to pin, and words the outcome from what Drive answered. The function
-// is the wrong unit. The BRANCH is the right one, and what makes a
+// Failing whenever the field is read in the function that builds the
+// note is the wrong rule. Two correct sites read the field exactly
+// there: the lock sentence branches on `in.LockFile` and then calls
+// lockWords(after.File), which reads the file back; the pinning note
+// branches on `in.KeepPreviousRevision` and then asks Drive to pin, and
+// words the outcome from what Drive answered. The function is the wrong
+// unit. The BRANCH is the right one, and what makes a
 // branch honest is that it consults something before it speaks.
 func outcomes(out io.Writer, _ []string) error {
 	fset := token.NewFileSet()
@@ -83,7 +80,7 @@ func outcomes(out io.Writer, _ []string) error {
 			c.file, c.line, c.field, c.quote, outcomeFile))
 	}
 	// A stale exemption outlives the code it excused and reads as a
-	// decision somebody made about today's code.
+	// decision somebody made about the code as it stands.
 	for _, key := range sorted(exempt) {
 		switch {
 		case used[key] == 0:
@@ -157,11 +154,11 @@ type claim struct {
 // boolInputFields is every boolean field on a service input struct.
 //
 // Derived rather than listed, because a list of "fields that ask Drive
-// to make something so" is a judgment that decays the day a phase adds
-// one, and §17a is right that choosing the set by hand is the hard part.
-// A boolean input is exactly the shape: a string carries a value, and a
-// boolean asks for a state. Deriving it means a new one is covered by
-// the gate on the commit that adds it, with nothing to remember.
+// to make something so" is a judgment that decays the day a change adds
+// one, and choosing the set by hand is the hard part. A boolean input is
+// exactly the shape: a string carries a value, and a boolean asks for a
+// state. Deriving it means a new one is covered by the gate on the
+// commit that adds it, with nothing to remember.
 func boolInputFields(files []parsedFile) map[string]bool {
 	out := map[string]bool{}
 	for _, pf := range files {
@@ -299,23 +296,20 @@ func consultsDrive(body *ast.BlockStmt) bool {
 
 // proseIn finds a sentence in a branch that REACHES THE CALLER.
 //
-// It selects rather than subtracts, which §17a recorded as the shape
-// this gate should have had from the start. The first version collected
-// every long string in the branch and then took away the ones that were
-// not outcomes — a refusal, a log line — which is why it needed a list of
-// function names AND a length heuristic AND a record file to be right,
-// and why every one of those three had to be got right independently.
+// It selects rather than subtracts. Collecting every long string in the
+// branch and taking away the ones that are not outcomes — a refusal, a
+// log line — needs a list of function names AND a length heuristic AND a
+// record file, each of which has to be got right independently.
 //
 // The question a positive rule asks is the one the gate is actually
 // about: does this literal end up in what the caller reads? In this
 // package that is two shapes and only two — appended to a `notes` slice
 // that ends in an outcome, or assigned into a note field — because
 // `internal/render` writes every result there is. Errorf prose and slog
-// prose are excluded by construction now rather than by name, and a
-// sentence built in a strings.Builder for an error is not a candidate at
-// all.
+// prose are excluded by construction rather than by name, and a sentence
+// built in a strings.Builder for an error is not a candidate at all.
 //
-// The length heuristic is gone with them. A short note is still a note.
+// There is no length heuristic. A short note is still a note.
 func proseIn(body *ast.BlockStmt, fset *token.FileSet) (string, int) {
 	quote, line := "", 0
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -341,7 +335,7 @@ func proseIn(body *ast.BlockStmt, fset *token.FileSet) (string, int) {
 //
 // A literal anywhere else in the branch — an error's words, a log line, a
 // map key, a format for a debug print — is not what a caller reads, and
-// the first version of this gate had to name each of those to ignore it.
+// selecting the two shapes means none of those has to be named.
 func noteText(n ast.Node) (string, token.Pos, bool) {
 	switch v := n.(type) {
 	case *ast.AssignStmt:
@@ -354,11 +348,10 @@ func noteText(n ast.Node) (string, token.Pos, bool) {
 			}
 		}
 	case *ast.KeyValueExpr:
-		// outcome{Note: "…"}, which is the commonest of the three and
-		// the one the first draft of this rule missed. A test caught it:
-		// the dry-run branch that states an outcome without marking its
-		// result went unflagged, which is the exact case the field-name
-		// exclusion used to hide.
+		// outcome{Note: "…"}, which is the commonest of the three. A
+		// dry-run branch that states an outcome without marking its
+		// result is this shape, and a rule that excluded by field name
+		// would hide it.
 		if key, ok := v.Key.(*ast.Ident); ok && key.Name == "Note" {
 			if s, pos, ok := literalIn(v.Value); ok {
 				return s, pos, true
@@ -474,14 +467,11 @@ func readOutcomeExemptions() (map[string]string, error) {
 // would have answered, and the sentence in it is usually the longest
 // prose in the file.
 //
-// The terminal statement, not any return anywhere inside. An earlier
-// version inspected the whole branch and excused it on any `return nil,
-// x` it found, which meant one ordinary error check silenced everything
-// after it — a review probe put the phase-5 lock_file defect verbatim
-// behind an `if err != nil { return nil, err }` and the gate reported
-// nothing at all. A branch that propagates an error and then goes on to
-// state an outcome is exactly the shape this gate is for, and it was the
-// one shape it could not see.
+// The terminal statement, not any return anywhere inside. Excusing a
+// branch on any `return nil, x` it contains lets one ordinary error
+// check silence everything after it, and a branch that propagates an
+// error and then goes on to state an outcome is exactly the shape this
+// gate is for.
 func refuses(body *ast.BlockStmt) bool {
 	if body == nil || len(body.List) == 0 {
 		return false
@@ -529,14 +519,13 @@ func refuses(body *ast.BlockStmt) bool {
 // in the conditional: "would be gone for good" is the honest form of
 // exactly this sentence rather than a violation of it.
 //
-// The first version of this gate excluded the FIELD named DryRun
-// instead, which is the same answer by a worse route. It made
-// `if in.DryRun { note = "the file was deleted" }` invisible for ever,
-// because a field removed from the set is removed from every branch that
-// tests it. Reading the result's own DryRun marker asks the question
-// that matters — does this branch tell the caller it is describing
-// something that has not happened — and every dry-run branch in this
-// package that carries prose sets it.
+// Excluding the FIELD named DryRun instead is the same answer by a worse
+// route. It makes `if in.DryRun { note = "the file was deleted" }`
+// invisible for ever, because a field removed from the set is removed
+// from every branch that tests it. Reading the result's own DryRun
+// marker asks the question that matters — does this branch tell the
+// caller it is describing something that has not happened — and every
+// dry-run branch in this package that carries prose sets it.
 func saysItIsADryRun(body *ast.BlockStmt) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -565,19 +554,14 @@ func saysItIsADryRun(body *ast.BlockStmt) bool {
 //
 // The path arrives from filepath, so on Windows it is
 // `internal\service\drives.go` where the record file names it with
-// forward slashes. Nothing matched: every excused branch was reported
-// unexcused AND every row was reported stale, so the gate failed on a
-// tree it passes on everywhere else. Found by CI on the third platform,
-// which is the whole reason a merge waits for it.
+// forward slashes. Unconverted, nothing matches: every excused branch
+// is reported unexcused AND every row stale, on Windows only.
 //
-// ReplaceAll rather than filepath.ToSlash, which is what the first fix
-// used. ToSlash is a no-op wherever the separator is already a slash, so
-// it is correct on Windows and UNTESTABLE anywhere else — the assertion
-// that would prove it can only run on the platform that had the bug. A
-// replacement that does the same thing everywhere can be asserted on the
-// machine somebody is actually working on, which today is worth more
-// than the idiom. No path this gate walks contains a backslash on a
-// system where one would be legal.
+// ReplaceAll rather than filepath.ToSlash. ToSlash is a no-op wherever
+// the separator is already a slash, so it is correct on Windows and
+// UNTESTABLE anywhere else. A replacement that does the same thing
+// everywhere can be asserted on any machine. No path this gate walks
+// contains a backslash on a system where one would be legal.
 func outcomeKey(file, field string) string {
 	return strings.ReplaceAll(file, `\`, "/") + ":" + field
 }

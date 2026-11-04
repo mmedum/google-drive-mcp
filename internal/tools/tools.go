@@ -110,13 +110,16 @@ func fail(err error) error {
 }
 
 // interactionKey is Claude Code's mark for a tool whose permission
-// prompt is itself the point: it prompts on every call, whatever the
-// operator's allow rules say, and refuses the call where no prompt can
-// be drawn. No other client reads it.
+// prompt is itself the point. From v2.1.199 Claude Code prompts on every
+// call of a marked tool, whatever the operator's allow rules say, and
+// from v2.1.246 offers no "don't ask again". Where no prompt can be
+// drawn it refuses the call, and only an Agent SDK host's canUseTool can
+// approve one. No other client reads it.
+// https://code.claude.com/docs/en/mcp
 const interactionKey = "anthropic/requiresUserInteraction"
 
 // requiresUserInteraction marks one of the few tools whose prompt is the
-// point (§4a): a permanent delete that skips the trash, an unrecoverable
+// point (D-46): a permanent delete that skips the trash, an unrecoverable
 // delete of a whole container, and a share to anyone with the link or a
 // whole domain. It is a hint and nothing more. The gate that holds is
 // that these tools are not registered at all unless the deployer asked
@@ -136,6 +139,7 @@ var (
 	// schema defines as "the tool performs only additive updates"; the
 	// specification's default for an unset hint is true, which is why it
 	// is written out.
+	// https://modelcontextprotocol.io/specification/2025-11-25/schema#toolannotations
 	write = &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}
 	// changing changes or removes what is there: a grant's role, an
 	// approval's reviewers, a pending access request. It is not gated.
@@ -150,8 +154,10 @@ var (
 	// label's field, not at all, so it is destructive.
 	replacing = &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)}
 	// localWrite reads Drive and writes a new local file. It is not
-	// read-only, and it never overwrites a local file, so it is not
-	// destructive either.
+	// read-only, since the schema's readOnlyHint means "the tool does not
+	// modify its environment", and it never overwrites a local file, so
+	// it is not destructive either.
+	// https://modelcontextprotocol.io/specification/2025-11-25/schema#toolannotations
 	localWrite = &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}
 	// widening reaches past the people inside the organization, or hands
 	// a file over. A grant can be taken back, but not what was read

@@ -10,10 +10,10 @@ import (
 )
 
 // The Drive Activity API is a separate service on its own host, with its
-// own scope and its own enablement in the Cloud project. Section 18
-// recorded it as "a separate API whose overview page returned 404" at
-// the phase-0 check; the discovery document is there and it is GA, with
-// exactly one method.
+// own scope and its own enablement in the Cloud project. It is not part
+// of Drive v3, and its one method is activity.query. Checked by the live
+// step "the scratch folder's activity is read recursively".
+// https://developers.google.com/workspace/drive/activity/v2/reference/rest/v2/activity/query
 
 // Drive Activity's page sizes. The API documents no maximum, only that
 // pageSize is the minimum number it will try to return, so this is the

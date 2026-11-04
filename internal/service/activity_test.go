@@ -180,14 +180,10 @@ func TestActivityQueryIsTreatedAsARead(t *testing.T) {
 }
 
 // TestTheTwoKindsOfUndescribedActivityAreToldApart holds the two apart
-// on the shapes Drive really sends, which is where phase 4 went wrong.
-//
-// It read the ordinary case as a MISSING primaryActionDetail. A probe of
-// 400 activities finds that shape zero times: Drive sends `{}`, ten
-// times out of 400. So every ordinary entry went on being reported as a
-// thirteenth kind — the exact confusion the split was written to end —
-// and the test agreed, because both fixtures were built from the belief
-// rather than from a response.
+// on the shapes Drive really sends. The ordinary case is an EMPTY
+// primaryActionDetail, not a missing one: of 400 live activities, Drive
+// sends `{}` for ten and the missing shape for none. A fixture built from
+// a belief rather than a response lets a test agree with a wrong reading.
 //
 // The fixtures below are therefore written as JSON reaches the decoder,
 // and the fake serializes them, so the round trip is the one the client
@@ -249,14 +245,10 @@ func setDetail(t *testing.T, fake *drivetest.Server, a *gdrive.DriveActivity, de
 	}
 }
 
-// TestOneNewKindTwiceIsStillOneKind is the shape the note exists for and
-// the shape it got wrong: Google adds a kind, so it arrives on several
-// entries of the same page.
-//
-// The names are deduplicated for the list but the count came from the
-// undeduplicated slice, so two entries of one new kind announced "kinds"
-// over a list of one — a count saying what the evidence does not, which
-// is the defect this whole area was fixed for.
+// TestOneNewKindTwiceIsStillOneKind is the shape the note exists for:
+// Google adds a kind, so it arrives on several entries of the same page.
+// The count comes from the deduplicated names, so two entries of one new
+// kind are one kind, never "kinds" over a list of one.
 func TestOneNewKindTwiceIsStillOneKind(t *testing.T) {
 	svc, fake := active(t)
 	fake.AddActivity("id-budget-fixture", "EDIT", true, "2026-03-03T09:00:00Z")

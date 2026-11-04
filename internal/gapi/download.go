@@ -45,8 +45,13 @@ type DownloadOptions struct {
 	ResourceKey string
 }
 
-// Download streams a blob's bytes. Google-native documents have no bytes
-// of their own and must go through Export instead.
+// Download streams a blob's bytes, or an old revision's, with alt=media.
+// A Range header asks for a byte window, and a file Google has flagged
+// as abusive needs acknowledgeAbuse. Google-native documents have no bytes
+// of their own and must go through Export instead; Google Vids go through
+// files.download (StartDownload). Checked by the live steps "a read stops
+// at its window" and "an older revision is downloaded by id".
+// https://developers.google.com/workspace/drive/api/guides/manage-downloads
 func (c *Client) Download(ctx context.Context, fileID string, o DownloadOptions) (*Content, error) {
 	if o.ResourceKey != "" {
 		c.RememberResourceKey(fileID, o.ResourceKey)
@@ -75,8 +80,9 @@ func (c *Client) Download(ctx context.Context, fileID string, o DownloadOptions)
 }
 
 // Export streams a Google-native document converted to another format.
-// Google caps an export at 10 MB and the API sends no Content-Length for
-// one, so the caller cannot know the size in advance.
+// Google caps an export at 10 MB, takes no Range for one, and sends no
+// Content-Length, so the caller cannot know the size in advance. Checked
+// by the live step "a Google Doc is exported as a PDF".
 func (c *Client) Export(ctx context.Context, fileID, mimeType string) (*Content, error) {
 	v := url.Values{}
 	v.Set("mimeType", mimeType)

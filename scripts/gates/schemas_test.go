@@ -204,19 +204,14 @@ func TestNewMajor(t *testing.T) {
 	}
 }
 
-// TestTheDumpIsTheWholeSurface holds where the decision lives.
-//
-// It used to live here: the gate set an environment for the current dump
-// and not for the baseline, so every flag-gated tool read as newly added
-// forever and a removed one could not be reported at all. Setting the
-// environment on both sides fixed the symptom and left the decision in
-// the wrong place — a gate keeping its own list of gates, which was
-// already short by one.
-//
-// It lives in the binary now: --dump-schemas emits tools.FullSurface, so
-// both sides carry every tool that can register and every other reader
-// of the dump gets the same answer. TestFullSurfaceRegistersEverything,
-// beside Register, is what holds the surface itself.
+// TestTheDumpIsTheWholeSurface holds where the decision lives: in the
+// binary, not in a gate. --dump-schemas emits tools.FullSurface, so both
+// sides of a diff carry every tool that can register and every other
+// reader of the dump gets the same answer. A gate that set an
+// environment for one side would see every flag-gated tool as newly
+// added, and a gate keeping its own list of flags falls behind.
+// TestFullSurfaceRegistersEverything, beside Register, is what holds the
+// surface itself.
 func TestTheDumpIsTheWholeSurface(t *testing.T) {
 	src, err := os.ReadFile("../../cmd/google-drive-mcp/main.go")
 	if err != nil {

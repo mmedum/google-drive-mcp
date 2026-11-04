@@ -19,6 +19,11 @@ import (
 	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
+// SearchRule is how Drive matches a search's name and text. The tool
+// description, the server instructions and an empty result all say it.
+const SearchRule = "Drive has no substring search: `name` matches the beginnings of words, in any order, and " +
+	"`text` is searched by whole words, since how Drive matches part of a word is not documented."
+
 // SearchInput is a typed search. The fields build the Drive query, so
 // the escaping rules and the prefix semantics of `contains` live here
 // rather than in every caller.
@@ -60,7 +65,12 @@ type SearchInput struct {
 // values, and says it in words. anyone covers both of Drive's values for
 // the whole internet, by link or by search, because a person asking what
 // is public means both; link is the one Drive's sharing dialog calls
-// "Anyone with the link".
+// "Anyone with the link". The search-terms guide lists these five values
+// and does not say which one a file with both an anyone and a domain
+// grant reports. Checked by the live steps "visibility link finds a file
+// anyone with the link can open", "visibility anyone finds the same
+// file" and "visibility limited finds the file once its link is gone".
+// https://developers.google.com/workspace/drive/api/guides/ref-search-terms
 var visibilities = map[string]struct {
 	values []string
 	words  string
@@ -138,8 +148,11 @@ var orderByKeys = map[string]string{
 	"recency":  "recency desc",
 	"viewed":   "viewedByMeTime desc",
 	"size":     "quotaBytesUsed desc",
-	// Only a file shared with this account has the time, so this order
-	// limits a search to those files.
+	// Only a file shared with this account has the time, and where one
+	// without it sorts is not documented, so this order limits a search
+	// to those files. Checked by the live step "files shared with this
+	// account order by when they were shared".
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 	OrderShared: "sharedWithMeTime desc",
 }
 
@@ -203,7 +216,9 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 		lq.DriveID = d.ID
 	case under != nil && under.root.DriveID != "":
 		// Everything under a folder in a shared drive is in that drive,
-		// so only that drive is searched.
+		// so only that drive is searched: the files.list reference says
+		// "Prefer user or drive to allDrives for efficiency".
+		// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 		lq.DriveID = under.root.DriveID
 	}
 	if strings.EqualFold(strings.TrimSpace(in.Scope), ScopeMyDrive) {
@@ -240,8 +255,8 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 	if under != nil {
 		note = under.note()
 	}
-	empty := "no file matched. Note that `name` matches the beginnings of words, not any substring: " +
-		"\"udget\" will not find \"Budget\". `text` matches whole words in the content. Widen the search or try search_files with fewer fields."
+	empty := "no file matched. " + SearchRule + " \"udget\" will not find \"Budget\" by name. " +
+		"Widen the search or try search_files with fewer fields."
 	return render.Listing(files, render.ListingOptions{
 		Title:            fmt.Sprintf("%s — %s", describe, model.Plural(len(list.Files), "hit", "hits")),
 		Now:              s.now(),
@@ -262,7 +277,10 @@ const searchPagePrefix = "page."
 // the folder searched under and the digest of the folders below it.
 // Drive's token belongs to the request that made it, and a continuation
 // whose filters differ is refused here rather than sent beside another
-// query, where Drive's answer is not documented.
+// query: the files.list reference says only that a token "is typically
+// valid for several hours", not that it is bound to q. Checked by the
+// live step "a page token under another folder is refused".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 type searchPage struct {
 	Request string `json:"r"`
 	Folder  string `json:"f,omitempty"`
@@ -309,6 +327,13 @@ func (s *Service) buildQuery(ctx context.Context, in *SearchInput, orderName str
 ) (query, describe string, parents []string, err error) {
 	var clauses, described []string
 
+	// name contains matches the beginnings of words, not any substring:
+	// each word of the term begins some word of the name, in any order,
+	// ignoring case. The search-terms guide says only "prefix matching".
+	// fullText contains matches whole words; how it matches part of one
+	// is not documented. Checked by TestLiveSearchIsPrefixNotSubstring
+	// and the live step "a name search matches the beginnings of words".
+	// https://developers.google.com/workspace/drive/api/guides/ref-search-terms
 	if name := strings.TrimSpace(in.Name); name != "" {
 		clauses = append(clauses, "name contains "+quote(name))
 		described = append(described, fmt.Sprintf("name starting with %q", name))
@@ -456,8 +481,11 @@ func visibilityClause(v string) (clause, words string, err error) {
 }
 
 // sharedWithClause finds the files an address can open. It asks readers
-// and writers both: the reference does not say whether readers includes
-// the people who can edit, and asking both is right either way.
+// and writers both: the search-terms guide does not say whether readers
+// includes the people who can edit, and asking both is right either way.
+// The live step "a readers query looks for a file the address can edit"
+// says which way Drive answers.
+// https://developers.google.com/workspace/drive/api/guides/ref-search-terms
 func sharedWithClause(who string) (string, error) {
 	if !strings.Contains(who, "@") || strings.ContainsAny(who, " \t") {
 		return "", Errorf(ClassInvalid, "shared_with takes one address of a person or group, like "+
@@ -554,13 +582,13 @@ func (s *Service) cachedParent(id string) (*gdrive.File, bool) {
 //
 // BOTH halves are required, which is not what Google's search guide
 // says. It gives "properties has { key='department' }" as an example of
-// finding every file carrying a key whatever its value — and Drive
-// answers that 400 `invalid` "Invalid Value". Phase 4 shipped the guide's
-// form, and the live run refused it; a probe then tried it twice in each
-// of three spellings, and against appProperties, and every one was
-// refused. The guide is wrong, so this refuses the shape locally rather
-// than spending a round trip to be told the same thing with less
-// explanation.
+// finding every file carrying a key whatever its value, and Drive
+// answers that 400 `invalid` "Invalid Value", for appProperties too. So
+// this refuses the shape locally rather than spending a round trip to be
+// told the same thing with less explanation. Checked by the live step "a
+// property key with no value is refused".
+// https://developers.google.com/workspace/drive/api/guides/search-files
+// https://developers.google.com/workspace/drive/api/guides/ref-search-terms
 func propertyClause(property string) (clause, words string, err error) {
 	key, value, hasValue := strings.Cut(property, "=")
 	key, value = strings.TrimSpace(key), strings.TrimSpace(value)
@@ -579,9 +607,13 @@ func propertyClause(property string) (clause, words string, err error) {
 		fmt.Sprintf("with the property %s=%s", key, value), nil
 }
 
-// queryTaken is the longest query Drive has been seen to take: a live
-// run (§18) sent 200 `in parents` terms, 9,996 bytes, and Drive answered;
-// 400 terms, 19,996 bytes, came back as an HTML error page.
+// queryTaken is the longest query Drive has been seen to take. The
+// files.list reference states no limit on q, yet Drive takes 200 `in
+// parents` terms, 9,996 bytes, and refuses 400 terms, 19,996 bytes, with
+// HTTP 400 and an HTML error page from Google's front end. Checked by the
+// live steps "a long in-parents group is sent until Drive refuses it"
+// and "under_folder finds a file two levels down".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 const queryTaken = 9_996
 
 // searchError says a search was too long when Google refused it for

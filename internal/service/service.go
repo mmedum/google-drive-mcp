@@ -45,8 +45,8 @@ type API interface {
 	UpdateFile(ctx context.Context, id string, meta *gdrive.FileMeta, o gapi.UpdateOptions) (*gdrive.File, error)
 	CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta, o gapi.WriteOptions) (*gdrive.File, error)
 
-	// History, as far as phase 1 needs it: pinning the revision an
-	// update is about to replace.
+	// Revisions: reading one, and pinning the one an update is about to
+	// replace.
 	GetRevision(ctx context.Context, fileID, revisionID string) (*gdrive.Revision, error)
 	UpdateRevision(ctx context.Context, fileID, revisionID string, keepForever bool) (*gdrive.Revision, error)
 

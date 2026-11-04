@@ -7,13 +7,10 @@ on:
 
 # One line has to mean one thing on every runner. The Windows runner's
 # default shell is PowerShell, which does not read `-coverprofile=cov.out`
-# the way bash does: the profile went to a file no step refers to, and
-# nothing noticed while the only step that read it was skipped on that
-# platform.
+# the way bash does, and sends the profile to a file no step refers to.
 #
-# At WORKFLOW level rather than job level, so a job somebody adds next
-# month inherits it. A job-level block fixes the forgetting exactly one
-# level up.
+# At WORKFLOW level rather than job level, so a job added later inherits
+# it. A job-level block fixes the forgetting exactly one level up.
 #
 # Two things it does not do. It does not reach a `uses:` step or the
 # shell inside a composite action — those are the action's own. And an
@@ -25,6 +22,10 @@ defaults:
   run:
     shell: bash
 
+# Read-only at the top, and each job raises only what it needs, as in
+# release.yml and codeql.yml: Scorecard's Token-Permissions check wants
+# "contents: read" at the top level and write declared per job.
+# https://github.com/ossf/scorecard/blob/main/docs/checks.md#token-permissions
 permissions:
   contents: read
 
@@ -46,7 +47,15 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
+      # Every action is pinned to a full commit SHA, with its version in a
+      # trailing comment that Dependabot keeps in step. A tag "can be moved
+      # or deleted if a bad actor gains access to the repository storing
+      # the action", in GitHub's words; a SHA cannot.
+      # https://docs.github.com/en/actions/reference/security/secure-use#using-third-party-actions
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # No checkout keeps its token. Nothing in these workflows pushes,
+        # and a persisted token is readable by every later step.
+        # https://github.com/actions/checkout/blob/v7.0.1/README.md
         with:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -100,8 +109,7 @@ jobs:
           # this the secret scan runs whatever gitleaks shipped this
           # morning, so a rule added upstream can fail a merge that was
           # fine an hour ago, and a rule removed upstream stops catching
-          # what it used to with nothing to show for it. The three
-          # sibling servers that use this action pin the same version.
+          # what it caught with nothing to show for it.
           GITLEAKS_VERSION: "8.30.1"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -110,13 +118,13 @@ jobs:
       # a live run against a real Drive can drag in: addresses, file ids,
       # and links carrying one.
       - run: go run ./scripts/gates leaks
-      # The tool a release action installs is a separate version from the
-      # action's own SHA, and a range there has floated twice (see §18 of
-      # docs/architecture.md). A comment could not hold it shut.
+      # The tool a release action installs has a version of its own,
+      # apart from the action's SHA, and a range there floats while it
+      # reads like a pin. A comment cannot hold it shut; this gate does.
       - run: go run ./scripts/gates pins
-      # A class is what a model branches on, and until this ran nothing
-      # held the code to the list: one could be invented at a call site,
-      # or listed and never emitted, and both read as silence.
+      # A class is what a model branches on, and this holds the code to
+      # the list: one invented at a call site, or listed and never
+      # emitted, would otherwise read as silence.
       - run: go run ./scripts/gates classes
       - run: go run ./scripts/gates api-coverage
       - run: go run ./scripts/gates api-fields
@@ -147,6 +155,7 @@ jobs:
       - run: go run ./scripts/gates smoke ./google-drive-mcp
       - run: go run ./scripts/gates schema-diff ./google-drive-mcp
       - run: go run ./scripts/gates staleness ./google-drive-mcp
+      - run: go run ./scripts/gates docs
       - run: go run ./scripts/gates live-cover ./google-drive-mcp
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

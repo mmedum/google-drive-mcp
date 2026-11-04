@@ -127,7 +127,10 @@ func (s *Service) retryIDAsName(ctx context.Context, r ref.Ref, err error, o Res
 	// Only for a word that could plausibly have been a name. Drive ids
 	// are base64 of random bytes, so one without a digit essentially
 	// does not occur; a stale or mistyped id is the commoner input by
-	// far, and it is not worth two listings to tell it that it is wrong.
+	// far, and two listings at 100 quota units each would turn its 5-unit
+	// 404 into 205. Checked by the live step "an unknown id is refused
+	// rather than looked up as a name".
+	// https://developers.google.com/workspace/drive/api/guides/limits
 	if strings.ContainsAny(r.ID, "0123456789") {
 		return nil, false
 	}
@@ -188,6 +191,11 @@ func (s *Service) child(ctx context.Context, parent, name, rootName string, walk
 		return id, nil
 	}
 
+	// name = matches the whole name and ignores case, which the
+	// search-terms guide does not say, so siblings differing only in case
+	// both come back and are [ambiguous]. Checked by
+	// TestLiveNameEqualsIgnoresCase.
+	// https://developers.google.com/workspace/drive/api/guides/ref-search-terms
 	q := childQuery(parent, "name = "+quote(name), false)
 	list, err := s.api.ListFiles(ctx, gapi.ListQuery{
 		Q: q, PageSize: 10,
@@ -581,18 +589,16 @@ func (s *Service) findDrive(ctx context.Context, nameOrID string) (*gdrive.Drive
 	case 1:
 		return matches[0], nil
 	case 0:
-		// The listing is eventually consistent and drives.get is not: a
-		// drive created moments ago answers by id while `drives.list`
-		// still does not carry it. Found live — the driver made a scratch
-		// shared drive, wrote files into it by that same id, and then
-		// could not empty its trash or delete it, because everything
-		// taking a `drive` argument came through here. It was told there
-		// was no drive of that NAME, and handed a list of other people's
-		// drive names, for an id it had just been given.
-		//
+		// drives.list is eventually consistent and drives.get is not,
+		// which the reference does not say: a drive created moments ago
+		// answers by id for minutes while the listing does not carry it.
 		// Asked second so the ordinary paths cost nothing extra: a name
 		// can only be answered by the listing, and an id that is in the
-		// listing is already answered above.
+		// listing is already answered above. Checked by the live steps "a
+		// scratch shared drive is created" and "the scratch shared drive
+		// is deleted".
+		// https://developers.google.com/workspace/drive/api/reference/rest/v3/drives/list
+		// https://developers.google.com/workspace/drive/api/reference/rest/v3/drives/get
 		if d, err := s.api.GetDrive(ctx, nameOrID); err == nil {
 			return d, nil
 		}

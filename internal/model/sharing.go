@@ -309,6 +309,10 @@ func (s Sharing) Summary() string {
 	}
 	parts = append(parts, s.Beyond()...)
 	if len(parts) == 0 {
+		// A shared-drive file with no grants of its own is not private:
+		// everyone with access to the drive reaches it. Checked by the
+		// live step "the card shows what lock_file did to the file".
+		// https://developers.google.com/workspace/drive/api/guides/manage-sharing
 		switch {
 		case s.SharedDrive != "":
 			return "no grants of its own: everyone with access to the shared drive " + s.SharedDrive + " can see it"
@@ -340,8 +344,13 @@ func (s Sharing) Public() bool { return s.Link != nil }
 // from what the item inherits, and false when every way it reaches the
 // item is inherited. A permission with no details counts as direct: the
 // reference says inherited "is always populated", so only a hand-made
-// answer lacks it. A moved item keeps what is direct and loses what it
-// inherited where it was.
+// answer lacks it. inheritedFrom is set only in shared drives, so a My
+// Drive grant from a folder above is inherited with no source, and a My
+// Drive owner's grant carries a direct detail beside an inherited one. A
+// moved item keeps what is direct and loses what it inherited where it
+// was. Checked by the live step "a file shared by link moves into an open
+// folder".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions
 func DirectRole(p *gdrive.Permission) (string, bool) {
 	if p == nil {
 		return "", false
@@ -477,7 +486,11 @@ var capabilityWords = []struct {
 
 // Can lists, in plain words, what the signed-in person may do. Drive
 // computes these; the sharing guide asks apps to consult them rather
-// than infer rights from a role, and every gate in this server does.
+// than infer rights from a role, and every gate in this server does. A
+// role misleads: in My Drive only the owner can trash a file, however
+// many can edit it, and in a shared drive it depends on the role. No
+// live step trashes as a non-owner.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files
 func Can(c *gdrive.Capabilities) []string {
 	if c == nil {
 		return nil

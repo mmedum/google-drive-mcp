@@ -677,15 +677,14 @@ func sameCondition(a, b string) bool {
 	return a != "" && fold(a) == fold(b)
 }
 
-// TestAMalformedShareIsNotAPolicyRefusal is a live finding from
-// 2026-09-06, and the message below is Google's own, shortened.
+// TestAMalformedShareIsNotAPolicyRefusal holds a live finding, and the
+// message below is Google's own, shortened.
 //
 // Sharing with an address that has no Google account behind it answers
-// 400 invalidSharingRequest, and the mapping treated every
-// invalidSharingRequest as the organization's policy refusing. So the
-// server told the caller that a Workspace administrator forbade the
-// share and that no option here could work around it, when the truth
-// was that the request was fixable by the caller with notify: true.
+// 400 invalidSharingRequest. Read as the organization's policy refusing,
+// it would tell the caller that a Workspace administrator forbade the
+// share and that no option here could work around it, when the request
+// is fixable by the caller with notify: true.
 //
 // The two classes are two different instructions: [blocked] says give
 // up, [invalid] says fix it and try again. Getting this wrong is not a
@@ -748,11 +747,10 @@ func TestAPolicyRefusalIsStillBlocked(t *testing.T) {
 }
 
 // Drive's includeLabels is a comma-separated list of label IDS. Not a
-// flag, and not a wildcard: this client sent `includeLabels=*` from
-// phase 1 to phase 4 and Drive answered 400 the whole time, with nothing
-// able to see it because the fake accepted anything.
+// flag, and not a wildcard: Drive answers `includeLabels=*` with 400,
+// which no test sees if the fake accepts anything.
 //
-// The fake refuses a wildcard now. This is the test that makes that
+// The fake refuses a wildcard. This is the test that makes that
 // refusal mean something — without a caller reaching it, a fake that
 // refuses is a fake nobody asks.
 func TestIncludeLabelsTakesIDsAndNotAWildcard(t *testing.T) {

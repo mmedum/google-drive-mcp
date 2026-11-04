@@ -167,8 +167,8 @@ func wordParagraphProperty(w *walker, t xml.StartElement, styles map[string]word
 // wordStyles reads which paragraph styles are headings or lists, by the
 // style's name, "heading 1" to "heading 9" or "Title", and by an outline
 // level on it. A localized Word can translate a style's id, so the id is
-// never what decides; whether it keeps the English name is recorded in
-// §18 as unverified.
+// never what decides. Whether it keeps the English name is unverified,
+// and a live run cannot settle it: the live driver builds its own files.
 func (p *pkg) wordStyles(part string) (map[string]wordStyle, error) {
 	r := &styleReader{part: part, out: map[string]wordStyle{}}
 	err := p.walk(part, func(w *walker, t xml.Token) error {

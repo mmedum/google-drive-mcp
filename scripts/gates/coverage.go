@@ -18,9 +18,9 @@ const modulePath = "github.com/mmedum/google-drive-mcp/v3"
 
 // exemptPackages are the packages under internal/ that carry no rules of
 // their own, and so no floor. Each has to earn its place here by name:
-// the list of what is measured is derived, so a package added in a later
-// phase is under the floor from the day it exists rather than from the
-// day someone remembers to add it.
+// the list of what is measured is derived from `go list`, so a package
+// is under the floor from the day it exists rather than from the day
+// someone remembers to add it.
 var exemptPackages = map[string]string{
 	// Wire types and a few accessors over them, exercised through every
 	// package that speaks to Drive.

@@ -134,7 +134,7 @@ func TestDenyingRefusesTheRequestAndGrantsNothing(t *testing.T) {
 // A request from someone outside the organization is not let in here,
 // dry run included: the request and its message come from them, and an
 // outside share is share_outside_organization's, behind the destructive
-// flag (§4a). Denying it is ordinary.
+// flag. Denying it is ordinary.
 func TestAnOutsideRequestIsRefusedAndCanBeDenied(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	fake.AddProposal("id-budget-fixture", "id-request-1", "outsider@example.org", "writer")

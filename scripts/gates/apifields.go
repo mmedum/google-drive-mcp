@@ -24,11 +24,9 @@ import (
 // gap between the fields Google publishes and the fields this server
 // models to being a set of decisions rather than an accident.
 //
-// The coverage gate watches methods. Nothing watched fields, and a wire
+// The coverage gate watches methods, and this one watches fields: a wire
 // type that silently lacks a field is a bug that looks like an empty
-// response: a sibling server spent a live-verification spike finding
-// that out, and found its types forty fields behind the discovery
-// document, thirty-nine of which nobody had ever counted.
+// response.
 //
 // Two files, split by which of them a person writes:
 //
@@ -597,14 +595,11 @@ type discoverySchema struct {
 // flattenSchema is one published schema and every object Drive defines
 // inline inside it, each as a schema of its own named Parent.property.
 //
-// Drive is the only one of the seven discovery documents these four
-// servers read that does this: it declares File.capabilities and twenty
-// others as anonymous objects rather than as a $ref to a named schema.
-// Reading only the top level recorded each of those as a single property
-// name, so 166 sub-properties collapsed to 21 — and the types modeling
-// them, gdrive.Capabilities among them, matched no schema at all and
-// were never compared. File.capabilities publishes 46 fields; the struct
-// modeled 30 of them and nothing said so.
+// Drive declares File.capabilities and many others as anonymous objects
+// rather than as a $ref to a named schema. Read only at the top level,
+// each is a single property name, and the types modeling them,
+// gdrive.Capabilities among them, match no schema and are never
+// compared.
 //
 // Named rather than nested so that everything downstream — the alias
 // rows, the per-property verdicts, both directions of the comparison —
@@ -612,7 +607,7 @@ type discoverySchema struct {
 func flattenSchema(name string, props map[string]discoverySchema) []fieldsSchema {
 	// A schema with no properties is still a published schema — the
 	// Activity API has several, used as markers — so it is recorded
-	// rather than skipped, the way it was before this descended at all.
+	// rather than skipped.
 	out := []fieldsSchema{{Name: name, Properties: slices.Sorted(maps.Keys(props))}}
 	for _, prop := range slices.Sorted(maps.Keys(props)) {
 		p := props[prop]

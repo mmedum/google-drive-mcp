@@ -3,10 +3,9 @@ package main
 import "testing"
 
 // TestPinsShellDistinguishesWorkflowLevelFromJobLevel is the case the
-// check exists for. A sibling repository pointed out that the first fix
-// here was job-level, which reads as correct and is not: a job added
-// later does not inherit it. So the shape that must fail is a file that
-// sets the shell under a job.
+// check exists for. A job-level shell reads as correct and is not: a job
+// added later does not inherit it. So the shape that must fail is a file
+// that sets the shell under a job.
 func TestPinsShellDistinguishesWorkflowLevelFromJobLevel(t *testing.T) {
 	cases := map[string]struct {
 		source string
@@ -60,9 +59,8 @@ func TestAToolDownloadedAtLatestIsNotPinned(t *testing.T) {
 
 // TestActionPins covers the two shapes the version-input rule cannot
 // see: an action on a mutable tag, and an action whose tool nobody
-// pinned. The gitleaks case is the one this check found live in this
-// repository on its first run — the secret scanner was installing
-// whatever shipped that morning.
+// pinned. Without its version, the gitleaks wrapper installs whatever
+// scanner is newest.
 func TestActionPins(t *testing.T) {
 	const sha = "0000000000000000000000000000000000000000"
 	cases := []struct {
@@ -81,7 +79,7 @@ func TestActionPins(t *testing.T) {
 			false,
 		},
 		{
-			"gitleaks with no scanner version — found live here",
+			"gitleaks with no scanner version",
 			"jobs:\n  a:\n    steps:\n      - uses: gitleaks/gitleaks-action@" + sha + "\n        env:\n          GITHUB_TOKEN: x\n",
 			true,
 		},
@@ -91,7 +89,7 @@ func TestActionPins(t *testing.T) {
 			false,
 		},
 		{
-			"cosign with no release input — this failed a sibling's release",
+			"cosign with no release input",
 			"jobs:\n  a:\n    steps:\n      - name: Install cosign\n        uses: sigstore/cosign-installer@" + sha + "\n",
 			true,
 		},

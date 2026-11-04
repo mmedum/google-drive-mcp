@@ -1,16 +1,14 @@
 //go:build integration
 
-// Live tests against a real Google account. They are the only check that
-// the fake and Drive agree, and spike A showed why that matters: two of
-// this design's stated rules were wrong, and drivetest had implemented
-// them faithfully, so the whole suite agreed with itself.
+// Live tests against a real Google account. They check that the fake and
+// Drive agree: drivetest implements Drive as this server believes it, so
+// without them the suite agrees with itself.
 //
 //	GDRIVE_INTEGRATION=1 go test -tags=integration ./internal/service/ -v
 //
-// They read and never write: phase 0 registers no write tools, so there
-// is nothing to clean up. Nothing here prints a file name, a folder
-// name, an address or an id — a failing test says what shape was wrong,
-// not whose data it was.
+// They read and never write, so there is nothing to clean up. Nothing
+// here prints a file name, a folder name, an address or an id — a failing
+// test says what shape was wrong, not whose data it was.
 package service_test
 
 import (
@@ -119,7 +117,7 @@ func TestLiveSearchIsPrefixNotSubstring(t *testing.T) {
 		t.Errorf("the middle of a word matched %d items; `contains` is a substring match after all, "+
 			"and every query this server builds is wrong about it", got)
 	}
-	// Case is ignored (spike A, 2026-09-05).
+	// Case is ignored.
 	if got := hits(service.SearchInput{Name: strings.ToUpper(word), Limit: 100}); got != whole {
 		t.Errorf("upper case matched %d against %d: `contains` is case-sensitive after all", got, whole)
 	}

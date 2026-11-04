@@ -19,8 +19,13 @@ const ChangeFields = "nextPageToken,newStartPageToken," +
 	"file(" + ListFileFields + "),drive(" + DriveFields + "))"
 
 // StartPageToken asks where "from now on" starts in the changes feed.
-// driveID scopes it to one shared drive, which is a different feed with
-// its own tokens: a token from one is meaningless to the other.
+// changes.list reads forward from it, oldest first, and its last page
+// carries newStartPageToken; how long a token stays valid is not
+// documented. driveID scopes it to one shared drive, which is a different
+// feed with its own tokens: a token from one is meaningless to the other.
+// Checked by the live steps "the changes feed hands out a starting token"
+// and "a page token from no feed is refused".
+// https://developers.google.com/workspace/drive/api/guides/manage-changes
 func (c *Client) StartPageToken(ctx context.Context, driveID string) (string, error) {
 	v := url.Values{}
 	v.Set("supportsAllDrives", "true")

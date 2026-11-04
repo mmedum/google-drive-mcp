@@ -13,10 +13,9 @@ import (
 // set of gates.
 //
 // The Makefile's `check` target calls itself "Everything CI runs", and
-// it was wrong in both directions at once: `api-coverage` ran locally and
-// never on a pull request, so the gate holding every API method to a
-// decision guarded nothing; `schema-diff` ran in CI and not locally, so
-// the tool-surface contract could be broken all the way to a push.
+// the two lists drift in both directions: a gate run locally and never
+// on a pull request guards nothing, and one run in CI and not locally
+// lets a contract break all the way to a push.
 //
 // Neither is carelessness, and discipline will not fix it. The two lists
 // live in different files and nobody edits both: a gate added to the
@@ -196,7 +195,6 @@ func makeTarget(text, target string) (recipe string, prereqs []string, err error
 // fails is the way this gate gets defeated in practice: a step commented
 // out to unblock a red build still matches, so parity stays green across
 // exactly the divergence it exists to catch, reached by typing one `#`.
-// A sibling repository found this in its own port of these gates.
 //
 // So comment lines go first, and a call counts only where a `run:` step
 // names it — either on the step's own line or inside a `run: |` block,

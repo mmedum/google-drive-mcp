@@ -198,7 +198,7 @@ func TestStatusJSONMasksTheAccount(t *testing.T) {
 }
 
 // The flag is additive: the text form is what it was, to the byte. Held
-// here rather than left to review, because the two renderers now share a
+// here rather than left to review, because the two renderers share a
 // collector and a change made for the object's sake would otherwise
 // reach the lines a person reads without anybody noticing.
 func TestStatusTextIsUnchanged(t *testing.T) {

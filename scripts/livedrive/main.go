@@ -23,7 +23,7 @@
 // -share SOMEONE@EXAMPLE.COM adds the sharing calls that need a second
 // person. The grant is taken back, and read back, before the run ends.
 //
-// -transfer SOMEONE@EXAMPLE.COM, with -destructive, makes spike F's real
+// -transfer SOMEONE@EXAMPLE.COM, with -destructive, makes a real
 // ownership transfer to that address, on a file created for it. It
 // CANNOT be undone from this account, and Google emails the address:
 // name an account you control. Without it, -destructive runs the
@@ -35,9 +35,9 @@
 // organization, run on files in the scratch folder and taken back
 // before it is trashed.
 //
-// -blocked PARTNER@EXAMPLE.ORG is the check §17a has been waiting
-// for a Workspace administrator to make possible: a share the
-// ORGANIZATION refuses, rather than one Drive refuses. It reports
+// -blocked PARTNER@EXAMPLE.ORG checks a share the ORGANIZATION refuses,
+// rather than one Drive refuses, which needs a Workspace administrator
+// to have put the address out of bounds. It reports
 // Google's own reason beside the class this server gave it, and says
 // loudly when the two disagree — a policy refusal reported as
 // [forbidden] tells a model to try something else when the truth is that
@@ -74,19 +74,19 @@ func main() {
 	parent := flag.String("parent", "", "where the scratch folder goes; defaults to the root of My Drive")
 	drive := flag.String("drive", "", "a shared drive to move a file into and out of, by name or id; empty skips that half")
 	share := flag.String("share", "", "an address to grant access to, for the half of sharing that needs a second person; the grant is taken back and read back before the run ends; empty skips it")
-	transfer := flag.String("transfer", "", "with -write and -destructive, an address to hand a scratch file to for good in spike F's real ownership transfer. It CANNOT be undone, and Google emails the address: name an account you control. Empty runs the transfer only as a dry run and its refusals")
+	transfer := flag.String("transfer", "", "with -write and -destructive, an address to hand a scratch file to for good in a real ownership transfer. It CANNOT be undone, and Google emails the address: name an account you control. Empty runs the transfer only as a dry run and its refusals")
 	labels := flag.Bool("labels", false, "exercise the label tools, which need GDRIVE_LABELS and the Drive Labels API enabled with its scopes granted at login")
 	activity := flag.Bool("activity", false, "exercise list_activity, which needs GDRIVE_ACTIVITY and the Drive Activity API enabled with its scope granted at login")
 	destructive := flag.Bool("destructive", false, "also exercise the tools GDRIVE_ENABLE_DESTRUCTIVE registers: the five that remove something for good, in a shared drive this run creates and destroys again, which needs an account that may create shared drives, the shares that reach past the organization, and the ownership transfer as a dry run and its refusals")
-	unlistable := flag.String("unlistable", "", "a folder this account can see but not list, such as the parent of a file shared with it alone; shows what Drive answers when such a folder is listed (§18); empty skips it")
-	blocked := flag.String("blocked", "", "an address the organization's own sharing policy refuses, to see a real [blocked] rather than an injected one (§17a); needs a Workspace administrator to have put it out of bounds")
+	unlistable := flag.String("unlistable", "", "a folder this account can see but not list, such as the parent of a file shared with it alone; shows what Drive answers when such a folder is listed; empty skips it")
+	blocked := flag.String("blocked", "", "an address the organization's own sharing policy refuses, to check that the server reports that refusal as [blocked]; needs a Workspace administrator to have put it out of bounds; empty skips it")
 	flag.Parse()
 
 	// The transcript is made here rather than inside run, so that the
 	// run's own failure is redacted by the same thing that redacted
 	// everything leading up to it: an error carrying a file name or an
-	// address is the last line of a session and was the one line that
-	// never went through the redactor.
+	// address is the last line of a session, and would otherwise be the
+	// one line that skips the redactor.
 	//
 	// Names of files, folders and drives that are not the run's own are
 	// hidden too: the read steps look at the account's whole Drive, whose
@@ -110,19 +110,39 @@ func main() {
 // that is expected proves as much as a success: it is how the server
 // says no to something it should not do.
 type call struct {
-	tool        string
-	args        map[string]any
-	expectError bool
-	why         string
+	// name says what the step checks. A comment cites the step by it, and
+	// the transcript prints it above the call; keep it stable.
+	name string
+	tool string
+	args map[string]any
+	// why is what the server ought to refuse the call for. A call with
+	// one expects a refusal, and the transcript prints it above the call.
+	why string
 	// tolerant marks a call whose outcome is genuinely either way, so
 	// neither counts against the run. It exists for Drive's eventual
 	// consistency: asking for a file after emptying the trash it was in
 	// is a 404 when the empty took and a card when Drive has not caught
 	// up, and BOTH are the server behaving correctly. Counting one of
-	// them made the driver report a failure precisely when the empty had
-	// worked. The result is still printed, and which way it went is said
-	// out loud, because that is the thing a reader wants.
+	// them would report a failure precisely when the empty worked. The
+	// result is still printed, and which way it went is said out loud,
+	// because that is the thing a reader wants.
 	tolerant bool
+}
+
+// banner is what the transcript prints above a call: its header, with
+// the tool and the arguments it is sent.
+func banner(c call) string {
+	return header(c.name, c.tool+" "+mcpstdio.Encode(c.args), c.why)
+}
+
+// header is what the transcript prints above a step: its name, what it
+// sends, and the refusal it expects, if it expects one.
+func header(name, sends, why string) string {
+	h := fmt.Sprintf("\n=== %s ===\n%s", name, sends)
+	if why != "" {
+		h += fmt.Sprintf("\n(expecting a refusal: %s)", why)
+	}
+	return h
 }
 
 // outcomeWord names what a tolerant call actually did.
@@ -176,8 +196,8 @@ func (o options) check() error {
 
 // asker is the person a server would ask before a write. This one never
 // answers yes: the server asks nobody, and per-call approval is the
-// client's (§4a). The driver declares that it can be asked, so a server
-// that still asked would ask here, and every question fails the run.
+// client's. The driver declares that it can be asked, so a server that
+// still asked would ask here, and every question fails the run.
 type asker struct {
 	out   *transcript.Transcript
 	asked int
@@ -242,23 +262,30 @@ func run(o options, t *transcript.Transcript) error {
 	t.Sayf("tools:    %s", strings.Join(tools, ", "))
 
 	calls := []call{
-		{tool: "get_account", args: map[string]any{}},
-		{tool: "list_folder", args: map[string]any{"folder": "root", "page_size": 10}},
-		{tool: "search_files", args: map[string]any{"kind": "folder", "limit": 5, "order_by": "modified"}},
-		{tool: "get_file", args: map[string]any{"file": "https://example.com/not-a-drive-link"},
-			expectError: true, why: "a link that is not Drive's"},
-		{tool: "search_files", args: map[string]any{"limit": 3}},
+		{name: "the signed-in account is read", tool: "get_account", args: map[string]any{}},
+		{name: "the root of My Drive is listed a page at a time",
+			tool: "list_folder", args: map[string]any{"folder": "root", "page_size": 10}},
+		{name: "a folder search covers every drive in modified order",
+			tool: "search_files", args: map[string]any{"kind": "folder", "limit": 5, "order_by": "modified"}},
+		{name: "a link that is not Drive's is refused",
+			tool: "get_file", args: map[string]any{"file": "https://example.com/not-a-drive-link"},
+			why: "a link that is not Drive's"},
+		{name: "a search with no filter stops at its limit", tool: "search_files", args: map[string]any{"limit": 3}},
 		// The newest shares first, and who shared each one and when.
-		{tool: "search_files", args: map[string]any{"order_by": "shared", "limit": 5}},
-		{tool: "search_files", args: map[string]any{"order_by": "shared", "scope": "my_drive"},
-			expectError: true, why: "order_by shared with a scope other than shared_with_me"},
-		{tool: "get_file", args: map[string]any{"file": "1SyntheticFixtureFileIdAAAAAAAAAAAA"},
-			expectError: true, why: "an id that names nothing"},
+		{name: "files shared with this account order by when they were shared",
+			tool: "search_files", args: map[string]any{"order_by": "shared", "limit": 5}},
+		{name: "ordering by share time outside shared_with_me is refused",
+			tool: "search_files", args: map[string]any{"order_by": "shared", "scope": "my_drive"},
+			why: "order_by shared with a scope other than shared_with_me"},
+		{name: "an unknown id is refused rather than looked up as a name",
+			tool: "get_file", args: map[string]any{"file": "1SyntheticFixtureFileIdAAAAAAAAAAAA"},
+			why: "an id that names nothing"},
 	}
 	if o.file != "" {
 		calls = append(calls,
-			call{tool: "get_file", args: map[string]any{"file": o.file}},
-			call{tool: "list_folder", args: map[string]any{"folder": o.file, "recursive": true, "max_depth": 2}},
+			call{name: "a given file's card is read", tool: "get_file", args: map[string]any{"file": o.file}},
+			call{name: "a given folder is listed two levels deep",
+				tool: "list_folder", args: map[string]any{"folder": o.file, "recursive": true, "max_depth": 2}},
 		)
 	}
 
@@ -267,8 +294,10 @@ func run(o options, t *transcript.Transcript) error {
 		// whether Drive answers with nothing or with the items shared
 		// with this account directly, and must say it cannot list.
 		calls = append(calls,
-			call{tool: "get_file", args: map[string]any{"file": o.unlistable}},
-			call{tool: "list_folder", args: map[string]any{"folder": o.unlistable}},
+			call{name: "an unlistable folder's card leaves out listing it",
+				tool: "get_file", args: map[string]any{"file": o.unlistable}},
+			call{name: "an unlistable folder's listing says it cannot list",
+				tool: "list_folder", args: map[string]any{"folder": o.unlistable}},
 		)
 	}
 
@@ -321,10 +350,7 @@ func runReads(sess session, t *transcript.Transcript, calls []call, stop *stoppe
 		if sig := stop.signal(); sig != nil {
 			return unexpected, fmt.Errorf("stopped by %v before anything was written", sig)
 		}
-		t.Sayf("\n=== %s %s ===", c.tool, mcpstdio.Encode(c.args))
-		if c.why != "" {
-			t.Sayf("(expecting a refusal: %s)", c.why)
-		}
+		t.Say(banner(c))
 		text, isError, err := sess.CallTool(c.tool, c.args)
 		if err != nil {
 			return unexpected, err
@@ -333,9 +359,9 @@ func runReads(sess session, t *transcript.Transcript, calls []call, stop *stoppe
 		switch {
 		case c.tolerant:
 			t.Say("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
-		case isError != c.expectError:
+		case isError != (c.why != ""):
 			unexpected++
-			if c.expectError {
+			if c.why != "" {
 				t.Say("!! expected a refusal and did not get one")
 			} else {
 				t.Say("!! unexpected tool error")
@@ -360,7 +386,7 @@ func coverage(rec *livecover.Recorder, sess *mcpstdio.Session, given map[string]
 	// with it: reading the source is a convenience here and the recording
 	// is not. A driver run from a directory without the source still
 	// knows what it sent, and should say so rather than fail.
-	steps, _ := livecover.ReadSteps(filepath.Join("scripts", "livedrive"), published)
+	steps, _ := livecover.ReadSteps(filepath.FromSlash(livecover.DriverDir), published)
 	return rec.Report(published, steps, given)
 }
 

@@ -16,9 +16,10 @@ import (
 //
 // Two things about them shape the tools. They MAIL people — every verb
 // notifies, and there is no notify flag to turn that off, unlike
-// sharing. And an approval can LOCK the file: lock_file does it for the
-// duration, and the default behavior on a content change resets the
-// answers and locks the file once approved. Both are said in the tool
+// sharing. And an approval can LOCK the file: lock_file asks for it,
+// though Drive does not always apply it at the start, and the default
+// behavior on a content change resets the answers and locks the file
+// once approved. Both are said in the tool
 // descriptions and in the results, because neither is what "start an
 // approval" sounds like it does.
 
@@ -109,7 +110,9 @@ type ManageApprovalInput struct {
 	// was.
 	ReplaceReviewers []string
 	Message          string
-	// LockFile locks the file's content while the approval is open.
+	// LockFile asks Drive to lock the file's content while the approval
+	// is open. Drive does not always apply it, so the result reads the
+	// lock back off the file (lockWords).
 	LockFile bool
 	// Due is when the approval is wanted by, as a date or a timestamp.
 	Due string
@@ -120,7 +123,12 @@ type ManageApprovalInput struct {
 
 // What a content change does to an approval, as on_content_change takes
 // it. reset_approval clears answers given while the approval is open
-// and locks the file once it is approved; no_action does neither.
+// and locks the file once it is approved; under no_action the answers
+// stay and the file is not locked on final approval. Checked by the live
+// steps "an approval starts with on_content_change no_action", "the
+// no_action approval is approved" and "an approval starts with lock_file
+// set".
+// https://developers.google.com/workspace/drive/api/guides/approvals
 const (
 	OnChangeReset    = "reset_approval"
 	OnChangeNoAction = "no_action"
@@ -155,7 +163,7 @@ type ApproveFileInput struct {
 // ApproveFile records this account's approval. It is its own tool, apart
 // from manage_approval, because a client remembers an approval per tool:
 // approving is the person's sign-off, and once every reviewer has, an
-// approval started with reset_approval locks the file for good (§4a).
+// approval started with reset_approval locks the file for good.
 func (s *Service) ApproveFile(ctx context.Context, in ApproveFileInput) (*Result, error) {
 	return s.approval(ctx, "approve_file", ManageApprovalInput{File: in.File, Approval: in.Approval,
 		Action: ApprovalApprove, Message: in.Message})
@@ -308,20 +316,20 @@ func contentChangeWords(started *gdrive.Approval, asked string) string {
 }
 
 // lockWords says whether the lock lock_file asked for is on the file,
-// rather than predicting it from the argument.
+// read off the re-read file rather than predicted from the argument.
+// Drive applies no content restriction for lockFile at the start, and
+// the next content change goes through; approving is what locks the
+// file, as "Locked for File Approval". The reference says lockFile locks
+// the content, and a re-read is right whichever Drive does. Checked by
+// the live steps "an approval starts with lock_file set", "the card
+// shows what lock_file did to the file", "the lock_file approval is
+// approved" and "a content change to an approved file is refused".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/approvals/start
 //
-// It predicted, until a live run put "the file is LOCKED: nobody can
-// change its content, including you" directly beneath a card showing no
-// restriction at all — and then changed the content, successfully, on
-// the next call. Approving is what locked that file; lock_file at the
-// start did not. Whether that is Drive in general or this edition cannot
-// be told from one account, which is the argument for reading it back
-// instead of asserting either way: a re-read is right in both worlds.
 // lockedBefore says whether the file was already restricted when the
 // call began, so the sentence does not credit this approval with
-// somebody else's lock — an earlier approval that was approved, or an
-// administrator's restriction. Claiming a cause from a state is the same
-// mistake as claiming a state from an argument, one level down.
+// somebody else's lock: an earlier approval that was approved, or an
+// administrator's restriction.
 func lockWords(f *gdrive.File, lockedBefore, reread bool, a *model.Approval) string {
 	if !reread {
 		return "lock_file was asked for. The file could not be read back, so this cannot say " +
@@ -514,12 +522,11 @@ func (s *Service) approvalError(err error, f *gdrive.File, doing, id string) err
 			doing, f.Name, gapi.Message(err)), Err: err}
 	case ClassForbidden:
 		// Drive answers every one of these with a bare Permission denied,
-		// so the message has to offer the whole set it could be. The
-		// finished case leads because it is the one the caller can have
-		// caused itself, and the live run met exactly it: the driver
-		// canceled an approval and then answered it, and a message
-		// naming only the others sent a reader to check a reviewer list
-		// the account was already on.
+		// an approval already approved, declined or canceled included, so
+		// the message offers the whole set. The finished case leads: it is
+		// the one the caller can have caused itself. Checked by the live
+		// step "answering a finished approval is refused".
+		// https://developers.google.com/workspace/drive/api/reference/rest/v3/approvals/approve
 		why := "Approvals are not offered by every Workspace edition, and reaching them at all " +
 			"needs access to the file — starting one needs write access."
 		if id != "" {

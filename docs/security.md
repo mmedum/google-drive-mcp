@@ -1,80 +1,169 @@
-# Security
+# Security model
 
-This server acts as one signed-in person, on their own Google account,
-from their own machine. It is worth being precise about what that lets it
-touch and what stops it going further.
+The threat model and the invariants the code holds.
+[`SECURITY.md`](../SECURITY.md) says how to report a vulnerability.
 
-## What it talks to
+It applies to one binary, running as a subprocess of your MCP client, on
+your machine, with your own OAuth client and your own token, against
+Google's APIs only (D-01, D-04). It has no listener except while `login`
+waits, no telemetry and no update check.
 
-Only Google. Before any credential is attached, the request URL is
-checked against an allowlist: `www.googleapis.com`, `*.googleapis.com`,
-`*.googleusercontent.com` (the download hosts Drive hands back),
-`oauth2.googleapis.com`, `accounts.google.com` and `drive.google.com`,
-over HTTPS. Anything else is refused before the request is built.
+## Trust boundaries
 
-There is no telemetry and no update check.
+| Boundary | Crosses | Assumption |
+|---|---|---|
+| MCP client ↔ this server | An OS pipe | Both run as the same OS user, unauthenticated. |
+| This server ↔ Google | TLS | Credentials go only to `googleapis.com` and its subdomains, `*.googleusercontent.com`, `accounts.google.com` and `drive.google.com`, over HTTPS, checked with the port before a credential is attached (D-04). |
+| This server ↔ disk | The file system | The config directory holds the profile and, without a keyring, the token file (D-60). Files move only through `GDRIVE_LOCAL_DIR` (D-23). |
+| Browser ↔ the login listener | The loopback interface, on a random port | Alive only while `login` waits. PKCE and `state` are checked on the callback (D-59). |
+| File authors ↔ the model | Every name, file's text and comment a tool returns | Written by other people, sometimes to steer an assistant (D-11). |
 
-## Credentials
+## What is worth stealing
 
-- The OAuth client is one you created in a Cloud project you own, so its
-  access can be revoked independently of anyone else's.
-- `login` uses the loopback flow Google documents for desktop
-  applications: a listener on `127.0.0.1` with a random port, PKCE, and a
-  `state` value checked on the callback. The out-of-band flow Google
-  blocked in 2023 is not used.
-- The refresh token goes to the OS keyring. If none is available it goes
-  to a `0600` file under your config directory, and every use of that
-  file warns on stderr.
-- `logout` revokes the token at Google and deletes it locally. A token
-  supplied through `GDRIVE_REFRESH_TOKEN` is outside its reach, and it
-  says so.
-- The client secret file is read, never written and never logged.
+- **The refresh token.** The `drive` scope reads, changes, shares and
+  deletes every file the account can reach (D-56). It lives in the OS
+  keyring where there is one, and in an owner-only file where there is
+  not (D-60).
+- **File content.** It passes through tool results to your client, and
+  to disk only under `GDRIVE_LOCAL_DIR`.
+- **Who can reach a file.** Taking a share back does not take back what
+  was read.
+- **The files themselves.** A permanent delete skips the trash and has
+  no undo.
 
-## What is in the logs
+## Adversaries
 
-Logs go to stderr, never stdout, because stdout carries the JSON-RPC
-frames the client parses. They carry truncated file ids, counts, byte
-counts, latencies and error classes. They do not carry file or folder
-names, paths, email addresses, search queries, or any file content.
-Query strings are stripped from logged URLs for that reason.
+**A collaborator writing to steer your assistant.** The server cannot
+stop a model being persuaded by a file's name, text or comments, so it
+limits what persuasion reaches. It never acts on what a file says, and
+quotes comment text as somebody else's words (D-11). `share_file` reaches only named people and groups inside
+the organization (D-38), and nothing widens by a move, a copy or a
+folder's limited access turned off (D-42). The permanent deletes and the
+wider shares are absent unless the deployer turns them on (D-40, D-48),
+and no tool changes the server's own settings (D-47).
 
-`status` and `doctor` print the signed-in account to the terminal, where
-you asked for it; it never reaches the log.
+**A malicious MCP client, or a persuaded model driving an honest one.**
+It can call any registered tool as you, so registration is the
+control. `confirm: true` and
+the name a wide share repeats are witnesses the model writes, never your
+approval (D-41, D-48). Past that, Google's sharing policy and the guards
+below are the bound.
 
-## Limits on what a model can do through this server
+**A co-resident process.** It cannot finish a login without the PKCE
+verifier, and the token file is readable by your account alone.
 
-| Risk | What limits it |
-|---|---|
-| Acting on the wrong file | Ids are the contract. A name or path matching more than one item is refused with the candidates listed, and every result shows the file's folder and drive. |
-| Exposing a file to the world, a domain or someone outside the organization | Your organization's own sharing policy, enforced by Google on every call; a `capabilities.canShare` check before the server offers the action at all; `share_file` grants only named people and groups inside the organization, and a link for anyone, a whole domain, someone outside it, a new owner and lifting a shared drive's domain restriction are each their own tool, registered only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, needing `confirm: true` and the name of what it opens up, compared with Drive's, so the call a client shows for approval names the file or drive; a move, a copy, or a folder's limited access turned off that would reach anyone with the link, a domain or someone outside the organization refused, naming who, and so is accepting a request for access from outside it; who can see the file shown before and after a share or a move; `dry_run`; `GDRIVE_SHARING=off`, which also refuses any move that lets more people reach a file. On a personal Google account every address counts as outside. A grant to a group reaches everyone in the group, including people added later; a member outside the organization too, if the organization's sharing policy lets them in: this server cannot see who is in a group, and the result of a group grant says so. Publishing a revision to the web is not offered at all, because it is exposure with no audience control. |
-| Unwanted email to people | Notification mail is off unless asked for, the opposite of the API's default. Where Google forces it on — an ownership transfer — the result says so. |
-| Mass deletion | Trash and restore are the default surface and are reversible for 30 days. Permanent delete, empty trash, delete revision and delete shared drive exist only with `GDRIVE_ENABLE_DESTRUCTIVE=true`, **and each also needs `confirm: true` on the call itself**: the deployer's switch decides whether the tool exists, and a registered tool is one a model will reach for eventually. There is no bulk delete and no bulk share: one item per call, so every removal is a separate approval in the client. The server asks the person nothing itself; the client's own approval decides each call, and `delete_file`, `empty_trash` and `delete_drive` carry Claude Code's `requiresUserInteraction`, so Claude Code prompts on every one and refuses it where no prompt can be drawn. The one permanent delete outside that gate is `extract_text` removing the temporary copy it made in the same call: it deletes only the Google Doc Drive's answer to that copy named, never the file it read. |
-| One deletion turning into many | A file id that spells one of Drive's own endpoints under `/files` is refused before a request is built, so `delete_file` cannot become `emptyTrash`. Deleting the root of My Drive or the top of a shared drive is refused by this server, not only by Google: a bounded call becoming an unbounded one must not depend on a capability field the other side computes. `empty_trash` reports how many items it is about to destroy, because it is the one destructive call that names none. |
-| Copying private files onto disk | Files are written only under `GDRIVE_LOCAL_DIR`, which is unset by default and disables transfers entirely. Paths are cleaned and symlinks resolved, and a path that escapes the directory is refused. Downloads are capped by `GDRIVE_MAX_DOWNLOAD` and every file written is named in the result. |
-| Uploading files the person did not mean to share | Uploads read only from `GDRIVE_LOCAL_DIR`. Inline content is whatever the model wrote, which the person saw it write. |
-| Instructions hidden inside a file | Read tools are read-only and return content as data. The server never acts on what a file says; the client's per-call approval is what stands between a suggestion in a document and a write. |
-| Runaway listings and quota exhaustion | One page per call, budgeted tree walks with depth and item limits that report where they stopped, per-process rate limiters, and backoff that honors Google's own retry reasons. |
-| A stalled request hanging the server | Every attempt, token refresh and transfer chunk runs under a deadline, and response bodies are bounded. |
-| Secrets reaching the repository | gitleaks runs in the pre-commit hook and in CI, with rules for Google client ids, client secrets and refresh tokens on top of its defaults. Every fixture is synthetic. |
-| Somebody else's Drive reaching the repository | A leak check (`make leaks`, also in the pre-commit hook and in CI) refuses any address outside the documentation domains, anything shaped like a Drive id, and any Drive link carrying one. Ids that are demonstrably synthetic are allowlisted individually, each with its reason. This is the rule most easily broken by accident: a transcript pasted into an issue, a fixture copied out of a real listing, an id in a commit message. |
+## Invariants the code holds
 
-## Annotations are not a security boundary
+A test or a gate holds each of these. A way to break one is a
+vulnerability.
 
-The MCP specification says a client may not trust a tool's annotations.
-So every gate here is in the server: a tool the configuration excludes is
-never registered, rather than registered with a warning attached. Every
-widely used client has a mode that runs a tool with nobody approving the
-call, so neither the client's prompt nor the `requiresUserInteraction`
-mark is counted here as a limit. They are exact all the same, because
-they decide what the client asks: `readOnlyHint` only on a tool that
-changes nothing, since VS Code prompts on every tool without it, and
-`destructiveHint` accurate, since claude.ai and Codex prompt by it.
+- **Stdout carries only JSON-RPC.** forbidigo, the smoke test and
+  `TestStatusJSONFlagIsTheWholeOfStdout` hold it (D-05).
+- **Credentials go only to Google's hosts.**
+  `TestRefusesToSendCredentialsElsewhere` and `TestAllowsGoogleHosts`
+  hold it (D-04).
+- **Logs never carry names, paths, addresses, queries or content**, and
+  a transport error loses its query. `TestLogsCarryNoTraceOfWhatWasTouched`
+  and `TestATransportErrorDoesNotCarryTheSearchTerms` hold it (D-06).
+- **A name or path that matches several items is never resolved by
+  picking one.** `TestResolveAmbiguousPathListsCandidates` holds it
+  (D-12).
+- **No ordinary tool reaches past the organization.**
+  `TestShareFileRefusesWhatReachesPastTheOrganization`,
+  `TestAMoveThatReachesAnyoneIsRefusedNamingThem` and
+  `TestACopyThatReachesAnyoneIsRefused` hold it (D-38, D-42).
+- **A wide share is a tool of its own, behind the destructive flag, and
+  holds the item to the name it repeats.**
+  `TestTheWideSharesNeedTheDestructiveFlag` and
+  `TestAWideShareHoldsItsFileToTheName` hold it (D-40, D-41).
+- **A share shows who could reach the item before and after, and sends
+  no mail unless asked.**
+  `TestShareFileGrantsAndShowsExposureBeforeAndAfter` holds it (D-36,
+  D-37).
+- **The permanent deletes are absent without `GDRIVE_ENABLE_DESTRUCTIVE`,
+  need `confirm`, and never register read-only.**
+  `TestDestructiveToolsExistOnlyWhenAskedFor`,
+  `TestDestructiveToolsAlsoNeedConfirmOnTheCall` and
+  `TestDestructiveToolsAreNeverAvailableReadOnly` hold it (D-48).
+- **A bounded delete names one resource.**
+  `TestAFileIDThatNamesASiblingEndpointIsRefused` and
+  `TestDeleteFileWillNotDestroyTheTopOfADrive` hold it (D-50).
+- **`extract_text` deletes only the copy it made.**
+  `TestExtractTextDeletesOnlyTheGoogleDocItsCopyMade` holds it (D-22).
+- **Local files stay in `GDRIVE_LOCAL_DIR`**, symlinks resolved, and a
+  download never overwrites. `TestUploadsRefuseAPathOutsideTheLocalDirectory`
+  and `TestDownloadFileNeverOverwrites` hold it (D-23).
+- **A login checks `state` and uses PKCE.**
+  `TestLoginRejectsAStateMismatch` holds it (D-59).
+- **The token file is owner-only, with a warning when the keyring fails**, and
+  the environment's token overrides both stores.
+  `TestReadingTheTokenFileWarnsOnlyWhenTheKeyringIsBroken` and
+  `TestEnvironmentOverridesEverything` hold it (D-60).
+- **The annotations are exact, the server asks the person nothing, and
+  no tool writes its settings.**
+  `TestOnlyToolsThatAddSayTheyAreNotDestructive`,
+  `TestTheMarkSitsOnlyWhereItsPromptIsThePoint`, `TestNoToolAsksThePerson`
+  and `TestNoToolWritesTheServersOwnSettings` hold it (D-44 to D-47).
+- **Read-only mode asks for read-only scopes and registers only the
+  reads and `download_file`.** `TestReadOnlyModeRegistersNoWriteTools`
+  and `TestScopes` hold it (D-56, D-57).
+- **Nothing in the repository identifies a real file, account or
+  organization.** `make leaks` and gitleaks hold it (D-07), and fixtures
+  are synthetic (D-08). The live driver and the evals print only through
+  the redacting transcript, which `make transcript` holds (D-72).
 
-No tool changes this server's own settings: they come from the
-environment and the profile `login` writes, and a test drives every
-registered tool and holds both unchanged.
+## Not a vulnerability
 
-## Reporting a vulnerability
+Do not report these as vulnerabilities. Open an ordinary issue if one
+surprises you.
 
-See [SECURITY.md](../SECURITY.md). Report privately through GitHub's
-security advisory form, not as a public issue.
+- **The client did not prompt.** Annotations and the
+  `requiresUserInteraction` mark are hints, and every widely used client
+  can run a tool with nobody approving. A gated tool registered while
+  its switch is off is a vulnerability.
+- **What runs as you can act as you.** Any process running as you can
+  read the token and use it.
+- **The scope reaches every file the account can.** `drive.file`
+  reaches only files the app created or the person opened through
+  Google's Picker, which a stdio server cannot show.
+- **Google's policy allowed a share.** The organization's policy is the
+  authority (D-35). A grant to a group reaches everyone in it, members
+  added later included, and the server cannot see who they are; the
+  result says so.
+- **A tool result is not masked.** It is your data, returned to you.
+- **A model following instructions in content.** That is the client's
+  concern. Content that makes the server itself break an invariant is a
+  vulnerability.
+- **Someone else's code.** A flaw in Google's APIs goes to Google, and
+  one in a dependency to that project. We will help route it.
+
+## Dependency vulnerabilities
+
+`govulncheck` runs in `make check` and in CI on every pull request and
+push to `main`. It fails when this server's code can reach a vulnerable
+symbol.
+
+A CVE in a dependency is a vulnerability here only when `govulncheck`
+reports it reachable. It is then fixed in a release whose CHANGELOG
+entry names the CVE or GHSA; otherwise the dependency is updated in the
+normal course.
+
+## What you are responsible for
+
+- **Your own OAuth client.** Nothing is shipped in the binary, so
+  revoking yours affects no one else.
+  [`troubleshooting.md`](troubleshooting.md#tasks) says how to rotate
+  the token, revoke access and handle a suspected exposure.
+- **The switches you turn on.** `GDRIVE_ENABLE_DESTRUCTIVE` registers
+  deletes that skip the trash and shares that reach past the
+  organization. `GDRIVE_LOCAL_DIR` is a directory a model can write
+  into and upload from, so point it at nothing you would not share.
+  Leave the first off for a client that runs with nobody watching, and
+  use read-only mode, logged in again, where reading is enough.
+- **Your client's approvals.** Give the sharing and deleting tools an
+  `ask` rule, as the README shows.
+- **Where the token lives.** Keep a keyring available, and
+  `GDRIVE_REFRESH_TOKEN` out of shared shells and logs.
+- **What you paste.** `status` and a debug log are built to be safe.
+  `doctor` prints the account in full. A token, `token.json`, a client
+  JSON and a tool result are not safe.

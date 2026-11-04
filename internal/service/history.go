@@ -18,7 +18,8 @@ type ListRevisionsInput struct {
 
 // ListRevisions shows a file's versions, newest first. These are Drive
 // revision ids, not the Docs API's revision tokens, and the content of
-// one comes through download_file with revision.
+// one comes through download_file with revision. Drive's list may be
+// incomplete for a busy Doc, Sheet or Slides deck, and the result says so.
 func (s *Service) ListRevisions(ctx context.Context, in ListRevisionsInput) (string, error) {
 	res, err := s.Resolve(ctx, in.File, ResolveOptions{FollowShortcut: true})
 	if err != nil {
@@ -70,7 +71,11 @@ type ManageRevisionInput struct {
 
 // ManageRevision decides whether Drive keeps a revision for good. Without
 // a pin a blob revision is discarded thirty days after it stops being
-// current, which is the fact that makes this tool worth having.
+// current, or sooner once the file has 100 of them, and a file keeps at
+// most 200 pinned. Checked by the live steps "a csv's revisions are
+// listed", "a revision is kept forever" and "a dry run of deleting a
+// revision says what would go".
+// https://developers.google.com/workspace/drive/api/guides/manage-revisions
 func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*Result, error) {
 	if err := s.writable("manage_revision"); err != nil {
 		return nil, err
@@ -134,8 +139,11 @@ func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*
 // pinRule is how Drive treats a revision kept forever: Google's guide
 // says such a revision "can only be downloaded or deleted", and Drive
 // refuses to unpin one that is no longer current with
-// illegalKeepForeverModification (§18). Only the current revision has
-// been seen to unpin.
+// illegalKeepForeverModification. The current revision unpins. Checked by
+// the live steps "the current revision is unpinned" and "a kept revision
+// that is no longer current cannot be unpinned".
+// https://developers.google.com/workspace/drive/api/guides/manage-revisions
+// https://developers.google.com/workspace/drive/api/guides/handle-errors
 const pinRule = "Drive does not unpin a revision that is no longer current, and only deleting the revision " +
 	"removes the pin"
 
@@ -144,6 +152,12 @@ const pinForGood = "The pin is for good: " + pinRule + "."
 
 // revisionError explains the refusals a revision read gets, since
 // Drive's own 404 does not say which of the two things was missing.
+// revisions.get lags revisions.list: a revision the list just showed can
+// answer 404 seconds later and be found on the next call, so the message
+// says "or not yet". Checked by the live steps "a dry run of deleting a
+// revision says what would go", "an old revision is deleted for good" and
+// "a revision is kept forever".
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/revisions/get
 func (s *Service) revisionError(err error, f *gdrive.File, revisionID string) error {
 	if gapi.Class(err) == ClassNotFound {
 		return &Error{Class: ClassNotFound, Message: fmt.Sprintf(
@@ -186,6 +200,12 @@ type ListChangesInput struct {
 // for next time. The tokens are opaque and the model keeps them for the
 // session; search_files with modified_after is the stateless
 // alternative.
+//
+// The feed lags a write: one made just now can be missing from the
+// changes since a token and appear on a later read from the same token.
+// Checked by the live step "the changes feed reports the write this run
+// made".
+// https://developers.google.com/workspace/drive/api/guides/manage-changes
 func (s *Service) ListChanges(ctx context.Context, in ListChangesInput) (string, error) {
 	driveID := ""
 	driveName := ""

@@ -193,8 +193,8 @@ func TestADryRunCopiesNothingAndSaysHowBigItIs(t *testing.T) {
 	}
 }
 
-// TestADryRunOfOneFileCopiesNothing holds the single-file path to the
-// dry-run contract. It used to copy: only a tree read dry_run.
+// A dry run of one file copies nothing, as a dry run of a tree copies
+// nothing.
 func TestADryRunOfOneFileCopiesNothing(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	copyTree(fake)
@@ -246,9 +246,8 @@ func TestOneItemFailingDoesNotHideTheRest(t *testing.T) {
 	}
 }
 
-// TestATreeCopyAsksForItsIdsOnce is the round trip the deferred cleanup
-// in §17a is about: one generateIds for the whole tree rather than one
-// per item.
+// A tree copy asks for its ids in one generateIds call for the whole
+// tree rather than one per item.
 func TestATreeCopyAsksForItsIdsOnce(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	copyTree(fake)

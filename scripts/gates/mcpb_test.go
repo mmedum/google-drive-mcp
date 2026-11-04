@@ -283,9 +283,9 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 	}
 	good := func() map[string]any {
 		return map[string]any{
-			// A real $schema and support URL: the check reads both
-			// now, and a stub for a value nothing looked at is how a
-			// fixture stops describing the thing it stands for.
+			// A real $schema and support URL: the check reads both,
+			// and a stub for a value nothing looks at is how a fixture
+			// stops describing the thing it stands for.
 			"$schema": "https://raw.githubusercontent.com/anthropics/mcpb/v2.1.2/" +
 				"schemas/mcpb-manifest-v0.3.schema.json",
 			"manifest_version": "0.3", "name": "google-drive-mcp",
@@ -450,7 +450,7 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 		{
 			name:   "no Claude Desktop floor",
 			break_: func(m map[string]any) { delete(dig(m, "compatibility"), "claude_desktop") },
-			want:   `compatibility.claude_desktop is ""; the family's bundles claim ">=0.10.0"`,
+			want:   `compatibility.claude_desktop is ""; this bundle claims ">=0.10.0"`,
 		},
 	}
 	for _, c := range cases {
@@ -529,18 +529,15 @@ func TestTheBundleIsAZipWithTheModesItNeeds(t *testing.T) {
 // packer's validation that needs no build, and it is a gate for that
 // reason: every question checkManifest asks is referential — does this
 // name a file that will be there — and the names are static even when
-// the binaries are not.
-//
-// Before this ran on every commit, a manifest naming a file nobody
-// stages was a release-day failure. It is a commit-day one now.
+// the binaries are not. A manifest naming a file nobody stages fails on
+// the commit, not on release day.
 func TestTheCommittedManifestNamesFilesThePackerStages(t *testing.T) {
 	t.Chdir("../..")
 	var out bytes.Buffer
 	if err := mcpbCheck(&out, nil); err != nil {
 		t.Fatalf("the committed manifest does not match what the packer stages: %v\n%s", err, out.String())
 	}
-	// And it read something: today's 8 staged files, 3 platforms and 9
-	// user_config keys.
+	// And it read something: literal floors under the real counts.
 	var files, platforms, keys int
 	if _, err := fmt.Sscanf(out.String(), "mcpb manifest ok (%d files staged, %d platforms, %d user_config keys)",
 		&files, &platforms, &keys); err != nil {
@@ -625,10 +622,9 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 	}
 	// The names come from the packer, so a rename that broke the pairing
 	// fails here rather than on somebody's machine. Read from `binaries`
-	// and not written out: a review pointed out that this comment was
-	// false while the names were literals, since the test then staged
-	// what it had typed and the launcher looked for what IT had typed,
-	// and the two agreed with each other rather than with the packer.
+	// and not written out: with literals the test stages what it typed,
+	// and the launcher is checked against the same literals rather than
+	// against the packer.
 	for _, b := range binaries {
 		if b.platform != "" {
 			continue
@@ -709,14 +705,12 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 
 // TestTheLauncherIsHeldToTheStagedNames. The launcher picks a binary by
 // name from a shell script no manifest mentions, so checkManifest cannot
-// see those names: renaming a staged Linux binary passed every gate and
-// every test until this check existed, and the bundle would then have
-// failed for every Linux user.
+// see those names, and a staged Linux binary renamed without it fails for
+// every Linux user.
 //
 // It swaps the packer's own list rather than a copy, because the check's
 // whole job is to compare the launcher against what the packer really
-// stages — a fixture list would be two literals agreeing with each other
-// again, which is the mistake this file has already made once.
+// stages — a fixture list would be two literals agreeing with each other.
 func TestTheLauncherIsHeldToTheStagedNames(t *testing.T) {
 	t.Chdir("../..")
 	if problems := checkLauncher("."); len(problems) > 0 {

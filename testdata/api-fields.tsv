@@ -54,9 +54,9 @@ drive	LabelList	kind	out	Google restating the type it just sent; a caller alread
 drive	PermissionList	kind	out	Google restating the type it just sent; a caller already knows what it asked for
 drive	RevisionList	kind	out	Google restating the type it just sent; a caller already knows what it asked for
 #
-# Team Drives were renamed shared drives in 2020 and Drive still
-# publishes the old spelling beside the new one. This server reads the
-# new one.
+# Team Drives are shared drives under their old name, and Drive
+# publishes that spelling beside the shared drive one. This server reads
+# the shared drive one.
 drive	Change	teamDrive	out	deprecated alias of drive; the new spelling is modeled
 drive	Change	teamDriveId	out	deprecated alias of driveId; the new spelling is modeled
 drive	Change	type	out	deprecated alias of changeType; the new spelling is modeled
@@ -90,8 +90,8 @@ drive	Revision	publishedOutsideDomain	out	whether a published revision is visibl
 # An activity's actions.
 driveactivity	DriveActivity	actions	out	list_activity reports primaryActionDetail, the one action Google names as the summary of a consolidated activity; the full list repeats it per target
 #
-# The five colliding schemas, now that the owner rows above bring them
-# into comparison. Their own gaps had been hidden by the collision.
+# The five colliding schemas, which the owner rows above bring into
+# comparison; the collision would otherwise hide their own gaps.
 drive	Comment	kind	out	Google restating the type it just sent; a caller already knows what it asked for
 drive	Drive	kind	out	Google restating the type it just sent; a caller already knows what it asked for
 drive	File	kind	out	Google restating the type it just sent; a caller already knows what it asked for
@@ -254,9 +254,8 @@ drive	Status	details	out	not read by any tool
 #
 # The objects Drive defines inline rather than as a $ref: the snapshot
 # names each one Parent.property so it can be aliased and compared like
-# any other schema. Before the snapshot descended into them these types
-# matched nothing and were never checked — File.capabilities publishes
-# 46 fields and this server modeled 30 of them in silence.
+# any other schema. Read only at the top level, these types would match
+# nothing and go unchecked.
 drive	File.capabilities	*	alias	Capabilities
 drive	Drive.capabilities	*	alias	DriveCapabilities
 drive	Drive.restrictions	*	alias	DriveRestrictions

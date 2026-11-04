@@ -17,14 +17,13 @@ import (
 )
 
 // The Drive API is larger than this server's use of it, and the gap is
-// supposed to be a set of decisions rather than an accident. Phase 4's
-// last deliverable in §16 is that every GA method is either used or
-// listed as deliberately out, with the reason.
+// supposed to be a set of decisions rather than an accident: every GA
+// method is either used or listed as deliberately out, with the reason.
 //
 // testdata/api-coverage.tsv is that list, and it covers all three of the
 // APIs this server can reach rather than only Drive: the split between
 // them is where a method is most easily forgotten. This gate holds it to
-// three things:
+// three things, and to the snapshot (checkAgainstSnapshot):
 //
 //  1. every `used` entry names a method that really exists on
 //     gapi.Client, so deleting a client method breaks the record rather
@@ -112,10 +111,9 @@ func readCoverage() ([]coverageEntry, []string) {
 			continue
 		}
 		parts := strings.Split(line, "\t")
-		// Three columns, since the two that used to sit between the name
-		// and the verdict — the HTTP verb and the path — were typed by
-		// hand and read by nothing. They live in testdata/api-methods.json
-		// now, written by `gates api-diff` and edited by nobody.
+		// Three columns. A method's HTTP verb and path live in
+		// testdata/api-methods.json, written by `gates api-diff` and
+		// edited by nobody, so a hand-typed copy cannot drift from them.
 		if len(parts) != 3 {
 			problems = append(problems, fmt.Sprintf("%s:%d: want 3 tab-separated columns, got %d",
 				coverageFile, n, len(parts)))
@@ -249,11 +247,8 @@ func apiDiff(out io.Writer, _ []string) error {
 		return err
 	}
 
-	// Three kinds of change, where there used to be two. CHANGED is the
-	// one the old shape could not see at all: it compared names, and the
-	// verb and path sat in two hand-typed columns nothing read, so a
-	// method that kept its name and moved path was invisible to every
-	// gate here.
+	// Three kinds of change. CHANGED is a method that keeps its name and
+	// moves its verb or path, which a comparison of names cannot see.
 	var added, removed, changed []string
 	for name, m := range live {
 		was, known := before.Methods[name]
@@ -283,7 +278,7 @@ func apiDiff(out io.Writer, _ []string) error {
 	}
 
 	// The snapshot is rewritten whatever changed, because it is the
-	// machine's record of what the APIs are today. Judging it is the
+	// machine's record of what the APIs are as fetched. Judging it is the
 	// coverage file's job, and `gates api-coverage` fails on every new
 	// method until somebody writes a verdict for it — which is what
 	// turns a report nobody reads into a build that stops.
@@ -318,9 +313,9 @@ func readSnapshot() (methodSnapshot, error) {
 	return snap, nil
 }
 
-// writeSnapshot records what they are now. Written by this command and
-// by nobody's hand: the two columns it replaces were maintained by hand
-// and read by nothing, which is the worst combination available.
+// writeSnapshot records what the APIs are as fetched. Written by this
+// command and by nobody's hand, so the verb and path it holds are the
+// discovery documents' own.
 func writeSnapshot(methods map[string]apiMethod) error {
 	body, err := json.MarshalIndent(methodSnapshot{
 		Fetched: time.Now().UTC().Format("2006-01-02"),
@@ -334,8 +329,8 @@ func writeSnapshot(methods map[string]apiMethod) error {
 
 // discoveryDocuments are the three APIs this server can reach, each with
 // the prefix its methods carry in the record. Drive's methods have no
-// prefix because they are the great majority and the ones §16 named; the
-// other two are prefixed so that a name says which API it belongs to.
+// prefix because they are the great majority; the other two are
+// prefixed so that a name says which API it belongs to.
 var discoveryDocuments = []struct {
 	prefix string
 	url    string
@@ -396,13 +391,8 @@ type methodSnapshot struct {
 const snapshotFile = "testdata/api-methods.json"
 
 // collectMethods walks one resource, and its sub-resources, keeping the
-// verb and path as well as the name.
-//
-// It read past both for a year. They were in the record — hand-typed
-// into two columns of the coverage file — and nothing compared them to
-// anything, so a method that kept its name and moved path was invisible
-// to every gate here. A sibling repository found the same two dead
-// columns in its own copy.
+// verb and path as well as the name, so a method that keeps its name and
+// moves path shows as a change.
 func collectMethods(prefix string, raw json.RawMessage, out map[string]apiMethod) {
 	var res struct {
 		Methods   map[string]json.RawMessage `json:"methods"`
@@ -432,12 +422,10 @@ func collectMethods(prefix string, raw json.RawMessage, out map[string]apiMethod
 // checkAgainstSnapshot holds the record to what the APIs actually have,
 // offline and on every commit.
 //
-// Completeness used to rest entirely on `gates api-diff`, which is
-// manual and needs the network — so CONTRIBUTING claimed this gate holds
-// "every API method used or deliberately out" while CI held no such
-// thing. A manual target nobody runs is a gate that never fires. The
-// snapshot moves that claim into `make check`: api-diff still does the
-// fetching, on purpose, and what it writes is what this reads.
+// `gates api-diff` is manual and needs the network, and a manual target
+// nobody runs is a gate that never fires. The snapshot puts completeness
+// in `make check`: api-diff does the fetching, on purpose, and what it
+// writes is what this reads.
 //
 // Both directions, because each fails differently. A method in the
 // snapshot with no verdict is one Google has added and nobody has judged.

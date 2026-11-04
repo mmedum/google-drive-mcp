@@ -6,9 +6,8 @@ import (
 )
 
 // TestTheSnapshotAndTheRecordAgree runs the offline half over the real
-// files. Completeness used to rest on `gates api-diff`, which is manual
-// and needs the network, so CONTRIBUTING claimed this record was held to
-// the API while CI held no such thing.
+// files, which is what holds the record to the API in `make check`
+// rather than only in the manual, networked `gates api-diff`.
 func TestTheSnapshotAndTheRecordAgree(t *testing.T) {
 	t.Chdir("../..")
 	entries, problems := readCoverage()
@@ -20,9 +19,9 @@ func TestTheSnapshotAndTheRecordAgree(t *testing.T) {
 	}
 }
 
-// TestTheSnapshotIsMachineWritten. Its two fields are the ones a person
-// used to type into the record and nothing read; if they are empty here,
-// the split has bought nothing.
+// TestTheSnapshotIsMachineWritten. Its verb and path are the fields the
+// record leaves to the snapshot; if they are empty here, nothing holds
+// them.
 func TestTheSnapshotIsMachineWritten(t *testing.T) {
 	t.Chdir("../..")
 	snap, err := readSnapshot()

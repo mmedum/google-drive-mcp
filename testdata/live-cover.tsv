@@ -1,11 +1,8 @@
 # Every tool option the live driver does not send, and the verdict on it.
 #
 # A live run is the only check that Drive agrees with this server, and
-# until this file existed nobody knew what fraction of the tool surface
-# one exercises. It first read 122 of 188 options; the gate prints the
-# count on every run. The shared standard names
-# this gate for every repository with a live driver; the one other place
-# it has been measured started at 14 of 28.
+# this record says what fraction of the tool surface one exercises. The
+# gate prints the count on every run.
 #
 # Columns, tab-separated: tool.option, verdict, reason.
 #
@@ -17,31 +14,29 @@
 #               close them, and a gap without a recipe gets read as a
 #               decision.
 #
-# Fifty-two of these were closed in one sitting, which is the argument
-# for recording a gap with its RECIPE rather than only its name: each row
-# already said what would close it, so the work was a batch of small
-# edits instead of a re-reading of the whole surface.
+# A gap is recorded with its RECIPE rather than only its name: when each
+# row says what would close it, closing gaps is a batch of small edits
+# instead of a re-reading of the whole surface.
 #
 # `gates live-cover` holds both directions: an option that is neither
 # driven nor listed here fails, and an option listed here that the driver
-# has since started sending fails too. It runs in `make check` and CI
-# against the binary's own published schema.
+# sends fails too. It runs in `make check` and CI against the binary's
+# own published schema.
 #
 # What it CANNOT see is a step that exists and never runs — sitting in a
-# slice nobody passes on, or behind a condition that was false. A sibling
-# repository demonstrated that by deleting one call and watching its
-# static gate still report full coverage. The driver prints its own
-# recorded coverage at the end of every run for that reason, and names
-# anything this file believes is driven that the run did not send.
+# slice nobody passes on, or behind a condition that is false. The driver
+# prints its own recorded coverage at the end of every run for that
+# reason, and names anything this file believes is driven that the run
+# did not send.
 
 download_file.acknowledge_abuse	undrivable	it needs a file Google has flagged as malware or spam, and nothing here may create one
 list_approvals.page_token	undriven	a second page needs more approvals on one file than this run starts, and an edition allows one open approval at a time. This is the only one of the four that a reader for listed ids would not close
 list_labels.page_token	undrivable	no label is published to this account, so there is no first page to follow. The same blocker as the rest of the label surface
-manage_approval.replace_reviewers	undrivable	a swap names who takes the reviewer's place, so it needs a second address Drive will accept — the blocker spike F is waiting on
+manage_approval.replace_reviewers	undrivable	a swap names who takes the reviewer's place, so it needs a second account Drive will accept, and the live run has none; the real ownership transfer waits on the same
 resolve_access_request.dry_run	undrivable	it needs a pending access request, which only somebody else asking for access can create
 resolve_access_request.notify	undrivable	the same pending request, and it would put mail in that person's inbox
 resolve_access_request.role	undrivable	the same pending request
 share_file.message	undrivable	it is only used when notify is true, which see
 share_outside_organization.message	undrivable	as share_file.message
 share_outside_organization.notify	undrivable	as share_file.notify
-share_file.notify	undrivable	it puts Google's mail in a real person's inbox on every run, which a driver may not do. The ownership transfer of spike F mails anyway, because Drive forces it
+share_file.notify	undrivable	it puts Google's mail in a real person's inbox on every run, which a driver may not do. The real ownership transfer (-transfer) mails anyway, because Drive forces it

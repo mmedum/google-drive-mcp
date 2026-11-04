@@ -235,7 +235,7 @@ func (s *Service) changeDrive(ctx context.Context, action string, in ManageDrive
 	// Turning domain_users_only off lets the drive's content be shared
 	// past the organization, so it is lift_drive_restriction's, behind
 	// the destructive flag, and a client's approval of manage_drive never
-	// covers it (§4a). The other switches stay here.
+	// covers it (D-40). The other switches stay here.
 	for _, name := range off {
 		if slices.Contains(LiftableRestrictions(), name) {
 			return nil, Errorf(ClassBlocked, "manage_drive does not turn off %s on %s: that lets its content "+
@@ -266,7 +266,7 @@ type LiftDriveRestrictionInput struct {
 // LiftDriveRestriction turns off a restriction LiftableRestrictions
 // names. It is the one way this server opens a shared drive past the
 // organization, so it exists only behind the destructive flag and needs
-// confirm: true on the call (§4a).
+// confirm: true on the call.
 func (s *Service) LiftDriveRestriction(ctx context.Context, in LiftDriveRestrictionInput) (*Result, error) {
 	const tool = "lift_drive_restriction"
 	if err := s.widening(tool); err != nil {
