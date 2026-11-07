@@ -12,9 +12,8 @@ import (
 // commit: formatting, vet, and a secret scan. The slow gates (tests,
 // lint, govulncheck) belong to `make check` and to CI.
 //
-// gitleaks is used when it is installed and skipped with a warning when
-// it is not, because a hook that fails on a missing tool is a hook people
-// disable. CI runs it unconditionally, so nothing reaches main unscanned.
+// gitleaks runs through `go run`, so the hook needs nothing installed but
+// Go. Its first run fetches the module.
 func precommit(out io.Writer, _ []string) error {
 	var problems []string
 
@@ -38,13 +37,17 @@ func precommit(out io.Writer, _ []string) error {
 		problems = append(problems, strings.TrimSpace(leakReport.String()))
 	}
 
-	if _, err := exec.LookPath("gitleaks"); err != nil {
-		_, _ = fmt.Fprintln(out, "gitleaks is not installed; skipping the secret scan (CI still runs it)")
-	} else {
-		scan := exec.Command("gitleaks", "protect", "--staged", "--redact", "--config", ".gitleaks.toml")
-		if found, err := scan.CombinedOutput(); err != nil {
-			problems = append(problems, "gitleaks found something in the staged changes:\n"+strings.TrimSpace(string(found)))
-		}
+	mk, err := readMakefile()
+	if err != nil {
+		return err
+	}
+	gitleaks, err := precommitGitleaks(mk)
+	if err != nil {
+		return err
+	}
+	scan := exec.Command(gitleaks[0], gitleaks[1:]...)
+	if found, err := scan.CombinedOutput(); err != nil {
+		problems = append(problems, "gitleaks on the staged changes:\n"+strings.TrimSpace(string(found)))
 	}
 
 	if len(problems) > 0 {
@@ -57,6 +60,24 @@ func precommit(out io.Writer, _ []string) error {
 	return nil
 }
 
+// precommitGitleaks is the hook's secret scan: the gitleaks module@version
+// the Makefile's GITLEAKS names, the one `make gitleaks` runs, on the
+// staged changes. gitleaks v8.19.0 deprecated `protect` for `git --staged`
+// (https://github.com/gitleaks/gitleaks/blob/v8.30.1/README.md#commands).
+func precommitGitleaks(mk *makefile) ([]string, error) {
+	module := mk.expand("$(GITLEAKS)")
+	if !strings.Contains(module, "@") {
+		return nil, fmt.Errorf("%s: GITLEAKS names no module@version, so the hook has no gitleaks to scan with", makefilePath)
+	}
+	return []string{"go", "run", module, "git", "--staged", "--redact", "--no-banner", "--config", ".gitleaks.toml", "."}, nil
+}
+
+// precommitHook is the hook installHooks writes, which parity reads for
+// the gates it runs.
+const precommitHook = "#!/bin/sh\n" +
+	"# Installed by `make hooks`. The checks live in scripts/gates.\n" +
+	"exec go run ./scripts/gates precommit\n"
+
 // installHooks writes the git pre-commit hook. It is two lines of shell
 // because git requires an executable file; everything it decides is Go.
 func installHooks(out io.Writer, _ []string) error {
@@ -65,10 +86,7 @@ func installHooks(out io.Writer, _ []string) error {
 		return fmt.Errorf("locate the hooks directory: %w", err)
 	}
 	path := strings.TrimSpace(string(dir)) + "/pre-commit"
-	hook := "#!/bin/sh\n" +
-		"# Installed by `make hooks`. The checks live in scripts/gates.\n" +
-		"exec go run ./scripts/gates precommit\n"
-	if err := os.WriteFile(path, []byte(hook), 0o755); err != nil { //nolint:gosec // a hook has to be executable
+	if err := os.WriteFile(path, []byte(precommitHook), 0o755); err != nil { //nolint:gosec // a hook has to be executable
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	_, _ = fmt.Fprintf(out, "installed %s\n", path)

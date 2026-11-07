@@ -67,7 +67,7 @@ func TestARealVersionInTheTreeIsRefused(t *testing.T) {
 
 // gateFiles are the repository files the bundle gate reads: the manifest
 // and the files beside it.
-var gateFiles = []string{mcpbManifestPath, alongside[linuxLauncher], "go.mod", ".goreleaser.yaml"}
+var gateFiles = []string{mcpbManifestPath, alongside[linuxLauncher], "go.mod", parityGoreleaser}
 
 // copiedRoot is a directory holding a copy of every file the gate reads.
 func copiedRoot(t *testing.T) string {
@@ -116,8 +116,12 @@ func TestTheGateReadsEveryFileFromItsRoot(t *testing.T) {
 			"google-drive-mcp-linux-riscv64", "stages server/google-drive-mcp-linux-arm64 and"},
 		{"go.mod at another module", "go.mod", "module github.com/mmedum/google-drive-mcp/v3",
 			"module github.com/mmedum/google-drive-mcp/v4", "and go.mod's module gives"},
-		{"a build for another system", ".goreleaser.yaml", "goos: [", "goos: [freebsd, ",
+		{"a build for another system", parityGoreleaser, "goos: [", "goos: [freebsd, ",
 			"goreleaser builds freebsd and the bundle stages nothing from it"},
+		// The check reads one build's matrix, so a second is refused by name.
+		{"a second build with a matrix of its own", parityGoreleaser, "\n# The universal macOS binary",
+			"\n  - id: other\n    main: ./cmd/other\n    goos:\n      - freebsd\n    goarch: [amd64]\n\n# The universal macOS binary",
+			".goreleaser.yaml writes 2 goos: lists, and this reads one build's matrix: build every platform in one build"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := copiedRoot(t)
@@ -750,7 +754,7 @@ func TestThePlatformsGoreleaserBuildsAreStaged(t *testing.T) {
 
 	// And the matrix is really being read, rather than an empty list
 	// agreeing with an empty list.
-	source, err := os.ReadFile(".goreleaser.yaml")
+	source, err := os.ReadFile(parityGoreleaser)
 	if err != nil {
 		t.Fatal(err)
 	}

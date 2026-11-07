@@ -31,21 +31,23 @@ type command struct {
 	runs where
 }
 
-// where is the pipeline a command has to run in. Three states, because a
-// gate that only a pull request can run is neither a gate `make check`
-// runs nor a convenience nothing does.
+// where is the pipeline a command has to run in, which parity holds.
 type where int
 
 const (
-	// manual is a developer convenience or a release step. Nothing
-	// holds it to a pipeline: api-diff refetches Google's discovery
-	// documents over the network, which no pipeline may depend on.
+	// manual is a developer convenience, run by a Makefile target or the
+	// pre-commit hook and never by `make check`: api-diff refetches
+	// Google's discovery documents over the network, which no pipeline
+	// may depend on.
 	manual where = iota
 	// inCheck has to run in BOTH `make check` and the CI workflow.
 	inCheck
 	// inPR has to run in CI on a pull request and NOT in `make check`:
 	// it measures from the merge-base, which only a pull request has.
 	inPR
+	// inRelease runs in the release workflows or the goreleaser config,
+	// and never in `make check`.
+	inRelease
 )
 
 // commands is the one list of what this program does.
@@ -77,7 +79,7 @@ func init() {
 			doc: "every published field is modeled on purpose or left out on purpose", runs: inCheck},
 		"parity": {run: parity, doc: "`make check` and CI run the same gates", runs: inCheck},
 		"release-notes": {run: releaseNotes, args: "VERSION [CHANGELOG]",
-			doc: "one version's CHANGELOG section, which is the release note"},
+			doc: "one version's CHANGELOG section, which is the release note", runs: inRelease},
 		"schema-baseline": {run: schemaBaseline, args: "[BINARY]",
 			doc: "record the release being cut as the tool-surface baseline, in its release commit"},
 		"transcript": {run: transcript,
@@ -89,7 +91,7 @@ func init() {
 		"registry": {run: registry,
 			doc: "the committed MCP registry entry obeys the rules that registry enforces in code", runs: inCheck},
 		"registry-publish": {run: registryPublish, args: "VERSION [DIST]",
-			doc: "print the registry entry to publish, with the bundle's hash from the signed checksums"},
+			doc: "print the registry entry to publish, with the bundle's hash from the signed checksums", runs: inRelease},
 		"mcpb": {run: mcpbCheck,
 			doc: "the committed bundle manifest names files the packer will stage", runs: inCheck},
 		"api-diff": {run: apiDiff,
@@ -101,20 +103,8 @@ func init() {
 		"mcpb-manifest": {run: mcpbManifest, args: "VERSION [ROOT]",
 			doc: "print the packaging manifest with a real version in it"},
 		"mcpb-pack": {run: mcpbPack, args: "VERSION [DIST]",
-			doc: "pack the Claude Desktop bundle from goreleaser's output"},
+			doc: "pack the Claude Desktop bundle from goreleaser's output", runs: inRelease},
 	}
-}
-
-// commandsIn are the commands that have to run in w, sorted.
-func commandsIn(w where) []string {
-	var out []string
-	for name, c := range commands {
-		if c.runs == w {
-			out = append(out, name)
-		}
-	}
-	slices.Sort(out)
-	return out
 }
 
 func main() {
@@ -139,8 +129,8 @@ func main() {
 	}
 }
 
-// couldNotRun is an error that stopped schema-ack before it could judge:
-// a build or a git call that failed. Its message says so, which is what
+// couldNotRun is an error that stopped a gate before it could judge: a
+// build, a git or a go call that failed. Its message says so, which is what
 // tells it from a refusal in CI, since `go run` exits 1 whatever the
 // program's own status was.
 type couldNotRun struct{ error }
@@ -156,6 +146,15 @@ func exitCode(err error) int {
 		return 2
 	}
 	return 1
+}
+
+// floorProblems is a problem when a gate read fewer of what than least:
+// found nothing and looked at nothing print the same sentence otherwise.
+func floorProblems(what string, read, least int) []string {
+	if read >= least {
+		return nil
+	}
+	return []string{fmt.Sprintf("read %d %s, want at least %d: the reader is not seeing its input", read, what, least)}
 }
 
 func usage(w io.Writer) {
@@ -179,6 +178,10 @@ func usage(w io.Writer) {
 		_, _ = fmt.Fprintf(w, "  go run ./scripts/gates %-*s  %s\n", width, spelled, commands[name].doc)
 	}
 }
+
+// defaultBinary is where `make build` and CI put the server, and what a
+// gate that drives it runs when it is given no binary.
+const defaultBinary = "./google-drive-mcp"
 
 // arg returns the i-th argument or a fallback.
 func arg(args []string, i int, fallback string) string {

@@ -650,8 +650,12 @@ func onlyMatch(pattern, what string) (string, error) {
 		return "", err
 	}
 	if len(found) != 1 {
+		shown := make([]string, 0, len(found))
+		for _, f := range found {
+			shown = append(shown, filepath.ToSlash(f))
+		}
 		return "", fmt.Errorf("expected exactly one %s matching %s, found %d: %s",
-			what, pattern, len(found), strings.Join(found, " "))
+			what, filepath.ToSlash(pattern), len(found), strings.Join(shown, " "))
 	}
 	return found[0], nil
 }
@@ -792,14 +796,20 @@ var (
 // That is the shape `gates parity` exists for one file over, and this is
 // the same argument applied to the release's other pair of lists.
 func checkBuildMatrix(root string) []string {
-	source, err := os.ReadFile(filepath.Join(root, ".goreleaser.yaml")) //nolint:gosec // a repository path from a constant
+	source, err := os.ReadFile(filepath.Join(root, parityGoreleaser)) //nolint:gosec // a repository path from a constant
 	if err != nil {
-		return []string{"cannot read .goreleaser.yaml: " + err.Error()}
+		return []string{"cannot read " + parityGoreleaser + ": " + err.Error()}
+	}
+	for _, key := range []string{"goos", "goarch"} {
+		if n := matrixLists(string(source), key); n > 1 {
+			return []string{fmt.Sprintf("%s writes %d %s: lists, and this reads one build's matrix: "+
+				"build every platform in one build", parityGoreleaser, n, key)}
+		}
 	}
 	built := matrixValues(string(source), "goos")
 	arches := matrixValues(string(source), "goarch")
 	if len(built) == 0 || len(arches) == 0 {
-		return []string{"found no goos/goarch matrix in .goreleaser.yaml; has its shape changed?"}
+		return []string{"found no goos/goarch matrix in " + parityGoreleaser + "; has its shape changed?"}
 	}
 
 	// What the bundle carries, by the goos each staged file comes from.
@@ -840,6 +850,19 @@ func matrixValues(source, key string) []string {
 		}
 	}
 	return out
+}
+
+// matrixLists counts the key's lists, inline or as a block. A key with a
+// scalar, such as an archive override's `goos: windows`, is not one.
+func matrixLists(source, key string) int {
+	n := 0
+	for _, line := range strings.Split(source, "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimPrefix(strings.TrimSpace(line), "- "), key+":")
+		if value, _ := yamlCutComment(rest); ok && (value == "" || strings.HasPrefix(value, "[")) {
+			n++
+		}
+	}
+	return n
 }
 
 // upstreamSchema matches the host and path the manifest schema is

@@ -100,20 +100,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # gitleaks scans every commit, so a shallow clone would hide a
+          # credential a branch added and later removed.
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # The scanner this wrapper installs, pinned like every other
-          # tool here. A SHA pins the wrapper, not the tool: without
-          # this the secret scan runs whatever gitleaks shipped this
-          # morning, so a rule added upstream can fail a merge that was
-          # fine an hour ago, and a rule removed upstream stops catching
-          # what it caught with nothing to show for it.
-          GITLEAKS_VERSION: "8.30.1"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # The Makefile holds the scanner's command and its version, so
+      # `make check` runs exactly this.
+      - name: gitleaks
+        run: make gitleaks
       # gitleaks knows about credentials. This knows about everything else
       # a live run against a real Drive can drag in: addresses, file ids,
       # and links carrying one.
