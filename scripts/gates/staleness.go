@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -19,8 +23,12 @@ import (
 // check below exists because the drift it catches is invisible in review:
 // nothing breaks, the docs simply start lying.
 func staleness(out io.Writer, args []string) error {
-	binary := arg(args, 0, "./google-drive-mcp")
-	var problems []string
+	binary := arg(args, 0, defaultBinary)
+	// A CHANGELOG rule that cannot run holds back no other check.
+	problems, unrun := checkChangelog(".")
+	if unrun != nil && !errors.As(unrun, new(couldNotRun)) {
+		return unrun
+	}
 
 	// The README documents every tool that can be registered, not only
 	// the ones a default build carries, so the surface it is compared
@@ -41,17 +49,17 @@ func staleness(out io.Writer, args []string) error {
 	problems = append(problems, checkConfigDocs(config.EnvVars())...)
 	problems = append(problems, checkScopesDocumented()...)
 
-	changelog, err := checkChangelog(".")
-	if err != nil {
-		return err
-	}
-	problems = append(problems, changelog...)
-
 	if len(problems) > 0 {
 		for _, p := range problems {
 			_, _ = fmt.Fprintln(out, p)
 		}
+		if unrun != nil {
+			_, _ = fmt.Fprintln(out, unrun)
+		}
 		return fmt.Errorf("%d documentation problem(s)", len(problems))
+	}
+	if unrun != nil {
+		return unrun
 	}
 	_, _ = fmt.Fprintln(out, "staleness check ok")
 	return nil
@@ -195,69 +203,210 @@ var (
 	settingName = regexp.MustCompile(`^` + config.EnvPrefix + `[A-Z0-9_]+$`)
 )
 
-// versionHeading is a released version's heading in the changelog.
-var versionHeading = regexp.MustCompile(`(?m)^## \[([0-9]+\.[0-9]+\.[0-9]+)\]`)
-
-// checkChangelog holds the checkout at dir to changelogRule.
+// checkChangelog holds the checkout at dir to changelogRule, measured from
+// the newest release tag by semver, a prerelease included. No such tag, or
+// a git or go call that cannot answer, is couldNotRun, never "source
+// changed".
 func checkChangelog(dir string) ([]string, error) {
+	list, err := git("-C", dir, "tag")
+	if err != nil {
+		return nil, changelogUnrun(dir, err)
+	}
+	tags := strings.Fields(list)
+	last := stalenessNewestRelease(tags)
+	if last == "" {
+		return nil, changelogUnrun(dir, errors.New("no release tag (vX.Y.Z) is in the checkout to measure from"))
+	}
+	changed, err := shippedChangedSince(dir, "v"+last)
+	if err != nil {
+		return nil, changelogUnrun(dir, err)
+	}
 	raw, err := os.ReadFile(filepath.Join(dir, changelogPath))
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", changelogPath, err)
 	}
-	tagged := func(version string) bool { return tagExists(dir, "v"+version) }
-	return changelogRule(string(raw), goFilesChanged(dir), tagged), nil
+	tagged := func(version string) bool { return slices.Contains(tags, "v"+version) }
+	return changelogRule(string(raw), changed, tagged), nil
 }
 
-// changelogRule requires source changes to be written up. Normally that
-// means content under [Unreleased]; on a release commit those notes have
-// just moved under the new version heading, which is only acceptable
-// while that version has no tag yet.
+// changelogUnrun is why the CHANGELOG rule could not run in the checkout at
+// dir. A shallow clone fetches no tag and too little history, so the
+// reason names one.
+func changelogUnrun(dir string, err error) error {
+	if shallow, _ := git("-C", dir, "rev-parse", "--is-shallow-repository"); shallow == "true" {
+		err = fmt.Errorf("%w; the checkout is a shallow clone: check it out with fetch-depth: 0", err)
+	}
+	return couldNotRun{fmt.Errorf("the CHANGELOG rule: %w", err)}
+}
+
+// changelogRule requires a change to the binary's source to be written
+// up. Normally that means entries under [Unreleased]; on a release commit
+// those notes have just moved under the new version heading, which is only
+// acceptable while that version has no tag yet.
 func changelogRule(text string, sourceChanged bool, tagged func(version string) bool) []string {
 	if !sourceChanged {
 		return nil
 	}
-	lines := strings.Split(text, "\n")
-	if countEntries(lines, "Unreleased") > 0 {
+	doc := readChangelog(text)
+	if doc.entries("Unreleased") > 0 {
 		return nil
 	}
 	where := "[Unreleased]"
-	if m := versionHeading.FindStringSubmatch(text); m != nil && !tagged(m[1]) {
-		if countEntries(lines, m[1]) > 0 {
+	if v := doc.versions(); len(v) > 0 && !tagged(v[0].label) {
+		if doc.entries(v[0].label) > 0 {
 			return nil
 		}
-		where = "[" + m[1] + "] (untagged, so this is a release commit)"
+		where = "[" + v[0].label + "] (untagged, so this is a release commit)"
 	}
-	return []string{"source changed but " + changelogPath + " " + where + " is empty"}
+	return []string{"the binary's source changed but " + changelogPath + " " + where + " is empty"}
 }
 
-// countEntries counts the bullet points in the section for version of a
-// changelog's lines.
-func countEntries(lines []string, version string) int {
-	from, to := changelogSection(lines, version)
-	n := 0
-	for _, line := range lines[from:to] {
-		if strings.HasPrefix(strings.TrimSpace(line), "- ") {
-			n++
+// stalenessNewestRelease is the newest release tag's version by semver
+// order, a prerelease included, or "" when there is none. git's version
+// sort puts v2.0.0-rc.1 after v2.0.0, so the order is semver's.
+func stalenessNewestRelease(tags []string) string {
+	newest := ""
+	for _, tag := range tags {
+		v, ok := strings.CutPrefix(tag, "v")
+		if ok && changelogVersion.MatchString(v) && (newest == "" || changelogCompare(v, newest) > 0) {
+			newest = v
 		}
 	}
-	return n
+	return newest
 }
 
-// goFilesChanged reports whether Go source in the checkout at dir differs
-// from the last tag, or from the commit before HEAD when there is none.
-func goFilesChanged(dir string) bool {
-	rev := "HEAD~1"
-	if last := lastTag(dir); last != "" {
-		rev = last
+// shippedChangedSince reports whether the commits since..HEAD of the
+// checkout at dir change the binary's source: a Go file other than a test
+// in a package of this module the binary imports, a file such a package
+// embeds, or go.mod outside its require and tool lines. A package counts
+// by its directory, so a file another platform builds counts, and so does
+// a file removed from it. Commits are compared, as CI sees them.
+func shippedChangedSince(dir, since string) (bool, error) {
+	out, err := git("-C", dir, "diff", since+"..HEAD", "--name-only", "--no-renames", "-z")
+	if err != nil {
+		return false, err
 	}
-	// A non-zero status means either a difference or no such revision;
-	// on the very first commit there is nothing to compare against, and
-	// requiring the notes then is the safe way round.
-	return exec.Command("git", "-C", dir, "diff", "--quiet", rev, "--", "*.go").Run() != nil
+	var shipped *shippedSource
+	for _, file := range strings.Split(out, "\x00") {
+		switch file {
+		case "":
+		case "go.mod":
+			if changed, err := goModChangedSince(dir, since); err != nil || changed {
+				return changed, err
+			}
+		default:
+			if shipped == nil {
+				if shipped, err = listShipped(dir); err != nil {
+					return false, err
+				}
+			}
+			if shipped.has(file) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
-func tagExists(dir, tag string) bool {
-	return exec.Command("git", "-C", dir, "rev-parse", "-q", "--verify", "refs/tags/"+tag).Run() == nil
+// shippedSource is what the binary is built from in this module, on this
+// platform: its package directories and the files they embed, each
+// slash-separated from the module root.
+type shippedSource struct{ dirs, embeds map[string]bool }
+
+func (s *shippedSource) has(file string) bool {
+	return s.embeds[file] || strings.HasSuffix(file, ".go") && !strings.HasSuffix(file, "_test.go") && s.dirs[path.Dir(file)]
+}
+
+// listShipped asks the go command what ./cmd/... is built from in the
+// module at dir. A package of another module is a dependency, which
+// go.mod's require lines name.
+func listShipped(dir string) (*shippedSource, error) {
+	const what = "go list -deps ./cmd/..."
+	cmd := exec.Command("go", "list", "-deps", "-json=Dir,EmbedFiles,Module", "./cmd/...")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	switch {
+	case errors.As(err, &exit):
+		return nil, fmt.Errorf("%s: %s", what, strings.TrimSpace(string(exit.Stderr)))
+	case err != nil:
+		return nil, fmt.Errorf("%s: %w", what, err)
+	}
+	s := &shippedSource{dirs: map[string]bool{}, embeds: map[string]bool{}}
+	for dec := json.NewDecoder(bytes.NewReader(out)); dec.More(); {
+		var p struct {
+			Dir        string
+			EmbedFiles []string
+			Module     *struct {
+				Main bool
+				Dir  string
+			}
+		}
+		if err := dec.Decode(&p); err != nil {
+			return nil, fmt.Errorf("%s: %w", what, err)
+		}
+		if p.Module == nil || !p.Module.Main {
+			continue
+		}
+		rel, err := filepath.Rel(p.Module.Dir, p.Dir)
+		if err != nil {
+			return nil, err
+		}
+		pkg := filepath.ToSlash(rel)
+		s.dirs[pkg] = true
+		for _, f := range p.EmbedFiles {
+			s.embeds[path.Join(pkg, f)] = true
+		}
+	}
+	// An empty listing is not reading the binary, and would excuse every
+	// change.
+	if len(s.dirs) == 0 {
+		return nil, fmt.Errorf("%s named no package of this module, so it is not reading the binary", what)
+	}
+	return s, nil
+}
+
+// goModChangedSince reports whether go.mod at HEAD in the checkout at dir
+// differs from since's outside its require and tool lines: a go, toolchain
+// or replace line changes what the binary is built with.
+func goModChangedSince(dir, since string) (bool, error) {
+	before, err := git("-C", dir, "show", since+":go.mod")
+	if err != nil {
+		return false, err
+	}
+	after, err := git("-C", dir, "show", "HEAD:go.mod")
+	if err != nil {
+		return false, err
+	}
+	return goModBuildLines(before) != goModBuildLines(after), nil
+}
+
+// goModBuildLines is a go.mod's lines, each trimmed and the blank ones
+// dropped, without its require and tool directives, a block's included
+// (https://go.dev/ref/mod#go-mod-file-require). A tool directive adds a
+// package `go tool` runs (https://go.dev/ref/mod#go-mod-file-tool). ( is a
+// token of its own, so `require(` opens a block as `require (` does
+// (https://go.dev/ref/mod#go-mod-file-lexical).
+func goModBuildLines(text string) string {
+	var kept []string
+	inBlock := false
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		verb, paren := "", false
+		if len(fields) > 0 {
+			verb, _, paren = strings.Cut(fields[0], "(")
+		}
+		switch {
+		case inBlock:
+			inBlock = len(fields) == 0 || !strings.HasPrefix(fields[0], ")")
+		case len(fields) == 0:
+		case verb == "require" || verb == "tool":
+			inBlock = paren || len(fields) > 1 && strings.HasPrefix(fields[1], "(")
+		default:
+			kept = append(kept, strings.Join(fields, " "))
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 // checkScopesDocumented holds the README's setup step to the scopes
@@ -296,14 +445,3 @@ func checkScopesDocumented() []string {
 
 // scopeConstant matches the Scope* constants internal/auth declares.
 var scopeConstant = regexp.MustCompile(`Scope[A-Za-z]*\s*=\s*"(https://www\.googleapis\.com/auth/[a-z.]+)"`)
-
-// lastTag returns the most recent tag in the checkout at dir, or "" when
-// there is none. Having no tags is the normal state before the first
-// release, so it is not an error and this cannot fail.
-func lastTag(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "describe", "--tags", "--abbrev=0").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}

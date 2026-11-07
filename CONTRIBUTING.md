@@ -16,7 +16,7 @@ logs. Naming the sibling servers, such as google-sheets-mcp, is fine.
 Fixtures are synthetic: an id carries a `-fixture` suffix and an
 address is at `example.com` (D-08). gitleaks scans for credentials and
 `make leaks` for addresses, Drive ids and Drive links. Both run in the
-pre-commit hook and in CI.
+pre-commit hook, in `make check` and in CI.
 
 **Commit under your GitHub no-reply address**, and credit co-authors
 with theirs (`ID+USERNAME@users.noreply.github.com`, from GitHub's email
@@ -46,15 +46,14 @@ make hooks
 
 Go is the only prerequisite, at the version in `go.mod`;
 `GOTOOLCHAIN=auto`, the default, fetches it. The Makefile runs
-golangci-lint, govulncheck and go-licenses through `go run` at pinned
-versions. Everything the repository runs on itself is Go, under
+golangci-lint, govulncheck, go-licenses and gitleaks through `go run` at
+pinned versions. Everything the repository runs on itself is Go, under
 `scripts/` (D-10), and GoReleaser builds only `./cmd/...`, so none of it
 ships.
 
 `make hooks` installs a pre-commit hook running
-`go run ./scripts/gates precommit`: gofmt, vet and a secret scan. The
-scan is skipped when gitleaks is not installed, and CI runs gitleaks
-either way.
+`go run ./scripts/gates precommit`: gofmt, vet, `make leaks`' scan and
+gitleaks on the staged changes, at the version the Makefile pins.
 
 ## Gates that must pass
 
@@ -63,10 +62,10 @@ make check
 ```
 
 `make check` runs the gates CI runs, and the `check` target in the
-`Makefile` is the list. `make parity` fails when that list and `ci.yml`
-differ, so a check you add goes in both (D-77). CI runs it on Linux,
-macOS and Windows, where paths, permission bits and line endings differ
-(D-78).
+`Makefile` is the list. `make parity` fails when a command that list
+runs and `ci.yml` differ, so a check you add goes in both, in the same
+words (D-77). CI runs it on Linux, macOS and Windows, where paths,
+permission bits and line endings differ (D-78).
 
 `go run ./scripts/gates` lists the checks, and `go run ./scripts/gates
 <name>` runs one. Each has tests of its own, and a check that reports a
@@ -103,11 +102,14 @@ These are worth knowing before they fail on you:
   decision by ID, or a doc by its path and heading anchor, never by
   section number. What you verified about Google goes in the comment at
   the line that depends on it, with the source link and the live step
-  that checks it, written `Checked by the live step "<name>".`
+  that checks it, written `Checked by the live step "<name>".` An
+  integration test it names, `TestLive<Name>`, has to exist too. Cite
+  the test, not a subtest.
 - **`make staleness`** holds the README's tool table, scopes and
   permission rules to the binary, and `docs/configuration.md` to every
-  setting the code reads. It also wants a CHANGELOG entry when Go
-  changed since the last tag (D-66).
+  setting the code reads. It also wants a CHANGELOG entry when the
+  binary's source changed since the newest release tag; a test, a script
+  or a dependency bump needs none (D-66).
 - **`make outcomes`** refuses a result sentence written from the
   request rather than from Drive's answer (D-29).
 - **Renderer goldens.** `go test ./internal/render -update` rewrites

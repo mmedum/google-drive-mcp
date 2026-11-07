@@ -129,8 +129,12 @@ var allowedBlobs = map[string]string{
 // the tip is still in the log and still public the moment the repository
 // is.
 func leaks(out io.Writer, args []string) error {
-	if arg(args, 0, "") == "history" {
+	switch word := arg(args, 0, ""); word {
+	case "history":
 		return leaksInHistory(out)
+	case "":
+	default:
+		return fmt.Errorf("usage: gates leaks [history], not %q", word)
 	}
 	files, err := scannableFiles()
 	if err != nil {
@@ -186,7 +190,14 @@ func scanForLeaks(path, body string) []string {
 			}
 		}
 		for _, candidate := range urlPattern.FindAllString(line, -1) {
-			if isDriveLink(candidate) && !allowedLink(candidate) {
+			// A host no rule can read could be Drive's, so it is held as
+			// a Drive link is.
+			host, ok := linkHost(candidate)
+			switch {
+			case !ok && !allowedLink(candidate):
+				found = append(found, where+": a URL whose host does not parse carries an id, as a Drive link may not: "+
+					abbreviate(candidate))
+			case driveHosts[host] && !allowedLink(candidate):
 				found = append(found, where+": a Drive link carrying an id")
 			}
 		}
@@ -232,15 +243,23 @@ var driveHosts = map[string]bool{
 	"docs.google.com":  true,
 }
 
-// isDriveLink parses the candidate and asks what host it is really for.
-// Anything unparseable is not a link.
-func isDriveLink(candidate string) bool {
-	u, err := url.Parse(candidate)
-	if err != nil {
-		return false
+// linkHost is the host a candidate URL is really for, decided by parsing
+// it. ok is false when the host does not parse, such as a format verb
+// written in its place. Only the scheme and authority are parsed, so a
+// template in the path does not hide the host.
+func linkHost(candidate string) (host string, ok bool) {
+	// A URL written inside a regular expression escapes its dots. Any other
+	// backslash reads as a slash, so an escape such as \n ends the host.
+	s := strings.ReplaceAll(strings.ReplaceAll(candidate, `\.`, "."), `\`, "/")
+	scheme, rest, _ := strings.Cut(s, "://")
+	if end := strings.IndexAny(rest, "/?#"); end >= 0 {
+		rest = rest[:end]
 	}
-	host := strings.ToLower(u.Hostname())
-	return driveHosts[host]
+	u, err := url.Parse(scheme + "://" + strings.TrimRight(rest, ".:;,"))
+	if err != nil {
+		return "", false
+	}
+	return strings.ToLower(u.Hostname()), true
 }
 
 // allowedLink permits a link whose every id-shaped part is allowed.
