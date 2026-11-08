@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -31,5 +32,22 @@ func TestTheHookScansWithTheMakefilesGitleaks(t *testing.T) {
 				t.Errorf("precommitGitleaks() = %q, %q; want %q, %q", got, msg, tc.want, tc.err)
 			}
 		})
+	}
+}
+
+// The hook reports what the Makefile reader refuses, a file GNU make reads
+// before the Makefile included, as the pins and parity gates report it.
+func TestTheHookReportsWhatTheMakefileReaderRefuses(t *testing.T) {
+	t.Chdir(t.TempDir())
+	// A module no proxy is asked for fails at once, so the scan runs nothing.
+	t.Setenv("GOPROXY", "off")
+	t.Setenv("GOFLAGS", "")
+	write(t, "Makefile", "GITLEAKS ?= example.invalid/gitleaks@v0.0.1\n")
+	write(t, "GNUmakefile", "include Makefile\n")
+	var out strings.Builder
+	err := precommit(&out, nil)
+	const want = "GNUmakefile: GNU make reads it before Makefile, so `make` runs a file no gate reads; fold it into Makefile"
+	if err == nil || !slices.Contains(strings.Split(out.String(), "\n"), want) {
+		t.Errorf("precommit() = %v, printing:\n%s\nwant a problem line %q", err, out.String(), want)
 	}
 }

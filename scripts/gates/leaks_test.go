@@ -241,15 +241,16 @@ func gitRepo(t *testing.T, identity, message string) string {
 
 // gitAs runs git in dir, the working directory when it is empty, as a
 // fixture identity, reading none of the machine's configuration: no
-// signing key, no hooks, no default branch of its own.
+// signing key, no hooks, no default branch of its own, and no automatic
+// maintenance.
 func gitAs(t *testing.T, dir, identity string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(append(os.Environ(),
 		"GIT_AUTHOR_NAME=A Tester", "GIT_AUTHOR_EMAIL="+identity,
 		"GIT_COMMITTER_NAME=A Tester", "GIT_COMMITTER_EMAIL="+identity,
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"), gitNoMaintenance...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
@@ -466,18 +467,8 @@ func TestTheLeakScanSaysHowMuchItReadAndRefusesNothing(t *testing.T) {
 
 	// Nothing to read: a repository whose only commit is empty.
 	empty := t.TempDir()
-	for _, args := range [][]string{
-		{"init", "-q", "-b", "main"},
-		{"-c", "user.name=A Tester", "-c", "user.email=" + sample("a.tester", "@", "example", ".com"),
-			"commit", "-q", "--allow-empty", "-m", "Nothing yet"},
-	} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = empty
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-		if b, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, b)
-		}
-	}
+	gitAs(t, empty, sample("a.tester", "@", "example", ".com"), "init", "-q", "-b", "main")
+	gitAs(t, empty, sample("a.tester", "@", "example", ".com"), "commit", "-q", "--allow-empty", "-m", "Nothing yet")
 	t.Chdir(empty)
 	if err := leaks(&out, nil); err == nil || !strings.Contains(err.Error(), "looked at nothing") {
 		t.Errorf("a tree with no files: err = %v, want the looked-at-nothing refusal", err)
@@ -519,13 +510,7 @@ func TestHistoryFindsWhatTheTipNoLongerHas(t *testing.T) {
 	dir := gitRepo(t, sample("a.tester", "@", "example", ".com"), "Add a file\n")
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=A Tester",
-			"-c", "user.email=" + sample("a.tester", "@", "example", ".com")}, args...)...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-		if b, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, b)
-		}
+		gitAs(t, dir, sample("a.tester", "@", "example", ".com"), args...)
 	}
 	id := sample("1QwErTyUiOp2", "AsDfGhJkL3", "ZxCvBnM4", "pLmNbVcXz")
 	if err := os.WriteFile(filepath.Join(dir, "pasted.md"), []byte("an id: "+id+"\n"), 0o600); err != nil {
