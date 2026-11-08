@@ -41,6 +41,9 @@ func precommit(out io.Writer, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// What the Makefile reader refuses, a file GNU make reads first among
+	// it, fails the hook as it fails the pins gate.
+	problems = append(problems, mk.refused...)
 	gitleaks, err := precommitGitleaks(mk)
 	if err != nil {
 		return err
