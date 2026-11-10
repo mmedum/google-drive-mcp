@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -348,10 +349,10 @@ func TestAnAllowedBlobIsSkippedAndNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowedBlobs[strings.TrimSpace(string(hash))] = "the contact this test allows"
-	t.Cleanup(func() { delete(allowedBlobs, strings.TrimSpace(string(hash))) })
+	allowed := maps.Clone(allowedBlobs)
+	allowed[strings.TrimSpace(string(hash))] = "the contact this test allows"
 	out.Reset()
-	if err := leaksInHistory(&out); err != nil {
+	if err := leaksInHistoryAllowing(&out, allowed); err != nil {
 		t.Errorf("the allowed file version was still flagged: %v\n%s", err, out.String())
 	}
 }

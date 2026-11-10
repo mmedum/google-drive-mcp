@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -51,7 +52,7 @@ func TestWorkflowReaderReadsTheBlockStyle(t *testing.T) {
 		"      - 'release/**' # a comment",
 		"    paths: [go.mod, go.sum]",
 	), "\n", "\r\n"))
-	var got []string
+	got := make([]string, 0, len(w.steps))
 	for _, s := range w.steps {
 		got = append(got, fmt.Sprintf("%s:%d %s #%s with=%v env=%v", s.job, s.line, s.uses, s.comment, s.with, s.env))
 	}
@@ -63,7 +64,7 @@ func TestWorkflowReaderReadsTheBlockStyle(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("steps:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 	}
-	got = nil
+	got = make([]string, 0, len(w.runs))
 	for _, r := range w.runs {
 		got = append(got, fmt.Sprintf("%s:%d %s", r.job, r.line, r.text))
 	}
@@ -71,7 +72,7 @@ func TestWorkflowReaderReadsTheBlockStyle(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("runs = %q, want %q", got, want)
 	}
-	got = nil
+	got = make([]string, 0, len(w.env))
 	for _, k := range w.env {
 		got = append(got, fmt.Sprintf("%s=%s:%d", k.key, k.value, k.line))
 	}
@@ -107,21 +108,21 @@ func TestWorkflowReaderReadsASequenceAtItsKeysColumn(t *testing.T) {
 		"    steps:",
 		"    - run: echo two",
 	))
-	var got []string
+	got := make([]string, 0, len(w.steps))
 	for _, s := range w.steps {
 		got = append(got, fmt.Sprintf("%s:%d %s #%s with=%v env=%v", s.job, s.line, s.uses, s.comment, s.with, s.env))
 	}
 	if want := []string{"build:4 a/b@c #v1 with=map[version:{version v1.2.3 6}] env=map[]"}; !slices.Equal(got, want) {
 		t.Errorf("steps = %q, want %q", got, want)
 	}
-	got = nil
+	got = make([]string, 0, len(w.runs))
 	for _, r := range w.runs {
 		got = append(got, fmt.Sprintf("%s:%d %s", r.job, r.line, r.text))
 	}
 	if want := []string{"build:7 echo one", "build:9 go vet ./...", "next:15 echo two"}; !slices.Equal(got, want) {
 		t.Errorf("runs = %q, want %q", got, want)
 	}
-	got = nil
+	got = make([]string, 0, len(w.env))
 	for _, k := range w.env {
 		got = append(got, fmt.Sprintf("%s=%s:%d", k.key, k.value, k.line))
 	}
@@ -154,6 +155,7 @@ func TestWorkflowReaderRefusesWhatItCannotRead(t *testing.T) {
 		"      - name: x",
 		"        'with':",
 		"          version: v1",
+		"      - {run: x, env: {TOOL_VERSION: latest}}",
 		"  other:",
 		"    steps:",
 		"    - *anchor",
@@ -182,16 +184,18 @@ func TestWorkflowReaderRefusesWhatItCannotRead(t *testing.T) {
 		"w.yml:13: an item of steps: is not a block mapping; write it one key a line",
 		`w.yml:14: "uses": a quoted key; write the key plain`,
 		`w.yml:16: 'with': a quoted key; write the key plain`,
-		"w.yml:20: an item of steps: is not a block mapping; write it one key a line",
-		"w.yml:21: run: a quoted value with an escape in it; write it unquoted or as a block",
-		"w.yml:22: name: a quoted value with an escape in it; write it unquoted or as a block",
-		"w.yml:23: run: a quoted value with an escape in it; write it unquoted or as a block",
-		`w.yml:27: "continued": not a block key, a one-line item or a comment; write it in block style, one key a line`,
-		"w.yml:28: an item of steps: is not a block mapping; write it one key a line",
-		`w.yml:32: "- [self-hosted]": not a block key, a one-line item or a comment; write it in block style, one key a line`,
-		`w.yml:33: "- - nested": not a block key, a one-line item or a comment; write it in block style, one key a line`,
-		`w.yml:34: "-": not a block key, a one-line item or a comment; write it in block style, one key a line`,
-		`w.yml:35: "...": not a block key, a one-line item or a comment; write it in block style, one key a line`,
+		// A refused line is named once: its version key is not named again.
+		"w.yml:18: an item of steps: is not a block mapping; write it one key a line",
+		"w.yml:21: an item of steps: is not a block mapping; write it one key a line",
+		"w.yml:22: run: a quoted value with an escape in it; write it unquoted or as a block",
+		"w.yml:23: name: a quoted value with an escape in it; write it unquoted or as a block",
+		"w.yml:24: run: a quoted value with an escape in it; write it unquoted or as a block",
+		`w.yml:28: "continued": not a block key, a one-line item or a comment; write it in block style, one key a line`,
+		"w.yml:29: an item of steps: is not a block mapping; write it one key a line",
+		`w.yml:33: "- [self-hosted]": not a block key, a one-line item or a comment; write it in block style, one key a line`,
+		`w.yml:34: "- - nested": not a block key, a one-line item or a comment; write it in block style, one key a line`,
+		`w.yml:35: "-": not a block key, a one-line item or a comment; write it in block style, one key a line`,
+		`w.yml:36: "...": not a block key, a one-line item or a comment; write it in block style, one key a line`,
 		// A uses: and a version under a line refused above are read at a
 		// path no rule reads, so they are named as well.
 		"w.yml:9: uses: not read as a step's or a job's; write the step in block style, one key a line",
@@ -340,7 +344,7 @@ func TestWorkflowReaderHoldsEveryUsesAndVersionToWhatItRecorded(t *testing.T) {
 	if !slices.Equal(w.refused, want) {
 		t.Errorf("refused:\n  %s\nwant:\n  %s", strings.Join(w.refused, "\n  "), strings.Join(want, "\n  "))
 	}
-	var got []string
+	got := make([]string, 0, len(w.steps))
 	for _, s := range w.steps {
 		got = append(got, fmt.Sprintf("%s:%d %s with=%v", s.job, s.line, s.uses, s.with))
 	}
@@ -455,7 +459,7 @@ func TestWorkflowReaderRefusesAnInputSetTwice(t *testing.T) {
 	if !slices.Equal(w.refused, want) {
 		t.Errorf("refused:\n  %s\nwant:\n  %s", strings.Join(w.refused, "\n  "), strings.Join(want, "\n  "))
 	}
-	var got []string
+	got := make([]string, 0, len(w.steps))
 	for _, s := range w.steps {
 		got = append(got, fmt.Sprintf("%s:%d with=%v", s.job, s.line, s.with))
 	}
@@ -502,5 +506,67 @@ func TestWorkflowValueCutsTheComment(t *testing.T) {
 		if value, comment := workflowValue(tc.in); value != tc.value || comment != tc.comment {
 			t.Errorf("workflowValue(%q) = %q, %q, want %q, %q", tc.in, value, comment, tc.value, tc.comment)
 		}
+	}
+}
+
+// Every workflow under a root is read, .yml and .yaml alike, sorted, each
+// by its slash-separated path from that root, as a message names it.
+func TestWorkflowsUnderReadsEachByItsPathFromTheRoot(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"b.yml", "a.yaml", "notes.md"} {
+		write(t, filepath.Join(root, filepath.FromSlash(workflowDir+"/"+name)), "on: push\n")
+	}
+	flows, err := workflowsUnder(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(flows))
+	for i := range flows {
+		got = append(got, flows[i].path)
+	}
+	if want := []string{".github/workflows/a.yaml", ".github/workflows/b.yml"}; !slices.Equal(got, want) {
+		t.Errorf("paths = %q, want %q", got, want)
+	}
+}
+
+// YAML breaks a line at a CR with no LF after it, and YAML 1.1 at NEL, LS
+// and PS too, where the readers break at LF alone: a step written after
+// one would be read as the rest of the line before, such as a comment.
+// make breaks at LF alone, and drops only the CR before one.
+func TestReadersRefuseALineBreakTheyDoNotRead(t *testing.T) {
+	workflow := func(s string) []string { return parseWorkflow("w.yml", s).refused }
+	goreleaser := func(s string) []string { return parseGoreleaser(s).refused }
+	mk := func(s string) []string { return parseMakefile(s).refused }
+	const yaml = " of the line, which YAML reads as a line break and this reader does not; break lines with LF or CRLF alone"
+	const makeWhy = " of the line, which make keeps in the line and this reader may drop; break lines with LF or CRLF alone"
+	for _, tc := range []struct {
+		name string
+		read func(string) []string
+		text string
+		want []string
+	}{
+		{"a workflow's CR", workflow, "name: x\n# hidden\r      - uses: evil/x@main\n", []string{"w.yml:2: a CR with no LF after it at byte 9" + yaml}},
+		{"a workflow's NEL", workflow, "name: x\n# hidden\u0085jobs:\n", []string{"w.yml:2: U+0085 (NEXT LINE) at byte 9" + yaml}},
+		{"a workflow's LS", workflow, "name: x\n# hidden jobs:\n", []string{"w.yml:2: U+2028 (LINE SEPARATOR) at byte 9" + yaml}},
+		{"a workflow's PS", workflow, "name: x\n# hidden jobs:\n", []string{"w.yml:2: U+2029 (PARAGRAPH SEPARATOR) at byte 9" + yaml}},
+		{"a workflow's CRLF, a break after it counted on its line", workflow, "name: x\r\n# hidden jobs:\r\n",
+			[]string{"w.yml:2: U+2028 (LINE SEPARATOR) at byte 9" + yaml}},
+		{"a workflow in CRLF", workflow, "name: x\r\n# c\r\njobs:\r\n", nil},
+		{"the goreleaser config's CR", goreleaser, "version: 2\n# hidden\rbefore:\n", []string{".goreleaser.yaml:2: a CR with no LF after it at byte 9" + yaml}},
+		{"the goreleaser config's NEL", goreleaser, "version: 2\n# hidden\u0085before:\n", []string{".goreleaser.yaml:2: U+0085 (NEXT LINE) at byte 9" + yaml}},
+		{"the goreleaser config's LS", goreleaser, "version: 2\n# hidden before:\n", []string{".goreleaser.yaml:2: U+2028 (LINE SEPARATOR) at byte 9" + yaml}},
+		{"the goreleaser config's PS", goreleaser, "version: 2\n# hidden before:\n", []string{".goreleaser.yaml:2: U+2029 (PARAGRAPH SEPARATOR) at byte 9" + yaml}},
+		{"the goreleaser config in CRLF", goreleaser, "version: 2\r\n# c\r\nbefore:\r\n", nil},
+		// make keeps a CR before a CR, so this line ends in no backslash
+		// for make, and the reader would join the next line to it.
+		{"the Makefile's CR", mk, "GO ?= go\n# hidden \\\r\r\nx:\n", []string{"Makefile:2: a CR with no LF after it at byte 11" + makeWhy}},
+		{"the Makefile's NEL, LS and PS, which make reads as text", mk, "GO ?= go\n# a\u0085b c d\nx:\n", nil},
+		{"the Makefile in CRLF", mk, "GO ?= go\r\n# c\r\nx:\r\n", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.read(tc.text); !slices.Equal(got, tc.want) {
+				t.Errorf("refused:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), strings.Join(tc.want, "\n  "))
+			}
+		})
 	}
 }

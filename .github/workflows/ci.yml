@@ -92,6 +92,10 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
       - name: licenses
         run: go run github.com/google/go-licenses@v1.6.0 check ./... --allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC
+      # The Makefile holds the linter's command and its version, so `make
+      # check` runs exactly this.
+      - name: actionlint
+        run: make actionlint
 
   secrets:
     runs-on: ubuntu-latest
@@ -100,12 +104,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # gitleaks scans every commit, so a shallow clone would hide a
-          # credential a branch added and later removed.
+          # gitleaks scans HEAD's whole history, so a shallow clone would
+          # hide a credential a commit added and a later one removed.
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          # A cache of its own, keyed by the Makefile that pins gitleaks too.
+          # The other jobs share go.sum's key and save a cache without
+          # gitleaks, and setup-go saves nothing over a hit on its key, so on
+          # that key gitleaks is built from source on every run.
+          # https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/src/cache-save.ts#L75-L80
+          cache-dependency-path: |
+            go.sum
+            Makefile
       # The Makefile holds the scanner's command and its version, so
       # `make check` runs exactly this.
       - name: gitleaks

@@ -357,9 +357,9 @@ func mcpbPack(out io.Writer, args []string) error {
 // the server's, the launcher and go.mod under root against the staged
 // names, and the staged binaries against the build matrix under root.
 func manifestProblems(manifest map[string]any, root string) []string {
-	problems := checkManifest(manifest, stagedNames())
+	problems := checkManifest(manifest, stagedNames(), binaries)
 	problems = append(problems, settingProblems(manifest, config.Vars(), bundleLeftOut)...)
-	problems = append(problems, checkLauncher(root)...)
+	problems = append(problems, checkLauncher(root, binaries)...)
 	return append(problems, checkBuildMatrix(root)...)
 }
 
@@ -445,8 +445,8 @@ func addFile(zw *zip.Writer, name, src string, mode os.FileMode) error {
 // that every path the manifest names is a file that is going in. A
 // manifest whose entry_point points at a binary nobody staged is well
 // formed by any schema and produces a bundle that installs and then does
-// nothing.
-func checkManifest(manifest map[string]any, contents map[string]string) []string {
+// nothing. staging is the binaries the packer stages: binaries.
+func checkManifest(manifest map[string]any, contents map[string]string, staging []staged) []string {
 	var problems []string
 	for _, key := range []string{"$schema", "manifest_version", "name", "version", "description", "author", "server"} {
 		if manifest[key] == nil {
@@ -457,7 +457,7 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	formatVersion, _ := manifest["manifest_version"].(string)
 	supportURL, _ := manifest["support"].(string)
 	problems = append(problems, declarationProblems(schemaRef, formatVersion, supportURL)...)
-	problems = append(problems, identityProblems(manifest)...)
+	problems = append(problems, identityProblems(manifest, staging)...)
 
 	// And against the schema the manifest cites, which the declaration
 	// rules only name: a document can satisfy every claim about the
@@ -551,7 +551,7 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 	// to catch.
 	// A claimed platform nothing is staged for is reported above.
 	for _, platform := range claimed {
-		want := entryPointFor(platform)
+		want := entryPointFor(staging, platform)
 		if want == "" {
 			continue
 		}
@@ -588,7 +588,7 @@ func checkManifest(manifest map[string]any, contents map[string]string) []string
 // and exactly the platforms the packer stages an entry point for, so
 // dropping one platform and its override together is refused.
 // checkManifest holds each platform to the file staged for it.
-func identityProblems(manifest map[string]any) []string {
+func identityProblems(manifest map[string]any, staging []staged) []string {
 	var problems []string
 	if name, _ := manifest["name"].(string); name != server.Name {
 		problems = append(problems, fmt.Sprintf("the manifest's name is %q and the server's is %q", name, server.Name))
@@ -602,7 +602,7 @@ func identityProblems(manifest map[string]any) []string {
 		problems = append(problems, fmt.Sprintf("compatibility.claude_desktop is %q; this bundle claims %q",
 			got, claudeDesktopFloor))
 	}
-	platforms, staged := slices.Sorted(slices.Values(manifestPlatforms(manifest))), stagedPlatforms()
+	platforms, staged := slices.Sorted(slices.Values(manifestPlatforms(manifest))), stagedPlatforms(staging)
 	if !slices.Equal(platforms, staged) {
 		problems = append(problems, fmt.Sprintf("compatibility.platforms is %v; the packer stages entry points for %v",
 			platforms, staged))
@@ -676,13 +676,14 @@ func manifestPlatforms(manifest map[string]any) []string {
 	return out
 }
 
-// entryPointFor is the file a platform spawns: its own binary, or the
-// launcher where the platform needs one binary per architecture.
-func entryPointFor(platform string) string {
+// entryPointFor is the file a platform spawns among the staged binaries:
+// its own binary, or the launcher where the platform needs one binary per
+// architecture.
+func entryPointFor(staging []staged, platform string) string {
 	if platform == launcherPlatform {
 		return linuxLauncher
 	}
-	for _, b := range binaries {
+	for _, b := range staging {
 		if b.platform == platform {
 			return b.as
 		}
@@ -690,11 +691,11 @@ func entryPointFor(platform string) string {
 	return ""
 }
 
-// stagedPlatforms is every platform the packer stages an entry point
-// for, sorted: each binary's, and the launcher's.
-func stagedPlatforms() []string {
+// stagedPlatforms is every platform the staged binaries give an entry
+// point, sorted: each binary's, and the launcher's.
+func stagedPlatforms(staging []staged) []string {
 	platforms := []string{launcherPlatform}
-	for _, b := range binaries {
+	for _, b := range staging {
 		if b.platform != "" {
 			platforms = append(platforms, b.platform)
 		}
@@ -716,8 +717,9 @@ func stagedPlatforms() []string {
 // It asserts the names rather than generating the script: a launcher is
 // a thing a person should be able to read, and generating it would trade
 // a checkable fact for a harder-to-read one. Its install hint is held to
-// go.mod under root the same way.
-func checkLauncher(root string) []string {
+// go.mod under root the same way. staging is the binaries the packer
+// stages: binaries.
+func checkLauncher(root string, staging []staged) []string {
 	source, ok := alongside[linuxLauncher]
 	if !ok {
 		return []string{"the packer stages no " + linuxLauncher}
@@ -728,7 +730,7 @@ func checkLauncher(root string) []string {
 	}
 	var problems []string
 	named := 0
-	for _, b := range binaries {
+	for _, b := range staging {
 		if !strings.HasPrefix(b.as, "server/") || b.platform != "" {
 			continue
 		}
@@ -790,80 +792,56 @@ var (
 // thinking about different things — `.goreleaser.yaml` decides what
 // exists, `binaries` decides what reaches the bundle — and only one
 // direction rots loudly. A platform REMOVED from the matrix fails at
-// pack time, when onlyMatch finds no file. A platform ADDED to it is
-// simply absent from the bundle, silently, for as long as nobody looks.
+// pack time, when onlyMatch finds no file. A goos-goarch pair ADDED to it
+// is simply absent from the bundle, silently, for as long as nobody looks.
 //
 // That is the shape `gates parity` exists for one file over, and this is
 // the same argument applied to the release's other pair of lists.
 func checkBuildMatrix(root string) []string {
-	source, err := os.ReadFile(filepath.Join(root, parityGoreleaser)) //nolint:gosec // a repository path from a constant
+	g, err := readGoreleaser(root)
 	if err != nil {
 		return []string{"cannot read " + parityGoreleaser + ": " + err.Error()}
 	}
-	for _, key := range []string{"goos", "goarch"} {
-		if n := matrixLists(string(source), key); n > 1 {
-			return []string{fmt.Sprintf("%s writes %d %s: lists, and this reads one build's matrix: "+
-				"build every platform in one build", parityGoreleaser, n, key)}
-		}
+	// A shape the reader refuses can hide a build, so it is reported here
+	// as well as by pins and parity.
+	if len(g.refused) > 0 {
+		return g.refused
 	}
-	built := matrixValues(string(source), "goos")
-	arches := matrixValues(string(source), "goarch")
-	if len(built) == 0 || len(arches) == 0 {
-		return []string{"found no goos/goarch matrix in " + parityGoreleaser + "; has its shape changed?"}
+	pairs, err := goreleaserMatrix(g)
+	if err != nil {
+		return []string{err.Error()}
 	}
 
-	// What the bundle carries, by the goos each staged file comes from.
-	staged := map[string]bool{}
+	// The pairs the staged binaries run on, from the dist directory each
+	// glob matches (`linux_arm64` in `*linux_arm64*`). Each pair is held
+	// on its own: a linux arm64 binary runs neither riscv64 nor 32-bit arm.
+	runs := map[string]bool{}
 	for _, b := range binaries {
-		for _, goos := range built {
-			if strings.Contains(b.glob, goos+"_") || strings.Contains(b.glob, goos+"_all") {
-				staged[goos] = true
-			}
-		}
-		if strings.Contains(b.glob, "darwin_all") {
-			staged["darwin"] = true
+		dir, _, _ := strings.Cut(strings.TrimPrefix(b.glob, "*"), "*")
+		goos, rest, _ := strings.Cut(dir, "_")
+		goarch, _, _ := strings.Cut(rest, "_")
+		// all is goreleaser's universal binary, amd64 and arm64 in one.
+		if goarch == "all" {
+			runs[goos+"-amd64"], runs[goos+"-arm64"] = true, true
+		} else {
+			runs[goos+"-"+goarch] = true
 		}
 	}
 	var problems []string
-	for _, goos := range built {
-		if !staged[goos] {
+	for _, pair := range pairs {
+		if !runs[pair] && !runs[buildRunsUnder[pair]] {
 			problems = append(problems, fmt.Sprintf(
-				"goreleaser builds %s and the bundle stages nothing from it, so a %s user installing "+
-					"the bundle gets a server that cannot start. Add it to binaries, or say in "+
-					"compatibility.platforms that the bundle does not claim %s", goos, goos, goos))
+				"goreleaser builds %s and the bundle stages no binary that runs on it, so a user on %s "+
+					"installing the bundle gets a server that cannot start. Add one to binaries", pair, pair))
 		}
 	}
 	return problems
 }
 
-// matrixValues reads one inline list out of the build matrix, which is
-// written as `goos: [linux, darwin, windows]`.
-func matrixValues(source, key string) []string {
-	m := regexp.MustCompile(`(?m)^\s*` + key + `:\s*\[([^\]]*)\]`).FindStringSubmatch(source)
-	if m == nil {
-		return nil
-	}
-	var out []string
-	for _, v := range strings.Split(m[1], ",") {
-		if v = strings.TrimSpace(v); v != "" {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// matrixLists counts the key's lists, inline or as a block. A key with a
-// scalar, such as an archive override's `goos: windows`, is not one.
-func matrixLists(source, key string) int {
-	n := 0
-	for _, line := range strings.Split(source, "\n") {
-		rest, ok := strings.CutPrefix(strings.TrimPrefix(strings.TrimSpace(line), "- "), key+":")
-		if value, _ := yamlCutComment(rest); ok && (value == "" || strings.HasPrefix(value, "[")) {
-			n++
-		}
-	}
-	return n
-}
+// buildRunsUnder is each pair the bundle serves with another pair's
+// binary: Windows 11 on Arm runs x64 apps under emulation, and Windows 10
+// on Arm runs only x86 ones (https://learn.microsoft.com/en-us/windows/arm/apps-on-arm-x86-emulation).
+var buildRunsUnder = map[string]string{"windows-arm64": "windows-amd64"}
 
 // upstreamSchema matches the host and path the manifest schema is
 // published at, and captures the ref it is served from.

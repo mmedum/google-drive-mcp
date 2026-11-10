@@ -132,12 +132,8 @@ func TestTheGateReportsAHollowExemption(t *testing.T) {
 				"package transcript\n\nimport (\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n)\n\n"+
 					"var _ = strings.TrimSpace\n\nfunc write(w io.Writer, text string) {\n\t"+body+"\n}\n")
 
-			defer restore(transcriptPackages, transcriptPackage)
-			transcriptPackages = []string{filepath.Join("scripts", "livedrive")}
-			transcriptPackage = filepath.Join("scripts", "internal", "transcript")
-
 			var out bytes.Buffer
-			if err := transcript(&out, nil); err == nil {
+			if err := transcriptCheck(&out, fixtureDrivers); err == nil {
 				t.Fatalf("a transcript package that redacts nothing was accepted:\n%s", out.String())
 			}
 			if !strings.Contains(out.String(), "hollow") {
@@ -161,12 +157,8 @@ func TestTheGateReportsAnUnlistedDriver(t *testing.T) {
 		"package main\n\nimport \"github.com/x/y/scripts/internal/redact\"\n\n"+
 			"func main() { _ = redact.NewRedactor(false) }\n")
 
-	defer restore(transcriptPackages, transcriptPackage)
-	transcriptPackages = []string{filepath.Join("scripts", "livedrive")}
-	transcriptPackage = filepath.Join("scripts", "internal", "transcript")
-
 	var out bytes.Buffer
-	if err := transcript(&out, nil); err == nil {
+	if err := transcriptCheck(&out, fixtureDrivers); err == nil {
 		t.Fatalf("a driver covered by nothing was accepted:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "newdriver") {
@@ -200,9 +192,6 @@ func writeDriver(t *testing.T, dir string) {
 	}
 }
 
-// restore puts the package lists back, so one test's fixture is not the
-// next test's subject.
-func restore(packages []string, exempt string) {
-	transcriptPackages = packages
-	transcriptPackage = exempt
-}
+// fixtureDrivers are the packages a fixture tree's gate covers, handed to
+// transcriptCheck in place of the tree's.
+var fixtureDrivers = []string{filepath.Join("scripts", "livedrive")}

@@ -88,14 +88,16 @@ var documentedInProse = map[string]string{
 
 // checkReadmeTools keeps the README's table and the registered tools in
 // step, in both directions: a tool nobody documented, and a documented
-// tool that no longer exists.
+// tool that no longer exists. The table and the prose are read with fenced
+// code blanked, since a row or a name in an example documents nothing.
 func checkReadmeTools(registered []string) []string {
 	readme, err := os.ReadFile("README.md")
 	if err != nil {
 		return []string{"cannot read README.md: " + err.Error()}
 	}
+	text := strings.Join(docsProse(string(readme)), "\n")
 	documented := map[string]bool{}
-	for _, m := range readmeToolRow.FindAllStringSubmatch(string(readme), -1) {
+	for _, m := range readmeToolRow.FindAllStringSubmatch(text, -1) {
 		documented[m[1]] = true
 	}
 	var problems []string
@@ -103,7 +105,7 @@ func checkReadmeTools(registered []string) []string {
 		if _, prose := documentedInProse[name]; prose {
 			// Named in a paragraph on purpose. It still has to be MENTIONED
 			// somewhere, which is checked below.
-			if !strings.Contains(string(readme), "`"+name+"`") {
+			if !strings.Contains(text, "`"+name+"`") {
 				problems = append(problems, "README does not mention the registered tool "+name+
 					" at all; it is meant to be described in prose rather than in the table")
 			}
@@ -123,6 +125,8 @@ func checkReadmeTools(registered []string) []string {
 	for _, name := range extra {
 		problems = append(problems, "README's tool table lists "+name+", which is not registered")
 	}
+	// The permission rules are a settings file a person copies, so they are
+	// read from the fenced block they sit in.
 	return append(problems, checkPermissionRules(string(readme), registered)...)
 }
 
@@ -167,8 +171,9 @@ func checkConfigDocs(settings []string) []string {
 // configDocProblems holds the configuration page, text, to the variables
 // the server reads, both ways: it names every one as a whole word, names
 // no other, and says what a profile name is in the words the server
-// refuses one with.
+// refuses one with. Fenced code is an example, which documents nothing.
 func configDocProblems(settings []string, text string) []string {
+	text = strings.Join(docsProse(text), "\n")
 	documented := map[string]bool{}
 	for _, at := range settingWord.FindAllStringSubmatchIndex(text, -1) {
 		if word := text[at[2]:at[3]]; settingName.MatchString(word) && !strings.HasPrefix(text[at[3]:], "*") {
@@ -204,20 +209,22 @@ var (
 )
 
 // checkChangelog holds the checkout at dir to changelogRule, measured from
-// the newest release tag by semver, a prerelease included. No such tag, or
-// a git or go call that cannot answer, is couldNotRun, never "source
-// changed".
+// lastTag, the newest release HEAD reaches. No such tag, or a git or go
+// call that cannot answer, is couldNotRun, never "source changed".
 func checkChangelog(dir string) ([]string, error) {
 	list, err := git("-C", dir, "tag")
 	if err != nil {
 		return nil, changelogUnrun(dir, err)
 	}
 	tags := strings.Fields(list)
-	last := stalenessNewestRelease(tags)
-	if last == "" {
-		return nil, changelogUnrun(dir, errors.New("no release tag (vX.Y.Z) is in the checkout to measure from"))
+	last, err := lastTag(dir, "HEAD")
+	if err != nil {
+		return nil, changelogUnrun(dir, err)
 	}
-	changed, err := shippedChangedSince(dir, "v"+last)
+	if last == "" {
+		return nil, changelogUnrun(dir, errors.New("no release tag (vX.Y.Z) HEAD reaches is in the checkout to measure from"))
+	}
+	changed, err := shippedChangedSince(dir, last)
 	if err != nil {
 		return nil, changelogUnrun(dir, err)
 	}
@@ -261,6 +268,21 @@ func changelogRule(text string, sourceChanged bool, tagged func(version string) 
 	return []string{"the binary's source changed but " + changelogPath + " " + where + " is empty"}
 }
 
+// lastTag is the newest release rev reaches in the checkout at dir: of the
+// tags on its history, the highest vX.Y.Z by semver, a prerelease included,
+// so a newer release on another line is not rev's. It is empty when rev
+// reaches no release, which is a state, not a failure; a git error is one.
+func lastTag(dir, rev string) (string, error) {
+	tags, err := git("-C", dir, "tag", "--merged", rev)
+	if err != nil {
+		return "", err
+	}
+	if v := stalenessNewestRelease(strings.Fields(tags)); v != "" {
+		return "v" + v, nil
+	}
+	return "", nil
+}
+
 // stalenessNewestRelease is the newest release tag's version by semver
 // order, a prerelease included, or "" when there is none. git's version
 // sort puts v2.0.0-rc.1 after v2.0.0, so the order is semver's.
@@ -276,11 +298,9 @@ func stalenessNewestRelease(tags []string) string {
 }
 
 // shippedChangedSince reports whether the commits since..HEAD of the
-// checkout at dir change the binary's source: a Go file other than a test
-// in a package of this module the binary imports, a file such a package
-// embeds, or go.mod outside its require and tool lines. A package counts
-// by its directory, so a file another platform builds counts, and so does
-// a file removed from it. Commits are compared, as CI sees them.
+// checkout at dir change what users get: a file shippedSource has, or
+// go.mod outside its require and tool lines. Commits are compared, as CI
+// sees them.
 func shippedChangedSince(dir, since string) (bool, error) {
 	out, err := git("-C", dir, "diff", since+"..HEAD", "--name-only", "--no-renames", "-z")
 	if err != nil {
@@ -313,8 +333,19 @@ func shippedChangedSince(dir, since string) (bool, error) {
 // slash-separated from the module root.
 type shippedSource struct{ dirs, embeds map[string]bool }
 
+// has reports whether a file is one users get: any file but a test in one
+// of the binary's package directories, an embedded file, or the bundle's
+// manifest or launcher. The README and LICENSE the bundle carries are
+// docs, so they count for nothing. Every file of a package directory
+// counts: the go command builds a package from assembly, a .syso and C as
+// well as Go (`go help filetype`). A package
+// counts by its directory, so a file of it another platform builds counts,
+// and so does one removed from it. The packages are the host's, in the
+// checkout: a package only another platform's files import, or a directory
+// the head removes whole, is not one.
 func (s *shippedSource) has(file string) bool {
-	return s.embeds[file] || strings.HasSuffix(file, ".go") && !strings.HasSuffix(file, "_test.go") && s.dirs[path.Dir(file)]
+	return file == mcpbManifestPath || file == alongside[linuxLauncher] || s.embeds[file] ||
+		!strings.HasSuffix(file, "_test.go") && s.dirs[path.Dir(file)]
 }
 
 // listShipped asks the go command what ./cmd/... is built from in the

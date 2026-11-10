@@ -53,6 +53,12 @@ func TestTheChangelogRule(t *testing.T) {
 		{"a release cut only in a fence", clUnreleased + "```\n" + clNext + "```\n\n" + clReleased, true,
 			[]string{"0.9.0"}, []string{clEmpty}},
 		{"no change to the binary's source", clUnreleased + clReleased, false, []string{"0.9.0"}, nil},
+		// An entry is a bullet at the margin: an indented one is a sub-point
+		// of an entry, and with none above it is nobody's.
+		{"only an indented bullet under [Unreleased]", clUnreleased + "### Added\n\n  - A sub-point.\n\n" + clReleased, true,
+			[]string{"0.9.0"}, []string{clEmpty}},
+		{"only a bullet in a fence under [Unreleased]", clUnreleased + "```\n- An example.\n```\n\n" + clReleased, true,
+			[]string{"0.9.0"}, []string{clEmpty}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -138,11 +144,11 @@ func stalenessChange(t *testing.T, dir string, files map[string]string) {
 	stalenessGit(t, dir, "commit", "-q", "-m", "change")
 }
 
-// A committed change to what the binary is built from needs an entry: a
-// package it imports, a file one embeds, and go.mod but its require and
-// tool lines. A test, a fixture, a package it does not import and a
-// dependency bump do not, and nor does what is not committed, which CI
-// never sees.
+// A committed change to what users get needs an entry: any file but a test
+// in a package the binary imports, a file one embeds, a file the bundle
+// carries from the tree, and go.mod but its require and tool lines. A
+// test, a fixture, a package it does not import and a dependency bump do
+// not, and nor does what is not committed, which CI never sees.
 func TestTheChangelogRuleCountsWhatShips(t *testing.T) {
 	const goMod = "go.mod"
 	base := stalenessRepo(t)
@@ -177,7 +183,16 @@ func TestTheChangelogRuleCountsWhatShips(t *testing.T) {
 		{"a tool( block", map[string]string{goMod: gomod + "\ntool(\n\texample.com/dep\n)\n"}, nil, false},
 		{"a test", map[string]string{"internal/a/a_test.go": "package a\n\n// changed\n"}, nil, false},
 		{"a fixture", map[string]string{"internal/a/testdata/x": "y\n"}, nil, false},
-		{"a file beside a package that it does not embed", map[string]string{"internal/a/notes.md": "more\n"}, nil, false},
+		// The go command builds a package from assembly, a .syso and C as well
+		// as Go (`go help filetype`), so every file of its directory counts.
+		{"a file of a package that it does not embed", map[string]string{"internal/a/notes.md": "more\n"}, nil, true},
+		{"assembly and a .syso in one", map[string]string{"internal/a/a_amd64.s": "TEXT ·x(SB),0,$0\n", "internal/a/a.syso": "x\n"}, nil, true},
+		{"a file in a directory under one that is no package", map[string]string{"internal/a/notes/x.md": "x\n"}, nil, false},
+		{"the bundle's manifest", map[string]string{mcpbManifestPath: "{}\n"}, nil, true},
+		{"the bundle's launcher", map[string]string{alongside[linuxLauncher]: "#!/bin/sh\n"}, nil, true},
+		// The bundle carries the root README, and it is still a doc.
+		{"the root README", map[string]string{"README.md": "x\n"}, nil, false},
+		{"a file beside the bundle's", map[string]string{"packaging/mcpb/README.md": "x\n"}, nil, false},
 		{"a package the binary does not import", map[string]string{"internal/unused/u.go": "package unused\n\n// changed\n"}, nil, false},
 		// A dependency's package sits at a path of its own module's, never this one's.
 		{"a package at the path of a dependency's", map[string]string{"tools.go": "package fixture\n\n// changed\n"}, nil, false},
@@ -228,6 +243,16 @@ func TestTheChangelogRuleMeasuresFromTheNewestRelease(t *testing.T) {
 		{"a change older than the newest tag by date, not by version", func(t *testing.T, dir string) {
 			stalenessGit(t, dir, "tag", "v0.8.9")
 		}, []string{clEmpty}},
+		// A release on another line is not HEAD's, even one that shipped the
+		// same change.
+		{"a newer release on another line with the same change", func(t *testing.T, dir string) {
+			stalenessGit(t, dir, "checkout", "-q", "-b", "side", "v0.9.0")
+			stalenessChange(t, dir, map[string]string{"internal/a/b.go": "package a\n\n// changed\n", "docs/x.md": "side\n"})
+			stalenessGit(t, dir, "tag", "v9.9.9")
+			stalenessGit(t, dir, "checkout", "-q", "main")
+		}, []string{clEmpty}},
+		// A tag that names no release is not one, however near.
+		{"a tag that is no semver release", func(t *testing.T, dir string) { stalenessGit(t, dir, "tag", "v1.0.0--") }, []string{clEmpty}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -266,16 +291,13 @@ func TestTheChangelogRuleNeedsAGitCheckout(t *testing.T) {
 		!strings.HasPrefix(err.Error(), "could not run: the CHANGELOG rule: git -C "+dir+" tag") {
 		t.Errorf("outside git: %v; want a git tag failure that could not run", err)
 	}
-	dir = stalenessRepo(t)
-	blob, err := git("-C", dir, "hash-object", "-w", changelogPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stalenessGit(t, dir, "tag", "v2.0.0", blob)
+	// A checkout with no commit has no HEAD to read the releases of.
+	dir = t.TempDir()
+	stalenessGit(t, dir, "init", "-q", "-b", "main")
 	_, err = checkChangelog(dir)
 	if !errors.As(err, new(couldNotRun)) || err == nil ||
-		!strings.HasPrefix(err.Error(), "could not run: the CHANGELOG rule: git -C "+dir+" diff v2.0.0") {
-		t.Errorf("a tag git cannot diff: %v; want a git diff failure that could not run", err)
+		!strings.HasPrefix(err.Error(), "could not run: the CHANGELOG rule: git -C "+dir+" tag --merged HEAD") {
+		t.Errorf("a checkout with no commit: %v; want a git tag --merged failure that could not run", err)
 	}
 }
 
@@ -283,7 +305,7 @@ func TestTheChangelogRuleNeedsAGitCheckout(t *testing.T) {
 // why rather than measure from some other commit. A shallow clone fetches
 // no tag, and the rule names it.
 func TestTheChangelogRuleNeedsARelease(t *testing.T) {
-	const noTag = "could not run: the CHANGELOG rule: no release tag (vX.Y.Z) is in the checkout to measure from"
+	const noTag = "could not run: the CHANGELOG rule: no release tag (vX.Y.Z) HEAD reaches is in the checkout to measure from"
 	base := stalenessRepo(t)
 	stalenessChange(t, base, map[string]string{"internal/a/b.go": "package a\n\n// changed\n"})
 	untagged := stalenessCopy(t, base)
@@ -321,13 +343,9 @@ func TestStalenessRunsEveryOtherCheckWithoutARelease(t *testing.T) {
 	}
 	files := map[string]string{}
 	for _, name := range []string{"README.md", configDocPath, "internal/auth/auth.go", changelogPath} {
-		data, err := os.ReadFile(filepath.Join(parityRepoRoot, filepath.FromSlash(name)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[name] = string(data)
+		files[name] = repoFile(t, name)
 	}
-	const unrun = "could not run: the CHANGELOG rule: no release tag (vX.Y.Z) is in the checkout to measure from"
+	const unrun = "could not run: the CHANGELOG rule: no release tag (vX.Y.Z) HEAD reaches is in the checkout to measure from"
 	const row = "| `get_file` |"
 	for _, tc := range []struct {
 		name     string
@@ -477,10 +495,38 @@ func TestTheConfigurationPageIsHeldByWholeWord(t *testing.T) {
 			"docs/configuration.md documents GDRIVE_GONE, which the server does not read"},
 		{"no profile rule", strings.Replace(page, config.ProfileRule, "a name", 1),
 			`docs/configuration.md does not say a profile name is "` + config.ProfileRule + `"`},
+		// An example documents nothing.
+		{"a name only in fenced code", strings.Replace(page, "and GDRIVE_READ_ONLY.", ".\n\n```sh\nGDRIVE_READ_ONLY=true\n```\n", 1),
+			"docs/configuration.md does not document GDRIVE_READ_ONLY"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if problems := configDocProblems(settings, tc.page); !slices.Contains(problems, tc.want) {
 				t.Errorf("problems %q, want one %q", problems, tc.want)
+			}
+		})
+	}
+}
+
+// The README's tool table is the table outside fenced code: a row in an
+// example documents no tool, and nor does a name in one for a tool the
+// README describes in prose.
+func TestTheReadmeToolsAreReadOutsideFencedCode(t *testing.T) {
+	const rules = "```json\n\"mcp__google-drive__get_file\", \"mcp__google-drive__delete_file\"\n```\n"
+	for _, tc := range []struct {
+		name, readme string
+		want         []string
+	}{
+		{"a row and a prose name", "| `get_file` | reads |\n\n`delete_file` is permanent.\n\n" + rules, nil},
+		{"a row only in fenced code", "```\n| `get_file` | reads |\n```\n\n`delete_file` is permanent.\n\n" + rules,
+			[]string{"README's tool table does not list the registered tool get_file"}},
+		{"a prose tool named only in fenced code", "| `get_file` | reads |\n\n~~~\n`delete_file`\n~~~\n\n" + rules,
+			[]string{"README does not mention the registered tool delete_file at all; it is meant to be described in prose rather than in the table"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			write(t, "README.md", tc.readme)
+			if got := checkReadmeTools([]string{"get_file", "delete_file"}); !slices.Equal(got, tc.want) {
+				t.Errorf("problems = %q, want %q", got, tc.want)
 			}
 		})
 	}

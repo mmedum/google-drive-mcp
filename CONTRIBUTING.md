@@ -46,10 +46,10 @@ make hooks
 
 Go is the only prerequisite, at the version in `go.mod`;
 `GOTOOLCHAIN=auto`, the default, fetches it. The Makefile runs
-golangci-lint, govulncheck, go-licenses and gitleaks through `go run` at
-pinned versions. Everything the repository runs on itself is Go, under
-`scripts/` (D-10), and GoReleaser builds only `./cmd/...`, so none of it
-ships.
+golangci-lint, govulncheck, go-licenses, gitleaks and actionlint through
+`go run` at pinned versions. Everything the repository runs on itself is
+Go, under `scripts/` (D-10), and GoReleaser builds only `./cmd/...`, so
+none of it ships.
 
 `make hooks` installs a pre-commit hook running
 `go run ./scripts/gates precommit`: gofmt, vet, `make leaks`' scan and

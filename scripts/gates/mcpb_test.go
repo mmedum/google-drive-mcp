@@ -117,11 +117,16 @@ func TestTheGateReadsEveryFileFromItsRoot(t *testing.T) {
 		{"go.mod at another module", "go.mod", "module github.com/mmedum/google-drive-mcp/v3",
 			"module github.com/mmedum/google-drive-mcp/v4", "and go.mod's module gives"},
 		{"a build for another system", parityGoreleaser, "goos: [", "goos: [freebsd, ",
-			"goreleaser builds freebsd and the bundle stages nothing from it"},
-		// The check reads one build's matrix, so a second is refused by name.
+			"goreleaser builds freebsd-amd64 and the bundle stages no binary that runs on it"},
+		// Every build's pairs are read together.
 		{"a second build with a matrix of its own", parityGoreleaser, "\n# The universal macOS binary",
 			"\n  - id: other\n    main: ./cmd/other\n    goos:\n      - freebsd\n    goarch: [amd64]\n\n# The universal macOS binary",
-			".goreleaser.yaml writes 2 goos: lists, and this reads one build's matrix: build every platform in one build"},
+			"goreleaser builds freebsd-amd64 and the bundle stages no binary that runs on it"},
+		{"a build by targets", parityGoreleaser, "    goos: [", "    targets: [go_first_class]\n    goos: [",
+			"builds.targets is set, which this gate does not read"},
+		// A key the reader cannot read hides the build under it.
+		{"a build's goos under a quoted key", parityGoreleaser, "    goos: [", `    "goos": [`,
+			`"goos": a quoted key; write the key plain`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := copiedRoot(t)
@@ -322,7 +327,7 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 			},
 		}
 	}
-	if problems := checkManifest(good(), packed); len(problems) > 0 {
+	if problems := checkManifest(good(), packed, binaries); len(problems) > 0 {
 		t.Fatalf("a correct manifest was rejected:\n%s", strings.Join(problems, "\n"))
 	}
 
@@ -461,7 +466,7 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			m := good()
 			c.break_(m)
-			problems := checkManifest(m, packed)
+			problems := checkManifest(m, packed, binaries)
 			if len(problems) != 1 || !strings.Contains(problems[0], c.want) {
 				t.Errorf("the report is not the one problem %q:\n%s", c.want, strings.Join(problems, "\n"))
 			}
@@ -472,16 +477,14 @@ func TestTheManifestIsCheckedAgainstTheBundle(t *testing.T) {
 	// claimed, is the identity check's to report, and the check of each
 	// platform's file does not report it again against no file.
 	t.Run("a claimed platform the packer stops staging", func(t *testing.T) {
-		original := binaries
-		t.Cleanup(func() { binaries = original })
-		binaries = slices.Clone(binaries)
-		for i := range binaries {
-			if binaries[i].platform == "win32" {
-				binaries[i].platform = ""
+		staging := slices.Clone(binaries)
+		for i := range staging {
+			if staging[i].platform == "win32" {
+				staging[i].platform = ""
 			}
 		}
 		want := "compatibility.platforms is [darwin linux win32]; the packer stages entry points for [darwin linux]"
-		if problems := checkManifest(good(), packed); !slices.Equal(problems, []string{want}) {
+		if problems := checkManifest(good(), packed, staging); !slices.Equal(problems, []string{want}) {
 			t.Errorf("the report is not the one problem %q:\n%s", want, strings.Join(problems, "\n"))
 		}
 	})
@@ -563,7 +566,7 @@ func TestAManifestNamingAnUnstagedFileIsRefused(t *testing.T) {
 	}
 	server, _ := manifest["server"].(map[string]any)
 	server["entry_point"] = "server/google-drive-mcp-riscv64"
-	problems := checkManifest(manifest, stagedNames())
+	problems := checkManifest(manifest, stagedNames(), binaries)
 	if len(problems) == 0 {
 		t.Fatal("an entry point the packer never stages was accepted")
 	}
@@ -712,27 +715,25 @@ func TestTheLinuxLauncherPicksABinaryAndKeepsStdoutClean(t *testing.T) {
 // see those names, and a staged Linux binary renamed without it fails for
 // every Linux user.
 //
-// It swaps the packer's own list rather than a copy, because the check's
-// whole job is to compare the launcher against what the packer really
-// stages — a fixture list would be two literals agreeing with each other.
+// It hands the check a copy of the packer's own list, renamed, rather than
+// a fixture list, because the check's whole job is to compare the launcher
+// against what the packer really stages — a fixture list would be two
+// literals agreeing with each other.
 func TestTheLauncherIsHeldToTheStagedNames(t *testing.T) {
 	t.Chdir("../..")
-	if problems := checkLauncher("."); len(problems) > 0 {
+	if problems := checkLauncher(".", binaries); len(problems) > 0 {
 		t.Fatalf("the committed launcher does not name what the packer stages:\n%s",
 			strings.Join(problems, "\n"))
 	}
 
-	original := binaries
-	defer func() { binaries = original }()
 	renamed := slices.Clone(binaries)
 	for i := range renamed {
 		if renamed[i].platform == "" {
 			renamed[i].as = "server/renamed-" + filepath.Base(renamed[i].as)
 		}
 	}
-	binaries = renamed
 
-	problems := checkLauncher(".")
+	problems := checkLauncher(".", renamed)
 	if len(problems) == 0 {
 		t.Fatal("a renamed Linux binary was accepted")
 	}
@@ -754,12 +755,33 @@ func TestThePlatformsGoreleaserBuildsAreStaged(t *testing.T) {
 
 	// And the matrix is really being read, rather than an empty list
 	// agreeing with an empty list.
-	source, err := os.ReadFile(parityGoreleaser)
+	g, err := readGoreleaser(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := matrixValues(string(source), "goos"); len(got) < 3 {
-		t.Errorf("read %v as the goos matrix; that is too few to be the real one", got)
+	// The release ships an archive for each pair it builds.
+	const releaseArchives = 6
+	if got, err := goreleaserMatrix(g); err != nil || len(got) < releaseArchives {
+		t.Errorf("read %v, %v as the build matrix; that is too few to be the real one", got, err)
+	}
+
+	// Each pair is held, not its goos: a Linux build the packer stages no
+	// binary for gets a launcher with nothing to run.
+	unstaged := func(pair string) string {
+		return "goreleaser builds " + pair + " and the bundle stages no binary that runs on it, so a user on " +
+			pair + " installing the bundle gets a server that cannot start. Add one to binaries"
+	}
+	for _, tc := range []struct{ name, goarch, want string }{
+		{"an extra goarch", "[amd64, arm64, riscv64]", unstaged("linux-riscv64")},
+		{"a goarch a staged one's name begins with", "[arm]", unstaged("linux-arm")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, filepath.Join(root, parityGoreleaser), "builds:\n  - goos: [linux]\n    goarch: "+tc.goarch+"\n")
+			if got := checkBuildMatrix(root); !slices.Equal(got, []string{tc.want}) {
+				t.Errorf("problems:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), tc.want)
+			}
+		})
 	}
 }
 
