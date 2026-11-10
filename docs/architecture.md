@@ -2580,6 +2580,9 @@ The goreleaser config is read by key path, as the goreleaser version
 another version than the one the reader is checked against. The readers
 refuse by name a line or a shape they do not read, such as a line break
 YAML reads and they do not, rather than read less.
+goreleaser runs one branch of a template, so the `.goreleaser.yaml`
+reader refuses a command holding a control action other than one
+`{{ if }}` or `{{ with }}` wrapping it whole.
 
 Dependabot updates the action SHAs and keeps the comment in step.
 `TestActionPins` holds the action half, and `TestPinsNamesEachProblem`,
