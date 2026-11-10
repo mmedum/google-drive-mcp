@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -9,13 +10,10 @@ import (
 	"testing"
 )
 
-// parityReleaseWorkflow is the workflow a release tag starts.
-const parityReleaseWorkflow = "release.yml"
-
 // The release attests its archives, the bundle and the checksum file
-// goreleaser writes. actions/attest v4.2.1, which attest-build-provenance
-// v4.2.2 runs, splits subject-path at commas and newlines and trims each
-// glob
+// goreleaser writes, in the job that publishes them. actions/attest v4.2.1,
+// which attest-build-provenance v4.2.2 runs, splits subject-path at commas
+// and newlines and trims each glob
 // (https://github.com/actions/attest/blob/508db95dd578ae2727ebd6217d5ba78e4fbda05d/src/subject.ts#L303),
 // so a space-separated list is one glob that matches nothing.
 func TestTheReleaseAttestsItsArchivesBundleAndChecksumFile(t *testing.T) {
@@ -24,9 +22,9 @@ func TestTheReleaseAttestsItsArchivesBundleAndChecksumFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	release, ok := workflowNamed(flows, parityReleaseWorkflow)
+	release, ok := workflowNamed(flows, releaseWorkflow)
 	if !ok {
-		t.Fatal("no " + parityReleaseWorkflow)
+		t.Fatal("no " + releaseWorkflow)
 	}
 	cfg, err := os.ReadFile(parityGoreleaser)
 	if err != nil {
@@ -37,27 +35,61 @@ func TestTheReleaseAttestsItsArchivesBundleAndChecksumFile(t *testing.T) {
 	}
 }
 
-// releaseAttestProblems holds a release workflow's build-provenance step
-// to releaseFiles' entries.
+// releaseAttestProblems holds each job of the release workflow that runs
+// goreleaser release to a build-provenance step of its own, whose token can
+// write the attestation, naming releaseFiles' entries. A step in another job
+// or workflow can be skipped while the release ships, and actions/attest
+// needs id-token: write and attestations: write to sign and store the
+// provenance
+// (https://github.com/actions/attest/blob/508db95dd578ae2727ebd6217d5ba78e4fbda05d/README.md#L64-L76).
 func releaseAttestProblems(release workflowFile, cfg string) []string {
 	files, problems := releaseFiles(cfg)
-	attested := false
-	for _, s := range release.steps {
-		if s.action() != "actions/attest-build-provenance" {
-			continue
-		}
-		attested = true
-		subjects, ok := s.with["subject-path"]
-		if !ok {
-			problems = append(problems, fmt.Sprintf("%s:%d: the attestation names no subject-path", release.path, s.line))
-			continue
-		}
-		problems = append(problems, releaseSubjectProblems(subjects.value, files)...)
+	jobs := releaseJobs(release)
+	if len(jobs) == 0 {
+		return append(problems, release.path+" has no job that runs goreleaser-action with args starting `release`, "+
+			"so no attestation is held to what the release publishes")
 	}
-	if !attested {
-		problems = append(problems, release.path+" runs no build-provenance attestation")
+	for _, job := range jobs {
+		attested := false
+		for _, s := range release.steps {
+			if s.job != job || s.action() != "actions/attest-build-provenance" {
+				continue
+			}
+			attested = true
+			subjects, ok := s.with["subject-path"]
+			if !ok {
+				problems = append(problems, fmt.Sprintf("%s:%d: the attestation names no subject-path", release.path, s.line))
+				continue
+			}
+			problems = append(problems, releaseSubjectProblems(subjects.value, files)...)
+		}
+		if !attested {
+			problems = append(problems, fmt.Sprintf("%s: job %s runs goreleaser release and no build-provenance attestation",
+				release.path, job))
+			continue
+		}
+		for _, scope := range []string{"id-token", "attestations"} {
+			if !release.grantsWrite(job, scope) {
+				problems = append(problems, fmt.Sprintf("%s: job %s attests without %s: write; grant it in the job's "+
+					"permissions, or the workflow's when the job sets none", release.path, job, scope))
+			}
+		}
 	}
 	return problems
+}
+
+// releaseJobs are the jobs of w that publish the release, in file order:
+// each runs goreleaser-action with args starting `release`.
+func releaseJobs(w workflowFile) []string {
+	var jobs []string
+	for _, s := range w.steps {
+		args, _ := s.input("args")
+		words := strings.Fields(args.value)
+		if s.action() == "goreleaser/goreleaser-action" && len(words) > 0 && words[0] == "release" && !slices.Contains(jobs, s.job) {
+			jobs = append(jobs, s.job)
+		}
+	}
+	return jobs
 }
 
 // releaseFiles is the subject-path entry for each file the attestation
@@ -69,14 +101,30 @@ func releaseAttestProblems(release workflowFile, cfg string) []string {
 func releaseFiles(cfg string) (files, problems []string) {
 	g := parseGoreleaser(cfg)
 	problems = append(problems, g.refused...)
+	lines := strings.Split(strings.ReplaceAll(cfg, "\r\n", "\n"), "\n")
 	dist, checksum := "dist", ""
-	var archives []releaseArchive
+	// archives are by the index of the archives: item each value is under.
+	archives := map[int]*releaseArchive{}
 	var bundles []string
 	for _, v := range g.values {
-		if strings.HasPrefix(v.path, "archives.") && len(archives) == 0 {
-			archives = append(archives, releaseArchive{})
+		switch v.keys {
+		case "dist", "checksum.name_template", "release.extra_files.glob":
+			// A block scalar keeps the line break after its text, which no
+			// file the release writes is named with.
+			if key := v.keys[strings.LastIndexByte(v.keys, '.')+1:]; !strings.Contains(lines[v.line-1], key+":") {
+				problems = append(problems, fmt.Sprintf("%s:%d: %s: a block scalar; write the value on the key's line",
+					parityGoreleaser, v.line-1, key))
+				continue
+			}
 		}
-		switch at := len(archives) - 1; v.path {
+		var a *releaseArchive
+		if strings.HasPrefix(v.keys, "archives.") && len(v.items) > 0 {
+			if a = archives[v.items[0]]; a == nil {
+				a = &releaseArchive{}
+				archives[v.items[0]] = a
+			}
+		}
+		switch v.keys {
 		case "dist":
 			dist = v.value
 		case "checksum.name_template":
@@ -85,12 +133,16 @@ func releaseFiles(cfg string) (files, problems []string) {
 			if strings.HasSuffix(v.value, ".mcpb") {
 				bundles = append(bundles, path.Clean(v.value))
 			}
-		case "archives":
-			archives = append(archives, releaseArchive{})
-		case "archives.formats", "archives.format":
-			archives[at].formats = append(archives[at].formats, v)
-		case "archives.format_overrides.formats", "archives.format_overrides.format":
-			archives[at].overrides = append(archives[at].overrides, v)
+		case "archives.formats", "archives.format", "archives.format_overrides.formats", "archives.format_overrides.format":
+			switch {
+			case a == nil:
+				problems = append(problems, fmt.Sprintf("%s:%d: %s is not in an item of archives, which goreleaser reads as a list",
+					parityGoreleaser, v.line, v.keys))
+			case strings.HasPrefix(v.keys, "archives.format_overrides."):
+				a.overrides = append(a.overrides, v)
+			default:
+				a.formats = append(a.formats, v)
+			}
 		}
 	}
 	// goreleaser builds one archive for a config that names none, and a
@@ -99,10 +151,11 @@ func releaseFiles(cfg string) (files, problems []string) {
 	// none builds no archive, and binary uploads the bare binary
 	// (https://github.com/goreleaser/goreleaser/blob/v2.18.0/internal/pipe/archive/archive.go#L138-L150).
 	if len(archives) == 0 {
-		archives = []releaseArchive{{}}
+		archives[0] = &releaseArchive{}
 	}
 	var formats []string
-	for _, a := range archives {
+	for _, i := range slices.Sorted(maps.Keys(archives)) {
+		a := archives[i]
 		if len(a.formats) == 0 {
 			a.formats = []goreleaserValue{{value: "tar.gz"}}
 		}
@@ -197,8 +250,10 @@ func TestReleaseAttestProblems(t *testing.T) {
 		cfg      = archives + release + checksum
 		all      = "dist/*.tar.gz,dist/*.zip,dist/*.mcpb,dist/checksums.txt"
 	)
+	const job = "permissions:\n  contents: read\njobs:\n  r:\n    permissions:\n      id-token: write\n      attestations: write\n" +
+		"    steps:\n      - uses: goreleaser/goreleaser-action@x\n        with:\n          args: release --clean\n"
 	step := func(with string) workflowFile {
-		return parseWorkflow("release.yml", "jobs:\n  r:\n    steps:\n      - uses: actions/attest-build-provenance@x\n"+with)
+		return parseWorkflow("release.yml", job+"      - uses: actions/attest-build-provenance@x\n"+with)
 	}
 	subjects := func(s string) workflowFile { return step("        with:\n          subject-path: " + s + "\n") }
 	missing := func(subjects, what string) string {
@@ -227,9 +282,41 @@ func TestReleaseAttestProblems(t *testing.T) {
 				"checksum.name_template is empty, so nothing holds the subject-path to the file every other artifact is verified through",
 			}},
 		{"a tab before each comment", subjects(all), archives + release + "checksum:\t# signed\n  name_template: checksums.txt\t# fixed\n", nil},
-		{"no subject-path", step(""), cfg, []string{"release.yml:4: the attestation names no subject-path"}},
-		{"no attestation", parseWorkflow("release.yml", "jobs:\n  r:\n    steps:\n      - run: true\n"), cfg,
-			[]string{"release.yml runs no build-provenance attestation"}},
+		{"no subject-path", step(""), cfg, []string{"release.yml:12: the attestation names no subject-path"}},
+		{"no attestation", parseWorkflow("release.yml", job+"      - run: true\n"), cfg,
+			[]string{"release.yml: job r runs goreleaser release and no build-provenance attestation"}},
+		// The attestation is held in the job that publishes what it attests:
+		// one in another job, or another workflow, can be skipped while the
+		// release ships.
+		{"no job runs goreleaser release", parseWorkflow("release.yml", strings.Replace(job, "args: release --clean", "args: check", 1)+
+			"      - uses: actions/attest-build-provenance@x\n        with:\n          subject-path: "+all+"\n"), cfg,
+			[]string{"release.yml has no job that runs goreleaser-action with args starting `release`, " +
+				"so no attestation is held to what the release publishes"}},
+		{"the attestation in another job", parseWorkflow("release.yml", job+"  attest:\n    permissions:\n      id-token: write\n"+
+			"      attestations: write\n    steps:\n      - uses: actions/attest-build-provenance@x\n        with:\n          subject-path: "+all+"\n"), cfg,
+			[]string{"release.yml: job r runs goreleaser release and no build-provenance attestation"}},
+		// actions/attest signs with the job's OIDC token and stores the
+		// provenance with its attestations scope.
+		{"a job that cannot write the attestation", parseWorkflow("release.yml", strings.Replace(job,
+			"      id-token: write\n      attestations: write\n", "      contents: write\n", 1)+
+			"      - uses: actions/attest-build-provenance@x\n        with:\n          subject-path: "+all+"\n"), cfg, []string{
+			"release.yml: job r attests without id-token: write; grant it in the job's permissions, or the workflow's when the job sets none",
+			"release.yml: job r attests without attestations: write; grant it in the job's permissions, or the workflow's when the job sets none",
+		}},
+		{"the job's permissions replace the workflow's", parseWorkflow("release.yml", strings.Replace(
+			strings.Replace(job, "  contents: read\n", "  id-token: write\n  attestations: write\n", 1),
+			"      id-token: write\n      attestations: write\n", "      contents: write\n", 1)+
+			"      - uses: actions/attest-build-provenance@x\n        with:\n          subject-path: "+all+"\n"), cfg, []string{
+			"release.yml: job r attests without id-token: write; grant it in the job's permissions, or the workflow's when the job sets none",
+			"release.yml: job r attests without attestations: write; grant it in the job's permissions, or the workflow's when the job sets none",
+		}},
+		{"the workflow's permissions, the job setting none", parseWorkflow("release.yml", strings.Replace(
+			strings.Replace(job, "  contents: read\n", "  id-token: write\n  attestations: write\n", 1),
+			"    permissions:\n      id-token: write\n      attestations: write\n", "", 1)+
+			"      - uses: actions/attest-build-provenance@x\n        with:\n          subject-path: "+all+"\n"), cfg, nil},
+		{"write-all for the job", parseWorkflow("release.yml", strings.Replace(job,
+			"    permissions:\n      id-token: write\n      attestations: write\n", "    permissions: write-all\n", 1)+
+			"      - uses: actions/attest-build-provenance@x\n        with:\n          subject-path: "+all+"\n"), cfg, nil},
 		// actions/attest skips a glob that matches nothing while another
 		// matches, so an entry in another folder attests nothing and a
 		// signature's entry attests the signature.
@@ -271,13 +358,18 @@ func TestReleaseAttestProblems(t *testing.T) {
 		{"a format two archives share, left out", subjects("dist/*.mcpb,dist/checksums.txt"),
 			strings.Replace(cfg, "formats: [zip]", "formats: [tar.gz]", 1),
 			[]string{missing("dist/*.mcpb,dist/checksums.txt", "dist/*.tar.gz")}},
-		{"a quoted format", subjects(all), strings.Replace(cfg, "formats: [zip]", `formats: ["zip"]`, 1), nil},
+		// A one-line flow sequence is read only when it holds plain words.
+		{"a quoted format in a flow sequence", subjects(all), strings.Replace(cfg, "formats: [zip]", `formats: ["zip"]`, 1),
+			[]string{".goreleaser.yaml:6: formats: a flow collection; write it as a block, one key or item a line"}},
+		{"a quoted format one item a line", subjects(all), strings.Replace(cfg, "formats: [zip]", "formats:\n          - \"zip\"", 1), nil},
 		{"a format as a scalar", subjects(all), strings.Replace(cfg, "formats: [zip]", "formats: zip", 1), nil},
 		{"a formats list one item a line", subjects(all), strings.Replace(cfg, "formats: [zip]", "formats:\n          - zip", 1), nil},
 		// nfpms: names package formats, not archive formats.
 		{"a formats list outside archives", subjects(all), cfg + "nfpms:\n  - formats: [deb]\n", nil},
 		{"archives at their key's column", subjects(all),
 			"archives:\n- formats: [tar.gz]\n  format_overrides:\n  - goos: windows\n    formats: [zip]\n" + release + "checksum:\n  name_template: checksums.txt\n", nil},
+		{"archives as a mapping", subjects(all), "archives:\n  formats: zip\n" + release + checksum,
+			[]string{".goreleaser.yaml:2: archives.formats is not in an item of archives, which goreleaser reads as a list"}},
 		// goreleaser builds a tar.gz for a config with no archive, and for an
 		// archive with no format.
 		{"no archives", subjects("dist/*.mcpb,dist/checksums.txt"), release + checksum,
@@ -293,7 +385,10 @@ func TestReleaseAttestProblems(t *testing.T) {
 		{"an override to binary", subjects(all), strings.Replace(cfg, "formats: [zip]", "formats: [binary]", 1),
 			[]string{".goreleaser.yaml:6: binary: an archive format that uploads the bare binary, which no fixed subject-path names; archive it as tar.gz or zip"}},
 		{"a formats list over two lines", subjects(all), strings.Replace(cfg, "formats: [tar.gz]", "formats: [tar.gz,\n      tar.zst]", 1),
-			[]string{".goreleaser.yaml:3: formats: a flow sequence not closed on its key's line, or holding more than scalars; write it as [a, b] or one item a line"}},
+			[]string{
+				".goreleaser.yaml:3: formats: a flow collection; write it as a block, one key or item a line",
+				".goreleaser.yaml:4: archives: a value continued on the next line; write it on one line or as a block scalar",
+			}},
 		{"an archive from an alias", subjects(all), strings.Replace(cfg, "  - ids: [server]\n", "  - *server\n  - ids: [server]\n", 1),
 			[]string{".goreleaser.yaml:2: archives: an anchor, an alias or a tag; write the value out"}},
 		{"a quoted archives key", subjects(all), strings.Replace(cfg, "archives:", `"archives":`, 1),

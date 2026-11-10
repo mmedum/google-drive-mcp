@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 )
 
@@ -123,6 +124,16 @@ func main() {
 		usage(os.Stderr)
 		os.Exit(2)
 	}
+	// Every command reads the repository from its root, so it runs the same
+	// from any directory under it.
+	root, err := moduleRoot()
+	if err == nil {
+		err = os.Chdir(root)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gates: %v\n", couldNotRun{err})
+		os.Exit(2)
+	}
 	if err := c.run(os.Stdout, os.Args[2:]); err != nil {
 		fmt.Fprintf(os.Stderr, "gates: %v\n", err)
 		os.Exit(exitCode(err))
@@ -176,6 +187,24 @@ func usage(w io.Writer) {
 			spelled += " " + a
 		}
 		_, _ = fmt.Fprintf(w, "  go run ./scripts/gates %-*s  %s\n", width, spelled, commands[name].doc)
+	}
+	_, _ = fmt.Fprint(w, "\nEvery command runs from the module root, and reads a path argument from there.\n")
+}
+
+// moduleRoot walks up from the working directory to the directory
+// holding go.mod, which main runs every command from.
+func moduleRoot() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for dir := cwd; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		if filepath.Dir(dir) == dir {
+			return "", fmt.Errorf("no go.mod in %s or above it", cwd)
+		}
 	}
 }
 

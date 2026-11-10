@@ -300,7 +300,11 @@ func abbreviate(s string) string {
 // public in every commit of every repository by construction, and
 // scanning it fails every annotated tag — a gate that always fails is a
 // gate that gets ignored.
-func leaksInHistory(out io.Writer) error {
+func leaksInHistory(out io.Writer) error { return leaksInHistoryAllowing(out, allowedBlobs) }
+
+// leaksInHistoryAllowing is leaksInHistory with allowed, by blob hash, as
+// the file versions it lets through.
+func leaksInHistoryAllowing(out io.Writer, allowed map[string]string) error {
 	revs, err := exec.Command("git", "rev-list", "--all", "--objects").Output()
 	if err != nil {
 		return fmt.Errorf("list objects: %w", err)
@@ -321,7 +325,7 @@ func leaksInHistory(out io.Writer) error {
 		}
 		switch kind {
 		case "blob":
-			if path == "" || !isText(path) || skipFiles[filepath.ToSlash(path)] || allowedBlobs[hash] != "" {
+			if path == "" || !isText(path) || skipFiles[filepath.ToSlash(path)] || allowed[hash] != "" {
 				continue
 			}
 			blobs++

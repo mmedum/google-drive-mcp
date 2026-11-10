@@ -485,7 +485,7 @@ registry entry is published last (D-83). Releasing is in
 | D-63 | Configuration is `GDRIVE_*` with a bound flag each, read through one lookup and validated once at start | accepted | staleness, TestEnvironmentThenFlagWins, TestInvalidValuesAreReportedTogether, TestEveryVariableTheCodeNamesIsInEnvVars, TestASettingOfSpacesIsUnset, TestTheConfigurationPageIsHeldByWholeWord |
 | D-64 | The released tool surface is a contract | accepted | schema-diff, schema-ack, TestATypeChangeBreaksOneWay, TestSchemaAckNeedsEveryItemNamed, TestCheckBaseline, TestABreakIsABreakOfARelease |
 | D-65 | Schemas are flat: no nested objects and no arrays of objects | accepted | TestSchemasAreFlat |
-| D-66 | A source change carries a CHANGELOG entry, and a release commit's sit under its untagged version | accepted | staleness, TestTheChangelogRule, TestTheChangelogRuleCountsWhatShips, TestTheChangelogRuleNeedsARelease |
+| D-66 | A source change carries a CHANGELOG entry, and a release commit's sit under its untagged version | accepted | staleness, TestTheChangelogRule, TestTheChangelogRuleCountsWhatShips, TestTheChangelogRuleNeedsARelease, TestTheChangelogRuleMeasuresFromTheNewestRelease |
 | D-67 | Tests run against an in-memory Drive that refuses what Drive refuses and matches no more than Drive does | accepted | TestNameContainsMatchesWordPrefixesOnly, TestFullTextMatchesWholeTokensAndPhrases, TestEveryCommentReadAsksForFields, TestApprovalsAlwaysAskForFields, TestIncludeLabelsTakesIDsAndNotAWildcard |
 | D-68 | Behavior the reference does not pin down is checked against the discovery document and probed live before code depends on it | accepted | review, live |
 | D-69 | Every method of the three APIs and every published field is used or left out on purpose | accepted | api-coverage, api-fields, TestTheSnapshotAndTheRecordAgree, TestFieldsProblemsCatchesAFieldGoogleAdds, TestAPIFieldsGate |
@@ -496,12 +496,12 @@ registry entry is published last (D-83). Releasing is in
 | D-74 | Coverage is floored per package over a list derived from the tree | accepted | cover, coverage, TestEveryPackageUnderInternalIsMeasuredOrExemptOnPurpose, TestCoverageFailsBelowTheFloor |
 | D-75 | Call counts, memory and linearity are tests; milliseconds stay in the benchmarks | accepted | TestATenThousandItemTreeStaysLinear, TestASearchPageCostsOneListAndBoundedParentLookups, TestADownloadDoesNotHoldTheFile |
 | D-76 | A gate is watched failing, and a gate that reports a number has a floor or a record | accepted | review, TestTheClassGateRefusesToPassWithNothingToRead, TestParityRefusesToCompareNothing, TestTheLeakScanSaysHowMuchItReadAndRefusesNothing |
-| D-77 | `make check` and CI run the same gates | accepted | parity, TestParityAcceptsThisRepository, TestParityCatchesDriftInEitherDirection, TestParityHoldsAGateCallsArguments, TestParityHoldsTheTreesTagsToAVetPass |
+| D-77 | `make check` and CI run the same gates | accepted | parity, TestParityAcceptsThisRepository, TestParityCatchesDriftInEitherDirection, TestParityHoldsAGateCallsArguments, TestParityHoldsTheTreesTagsToAVetPass, TestParityHoldsMakeCheckToWhatAPushRuns, TestParityRefusesACommandWhoseFailureMakeIgnores |
 | D-78 | CI runs the tests and the coverage floor on Linux, macOS and Windows | accepted | review |
-| D-79 | Every action is pinned to a commit SHA, and every tool it installs to one exact version | accepted | pins, TestActionPins, TestPinsRejectsEveryRangeForm, TestAToolDownloadedAtLatestIsNotPinned, TestPinsNamesEachProblem |
+| D-79 | Every action is pinned to a commit SHA, and every tool it installs to one exact version | accepted | pins, TestActionPins, TestPinsRejectsEveryRangeForm, TestAToolDownloadedAtLatestIsNotPinned, TestPinsNamesEachProblem, TestReadersRefuseALineBreakTheyDoNotRead |
 | D-80 | A workflow starts read-only and raises a permission only in the job that needs it | accepted | review |
 | D-81 | `main` is released code, changed only through a pull request, and tags are pushed one at a time | accepted | review |
-| D-82 | A release is built from a tag, reproducible, signed, attested and verified from outside | accepted | release-notes, registry-publish, TestReleaseNotesTakesOnlyItsOwnVersion, TestThePublishedEntryTakesItsHashFromTheSignedChecksums, TestTheReleaseAttestsItsArchivesBundleAndChecksumFile, review |
+| D-82 | A release is built from a tag, reproducible, signed, attested and verified from outside | accepted | release-notes, registry-publish, TestReleaseNotesTakesOnlyItsOwnVersion, TestThePublishedEntryTakesItsHashFromTheSignedChecksums, TestTheReleaseAttestsItsArchivesBundleAndChecksumFile, TestReleaseAttestProblems, review |
 | D-83 | The MCP registry entry is held to the registry's own validator and published last | accepted | registry, TestTheCommittedEntryObeysTheRegistrysOwnRules, TestEveryRuleTheRegistryEnforcesInCodeIsRefusedHere, TestARegistryEntryThatBreaksTheSchemaIsRefused |
 | D-84 | The bundle manifest is held to the files the packer stages, the platforms goreleaser builds and a pinned schema | accepted | mcpb, TestThePlatformsGoreleaserBuildsAreStaged, TestTheManifestsOwnDeclarationIsHeld, TestTheCommittedManifestNamesFilesThePackerStages, TestTheStampedManifestIsHeldToTheSchema |
 | D-85 | The bundle asks for what a person sets in another client's configuration, every switch off by default | accepted | mcpb, TestTheBundleAsksForEverySettingNotLeftOut, TestTheBundleSettingsRefuseEachBreak, TestTheDefaultsReportEveryUnreadableDefault, TestVarsDescribeWhatBuildDoes |
@@ -685,8 +685,8 @@ and no name or content of a real file. That covers commit messages and
 fixtures as well as code.
 
 Two scanners hold it. gitleaks scans the staged changes in the
-pre-commit hook and every commit in `make gitleaks`, which `make check`
-and CI run, with rules for Google client ids, client secrets and refresh
+pre-commit hook and every commit of HEAD's history in `make gitleaks`,
+which `make check` and CI run, with rules for Google client ids, client secrets and refresh
 tokens on top of its defaults. `make leaks` scans every file git tracks or would
 commit, and a compiled binary is a finding rather than a skip, since a
 content scanner cannot read one. A URL whose host does not parse is held
@@ -2164,7 +2164,11 @@ passes only when the CHANGELOG declares it under `**Breaking:**`, naming
 the tool, which makes it a release break.
 
 Rejected: diffing top-level inputs against the last tag, which lets a
-dropped output field through and gives a deliberate break no way past.
+dropped output field through and gives a deliberate break no way past;
+diffing at full depth against a build of the newest release HEAD
+reaches. The second costs one more worktree build per run and needs tags
+in every checkout, for a surface the release commit already records and
+`make schema-diff` holds to the CHANGELOG.
 Cost: an open issue: a `**Breaking:**` line names a tool, so one break
 acknowledged for a tool lets any other break of that tool through (#88).
 
@@ -2194,17 +2198,19 @@ constant, and composing them after registration would remove the copies
 
 ### D-66 A source change carries a CHANGELOG entry, and a release commit's sit under its untagged version
 
-A change to the binary's source carries a CHANGELOG entry under
-`[Unreleased]`. That is a Go file other than a test in a package the
-binary imports, as `go list -deps` reports them, a file such a package
-embeds, or `go.mod` outside its `require` and `tool` lines. On a release
-commit the notes move under the release's version heading, which counts
-while that version has no tag.
+A change to what users get carries a CHANGELOG entry under
+`[Unreleased]`. That is any file but a test in a package the binary
+imports, as `go list -deps` reports them, a file such a package embeds,
+the bundle's manifest or its launcher, or `go.mod` outside its `require`
+and `tool` lines. An entry is a bullet
+at the margin outside fenced code. On a release commit the notes move
+under the release's version heading, which counts while that version has
+no tag.
 
-The staleness gate reads the commits from the newest release tag by
-semver, a prerelease included, to HEAD, as CI sees them. It fails a
-change whose `[Unreleased]` section is empty and whose newest version is
-tagged or empty. With no release tag, or a git or go call that cannot
+The staleness gate reads the commits from the newest release HEAD
+reaches, by semver and a prerelease included, to HEAD, as CI sees them.
+It fails a change whose `[Unreleased]` section is empty and whose newest
+version is tagged or empty. With no release tag, or a git or go call that cannot
 answer, the rule gives no verdict rather than read it as a change. The
 gate still runs its other checks, and its message says the rule could
 not run and why, such as a shallow clone. `go run` exits 1 whatever the
@@ -2222,7 +2228,9 @@ under an untagged heading as the change's entry lets it pass, and still
 refuses an undocumented change.
 
 Rejected: failing between the release commit and the tag; counting
-every Go file, which asks for an entry for a test or a gate no user sees.
+every Go file, which asks for an entry for a test or a gate no user sees;
+measuring from the newest tag of every branch, which a release on
+another line can be.
 Cost: until the tag is pushed, a later source change passes on the
 release's own notes, so the tag follows the merge at once. A dependency
 bump passes the gate, so its entry is the author's to write.
@@ -2482,19 +2490,25 @@ gate reads carries a floor kept by hand, well under what the tree holds.
 
 `make check` and the CI workflow run the same checks, and `make parity`
 compares them by what they run. Every command a target in `make check`
-runs, its Makefile variables expanded, is one `ci.yml` runs with the
-same words, as the shell splits them, or one an action stands in for. A
-`ci.yml` line that runs `make` with targets runs their recipes and those
-of what they depend on. A
-command beside a gate call on its line is compared on its own. Every go
-command `ci.yml` runs is one `make check` runs.
+runs, its Makefile variables expanded, is one a `ci.yml` job a push to
+`main` runs, with the same words, as the shell splits them, or one an
+action stands in for. A `ci.yml` line that runs `make` with targets runs
+their recipes and those of what they depend on. A command beside a gate
+call on its line, or in a pipeline with one, is compared on its own.
+Every go command `ci.yml` runs is one `make check` runs, and a
+subcommand excused from that is one `ci.yml` runs. A command in `make
+check` behind a `-` prefix or named by `.IGNORE` is refused, since make
+carries on past its failure.
 
 `scripts/gates` has one list of commands, and each says where it runs:
 in both `make check` and CI, in CI on a pull request only, at release
-time, or by hand from a Makefile target or the pre-commit hook. A gate
-both run takes the same arguments in both, and an omitted binary is the
-one the gate defaults to. Every file behind a build tag, read from its
-`//go:build` line, is vetted on both sides by a pass that compiles it.
+time in `release.yml` and the workflows it calls or in
+`.goreleaser.yaml`, or by hand from a Makefile target or the pre-commit
+hook. A gate both run takes the same arguments in both, and an omitted
+binary is the one the gate defaults to; a bare name is not the same
+binary as `./` before it. Every file behind a build tag, read from the
+`//go:build` lines of the files git lists, is vetted on both sides by a
+pass that compiles it.
 The reader does not read `if:` on a step or a job, so a command under a
 condition counts as one CI runs.
 
@@ -2505,7 +2519,8 @@ merge-base, which only a pull request has, so it runs there alone.
 
 `TestParityAcceptsThisRepository` and
 `TestParityCatchesDriftInEitherDirection` hold it, the second by planting
-each drift.
+each drift. `TestParityHoldsMakeCheckToWhatAPushRuns` holds the push
+jobs.
 
 Rejected: a list of gates kept separately in the Makefile, the workflow
 and the usage text.
@@ -2539,11 +2554,16 @@ matrix.
 Every action a workflow uses is pinned to a full commit SHA, with its
 version in a trailing comment. Every tool a step installs is pinned to
 one exact version, beside the action that installs it, and a container
-image by its digest. A tool named in a workflow, the Makefile or a
-command the goreleaser config runs is named at one version everywhere.
-The Makefile names a tool as one `module@version` variable, and one no
-recipe runs with the go command pins nothing. `make pins` fails on a
-tag, a branch, a range of any form, or a tool fetched at `latest`.
+image by its digest. setup-go reads `go.mod` alone. A tool named on any
+line of a workflow, the Makefile, a command the goreleaser config runs
+or a string in the Go under `scripts/` is named at one version
+everywhere. The
+Makefile names a tool as one `module@version` variable, and one no
+recipe runs with the go command pins nothing. A recipe or the pre-commit
+hook that names a known tool runs it from the PATH, and is refused.
+`make pins` fails on a tag, a branch, a range of any form, an expression,
+or a tool fetched at `latest`, a recipe's included once its variables
+are expanded.
 
 GitHub's hardening guide says pinning to a full-length commit SHA "is
 currently the only way to use an action as an immutable release"
@@ -2554,6 +2574,12 @@ installs whatever version of its tool it is handed, and a signing tool's
 next major version can change its flags under a release. A version range
 with `~>` floats across every patch whatever follows it, and narrowing a
 range is not pinning it.
+
+The goreleaser config is read by key path, as the goreleaser version
+`release.yml` runs reads it, and `make pins` fails when the release runs
+another version than the one the reader is checked against. The readers
+refuse by name a line or a shape they do not read, such as a line break
+YAML reads and they do not, rather than read less.
 
 Dependabot updates the action SHAs and keeps the comment in step.
 `TestActionPins` holds the action half, and `TestPinsNamesEachProblem`,
@@ -2613,8 +2639,9 @@ A release is built from a `v*` tag by GoReleaser, for Linux, macOS and
 Windows on amd64 and arm64. Builds stamp the commit's time, so a rebuilt
 tag is byte-identical. `checksums.txt` is signed with a keyless Sigstore
 certificate, and every archive gets an SBOM. The build gets a provenance
-attestation, whose subject-path names the archives, the bundle and the
-checksum file.
+attestation in the job that runs goreleaser, whose token writes it, and
+whose subject-path names the archives in each format the config builds,
+the bundle and the checksum file, each by an entry of its own.
 
 The release is never a draft, and its notes are the version's CHANGELOG
 section (D-66). `go install` is the second path, with the version read
@@ -2676,12 +2703,16 @@ A platform override's `args` or `env` replaces the base's rather than
 adding to it, so the gate refuses either on an override and holds the
 base `args` to `[]`. A branch in `$schema` can change under a manifest
 that claims to conform to it. A platform goreleaser adds would otherwise
-be missing from the bundle in silence.
+be missing from the bundle in silence. So each goos-goarch pair the
+builds build needs a staged binary that runs on it, and Windows arm64
+runs the amd64 one. The pairs are read through the one
+`.goreleaser.yaml` reader, and a build the reader cannot hold to its
+pairs is refused.
 
 Rejected: `$schema` at a branch; `args` or `env` on a platform override.
-Cost: a platform added to `.goreleaser.yaml` fails the gate until the
-bundle stages it, and `make schema-refetch` checks the vendored schema
-against its source by hand.
+Cost: a goos or goarch added to `.goreleaser.yaml` fails the gate until
+the bundle stages a binary for it, and `make schema-refetch` checks the
+vendored schema against its source by hand.
 
 ### D-85 The bundle asks for what a person sets in another client's configuration, every switch off by default
 

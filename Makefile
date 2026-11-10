@@ -14,6 +14,7 @@ GOLICENSES    ?= github.com/google/go-licenses@v1.6.0
 # The module path is zricethezav, not gitleaks: the project moved
 # organization and the module path did not follow it.
 GITLEAKS      ?= github.com/zricethezav/gitleaks/v8@v8.30.1
+ACTIONLINT    ?= github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 GOBIN    := $(shell $(GO) env GOPATH)/bin
 # Prefer tools installed with the current Go (go install ...@latest) over distro packages.
 export PATH := $(GOBIN):$(PATH)
@@ -78,12 +79,17 @@ vuln: ## Known vulnerabilities in anything we actually call
 licenses: ## Dependencies must carry a license we can redistribute under
 	$(GO) run $(GOLICENSES) check ./... 		--allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC
 
-# gitleaks walks every commit the clone holds, as `git log --all` lists
-# them (https://github.com/gitleaks/gitleaks/blob/v8.30.1/sources/git.go#L93),
-# so CI checks out the whole history for it.
+# gitleaks walks `git log --all` unless --log-opts names the commits
+# (https://github.com/gitleaks/gitleaks/blob/v8.30.1/sources/git.go#L90-L94),
+# and CI's full clone holds every pushed branch, so this scans HEAD's
+# history alone. CI checks out the whole history for it.
 .PHONY: gitleaks
-gitleaks: ## No credential in any commit, at the gitleaks version pinned here
-	$(GO) run $(GITLEAKS) git . --config .gitleaks.toml --redact --no-banner
+gitleaks: ## No credential in HEAD's history, at the gitleaks version pinned here
+	$(GO) run $(GITLEAKS) git --log-opts=HEAD . --config .gitleaks.toml --redact --no-banner
+
+.PHONY: actionlint
+actionlint: ## Every workflow passes actionlint, at the version pinned here
+	$(GO) run $(ACTIONLINT)
 
 .PHONY: schemas
 schemas: build ## Dump tool schemas
@@ -179,7 +185,7 @@ schema-refetch: ## Check the vendored schemas against what their sources serve (
 	$(GO) run ./scripts/gates schema-refetch
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses gitleaks leaks pins classes api-coverage api-fields mcpb transcript schema-diff smoke staleness docs live-cover outcomes registry parity ## Everything CI runs
+check: fmt vet lint cover vuln licenses gitleaks actionlint leaks pins classes api-coverage api-fields mcpb transcript schema-diff smoke staleness docs live-cover outcomes registry parity ## Everything CI runs
 
 .PHONY: clean
 clean:
