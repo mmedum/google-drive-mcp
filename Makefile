@@ -73,6 +73,7 @@ bench: ## Benchmarks over the in-memory Drive
 
 .PHONY: vuln
 vuln: ## Known vulnerabilities in anything we actually call
+	$(GO) run ./scripts/gates toolchain
 	$(GO) run $(GOVULNCHECK) ./...
 
 .PHONY: licenses

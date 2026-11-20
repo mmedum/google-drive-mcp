@@ -510,7 +510,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stdout, "\n%d check(s) failed\n", failed)
 		return 1
 	}
-	check("Drive API (about.get)", nil, " as "+about.User.EmailAddress)
+	check("Drive API (about.get)", nil, aboutDetail(about.User.EmailAddress))
 	if about.CanCreateDrives {
 		drives, err := api.ListDrives(ctx, gapi.ListDrivesOptions{})
 		if err != nil {
@@ -569,6 +569,10 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	_, _ = fmt.Fprintln(stdout, "\nall checks passed")
 	return 0
 }
+
+// aboutDetail names the signed-in account in the shape `status` prints,
+// because doctor's output is what a person pastes into an issue.
+func aboutDetail(addr string) string { return " as " + orUnset(redact.Account(addr)) }
 
 // checkLocalDir confirms the transfer directory exists and can be
 // written, which is the difference between a download working and a

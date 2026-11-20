@@ -73,6 +73,7 @@ func init() {
 		"docs":      {run: docs, doc: "every decision, citation, link, path and live step the docs and code name resolves", runs: inCheck},
 		"leaks":     {run: leaks, args: "[history]", doc: "nothing from a real Drive is in the tree, or the history", runs: inCheck},
 		"pins":      {run: pins, doc: "every tool a workflow installs is one exact version", runs: inCheck},
+		"toolchain": {run: toolchain, doc: "govulncheck can read the Go version, so it checks the standard library", runs: inCheck},
 		"classes":   {run: classes, doc: "the error classes the code emits are the ones it declares", runs: inCheck},
 		"api-coverage": {run: apiCoverage,
 			doc: "every API method is used on purpose or left out on purpose", runs: inCheck},
