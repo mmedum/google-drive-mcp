@@ -437,7 +437,8 @@ func (o organization) personalNote() string {
 	if !o.personal {
 		return ""
 	}
-	return " This is a personal Google account, which has no organization, so every address is outside it."
+	return " This is taken as a personal Google account, which has no organization, so every address is " +
+		"outside it; set GDRIVE_ORGANIZATION_DOMAINS if it belongs to one."
 }
 
 // widening refuses a share that reaches past the organization unless the

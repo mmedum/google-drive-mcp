@@ -9,12 +9,14 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `list_approvals` names the revision an approved file was approved at, so `list_revisions` shows whether the content changed since.
+- `GDRIVE_ORGANIZATION_DOMAINS` names the email domains `share_file` counts as inside the organization, for an organization with several domains or none detected.
 
 ### Changed
 
 - `read_file` heads an Apps Script project's text as `json` rather than `JSON`.
 - For contributors: `make vuln` refuses a Go build `govulncheck` cannot read, such as one with a GOEXPERIMENT suffix; rerun with the `GOTOOLCHAIN` it names.
 - `unshare_file` reports the class of a failed permission read, such as `[unavailable]`, rather than always `[forbidden]`.
+- An account that cannot create shared drives counts as personal, so shares, access requests, moves and copies reach no colleague; `GDRIVE_ORGANIZATION_DOMAINS` changes that.
 
 ### Fixed
 
@@ -23,6 +25,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `read_file` refuses a `format` on a Slides deck, and any but `json` on an Apps Script project, rather than ignoring it.
 - `get_account` reads a storage limit it cannot parse as no limit, rather than printing usage against 0 B.
 - `resolve_access_request` refuses an accept when it cannot read who has access, as `share_file` and `unshare_file` do, rather than granting with the audience unknown.
+- A personal Google account at another mail provider no longer counts that provider's addresses as inside its organization.
 
 ### Security
 

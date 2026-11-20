@@ -199,7 +199,7 @@ func newClient(ts oauth2.TokenSource, cfg config.Config, logger *slog.Logger) *g
 func newService(api service.API, cfg config.Config, logger *slog.Logger) *service.Service {
 	return service.New(api, service.Options{
 		ReadOnly: cfg.ReadOnly, Destructive: cfg.EnableDestructive, Sharing: cfg.Sharing,
-		LocalDir: cfg.LocalDir, MaxDownload: cfg.MaxDownload,
+		LocalDir: cfg.LocalDir, MaxDownload: cfg.MaxDownload, OrganizationDomains: cfg.OrganizationDomains,
 		Labels: cfg.Labels, Activity: cfg.Activity, Logger: logger,
 	})
 }

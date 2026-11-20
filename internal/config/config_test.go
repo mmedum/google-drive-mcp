@@ -526,8 +526,8 @@ func TestTheDirectoryMustExistAndBeADirectory(t *testing.T) {
 // bundle leave a field blank.
 func TestVarsDescribeWhatBuildDoes(t *testing.T) {
 	vars := Vars()
-	if len(vars) != 15 {
-		t.Fatalf("Vars has %d variables; the server reads 15", len(vars))
+	if len(vars) != 16 {
+		t.Fatalf("Vars has %d variables; the server reads 16", len(vars))
 	}
 	unset, err := build(t, nil)
 	if err != nil {
@@ -566,7 +566,7 @@ func TestEnvVars(t *testing.T) {
 	want := []string{
 		"GDRIVE_ACTIVITY", "GDRIVE_CLIENT_SECRET", "GDRIVE_CONFIG_DIR", "GDRIVE_ENABLE_DESTRUCTIVE",
 		"GDRIVE_HTTP_TIMEOUT", "GDRIVE_LABELS", "GDRIVE_LOCAL_DIR", "GDRIVE_LOG_FORMAT", "GDRIVE_LOG_LEVEL",
-		"GDRIVE_MAX_DOWNLOAD", "GDRIVE_PROFILE", "GDRIVE_READ_ONLY", "GDRIVE_REFRESH_TOKEN",
+		"GDRIVE_MAX_DOWNLOAD", "GDRIVE_ORGANIZATION_DOMAINS", "GDRIVE_PROFILE", "GDRIVE_READ_ONLY", "GDRIVE_REFRESH_TOKEN",
 		"GDRIVE_REQUIRE_PROMPT", "GDRIVE_SHARING",
 	}
 	if got := EnvVars(); !slices.Equal(got, want) {
@@ -619,4 +619,23 @@ func readTwice(names []string) []string {
 	}
 	slices.Sort(twice)
 	return twice
+}
+
+func TestOrganizationDomainsAreReadAsLowerCaseDomains(t *testing.T) {
+	c, err := build(t, map[string]string{"GDRIVE_ORGANIZATION_DOMAINS": " Example.COM, ,sub.example.org "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"example.com", "sub.example.org"}; !slices.Equal(c.OrganizationDomains, want) {
+		t.Errorf("OrganizationDomains = %v, want %v", c.OrganizationDomains, want)
+	}
+	if c, err := build(t, map[string]string{"GDRIVE_ORGANIZATION_DOMAINS": "example.xn--p1ai"}); err != nil ||
+		!slices.Equal(c.OrganizationDomains, []string{"example.xn--p1ai"}) {
+		t.Errorf("a punycode top-level domain: %v, %v", c.OrganizationDomains, err)
+	}
+	for _, bad := range []string{"person@example.com", "example", "exa mple.com", "gmail.com"} {
+		if _, err := build(t, map[string]string{"GDRIVE_ORGANIZATION_DOMAINS": bad}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("GDRIVE_ORGANIZATION_DOMAINS=%q: err = %v, want ErrInvalid", bad, err)
+		}
+	}
 }

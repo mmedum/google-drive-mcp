@@ -459,7 +459,7 @@ registry entry is published last (D-83). Releasing is in
 | D-36 | A sharing result shows who could reach the item before and after | accepted | TestShareFileGrantsAndShowsExposureBeforeAndAfter, TestTheCardAfterASharingChangeShowsTheNewExposure, TestAcceptingGrantsTheRoleAskedForAndReportsExposure |
 | D-37 | Notification mail is off unless asked for | accepted | TestShareFileGrantsAndShowsExposureBeforeAndAfter, TestTransferOwnershipMailsAndSaysSo |
 | D-38 | An ordinary tool grants only named people and groups inside the organization | accepted | TestShareFileRefusesWhatReachesPastTheOrganization, TestAnOutsideRequestIsRefusedAndCanBeDenied, TestEachWideShareTakesOnlyItsOwnKindOfGrantee, TestAGroupGrantSaysWhoItReaches |
-| D-39 | Outside is any address whose domain is not the account's, and on a personal account it is every address | accepted | TestAPersonalAddressIsAlwaysOutside, TestAPersonalAccountSharesWithNobodyThroughShareFile, TestShareFileRefusesWhenItCannotReadTheAccount |
+| D-39 | Outside is any address whose domain is not the account's, and on a personal account it is every address | superseded by D-90 | — |
 | D-40 | Every risky variant is its own tool, never an argument | accepted | TestTheWideSharesNeedTheDestructiveFlag, TestManageDriveLeavesDomainUsersOnlyOffToItsOwnTool, TestManageApprovalLeavesApprovingToApproveFile |
 | D-41 | A wide tool takes the name of what it opens, and refuses `[stale]` when it is not Drive's | accepted | TestAWideShareHoldsItsFileToTheName, TestLiftDriveRestrictionHoldsTheDriveToItsName |
 | D-42 | Nothing widens by omission: a move, a copy or limited access turned off that would reach past the organization is refused, naming who | accepted | TestAMoveThatReachesAnyoneIsRefusedNamingThem, TestAMoveWhoseReachCannotBeReadIsRefused, TestACopyThatReachesAnyoneIsRefused, TestTurningLimitedAccessOffToAnyoneIsRefused, TestMoveSeveralRefusesEachItemThatReachesPastTheOrganization |
@@ -510,6 +510,7 @@ registry entry is published last (D-83). Releasing is in
 | D-87 | Changes arrive by a watch or push channel | rejected | — |
 | D-88 | A revision is published to the web | rejected | — |
 | D-89 | The server acts with domain administrator access | rejected | — |
+| D-90 | The inside is the deployer's domains, else the account's own; an account that cannot create shared drives is personal | accepted | TestTheInsideIsTheSettingThenThePersonalRuleThenTheOwnDomain, TestShareFileOnAnAccountThatCannotCreateDrives, TestAPersonalAddressIsAlwaysOutside, TestOrganizationDomainsAreReadAsLowerCaseDomains |
 
 ### D-01 One stdio binary per person, signed in to their own Google account through their own OAuth client
 
@@ -1543,6 +1544,9 @@ open issue covers a personal account at another mail provider: the
 server knows only Gmail's domains as personal, so that provider's
 addresses count as inside. Deciding "personal" from `about.get`, or a
 setting naming the organization's domain, would close it (#86).
+
+Superseded by D-90, which adds that setting and decides "personal" from
+`about.get`.
 
 ### D-40 Every risky variant is its own tool, never an argument
 
@@ -2827,4 +2831,33 @@ Cost: a shared drive must be emptied before `delete_drive` can delete
 it, since `allowItemDeletion` needs administrator access, and a domain's
 files are administered in the Admin console.
 
-Next ID: D-90
+### D-90 The inside is the deployer's domains, else the account's own; an account that cannot create shared drives is personal
+
+One rule decides who is inside the organization, and every share,
+access request, move, copy and limited-access change reads it.
+`GDRIVE_ORGANIZATION_DOMAINS` names the domains inside, and when it is
+set they are the whole of the inside. A personal Google domain such as
+`gmail.com` is refused there, because no organization owns it. Without
+the setting, the inside is the account's own email domain, except on an
+account taken as personal, where every address is outside (D-39's rule).
+
+An account is personal when its address is at a personal Google domain
+or when `about.get` says `canCreateDrives: false`. `about.get` names no
+organization, and a consumer account answers false there
+([about](https://developers.google.com/workspace/drive/api/reference/rest/v3/about)),
+checked live on a Gmail account. A personal account at another mail
+provider is believed to answer the same; were it to answer true, it would
+be treated as before this decision.
+
+The rule still errs toward refusing (D-38). A Workspace account whose
+administrator turned shared drives off is taken as personal, and each
+refusal names the setting that fixes it.
+
+Rejected: a list of mail providers taken as personal, which goes stale;
+requiring the setting everywhere, which breaks every deployment that
+works today.
+Cost: a Workspace account without shared drives shares with nobody
+through `share_file`, and moves and copies to colleagues are refused,
+until the deployer sets the domains.
+
+Next ID: D-91

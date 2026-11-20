@@ -354,7 +354,11 @@ func (s *Service) widensPast(ctx context.Context, p *movePlan) pastReach {
 			advice: "get_account shows whether the address can be read now."}
 	}
 	who := render.WideReach(wide)
-	return p.refused(ClassBlocked, p.would()+beyondNamed+": "+who+".", who)
+	r := p.refused(ClassBlocked, p.would()+beyondNamed+": "+who+".", who)
+	// On an account taken as personal, a colleague reads as an outsider,
+	// and the setting is the fix rather than the outside tools.
+	r.advice += s.organization(ctx).personalNote()
+	return r
 }
 
 // refused is a refusal of p, with the advice its class and plan call for.
@@ -573,20 +577,27 @@ func (s *Service) copyOwner(ctx context.Context, target *gdrive.File) []*gdrive.
 // does not answer, which leaves the account counted like anyone else
 // and asks again the next time.
 func (s *Service) account(ctx context.Context) string {
+	addr, _ := s.accountInfo(ctx)
+	return addr
+}
+
+// accountInfo is account with about.canCreateDrives, which a personal
+// account answers false, read in the same call and kept with it.
+func (s *Service) accountInfo(ctx context.Context) (addr string, canCreateDrives bool) {
 	s.mu.Lock()
-	addr := s.accountAddress
+	addr, canCreateDrives = s.accountAddress, s.accountCanCreateDrives
 	s.mu.Unlock()
 	if addr != "" {
-		return addr
+		return addr, canCreateDrives
 	}
 	about, err := s.api.About(ctx)
 	if err != nil || about.User == nil {
-		return ""
+		return "", false
 	}
 	s.mu.Lock()
-	s.accountAddress = about.User.EmailAddress
+	s.accountAddress, s.accountCanCreateDrives = about.User.EmailAddress, about.CanCreateDrives
 	s.mu.Unlock()
-	return about.User.EmailAddress
+	return about.User.EmailAddress, about.CanCreateDrives
 }
 
 // movedGrants works out who can reach an item once it sits in target,

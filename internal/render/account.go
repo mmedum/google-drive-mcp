@@ -18,6 +18,8 @@ type AccountOptions struct {
 	// Personal is a personal Google account, which has no organization:
 	// every address is outside it, so share_file grants nobody.
 	Personal bool
+	// Inside are the domains share_file counts as inside the organization.
+	Inside []string
 	// LocalDir is where transfers land; empty means transfers are off.
 	LocalDir string
 	// MaxDownload caps one download, in bytes.
@@ -69,12 +71,16 @@ func Account(a *model.Account, o AccountOptions) string {
 	case "off":
 		b.field("sharing", "GDRIVE_SHARING=off: no tool here can widen who can see a file.")
 	default:
-		_, domain, _ := strings.Cut(a.Address, "@")
+		domains := o.Inside
+		if len(domains) == 0 {
+			_, own, _ := strings.Cut(a.Address, "@")
+			domains = []string{own}
+		}
 		inside := "share_file grants named people and groups inside this account's organization, which is " +
-			"addresses at " + domain
+			"addresses at " + strings.Join(domains, ", ")
 		if o.Personal {
-			inside = "this is a personal Google account, which has no organization, so every address is outside " +
-				"it and share_file grants nobody"
+			inside = "this is taken as a personal Google account, which has no organization, so every address " +
+				"is outside it and share_file grants nobody; set GDRIVE_ORGANIZATION_DOMAINS if it belongs to one"
 		}
 		wide := "a link for anyone, a whole domain, someone outside the organization and a new owner need " +
 			"GDRIVE_ENABLE_DESTRUCTIVE=true"

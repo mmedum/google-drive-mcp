@@ -284,8 +284,10 @@ func TestAccountSaysWhatSharingReaches(t *testing.T) {
 			"and transfer_ownership grant a link for anyone, a whole domain, someone outside the organization and a " +
 			"new owner. What may actually be shared is decided by Google, under your organization's own policy " +
 			"where there is one.\n"},
-		{AccountOptions{Personal: true}, "sharing: this is a personal Google account, which has no organization, " +
-			"so every address is outside it and share_file grants nobody; a link for anyone, a whole domain, " +
+		{AccountOptions{Inside: []string{"example.org", "example.net"}}, "which is addresses at example.org, example.net;"},
+		{AccountOptions{Personal: true}, "sharing: this is taken as a personal Google account, which has no " +
+			"organization, so every address is outside it and share_file grants nobody; set " +
+			"GDRIVE_ORGANIZATION_DOMAINS if it belongs to one; a link for anyone, a whole domain, " +
 			"someone outside the organization and a new owner need GDRIVE_ENABLE_DESTRUCTIVE=true."},
 	} {
 		if out := Account(model.NewAccount(about), tc.o); !strings.Contains(out, tc.want) {

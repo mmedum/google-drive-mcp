@@ -40,6 +40,7 @@
         "GDRIVE_ENABLE_DESTRUCTIVE": "${user_config.enable_destructive}",
         "GDRIVE_SHARING": "${user_config.sharing}",
         "GDRIVE_LOCAL_DIR": "${user_config.local_dir}",
+        "GDRIVE_ORGANIZATION_DOMAINS": "${user_config.organization_domains}",
         "GDRIVE_MAX_DOWNLOAD": "${user_config.max_download}",
         "GDRIVE_LABELS": "${user_config.labels}",
         "GDRIVE_ACTIVITY": "${user_config.activity}"
@@ -94,6 +95,13 @@
       "type": "directory",
       "title": "Download and upload folder",
       "description": "The one folder downloads are written to and uploads are read from. Leave it empty and download_file and upload_file refuse every call; reading and writing a file's text works without it.",
+      "default": "",
+      "required": false
+    },
+    "organization_domains": {
+      "type": "string",
+      "title": "Organization domains",
+      "description": "The email domains share_file counts as inside your organization, comma-separated, such as example.com. Leave it empty to count your own address's domain, or nobody on an account that cannot create shared drives, which is taken as personal: sharing, access requests, moves and copies then reach nobody past it.",
       "default": "",
       "required": false
     },

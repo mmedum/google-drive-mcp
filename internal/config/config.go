@@ -91,6 +91,10 @@ type Config struct {
 	// LocalDir is the one directory downloads land in and uploads read
 	// from. Empty means no file transfer at all.
 	LocalDir string
+	// OrganizationDomains are the email domains counted inside the
+	// organization, lower case. Empty means the signed-in account's own
+	// domain, or none for an account taken as personal.
+	OrganizationDomains []string
 	// MaxDownload caps a single download in bytes.
 	MaxDownload int64
 	// HTTPTimeout applies per attempt and per transfer chunk.
@@ -105,18 +109,19 @@ type Config struct {
 // Settings holds the raw string values before validation. Flags and the
 // environment both feed it; Build turns it into a Config.
 type Settings struct {
-	Profile           string
-	LogLevel          string
-	LogFormat         string
-	ReadOnly          string
-	EnableDestructive string
-	Sharing           string
-	LocalDir          string
-	MaxDownload       string
-	HTTPTimeout       string
-	Labels            string
-	Activity          string
-	ClientSecretPath  string
+	Profile             string
+	LogLevel            string
+	LogFormat           string
+	ReadOnly            string
+	EnableDestructive   string
+	Sharing             string
+	LocalDir            string
+	OrganizationDomains string
+	MaxDownload         string
+	HTTPTimeout         string
+	Labels              string
+	Activity            string
+	ClientSecretPath    string
 	// removed are the settings a release took out, as the environment
 	// gives them, read only to refuse one still set.
 	removed map[string]string
@@ -214,6 +219,7 @@ func Define(fs *flag.FlagSet, env func(string) string) *Settings {
 	sw(&s.EnableDestructive, "enable-destructive", "ENABLE_DESTRUCTIVE", "register the tools that destroy without a way back (permanent delete, empty trash)")
 	def(&s.Sharing, "sharing", "SHARING", string(SharingAll), "sharing tools: all, off")
 	def(&s.LocalDir, "local-dir", "LOCAL_DIR", "", "the one directory downloads are written to and uploads are read from (unset disables file transfer)")
+	def(&s.OrganizationDomains, "organization-domains", "ORGANIZATION_DOMAINS", "", "the organization's email domains, comma-separated, that share_file counts as inside (unset takes the account's own domain)")
 	def(&s.MaxDownload, "max-download", "MAX_DOWNLOAD", "1GiB", "largest single download, e.g. 500MB or 2GiB")
 	def(&s.HTTPTimeout, "http-timeout", "HTTP_TIMEOUT", "60s", "per-attempt and per-chunk timeout for Google API calls")
 	sw(&s.Labels, "labels", "LABELS", "enable Workspace labels (adds the Drive Labels API scopes at login)")
@@ -352,6 +358,19 @@ func (s *Settings) Build() (Config, error) {
 		}
 	}
 
+	for _, d := range strings.Split(s.OrganizationDomains, ",") {
+		d = strings.ToLower(strings.TrimSpace(d))
+		switch {
+		case d == "":
+		case slices.Contains(PersonalDomains, d):
+			errs = append(errs, fmt.Errorf("%w: organization domain %q is a personal Google domain, which no organization owns", ErrInvalid, d))
+		case !organizationDomain.MatchString(d):
+			errs = append(errs, fmt.Errorf("%w: organization domain %q is not a domain such as example.com", ErrInvalid, d))
+		default:
+			c.OrganizationDomains = append(c.OrganizationDomains, d)
+		}
+	}
+
 	if c.MaxDownload, err = ParseBytes(strings.TrimSpace(s.MaxDownload)); err != nil {
 		errs = append(errs, fmt.Errorf("%w: max download %q: %w", ErrInvalid, s.MaxDownload, err))
 	} else if c.MaxDownload <= 0 {
@@ -440,3 +459,13 @@ func NewLogger(c Config, w io.Writer) *slog.Logger {
 	}
 	return slog.New(slog.NewTextHandler(w, opts))
 }
+
+// organizationDomain is a domain name of two labels or more, as an
+// address's part after the @ is written, a punycode top-level domain
+// included.
+var organizationDomain = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+([a-z]{2,}|xn--[a-z0-9-]+)$`)
+
+// PersonalDomains are the addresses of personal Google accounts. Two of
+// them share a domain and no organization, so no organization's domains
+// can include one.
+var PersonalDomains = []string{"gmail.com", "googlemail.com"}
