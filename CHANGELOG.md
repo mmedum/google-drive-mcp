@@ -20,6 +20,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `list_access_requests`, `resolve_access_request`, `list_revisions`, sharing cards and label reads no longer stop at an empty page that carries a continuation token.
 - `doctor` masks the signed-in address to `…@domain`, as `status` does.
 - `read_file` refuses a `format` on a Slides deck, and any but `json` on an Apps Script project, rather than ignoring it.
+- `get_account` reads a storage limit it cannot parse as no limit, rather than printing usage against 0 B.
 
 ### Security
 
