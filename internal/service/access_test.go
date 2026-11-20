@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"cmp"
 	"net/http"
 	"strings"
 	"testing"
@@ -137,8 +138,12 @@ func TestShareFileRefusesWhatReachesPastTheOrganization(t *testing.T) {
 			!strings.Contains(err.Error(), tc.tool+" does it, when GDRIVE_ENABLE_DESTRUCTIVE=true") {
 			t.Errorf("%s as %s: err = %v, want [blocked] naming %s", tc.principal, tc.role, err, tc.tool)
 		}
-		if fake.Count("/permissions") != 0 {
-			t.Errorf("%s as %s: the refusal reached the permission list", tc.principal, tc.role)
+		// It may read who has access, to tell a narrowing from a widening
+		// (D-91); it writes nothing.
+		for _, r := range fake.Requests {
+			if r.Method != http.MethodGet && strings.Contains(r.Path, "/permissions") {
+				t.Errorf("%s as %s: the refusal sent %s %s", tc.principal, tc.role, r.Method, r.Path)
+			}
 		}
 	}
 }
@@ -1065,5 +1070,95 @@ func TestDenyingARequestNeedsNoPermissionList(t *testing.T) {
 	}
 	if got := lastQuery(t, fake, http.MethodPost, ":resolve", "prettyPrint"); got == "" {
 		t.Error("the deny was not sent")
+	}
+}
+
+// share_file reaches a link grant, a domain or an outsider only to take
+// access away from a grant they already have: a lower role, an expiry, or
+// an earlier one. Anything that widens is still the gated tool's (D-91).
+func TestShareFileNarrowsAWideGrantWithoutTheDestructiveFlag(t *testing.T) {
+	expiry := testNow.Add(200 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	// The same instant as Drive may write it, with fractional seconds.
+	expiryMillis := testNow.Add(200 * 24 * time.Hour).UTC().Format("2006-01-02T15:04:05.000Z07:00")
+	outsider := func(role, expires string) *gdrive.Permission {
+		return &gdrive.Permission{Type: "user", Role: role, EmailAddress: "someone@example.org", ExpirationTime: expires}
+	}
+	for _, tc := range []struct {
+		name  string
+		grant *gdrive.Permission
+		// on is the item the grant is made on: the file, or the folder it
+		// inherits from.
+		on string
+		in service.ShareFileInput
+		// want is the refusal's class, or "" for a change that goes ahead.
+		want string
+	}{
+		{"a link grant lowered to reader", &gdrive.Permission{Type: "anyone", Role: "writer"}, "",
+			service.ShareFileInput{Principal: "anyone", Role: "reader"}, ""},
+		{"a link grant raised to writer", &gdrive.Permission{Type: "anyone", Role: "reader"}, "",
+			service.ShareFileInput{Principal: "anyone", Role: "writer"}, "[blocked]"},
+		{"a link grant given an expiry", &gdrive.Permission{Type: "anyone", Role: "writer"}, "",
+			service.ShareFileInput{Principal: "anyone", Role: "writer", Expires: "10d"}, "[invalid]"},
+		{"an outsider given an expiry", outsider("writer", ""), "",
+			service.ShareFileInput{Principal: "someone@example.org", Role: "writer", Expires: "10d"}, ""},
+		{"an outsider's expiry brought forward", outsider("reader", expiry), "",
+			service.ShareFileInput{Principal: "someone@example.org", Role: "reader", Expires: "10d"}, ""},
+		{"an outsider's expiry pushed back", outsider("reader", expiry), "",
+			service.ShareFileInput{Principal: "someone@example.org", Role: "reader", Expires: "300d"}, "[blocked]"},
+		{"an outsider's expiry removed", outsider("reader", expiry), "",
+			service.ShareFileInput{Principal: "someone@example.org", Role: "reader", Expires: "never"}, "[blocked]"},
+		{"an outsider with no grant", nil, "",
+			service.ShareFileInput{Principal: "someone@example.org", Role: "reader"}, "[blocked]"},
+		{"an outsider with no grant and no expiry to remove", nil, "",
+			service.ShareFileInput{Principal: "someone@example.org", Role: "reader", Expires: "never"}, "[blocked]"},
+		{"an outsider's grant inherited from the folder", outsider("writer", ""), "id-2026-fixture",
+			service.ShareFileInput{Principal: "someone@example.org", Role: "reader"}, "[forbidden] someone@example.org has access to Budget.xlsx through"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, fake := setup(t, service.Options{})
+			if tc.grant != nil {
+				fake.Grant(cmp.Or(tc.on, "id-budget-fixture"), tc.grant)
+			}
+			tc.in.File = "id-budget-fixture"
+			res, err := svc.ShareFile(t.Context(), tc.in)
+			if tc.want != "" {
+				if err == nil || !strings.HasPrefix(err.Error(), tc.want) {
+					t.Errorf("err = %v, want %s", err, tc.want)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ShareFile: %v", err)
+			}
+			// The narrowing shows who could reach the file before and after.
+			if res.JSON.SharingBefore == "" || res.JSON.SharingAfter == "" {
+				t.Errorf("the result does not show the exposure before and after: %+v", res.JSON)
+			}
+		})
+	}
+
+	// A repeat of the expiry a grant has, written as Drive writes it,
+	// changes nothing.
+	svc, fake := setup(t, service.Options{})
+	fake.Grant("id-budget-fixture", outsider("reader", expiryMillis))
+	res, err := svc.ShareFile(t.Context(), service.ShareFileInput{File: "id-budget-fixture",
+		Principal: "someone@example.org", Role: "reader", Expires: expiry})
+	if err != nil || !strings.Contains(res.Text, "Nothing was changed") {
+		t.Errorf("a repeat of the same expiry: %v, %v; want unchanged", res, err)
+	}
+}
+
+// A change to a grant goes through permissions.update, which sends no
+// mail, so notify on one says that rather than claiming mail went out.
+func TestNotifyOnAChangedGrantSaysNoMailWasSent(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Grant("id-budget-fixture", &gdrive.Permission{Type: "user", Role: "writer", EmailAddress: "alice@example.com"})
+	res, err := svc.ShareFile(t.Context(), service.ShareFileInput{File: "id-budget-fixture",
+		Principal: "alice@example.com", Role: "reader", Notify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Text, "no email was sent: Google mails a new grant, not a change to one") {
+		t.Errorf("the note does not say the change sent no mail:\n%s", res.Text)
 	}
 }
