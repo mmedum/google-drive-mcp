@@ -92,6 +92,12 @@ const (
 	surfaceV1 = `{"version":"v2.0.1","sdk":"v1.8.0","tools":[
 		{"name":"get_file","description":"d","inputSchema":{"type":"object","properties":{"file":{"type":"string"}}}},
 		{"name":"trash_file","description":"d","inputSchema":{"type":"object","properties":{"file":{"type":"string"}}}}]}`
+	// surfaceNested and surfaceNestedGone differ by one nested input field.
+	surfaceNested     = `{"version":"v2.0.1","tools":[{"name":"get_file","description":"d","inputSchema":{"type":"object","properties":{"opts":{"type":"object","properties":{"depth":{"type":"integer"}}}}}}]}`
+	surfaceNestedGone = `{"version":"dev","tools":[{"name":"get_file","description":"d","inputSchema":{"type":"object","properties":{"opts":{"type":"object","properties":{}}}}}]}`
+	// surfaceToolGone has lost trash_file whole.
+	surfaceToolGone = `{"version":"dev","tools":[
+		{"name":"get_file","description":"d","inputSchema":{"type":"object","properties":{"file":{"type":"string"}}}}]}`
 	// The same surface, another stamp, other key order.
 	surfaceV1Restamped = `{"tools":[
 		{"inputSchema":{"properties":{"file":{"type":"string"}},"type":"object"},"description":"d","name":"get_file"},
@@ -110,7 +116,11 @@ const (
 	cuttingV3  = "# Changelog\n\n## [3.0.0] - 2026-10-10\n\n- y\n\n## [2.0.1] - 2026-10-01\n\n- x\n"
 	firstDraft = "# Changelog\n\n## [Unreleased]\n\n- first\n"
 	// declared declares surfaceRemoved's break under [Unreleased].
-	declared = "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- **Breaking:** `get_file` takes no file.\n\n" +
+	declared = "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- **Breaking:** `get_file` takes no `file`.\n\n" +
+		"## [2.0.1] - 2026-10-01\n\n- x\n"
+	// declaredForAnotherField declares a break of get_file, and of a field
+	// of it that is not the one that broke.
+	declaredForAnotherField = "# Changelog\n\n## [Unreleased]\n\n- **Breaking:** `get_file` takes no `fields`.\n\n" +
 		"## [2.0.1] - 2026-10-01\n\n- x\n"
 	// declaredElsewhere names get_file under **Breaking:** in a released
 	// section, and names it without the word in [Unreleased].
@@ -133,6 +143,18 @@ func TestDiffSurface(t *testing.T) {
 		{"before the first release, with no baseline", surfaceAdded, "", firstDraft, ""},
 		{"a removed field", surfaceRemoved, surfaceV1, unreleased, "breaks a caller of v2.0.1 in 1 way(s)"},
 		{"a removed field [Unreleased] declares", surfaceRemoved, surfaceV1, declared, ""},
+		{"a removed tool, declared by its name", surfaceToolGone, surfaceV1,
+			"# Changelog\n\n## [Unreleased]\n\n- **Breaking:** `trash_file` is gone.\n\n## [2.0.1] - 2026-10-01\n\n- x\n", ""},
+		{"a removed tool, behind a line for one of its fields", surfaceToolGone, surfaceV1,
+			"# Changelog\n\n## [Unreleased]\n\n- **Breaking:** `trash_file` takes no `file`.\n\n## [2.0.1] - 2026-10-01\n\n- x\n",
+			"does not declare (trash_file removed)"},
+		{"a nested field, declared by its path", surfaceNestedGone, surfaceNested,
+			"# Changelog\n\n## [Unreleased]\n\n- **Breaking:** `get_file` takes no `opts.depth`.\n\n## [2.0.1] - 2026-10-01\n\n- x\n", ""},
+		{"a nested field, declared by its last name only", surfaceNestedGone, surfaceNested,
+			"# Changelog\n\n## [Unreleased]\n\n- **Breaking:** `get_file` takes no `depth`.\n\n## [2.0.1] - 2026-10-01\n\n- x\n",
+			"does not declare (get_file: input field opts.depth removed)"},
+		{"a removed field, another field of its tool declared", surfaceRemoved, surfaceV1, declaredForAnotherField,
+			"breaks a caller of v2.0.1 in 1 way(s) above that [Unreleased] does not declare (get_file: input field file removed)"},
 		{"a removed field declared only where it does not count", surfaceRemoved, surfaceV1, declaredElsewhere,
 			"breaks a caller of v2.0.1 in 1 way(s) above that [Unreleased] does not declare (get_file: input field file removed)"},
 		{"a removed field declared only in fenced code", surfaceRemoved, surfaceV1, declaredInAFence,

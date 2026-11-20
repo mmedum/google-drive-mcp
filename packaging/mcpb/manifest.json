@@ -80,14 +80,14 @@
     "enable_destructive": {
       "type": "boolean",
       "title": "Deleting for good, and sharing past your organization",
-      "description": "Register the nine tools with no way back: delete_file, empty_trash, delete_drive, delete_revision and delete_comment remove something for good, and share_by_link, share_outside_organization, transfer_ownership and lift_drive_restriction reach past your organization. Each call also needs confirm: true. Off by default. This server asks nobody before a call, so Claude Desktop's approval of each tool is then the only check. It registers nothing while read-only is on, and the four sharing tools only while sharing is all.",
+      "description": "Register the tools with no way back: delete_file, empty_trash, delete_drive, delete_revision and delete_comment remove something for good, and share_by_link, share_outside_organization, transfer_ownership and lift_drive_restriction reach past your organization. Each call also needs confirm: true. Off by default. This server asks nobody before a call, so Claude Desktop's approval of each tool is then the only check. It registers nothing while read-only is on, and the sharing ones only while sharing is all.",
       "default": false,
       "required": false
     },
     "sharing": {
       "type": "string",
       "title": "Sharing tools",
-      "description": "all or off. Leave it empty for all, which registers share_file, unshare_file and resolve_access_request for people and groups inside your organization. off leaves them unregistered, the destructive switch's four sharing tools too, and refuses a move, a copy or a setting change that would let more people reach a file than before.",
+      "description": "all or off. Leave it empty for all, which registers share_file, unshare_file and resolve_access_request for people and groups inside your organization. off leaves them unregistered, the destructive switch's sharing tools too, and refuses a move, a copy or a setting change that would let more people reach a file than before.",
       "default": "",
       "required": false
     },

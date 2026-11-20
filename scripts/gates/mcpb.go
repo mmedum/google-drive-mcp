@@ -17,8 +17,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 	"github.com/mmedum/google-drive-mcp/v3/internal/server"
+	"github.com/mmedum/google-drive-mcp/v3/internal/tools"
 )
 
 // The Claude Desktop bundle. A `.mcpb` is a zip carrying a manifest, the
@@ -359,6 +362,8 @@ func mcpbPack(out io.Writer, args []string) error {
 func manifestProblems(manifest map[string]any, root string) []string {
 	problems := checkManifest(manifest, stagedNames(), binaries)
 	problems = append(problems, settingProblems(manifest, config.Vars(), bundleLeftOut)...)
+	widening, destroying := tools.Gated()
+	problems = append(problems, toolNameProblems(manifest, fullSurface(), slices.Concat(widening, destroying))...)
 	problems = append(problems, checkLauncher(root, binaries)...)
 	return append(problems, checkBuildMatrix(root)...)
 }
@@ -1482,4 +1487,63 @@ func startProblems(manifest map[string]any, switches []string, declared [][]stri
 		}
 	}
 	return problems
+}
+
+// toolWord is a word shaped like a tool's name or a setting's key.
+var toolWord = regexp.MustCompile(`\b[a-z]+(_[a-z]+)+\b`)
+
+// minToolWords is the fewest tool names the bundle's descriptions name.
+// They name every gated tool and the transfer tools, so a reader that
+// found fewer read nothing.
+const minToolWords = 10
+
+// toolNameProblems holds the tool names the bundle's text gives a person
+// to the server's registration: every word shaped like one, in the
+// descriptions and titles, names a tool the full surface registers or a
+// setting the bundle asks for, which are the only such words it may use,
+// and the destructive switch's description names every tool only it
+// registers. It holds that each is named, not which clause names it. A tool renamed or gated differently otherwise leaves the
+// install form describing a surface that does not exist.
+func toolNameProblems(manifest map[string]any, registered, gated []string) []string {
+	declared, _ := manifest["user_config"].(map[string]any)
+	texts := map[string]string{
+		"description":      fmt.Sprint(manifest["description"]),
+		"long_description": fmt.Sprint(manifest["long_description"]),
+	}
+	for key, field := range declared {
+		f, _ := field.(map[string]any)
+		texts["user_config."+key] = fmt.Sprint(f["description"])
+		texts["user_config."+key+".title"] = fmt.Sprint(f["title"])
+	}
+	var problems []string
+	read := map[string]bool{}
+	for _, where := range slices.Sorted(maps.Keys(texts)) {
+		for _, word := range toolWord.FindAllString(texts[where], -1) {
+			switch {
+			case slices.Contains(registered, word):
+				read[word] = true
+			case declared[word] == nil:
+				problems = append(problems, fmt.Sprintf("%s names %s, which is neither a tool the server "+
+					"registers nor a setting the bundle asks for", where, word))
+			}
+		}
+	}
+	destructive := toolWord.FindAllString(texts["user_config.enable_destructive"], -1)
+	for _, name := range gated {
+		if !slices.Contains(destructive, name) {
+			problems = append(problems, fmt.Sprintf("user_config.enable_destructive does not name %s, which "+
+				"only it registers", name))
+		}
+	}
+	if len(read) < minToolWords {
+		problems = append(problems, fmt.Sprintf("the bundle's descriptions name %d registered tools, fewer than "+
+			"the %d they name; the reader read nothing", len(read), minToolWords))
+	}
+	return problems
+}
+
+// fullSurface is every tool the server registers with every gate open.
+func fullSurface() []string {
+	s := mcp.NewServer(&mcp.Implementation{Name: "bundle", Version: "0"}, nil)
+	return tools.Register(s, tools.Deps{Config: tools.FullSurface(config.Config{})})
 }

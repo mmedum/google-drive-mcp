@@ -95,7 +95,7 @@ func init() {
 		"registry-publish": {run: registryPublish, args: "VERSION [DIST]",
 			doc: "print the registry entry to publish, with the bundle's hash from the signed checksums", runs: inRelease},
 		"mcpb": {run: mcpbCheck,
-			doc: "the committed bundle manifest names files the packer will stage", runs: inCheck},
+			doc: "the committed bundle manifest names files the packer will stage, and only tools the server registers", runs: inCheck},
 		"api-diff": {run: apiDiff,
 			doc: "refetch the discovery documents and report what changed (needs the network)"},
 		"schema-refetch": {run: schemaRefetchCmd,
