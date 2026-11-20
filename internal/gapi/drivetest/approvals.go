@@ -231,6 +231,11 @@ func (s *Server) answerLocked(a *gdrive.Approval, verb string) {
 	}
 	a.Status = "APPROVED"
 	a.CompleteTime = s.now().UTC().Format(time.RFC3339)
+	// The file's revision at completion, as discovery describes the field,
+	// rather than headRevisionId, which is documented only for binary files.
+	if revs := s.Revisions[a.TargetFileID]; len(revs) > 0 {
+		a.ApprovedRevisionID = revs[len(revs)-1].ID
+	}
 }
 
 func (s *Server) handleStartApproval(w http.ResponseWriter, r *http.Request, fileID string) {

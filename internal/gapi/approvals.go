@@ -21,7 +21,7 @@ import (
 // which is worse than an error, because it reads as "no approvals".
 // Checked by the live step "a document's approvals are listed".
 // https://developers.google.com/workspace/drive/api/reference/rest/v3/approvals/list
-const ApprovalFields = "approvalId,targetFileId,status,createTime,modifyTime,completeTime," +
+const ApprovalFields = "approvalId,targetFileId,status,createTime,modifyTime,completeTime,approvedRevisionId," +
 	"dueTime,fileContentChangeBehavior,initiator(displayName,emailAddress,me)," +
 	"reviewerResponses(response,reviewer(displayName,emailAddress,me))"
 

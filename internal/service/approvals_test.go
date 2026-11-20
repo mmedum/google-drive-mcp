@@ -528,3 +528,16 @@ func TestOnContentChangeIsAStartsAndTakesTwoValues(t *testing.T) {
 		t.Error("a refused call reached Drive")
 	}
 }
+
+// Drive sends approvedRevisionId only when the fields mask names it,
+// which the fake does not enforce, so the request is what is checked.
+func TestApprovalsAskForTheApprovedRevision(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddApproval("id-budget-fixture", "id-approval-yes", "person@example.com")
+	if _, err := svc.ListApprovals(t.Context(), service.ListApprovalsInput{File: "id-budget-fixture"}); err != nil {
+		t.Fatalf("ListApprovals: %v", err)
+	}
+	if got := lastQuery(t, fake, "GET", "/approvals", "fields"); !strings.Contains(got, "approvedRevisionId") {
+		t.Errorf("approvals.list asked for fields %q, which leaves out approvedRevisionId", got)
+	}
+}

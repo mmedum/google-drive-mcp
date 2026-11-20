@@ -743,3 +743,16 @@ func TestAQuotedPassageIsCutOnARuneBoundary(t *testing.T) {
 		t.Errorf("a long passage was not shortened:\n%s", got)
 	}
 }
+
+func TestAnApprovedApprovalNamesTheRevisionItApproved(t *testing.T) {
+	approved := &model.Approval{ID: "id-approval-fixture", Status: model.ApprovalApproved,
+		ApprovedRevision: "id-rev-approved-fixture"}
+	open := &model.Approval{ID: "id-approval-open-fixture", Status: model.ApprovalInProgress}
+	out := Approvals([]*model.Approval{approved, open}, ApprovalsOptions{Now: time.Unix(0, 0)})
+	if got := strings.Count(out, "approved revision"); got != 1 {
+		t.Errorf("%d approved revision lines, want 1, for the approved one only:\n%s", got, out)
+	}
+	if !strings.Contains(out, "approved revision: id-rev-approved-fixture") {
+		t.Errorf("the approved approval does not name its revision:\n%s", out)
+	}
+}

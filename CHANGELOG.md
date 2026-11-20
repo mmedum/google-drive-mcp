@@ -6,6 +6,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `list_approvals` names the revision an approved file was approved at, so `list_revisions` shows whether the content changed since.
+
 ### Changed
 
 - For contributors: `make vuln` refuses a Go build `govulncheck` cannot read, such as one with a GOEXPERIMENT suffix; rerun with the `GOTOOLCHAIN` it names.
