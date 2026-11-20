@@ -822,7 +822,7 @@ func TestUnshareSaysSoWhenItCannotReadWhoHasAccess(t *testing.T) {
 	if strings.Contains(err.Error(), "no grant on this file") {
 		t.Errorf("the refusal claims the grant is absent rather than unknown: %v", err)
 	}
-	if !strings.Contains(err.Error(), "cannot read who has access") {
+	if !strings.Contains(err.Error(), "reading who has access") {
 		t.Errorf("the refusal does not say what actually went wrong: %v", err)
 	}
 }
@@ -979,5 +979,91 @@ func TestTheCardAfterASharingChangeShowsTheNewExposure(t *testing.T) {
 	}
 	if len(fake.Permissions["id-budget-fixture"]) != 0 {
 		t.Errorf("the grant is still there: %+v", fake.Permissions["id-budget-fixture"])
+	}
+}
+
+// Every sharing write shows who could reach the item before it, so one
+// that cannot read the permission list refuses and sends nothing.
+func TestEverySharingWriteRefusesWhenItCannotReadWhoHasAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		write func(*service.Service) error
+	}{
+		{"share_file", func(svc *service.Service) error {
+			_, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+				File: "id-budget-fixture", Principal: "alice@example.com", Role: "reader"})
+			return err
+		}},
+		{"unshare_file", func(svc *service.Service) error {
+			_, err := svc.UnshareFile(t.Context(), service.UnshareFileInput{
+				File: "id-budget-fixture", Principal: "alice@example.com"})
+			return err
+		}},
+		{"resolve_access_request", func(svc *service.Service) error {
+			_, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+				File: "id-budget-fixture", Request: "id-request-1", Action: "accept", Role: "reader"})
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, fake := setup(t, service.Options{})
+			fake.AddProposal("id-budget-fixture", "id-request-1", "alice@example.com", "reader")
+			fake.Fail = func(r *http.Request) *drivetest.Failure {
+				if strings.HasSuffix(r.URL.Path, "/permissions") && r.Method == http.MethodGet {
+					return &drivetest.Failure{Status: http.StatusForbidden,
+						Reason: "insufficientFilePermissions", Message: "cannot read permissions"}
+				}
+				return nil
+			}
+			if err := tc.write(svc); err == nil || !strings.Contains(err.Error(), "reading who has access") {
+				t.Errorf("%s with the permission list unreadable = %v, want a refusal saying so", tc.name, err)
+			}
+			for _, r := range fake.Requests {
+				if r.Method != http.MethodGet {
+					t.Errorf("%s sent %s %s after refusing", tc.name, r.Method, r.Path)
+				}
+			}
+		})
+	}
+}
+
+// A share builds the shared item's card once after the write: in a shared
+// drive the card's model costs a permission list, so building it twice
+// read the list three times where two answer every question.
+func TestASharingWriteReadsThePermissionListOnceEachSide(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	if _, err := svc.ShareFile(t.Context(), service.ShareFileInput{
+		File: "id-q3-plan-fixture", Principal: "alice@example.com", Role: "reader"}); err != nil {
+		t.Fatalf("ShareFile: %v", err)
+	}
+	lists := 0
+	for _, r := range fake.Requests {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.Path, "/permissions") {
+			lists++
+		}
+	}
+	if lists != 2 {
+		t.Errorf("a share read the permission list %d times, want 2: once before, once after", lists)
+	}
+}
+
+// A deny cannot widen access, so it goes ahead with the permission list
+// unreadable and reports who has access as unknown.
+func TestDenyingARequestNeedsNoPermissionList(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddProposal("id-budget-fixture", "id-request-1", "alice@example.com", "reader")
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.HasSuffix(r.URL.Path, "/permissions") && r.Method == http.MethodGet {
+			return &drivetest.Failure{Status: http.StatusForbidden,
+				Reason: "insufficientFilePermissions", Message: "cannot read permissions"}
+		}
+		return nil
+	}
+	if _, err := svc.ResolveAccessRequest(t.Context(), service.ResolveAccessRequestInput{
+		File: "id-budget-fixture", Request: "id-request-1", Action: "deny"}); err != nil {
+		t.Fatalf("a deny with the permission list unreadable: %v", err)
+	}
+	if got := lastQuery(t, fake, http.MethodPost, ":resolve", "prettyPrint"); got == "" {
+		t.Error("the deny was not sent")
 	}
 }

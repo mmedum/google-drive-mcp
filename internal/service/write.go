@@ -844,7 +844,16 @@ func (s *Service) write(ctx context.Context, f *gdrive.File, out outcome) (*Resu
 // that they take the same path as a real write rather than assembling a
 // near-copy of it.
 func (s *Service) report(ctx context.Context, res *Resolved, out outcome) *Result {
-	m := s.Model(ctx, res)
+	return s.reportCard(ctx, res, nil, out)
+}
+
+// reportCard is report for a caller that already built the file's model,
+// which costs a permission list, a location and label reads; nil builds
+// it here.
+func (s *Service) reportCard(ctx context.Context, res *Resolved, m *model.File, out outcome) *Result {
+	if m == nil {
+		m = s.Model(ctx, res)
+	}
 	text := render.FileCard(m, render.FileCardOptions{
 		Now: s.now(), FollowedShortcut: res.FollowedShortcut,
 		Action: out.Action, Note: out.Note, Changes: out.Changes, DryRun: out.DryRun,
