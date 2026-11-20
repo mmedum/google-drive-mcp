@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -142,12 +143,16 @@ func (s *Service) createDrive(ctx context.Context, in ManageDriveInput) (*Result
 		return nil, Errorf(ClassForbidden, "this account cannot create shared drives. They are a Google "+
 			"Workspace feature, and a consumer account has none; an administrator can also turn creation off.")
 	}
-	if existing, err := s.drivesList(ctx); err == nil {
-		for _, d := range existing {
-			if strings.EqualFold(d.Name, name) {
-				return nil, Errorf(ClassExists, "a shared drive named %q is already here (%s). Drive allows a "+
-					"second one of that name, and nothing afterwards could tell you which you meant.", d.Name, d.ID)
-			}
+	// A second drive of one name makes every lookup of it [ambiguous], so a
+	// list that cannot be read refuses the create rather than skip the check.
+	existing, err := s.drivesList(ctx)
+	if err != nil {
+		return nil, wrap(err, "reading the shared drives, to check that no other is named "+strconv.Quote(name))
+	}
+	for _, d := range existing {
+		if strings.EqualFold(d.Name, name) {
+			return nil, Errorf(ClassExists, "a shared drive named %q is already here (%s). Drive allows a "+
+				"second one of that name, and nothing afterwards could tell you which you meant.", d.Name, d.ID)
 		}
 	}
 
@@ -172,7 +177,7 @@ func (s *Service) createDrive(ctx context.Context, in ManageDriveInput) (*Result
 	if err != nil {
 		return nil, wrap(err, fmt.Sprintf("creating the shared drive %q", name))
 	}
-	s.forgetDrives()
+	s.rememberCreatedDrive(created)
 	return driveResult(model.NewDrive(created), outcome{Action: render.ActionCreated, Changes: changes,
 		Note: "everything in a shared drive belongs to the organization rather than to a person, and you are " +
 			"its organizer. share_file with this drive as the target adds members."}), nil
@@ -459,8 +464,22 @@ func driveResult(d *model.Drive, out outcome) *Result {
 	return &Result{Text: text, JSON: json}
 }
 
-// forgetDrives drops the cached drive list, which a create, rename or
-// hide has just made wrong. Every location line and every drive: path
+// rememberCreatedDrive adds a drive this call created to a warm cache, so
+// the next call finds it without listing every drive again. A cold cache
+// stays cold, since the next read lists them all anyway. The list is
+// copied, because a caller may still hold the one it was given.
+func (s *Service) rememberCreatedDrive(d *gdrive.Drive) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d == nil || s.drivesAt.IsZero() || slices.ContainsFunc(s.drives, func(c *gdrive.Drive) bool { return c.ID == d.ID }) {
+		// A refresh that ran after the create may hold it already.
+		return
+	}
+	s.drives = append(slices.Clone(s.drives), d)
+}
+
+// forgetDrives drops the cached drive list, which a rename, a hide or a
+// delete has just made wrong. Every location line and every drive: path
 // reads through it.
 func (s *Service) forgetDrives() {
 	s.mu.Lock()
