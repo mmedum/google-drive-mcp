@@ -337,8 +337,9 @@ with:
 - a debug log, from `GDRIVE_LOG_LEVEL=debug`, which never carries file
   names, paths, addresses, queries or content (D-06).
 
-`doctor` prints the signed-in address in full, and with a reference the
-file's name, so take those out before pasting. Never paste a file id or
+`doctor` masks the signed-in address to `…@domain`. It prints the local
+directory's path, and with a reference the file's name and folder, so
+take those out before pasting. Never paste a file id or
 URL, file contents, a client JSON, a token or a tool result; describe
 the shape instead. A suspected vulnerability goes through
 [`SECURITY.md`](../SECURITY.md), privately.

@@ -119,3 +119,14 @@ func TestACorruptProfileFileStopsTheCommand(t *testing.T) {
 		t.Errorf("status printed a report over a profile it could not read:\n%s", stdout.String())
 	}
 }
+
+func TestDoctorMasksTheSignedInAccount(t *testing.T) {
+	for addr, want := range map[string]string{
+		"somebody@example.com": " as …@example.com",
+		"":                     " as (unset)",
+	} {
+		if got := aboutDetail(addr); got != want {
+			t.Errorf("aboutDetail(%q) = %q, want %q", addr, got, want)
+		}
+	}
+}
