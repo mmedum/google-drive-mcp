@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/tools"
 )
 
 // TestTheCommittedManifestCarriesThePlaceholder is the guard against a
@@ -1256,6 +1257,44 @@ func TestTheLauncherInstallHintIsGoModsModule(t *testing.T) {
 			got := strings.Join(installHintProblems(tc.launcher, tc.goMod), "\n")
 			if !strings.Contains(got, tc.want) {
 				t.Errorf("problems %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The tool names the install form gives a person are held to what the
+// server registers, and the destructive switch names every tool only it
+// registers.
+func TestTheBundleNamesOnlyRegisteredTools(t *testing.T) {
+	widening, destroying := tools.Gated()
+	gated := slices.Concat(widening, destroying)
+	if got := toolNameProblems(editedManifest(t, func(map[string]any) {}), fullSurface(), gated); len(got) != 0 {
+		t.Fatalf("the committed manifest: %v", got)
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(map[string]any)
+		want string
+	}{
+		{"a tool that does not exist", func(m map[string]any) {
+			field := dig(m, "user_config", "local_dir")
+			field["description"] = fmt.Sprint(field["description"]) + " See share_link."
+		}, "user_config.local_dir names share_link, which is neither a tool the server registers nor a setting"},
+		{"a gated tool the switch leaves out", func(m map[string]any) {
+			field := dig(m, "user_config", "enable_destructive")
+			field["description"] = strings.ReplaceAll(fmt.Sprint(field["description"]), "empty_trash, ", "")
+		}, "user_config.enable_destructive does not name empty_trash, which only it registers"},
+		{"descriptions naming no tool", func(m map[string]any) {
+			for _, field := range dig(m, "user_config") {
+				field.(map[string]any)["description"] = "plain words"
+			}
+			m["long_description"] = "plain words"
+		}, "the bundle's descriptions name 0 registered tools"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := strings.Join(toolNameProblems(editedManifest(t, tc.edit), fullSurface(), gated), "\n")
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("problems:\n%s\nwant one saying %q", got, tc.want)
 			}
 		})
 	}
