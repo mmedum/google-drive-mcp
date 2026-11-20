@@ -110,8 +110,9 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 			"A link for anyone, a whole domain, someone outside the " +
 			"organization and a new owner are refused here with [blocked]: share_by_link, " +
 			"share_outside_organization and transfer_ownership do those, and exist only on a server started with " +
-			"GDRIVE_ENABLE_DESTRUCTIVE=true. Outside means an address whose domain is not this account's; for a " +
-			"personal Google account that is every address. What may actually be shared is decided by the " +
+			"GDRIVE_ENABLE_DESTRUCTIVE=true. A grant one of them already has can still be narrowed here: a lower " +
+			"role, or for a person or group an expiry or an earlier one. Outside means an address at a domain the organization does " +
+			"not hold, as get_account names it; for a personal Google account that is every address. What may actually be shared is decided by the " +
 			"organization's own policy, which Google enforces: a refusal comes back as [blocked] with Google's " +
 			"own words.",
 		Annotations: changing,

@@ -42,15 +42,16 @@ the tool surface, the addressing, the sharing policy or the transfers.
    does not show in the item itself. Check `canShare` first, show who
    could reach the item before and after, and send mail only when asked
    (D-35, D-36, D-37). `share_file` reaches named people and groups
-   inside the organization (D-38), and a move, a copy or a folder's
-   limited access turned off that would reach past it is refused
-   (D-42). `TestShareFileRefusesWhatReachesPastTheOrganization` holds
-   it.
+   inside the organization (D-38), and past it only to narrow a grant
+   that exists (D-91). A move, a copy or a folder's limited access
+   turned off that would reach past it is refused (D-42).
+   `TestShareFileRefusesWhatReachesPastTheOrganization` holds it.
 6. **Give each risky variant its own tool rather than an argument**,
    because a client remembers an approval per tool. A link, a domain,
    an outside address, a new owner and lifting a drive's restriction
    are tools of their own behind `GDRIVE_ENABLE_DESTRUCTIVE`, repeating
-   the name of what they open (D-40, D-41).
+   the name of what they open (D-40, D-41). Narrowing such a grant is
+   not risky, so `share_file` does it (D-91).
    `TestTheWideSharesNeedTheDestructiveFlag` holds it.
 7. **Keep a way back by default.** Trash is the removal; a permanent
    delete registers only with `GDRIVE_ENABLE_DESTRUCTIVE` and needs
