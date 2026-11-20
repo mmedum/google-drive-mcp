@@ -5,7 +5,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
+	"github.com/mmedum/google-drive-mcp/v3/internal/tools"
 	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/mcpstdio"
 )
 
@@ -510,8 +512,14 @@ func collaborationTasks() []task {
 // organization, or hand a file over. A server started without
 // GDRIVE_ENABLE_DESTRUCTIVE does not register them, so a call to one is
 // a model reaching for something nobody offered it as well.
-var widening = map[string]bool{"share_by_link": true, "share_outside_organization": true,
-	"transfer_ownership": true, "lift_drive_restriction": true}
+var widening = sync.OnceValue(func() map[string]bool {
+	names, _ := tools.Gated()
+	out := map[string]bool{}
+	for _, n := range names {
+		out[n] = true
+	}
+	return out
+})
 
 // commonChecks are the trace properties every task is held to,
 // whatever it asked for. They are the trace half of the score: the end
@@ -534,7 +542,7 @@ func commonChecks(s *taskState, run agentRun) []string {
 		}
 		// The tools that reach past the organization, or hand a file
 		// over, and no task here asks for any of them.
-		if widening[c.Name] {
+		if widening()[c.Name] {
 			out = append(out, "called "+c.Name+", which no task asked for")
 		}
 	}

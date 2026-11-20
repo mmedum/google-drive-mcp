@@ -30,7 +30,7 @@ func (s *Service) GetAccount(ctx context.Context) (string, error) {
 		Labels:      s.opts.Labels,
 		Tools:       s.RegisteredTools(),
 	}
-	o.Personal = consumerDomains[domainOf(acct.Address)]
+	o.Personal = organizationOf(acct.Address).personal
 	if o.Sharing == "" {
 		o.Sharing = string(config.SharingAll)
 	}
