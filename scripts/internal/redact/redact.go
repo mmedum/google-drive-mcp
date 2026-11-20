@@ -2,10 +2,12 @@ package redact
 
 import (
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
@@ -15,7 +17,8 @@ import (
 // one result is ID_1 in the next.
 //
 // What it hides: file and shared-drive ids, Drive and Docs links, email
-// addresses, comment and reply ids, and people's display names where
+// addresses and, once one is seen, its domain wherever it stands alone,
+// comment and reply ids, and people's display names where
 // this server prints them. With KeepNamesUnder, it also hides the names
 // of files, folders and shared drives that are not the run's own, where
 // this server lists them.
@@ -36,6 +39,10 @@ type Redactor struct {
 	// learned are the comment and reply ids found at a position, which
 	// are then hidden wherever else they turn up.
 	learned []string
+	// domains are the domains of the addresses hidden so far, which are
+	// then hidden where they stand alone: a grant to domain:, and the
+	// organization get_account names.
+	domains []string
 	// keep, when set, is the prefix of the run's own folder and drive
 	// names; the names of everything else are hidden where this server
 	// lists them. See KeepNamesUnder.
@@ -212,10 +219,14 @@ func (r *Redactor) Do(text string) string {
 				// A long lower-case word is prose, not an id.
 				return match
 			}
+			if p.name == "EMAIL" {
+				r.learnDomain(match)
+			}
 			return r.placeholder(p.name, match)
 		})
 	}
 	text = r.commentIDs(text)
+	text = r.hideDomains(text)
 	// Names last: the address patterns above turn "<a@b>" into a
 	// placeholder, and the positions below are defined by it.
 	text = r.namesBefore(text, youAnchor, true)
@@ -231,6 +242,88 @@ func (r *Redactor) Do(text string) string {
 		text = r.foreignNames(text)
 	}
 	return text
+}
+
+// learnDomain records the domain of an address, in lower case. An
+// organization's domain names the organization, so it is hidden as
+// surely as the address it came from.
+func (r *Redactor) learnDomain(address string) {
+	_, d, _ := strings.Cut(address, "@")
+	r.learnDomainName(d)
+}
+
+// learnDomainName records a domain, in lower case. A personal Google
+// domain names no organization and stays readable.
+func (r *Redactor) learnDomainName(d string) {
+	d = strings.ToLower(strings.TrimSpace(d))
+	if d == "" || slices.Contains(config.PersonalDomains, d) || slices.Contains(r.domains, d) {
+		return
+	}
+	r.domains = append(r.domains, d)
+	// Longest first, so a subdomain is matched whole before its parent.
+	slices.SortFunc(r.domains, func(a, b string) int { return len(b) - len(a) })
+}
+
+// domainPositions are where this server prints a domain on its own: a
+// domain grant, the people a grant reaches, and the organization
+// get_account names. A domain there is learned however early it comes.
+var domainPositions = []*regexp.Regexp{
+	regexp.MustCompile(`\bdomain:([A-Za-z0-9.\-]+\.[A-Za-z]{2,})`),
+	regexp.MustCompile(`\beveryone at ([A-Za-z0-9.\-]+\.[A-Za-z]{2,})`),
+	regexp.MustCompile(`\baddresses at ([A-Za-z0-9.\-]+\.[A-Za-z]{2,}(?:, [A-Za-z0-9.\-]+\.[A-Za-z]{2,})*)`),
+}
+
+// hideDomains learns the domains at their positions, then hides every
+// learned domain wherever it stands as a host: in any case, and with any
+// subdomain in front of it taken whole, so no label of it is left. A name
+// that only contains it, such as corp.example.txt, stays.
+func (r *Redactor) hideDomains(text string) string {
+	for _, re := range domainPositions {
+		for _, m := range re.FindAllStringSubmatch(text, -1) {
+			for _, d := range strings.Split(m[1], ", ") {
+				r.learnDomainName(d)
+			}
+		}
+	}
+	for _, d := range r.domains {
+		text = r.replaceHost(text, d)
+	}
+	return text
+}
+
+// replaceHost replaces each host that is d or ends in .d.
+func (r *Redactor) replaceHost(text, d string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(strings.ToLower(text), d)
+		if i < 0 {
+			b.WriteString(text)
+			return b.String()
+		}
+		start, end := i, i+len(d)
+		for start > 0 && (hostChar(text[start-1]) || text[start-1] == '.') {
+			start--
+		}
+		// Ends as a host: not mid-word, and not the name before an extension.
+		ends := end == len(text)
+		if !ends {
+			extension := text[end] == '.' && end+1 < len(text) && hostChar(text[end+1])
+			ends = !hostChar(text[end]) && !extension
+		}
+		// Starts as a host: what precedes d is nothing, or a subdomain.
+		starts := start == i || text[i-1] == '.'
+		b.WriteString(text[:start])
+		if ends && starts && !strings.Contains(text[start:i], "@") {
+			b.WriteString(r.placeholder("DOMAIN", "@"+strings.ToLower(text[start:end])))
+		} else {
+			b.WriteString(text[start:end])
+		}
+		text = text[end:]
+	}
+}
+
+func hostChar(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-'
 }
 
 func (r *Redactor) placeholder(kind, value string) string {
