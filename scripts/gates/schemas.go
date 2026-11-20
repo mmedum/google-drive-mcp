@@ -130,8 +130,7 @@ func readReleaseState() (changelog string, baseline []byte, err error) {
 // among it.
 //
 // A break the [Unreleased] part of the CHANGELOG declares is let through:
-// a **Breaking:** entry there names its tool, or its resource template,
-// in backticks. Only a new major version may ship one, and
+// a **Breaking:** entry there names it, as undeclaredBreaks reads one. Only a new major version may ship one, and
 // `make schema-baseline` refuses to record a break as anything else, so
 // the declaration is the first half of that rule and the release is the
 // second.
@@ -174,8 +173,9 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 	}
 	if undeclared := undeclaredBreaks(breaking, changelog); len(undeclared) > 0 {
 		problems = append(problems, fmt.Sprintf("the tool surface breaks a caller of %s in %d way(s) above that "+
-			"[Unreleased] does not declare (%s): a break names its tool, in backticks, in a **Breaking:** entry "+
-			"there, and ships in a new major version", base.version, len(undeclared), strings.Join(undeclared, "; ")))
+			"[Unreleased] does not declare (%s): a **Breaking:** entry there names, in backticks, a removed tool or "+
+			"resource alone, or a broken field's tool and its path as printed above, such as opts.depth; a break "+
+			"ships in a new major version", base.version, len(undeclared), strings.Join(undeclared, "; ")))
 	} else if len(breaking) > 0 {
 		_, _ = fmt.Fprintf(out, "%d breaking change(s), each declared under **Breaking:** in [Unreleased]; "+
 			"`make schema-baseline` records them only as a new major version\n", len(breaking))
@@ -191,27 +191,53 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 	return nil
 }
 
-// undeclaredBreaks is each break whose item, a tool by its name or a
-// resource by its URI template, no **Breaking:** line in the CHANGELOG's
-// [Unreleased] section names in backticks. A line in fenced code is an
+// undeclaredBreaks is each break no **Breaking:** line in the CHANGELOG's
+// [Unreleased] section declares. A broken field is declared by one line
+// naming its item and its path in backticks, the path spelled as the
+// report prints it, such as opts.depth; it names that field on both
+// sides. A removed item, a tool by its name or a resource by its URI
+// template, is declared only by a line naming it and nothing else in
+// backticks, so a line written for one break of a tool lets its removal
+// through no more than any other break. A line in fenced code is an
 // example and declares nothing.
 func undeclaredBreaks(breaking []change, changelog string) []string {
-	named := map[string]bool{}
+	var lines []map[string]bool
 	for _, line := range readChangelog(changelog).sectionProse("Unreleased") {
 		if !strings.Contains(line, "**Breaking:**") {
 			continue
 		}
+		named := map[string]bool{}
 		for _, span := range codeSpans(line) {
 			named[span] = true
 		}
+		lines = append(lines, named)
 	}
 	var out []string
 	for _, b := range breaking {
-		if !named[b.item] {
+		path, isField := brokenPath(b.field)
+		declared := slices.ContainsFunc(lines, func(named map[string]bool) bool {
+			if isField {
+				return named[b.item] && named[path]
+			}
+			return named[b.item] && len(named) == 1
+		})
+		if !declared {
 			out = append(out, b.text)
 		}
 	}
 	return out
+}
+
+// brokenPath is the path of a broken field, from a break's field, which is
+// a side and the path, such as "input file". A removed item's field is
+// its key, and is no field.
+func brokenPath(field string) (string, bool) {
+	for _, side := range []string{"input ", "output "} {
+		if path, ok := strings.CutPrefix(field, side); ok {
+			return path, true
+		}
+	}
+	return "", false
 }
 
 // codeSpanRe is one code span: text in backticks.
