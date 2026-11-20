@@ -150,11 +150,11 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 	// under injection is the attacker. Letting in someone inside the
 	// organization is an ordinary grant; anyone outside it is the outside
 	// share's to let in, behind the destructive flag (D-38).
-	if action == RequestAccept && s.organization(ctx).outside(request.For) {
+	if org := s.organization(ctx); action == RequestAccept && org.outside(request.For) {
 		return nil, Errorf(ClassBlocked, "%s is outside this account's organization, and "+
 			"resolve_access_request lets in only people inside it. Nothing was changed. Deny the request, or "+
 			"grant it with share_outside_organization, which a server started with %sENABLE_DESTRUCTIVE=true "+
-			"registers, or in Drive itself.", request.For, config.EnvPrefix)
+			"registers, or in Drive itself.%s", request.For, config.EnvPrefix, org.personalNote())
 	}
 
 	if in.DryRun {

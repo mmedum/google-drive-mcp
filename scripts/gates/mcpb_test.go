@@ -1019,7 +1019,7 @@ func TestTheBundleAsksForEverySettingNotLeftOut(t *testing.T) {
 		names = append(names, v.Name)
 	}
 	want := []string{"GDRIVE_PROFILE", "GDRIVE_READ_ONLY", "GDRIVE_ENABLE_DESTRUCTIVE", "GDRIVE_SHARING",
-		"GDRIVE_LOCAL_DIR", "GDRIVE_MAX_DOWNLOAD", "GDRIVE_LABELS", "GDRIVE_ACTIVITY", "GDRIVE_CLIENT_SECRET"}
+		"GDRIVE_LOCAL_DIR", "GDRIVE_ORGANIZATION_DOMAINS", "GDRIVE_MAX_DOWNLOAD", "GDRIVE_LABELS", "GDRIVE_ACTIVITY", "GDRIVE_CLIENT_SECRET"}
 	if !slices.Equal(names, want) || len(problems) != 0 {
 		t.Fatalf("asked %v with problems %v, want %v and none", names, problems, want)
 	}

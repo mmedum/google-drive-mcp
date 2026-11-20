@@ -120,10 +120,13 @@ type Options struct {
 	Destructive bool
 	Sharing     config.Sharing
 	LocalDir    string
-	MaxDownload int64
-	Labels      bool
-	Activity    bool
-	Logger      *slog.Logger
+	// OrganizationDomains are the email domains counted inside the
+	// organization; empty takes the account's own (GDRIVE_ORGANIZATION_DOMAINS).
+	OrganizationDomains []string
+	MaxDownload         int64
+	Labels              bool
+	Activity            bool
+	Logger              *slog.Logger
 	// PathTTL is how long a resolved (parent, name) pair is trusted, so
 	// a burst of calls on one path costs one walk. Default 60s.
 	PathTTL time.Duration
@@ -185,8 +188,10 @@ type Service struct {
 	// per conversion.
 	imports      map[string][]string
 	importsTried bool
-	// accountAddress is the signed-in account's address, read once.
-	accountAddress string
+	// accountAddress is the signed-in account's address, and
+	// accountCanCreateDrives its about.canCreateDrives, read once together.
+	accountAddress         string
+	accountCanCreateDrives bool
 	// downloads are the long-running download operations this process has
 	// started, by file id. An operation lives at least twelve hours and
 	// its name comes back only from the call that started it — there is
