@@ -9,10 +9,12 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - For contributors: `make vuln` refuses a Go build `govulncheck` cannot read, such as one with a GOEXPERIMENT suffix; rerun with the `GOTOOLCHAIN` it names.
+- `unshare_file` reports the class of a failed permission read, such as `[unavailable]`, rather than always `[forbidden]`.
 
 ### Fixed
 
 - `doctor` masks the signed-in address to `…@domain`, as `status` does.
+- `resolve_access_request` refuses an accept when it cannot read who has access, as `share_file` and `unshare_file` do, rather than granting with the audience unknown.
 
 ### Security
 
