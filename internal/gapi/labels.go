@@ -76,19 +76,13 @@ func (c *Client) ListFileLabels(ctx context.Context, fileID string, o ListFileLa
 // 100, and a file that has a hundred labels on it is not a case this
 // server needs to be clever about.
 func (c *Client) AllFileLabels(ctx context.Context, fileID string) ([]*gdrive.Label, error) {
-	var all []*gdrive.Label
-	token := ""
-	for {
+	return walkPages("files.listLabels", func(token string) ([]*gdrive.Label, string, error) {
 		page, err := c.ListFileLabels(ctx, fileID, ListFileLabelsOptions{PageToken: token})
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		all = append(all, page.Labels...)
-		if page.NextPageToken == "" || len(page.Labels) == 0 {
-			return all, nil
-		}
-		token = page.NextPageToken
-	}
+		return page.Labels, page.NextPageToken, nil
+	})
 }
 
 // ModifyLabels applies, changes or removes labels on a file.

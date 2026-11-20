@@ -22,9 +22,7 @@ func (c *Client) ListRevisions(ctx context.Context, fileID, fields string) ([]*g
 	if err != nil {
 		return nil, err
 	}
-	var out []*gdrive.Revision
-	pageToken := ""
-	for {
+	return walkPages("revisions.list", func(pageToken string) ([]*gdrive.Revision, string, error) {
 		v := url.Values{}
 		v.Set("fields", "nextPageToken,revisions("+fields+")")
 		v.Set("pageSize", strconv.Itoa(maxRevisionPageSize))
@@ -35,18 +33,14 @@ func (c *Client) ListRevisions(ctx context.Context, fileID, fields string) ([]*g
 		body, err := c.do(ctx, request{method: http.MethodGet, url: u,
 			resourceIDs: []string{fileID}})
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		var page gdrive.RevisionList
 		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("%w: decode revisions: %w", ErrUnexpected, err)
+			return nil, "", fmt.Errorf("%w: decode revisions: %w", ErrUnexpected, err)
 		}
-		out = append(out, page.Revisions...)
-		if page.NextPageToken == "" || len(page.Revisions) == 0 {
-			return out, nil
-		}
-		pageToken = page.NextPageToken
-	}
+		return page.Revisions, page.NextPageToken, nil
+	})
 }
 
 // maxRevisionPageSize is Drive's ceiling for revisions.list.

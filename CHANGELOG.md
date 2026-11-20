@@ -6,6 +6,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `list_access_requests`, `resolve_access_request`, `list_revisions`, sharing cards and label reads no longer stop at an empty page that carries a continuation token.
+
 ### Security
 
 - Built with Go 1.27.4 for GO-2026-6859 (CVE-2026-97054), reachable per `govulncheck`: an HTTP/1 server using `MaxBytesReader` could crash on a header race.
