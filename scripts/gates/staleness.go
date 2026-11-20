@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/tools"
 )
 
 // staleness fails when the documentation drifts from the code. Each
@@ -86,6 +87,28 @@ var documentedInProse = map[string]string{
 	"lift_drive_restriction":     "a shared drive opened past the organization",
 }
 
+// proseIsTheGatedTools holds documentedInProse to the tools only
+// GDRIVE_ENABLE_DESTRUCTIVE registers, read off registration: a gated
+// tool left out would need a table row, and one listed that is not gated
+// would excuse an ordinary tool from the table.
+func proseIsTheGatedTools() []string {
+	widening, destroying := tools.Gated()
+	gated := slices.Concat(widening, destroying)
+	var problems []string
+	for _, name := range gated {
+		if _, ok := documentedInProse[name]; !ok {
+			problems = append(problems, name+" is gated, and documentedInProse does not say why it is not in the table")
+		}
+	}
+	for name := range documentedInProse {
+		if !slices.Contains(gated, name) {
+			problems = append(problems, "documentedInProse lists "+name+", which GDRIVE_ENABLE_DESTRUCTIVE does not gate")
+		}
+	}
+	sort.Strings(problems)
+	return problems
+}
+
 // checkReadmeTools keeps the README's table and the registered tools in
 // step, in both directions: a tool nobody documented, and a documented
 // tool that no longer exists. The table and the prose are read with fenced
@@ -100,7 +123,7 @@ func checkReadmeTools(registered []string) []string {
 	for _, m := range readmeToolRow.FindAllStringSubmatch(text, -1) {
 		documented[m[1]] = true
 	}
-	var problems []string
+	problems := proseIsTheGatedTools()
 	for _, name := range registered {
 		if _, prose := documentedInProse[name]; prose {
 			// Named in a paragraph on purpose. It still has to be MENTIONED

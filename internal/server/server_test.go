@@ -677,12 +677,12 @@ var notYetRegistered = []string{"list_labels", "manage_labels"}
 // some builds and the two reasons are not the same reason.
 var gatedByDefault = append(append([]string(nil), destroying...), widening...)
 
-// destroying are the gated tools that remove something for good.
-var destroying = []string{"delete_file", "empty_trash", "delete_drive", "delete_revision", "delete_comment"}
-
-// widening are the gated tools that reach past the people inside the
-// organization, or hand a file over.
-var widening = []string{"share_by_link", "share_outside_organization", "transfer_ownership", "lift_drive_restriction"}
+// widening reach past the people inside the organization or hand a file
+// over, and destroying remove something for good. They are read off
+// registration, so the tests here check over them; the literal lists in
+// TestGatedReadsTheGatedToolsOffRegistration are what fail when a gate
+// moves.
+var widening, destroying = tools.Gated()
 
 func TestNothingAModelReadsNamesAToolThatDoesNotExist(t *testing.T) {
 	cs := session(t, defaultConfig(), true)

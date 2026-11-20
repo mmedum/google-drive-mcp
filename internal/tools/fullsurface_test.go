@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -71,5 +72,17 @@ func TestFullSurfaceRegistersEverything(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestGatedReadsTheGatedToolsOffRegistration(t *testing.T) {
+	widening, destroying := Gated()
+	if want := []string{"lift_drive_restriction", "share_by_link", "share_outside_organization",
+		"transfer_ownership"}; !slices.Equal(widening, want) {
+		t.Errorf("widening = %v, want %v", widening, want)
+	}
+	if want := []string{"delete_comment", "delete_drive", "delete_file", "delete_revision",
+		"empty_trash"}; !slices.Equal(destroying, want) {
+		t.Errorf("destroying = %v, want %v", destroying, want)
 	}
 }

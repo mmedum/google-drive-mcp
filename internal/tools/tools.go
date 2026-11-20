@@ -6,6 +6,7 @@ package tools
 import (
 	"errors"
 	"log/slog"
+	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -173,3 +174,37 @@ var (
 	// not what idempotent is for, so it is not marked as such.
 	destructive = &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)}
 )
+
+// Gated reads off registration the tools only GDRIVE_ENABLE_DESTRUCTIVE
+// registers, so the tests, the evals and the gates that name them hold
+// to what the server does rather than to a copy of the list. widening
+// reach past the people inside the organization or hand a file over,
+// which GDRIVE_SHARING=off drops as well; destroying remove something
+// with no way back. Both are sorted.
+func Gated() (widening, destroying []string) {
+	names := func(cfg config.Config) map[string]bool {
+		s := mcp.NewServer(&mcp.Implementation{Name: "gated", Version: "0"}, nil)
+		out := map[string]bool{}
+		for _, n := range Register(s, Deps{Config: cfg}) {
+			out[n] = true
+		}
+		return out
+	}
+	full := FullSurface(config.Config{})
+	ungated, unshared := full, full
+	ungated.EnableDestructive = false
+	unshared.Sharing = config.SharingOff
+	base, withoutSharing := names(ungated), names(unshared)
+	for n := range names(full) {
+		switch {
+		case base[n]:
+		case withoutSharing[n]:
+			destroying = append(destroying, n)
+		default:
+			widening = append(widening, n)
+		}
+	}
+	slices.Sort(widening)
+	slices.Sort(destroying)
+	return widening, destroying
+}

@@ -401,18 +401,19 @@ func (s *Service) wideGrants(ctx context.Context, grants []model.Grant) (wide []
 	var out []model.Grant
 	// The account is read once, when a person or a group needs it: a
 	// read that failed is not tried again for every grant.
-	mine, read, unsure := "", false, false
+	var org organization
+	read, unsure := false, false
 	for _, g := range grants {
 		switch g.Type {
 		case principalAnyone, principalDomain:
 			out = append(out, g)
 		case principalUser, principalGroup:
 			if !read {
-				mine, read = domainOf(s.account(ctx)), true
+				org, read = s.organization(ctx), true
 			}
-			if outsideOf(mine, g.Who) {
+			if org.outside(g.Who) {
 				out = append(out, g)
-				unsure = unsure || mine == ""
+				unsure = unsure || !org.known()
 			}
 		default:
 			// A grant type Drive adds later is counted as reaching past

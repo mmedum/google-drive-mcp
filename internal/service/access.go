@@ -399,14 +399,18 @@ func (s *Service) shareToolTakes(ctx context.Context, tool string, p principal, 
 		case role == model.RoleOwner:
 			return Errorf(ClassBlocked, "share_file does not hand over ownership. Nothing was changed. "+
 				"transfer_ownership does it, when %sENABLE_DESTRUCTIVE=true.", config.EnvPrefix)
-		case s.account(ctx) == "":
+		}
+		// Read once, so the checks below judge one account.
+		org := s.organization(ctx)
+		switch {
+		case !org.known():
 			return Errorf(ClassBlocked, "this account's own address could not be read, so share_file cannot "+
 				"tell whether %s is inside its organization, and grants only people and groups inside it. "+
 				"Nothing was changed. get_account shows whether the address can be read now.", p.email)
-		case s.outside(ctx, p.email):
+		case org.outside(p.email):
 			return Errorf(ClassBlocked, "%s is outside this account's organization, and share_file grants "+
 				"only people and groups inside it. Nothing was changed. share_outside_organization does it, "+
-				"when %sENABLE_DESTRUCTIVE=true.%s", p.email, config.EnvPrefix, s.personalNote(ctx))
+				"when %sENABLE_DESTRUCTIVE=true.%s", p.email, config.EnvPrefix, org.personalNote())
 		}
 	case toolShareOutside:
 		switch {
@@ -415,7 +419,7 @@ func (s *Service) shareToolTakes(ctx context.Context, tool string, p principal, 
 				tool, p.label())
 		case role == model.RoleOwner:
 			return Errorf(ClassInvalid, "%s does not hand over ownership; transfer_ownership does.", tool)
-		case !s.outside(ctx, p.email):
+		case !s.organization(ctx).outside(p.email):
 			return Errorf(ClassInvalid, "%s is inside this account's organization; share_file grants it.", p.email)
 		}
 	case toolShareByLink:
@@ -429,8 +433,8 @@ func (s *Service) shareToolTakes(ctx context.Context, tool string, p principal, 
 
 // personalNote says why every address is outside for a personal Google
 // account, which otherwise reads as a refusal of a colleague.
-func (s *Service) personalNote(ctx context.Context) string {
-	if !consumerDomains[domainOf(s.account(ctx))] {
+func (o organization) personalNote() string {
+	if !o.personal {
 		return ""
 	}
 	return " This is a personal Google account, which has no organization, so every address is outside it."
@@ -1123,37 +1127,4 @@ func joinSentences(parts []string) string {
 		return ""
 	}
 	return strings.Join(parts, ". ") + "."
-}
-
-// consumerDomains are the addresses of personal Google accounts. Two of
-// them share a domain and no organization, so an address there is
-// outside whoever holds the other.
-var consumerDomains = map[string]bool{"gmail.com": true, "googlemail.com": true}
-
-// outside reports whether address is outside the signed-in account's
-// organization, taken as its email domain. A secondary domain of the
-// same organization counts as outside, and so does everything when the
-// account cannot be read, or is a personal Google account, which has no
-// organization: each refuses a share too many in the ordinary tools
-// rather than one too few.
-func (s *Service) outside(ctx context.Context, address string) bool {
-	if theirs := domainOf(address); theirs == "" || consumerDomains[theirs] {
-		// Outside whoever is signed in, so the account is not read.
-		return true
-	}
-	return outsideOf(domainOf(s.account(ctx)), address)
-}
-
-// outsideOf is outside, with the account's own domain, mine, already
-// read: empty when it could not be.
-func outsideOf(mine, address string) bool {
-	theirs := domainOf(address)
-	return theirs == "" || consumerDomains[theirs] || mine == "" || mine != theirs
-}
-
-// domainOf is an address's domain, in lower case, or empty when it has
-// none.
-func domainOf(address string) string {
-	_, domain, _ := strings.Cut(strings.ToLower(strings.TrimSpace(address)), "@")
-	return domain
 }
