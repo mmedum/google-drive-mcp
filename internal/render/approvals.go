@@ -63,6 +63,9 @@ func writeApproval(b *buf, a *model.Approval, now time.Time) {
 	if !a.Completed.IsZero() {
 		b.field("finished", model.Ago(a.Completed, now))
 	}
+	if a.ApprovedRevision != "" {
+		b.field("approved revision", a.ApprovedRevision)
+	}
 	for _, r := range a.Reviewers {
 		b.field("  "+responseWords(r.Response, a.Open()), r.Person)
 	}

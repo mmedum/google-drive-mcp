@@ -1,5 +1,5 @@
 {
-  "fetched": "2026-11-04",
+  "fetched": "2026-11-20",
   "apis": [
     {
       "api": "drive",
@@ -123,6 +123,7 @@
           "name": "Approval",
           "properties": [
             "approvalId",
+            "approvedRevisionId",
             "completeTime",
             "createTime",
             "dueTime",
