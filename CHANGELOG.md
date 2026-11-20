@@ -16,6 +16,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `list_access_requests`, `resolve_access_request`, `list_revisions`, sharing cards and label reads no longer stop at an empty page that carries a continuation token.
 - `doctor` masks the signed-in address to `…@domain`, as `status` does.
 
 ### Security

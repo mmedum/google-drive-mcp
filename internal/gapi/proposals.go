@@ -27,9 +27,7 @@ func (c *Client) ListAccessProposals(ctx context.Context, fileID string) ([]*gdr
 	if err != nil {
 		return nil, err
 	}
-	var out []*gdrive.AccessProposal
-	pageToken := ""
-	for {
+	return walkPages("accessproposals.list", func(pageToken string) ([]*gdrive.AccessProposal, string, error) {
 		v := url.Values{}
 		v.Set("fields", "nextPageToken,accessProposals("+ProposalFields+")")
 		v.Set("pageSize", strconv.Itoa(maxProposalPageSize))
@@ -40,18 +38,14 @@ func (c *Client) ListAccessProposals(ctx context.Context, fileID string) ([]*gdr
 		body, err := c.do(ctx, request{method: http.MethodGet, url: u,
 			resourceIDs: []string{fileID}})
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		var page gdrive.AccessProposalList
 		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("%w: decode access proposals: %w", ErrUnexpected, err)
+			return nil, "", fmt.Errorf("%w: decode access proposals: %w", ErrUnexpected, err)
 		}
-		out = append(out, page.AccessProposals...)
-		if page.NextPageToken == "" || len(page.AccessProposals) == 0 {
-			return out, nil
-		}
-		pageToken = page.NextPageToken
-	}
+		return page.AccessProposals, page.NextPageToken, nil
+	})
 }
 
 // maxProposalPageSize is what this client asks for per page. The
