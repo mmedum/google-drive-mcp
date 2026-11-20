@@ -108,12 +108,14 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 		return nil, err
 	}
 	f := res.File
-	if !model.CanShare(f) {
-		return nil, Errorf(ClassForbidden, "this account cannot change who may see %s, so it cannot answer "+
-			"a request for access to it either.", f.Name)
+	// A deny cannot widen access, so only an accept needs the list read.
+	before, err := s.sharingStart(ctx, res, ", so this account cannot answer a request for access to it either.",
+		action == RequestAccept)
+	if err != nil {
+		return nil, err
 	}
 
-	// The proposal is read first for three reasons: to fail on an id that
+	// The proposal is read before anything is written, for three reasons: to fail on an id that
 	// is not there before anything is granted, to know the role the
 	// person asked for, and to carry the view a published-view proposal
 	// belongs to. Drive's resolve answers with no body at all, so
@@ -155,9 +157,8 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 			"registers, or in Drive itself.", request.For, config.EnvPrefix)
 	}
 
-	before := s.sharingNow(ctx, f)
 	if in.DryRun {
-		return s.requestResult(ctx, res, request, action, role, before, before, in.Notify, true), nil
+		return s.requestResult(ctx, res, nil, request, action, role, before, in.Notify, true), nil
 	}
 
 	body := &gdrive.ResolveProposal{
@@ -171,14 +172,14 @@ func (s *Service) ResolveAccessRequest(ctx context.Context, in ResolveAccessRequ
 		return nil, s.resolveRequestError(err, f, request, action)
 	}
 	s.forget(f, false)
-	after := before
+	var card *model.File
 	if action == RequestAccept {
 		// Only an acceptance changes who can reach the file, and reading
 		// it back is the only way to know what it changed to: the resolve
 		// call answers with nothing.
-		res, after = s.rereadAfterSharing(ctx, res)
+		res, card = s.rereadAfterSharing(ctx, res)
 	}
-	return s.requestResult(ctx, res, request, action, role, before, after, in.Notify, false), nil
+	return s.requestResult(ctx, res, card, request, action, role, before, in.Notify, false), nil
 }
 
 // roleForRequest decides what an acceptance grants: the role the caller
@@ -233,9 +234,10 @@ func grantableRole(role string) (string, error) {
 // requestResult renders what answering the request did, with the
 // exposure before and after for the same reason share_file carries it:
 // the grant is the small half of the answer.
-func (s *Service) requestResult(ctx context.Context, res *Resolved, request *model.AccessRequest,
-	action, role string, before, after model.Sharing, notify, dryRun bool,
+func (s *Service) requestResult(ctx context.Context, res *Resolved, card *model.File, request *model.AccessRequest,
+	action, role string, before model.Sharing, notify, dryRun bool,
 ) *Result {
+	after := sharingAfter(card, before)
 	out := outcome{DryRun: dryRun}
 	if action == RequestAccept {
 		out.Action = render.ActionShared
@@ -251,7 +253,7 @@ func (s *Service) requestResult(ctx context.Context, res *Resolved, request *mod
 		out.Note = fmt.Sprintf("%s was refused and the request is gone; nobody gained access. %s",
 			request.By, mailWords(notify, request.By))
 	}
-	result := s.report(ctx, res, out)
+	result := s.reportCard(ctx, res, card, out)
 	result.JSON.SharingBefore = before.Summary()
 	result.JSON.SharingAfter = after.Summary()
 	return result

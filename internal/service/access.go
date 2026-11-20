@@ -259,11 +259,12 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 	if err := s.shareableTarget(f, role); err != nil {
 		return nil, err
 	}
-
-	before, existing, err := s.exposure(ctx, res, principal)
+	before, err := s.sharingStart(ctx, res, ". Its owner may have turned off re-sharing by editors, or "+
+		"your role does not allow it; get_file shows what you can do with it.", true)
 	if err != nil {
 		return nil, err
 	}
+	existing := grantFor(before, principal)
 	plan := sharePlan{
 		principal: principal, role: role, expires: expires, clearExpiry: clearExpiry,
 		existing: existing, notify: in.notify, message: in.message,
@@ -282,10 +283,12 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 			note += " That access expires on " + existing.Expires +
 				"; pass expires to move it, or expires: never to remove the expiry."
 		}
+		// Its card is built afresh, which in a shared drive lists the
+		// permissions again; nothing changed, so it is the one extra read.
 		return s.report(ctx, res, outcome{Action: render.ActionUnchanged, Note: note}), nil
 	}
 	if in.dryRun {
-		return s.shareResult(ctx, res, before, before, plan, true), nil
+		return s.shareResult(ctx, res, nil, before, plan, true), nil
 	}
 	if in.wide() {
 		what := fmt.Sprintf("let %s open %s, where they %s", principal.label(), f.Name, model.RoleWords(role))
@@ -304,8 +307,8 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 	// A grant changes who can reach the file, and the paths that led to
 	// it are unaffected; only the cached copy of the file itself is.
 	s.forget(f, false)
-	res, after := s.rereadAfterSharing(ctx, res)
-	return s.shareResult(ctx, res, before, after, plan, false), nil
+	res, card := s.rereadAfterSharing(ctx, res)
+	return s.shareResult(ctx, res, card, before, plan, false), nil
 }
 
 // A wide write carries the name of what it opens up, as a witness. The
@@ -556,10 +559,20 @@ func (s *Service) applyShare(ctx context.Context, f *gdrive.File, p sharePlan) e
 	return err
 }
 
+// sharingAfter is the exposure a sharing result reports as after: the
+// re-read card's, or before's on a dry run, which has no card.
+func sharingAfter(card *model.File, before model.Sharing) model.Sharing {
+	if card == nil {
+		return before
+	}
+	return card.Sharing
+}
+
 // shareResult renders what the grant did, with the exposure before and
 // after: the grant is the small half of the answer and who can now reach
 // the file is the half worth reading.
-func (s *Service) shareResult(ctx context.Context, res *Resolved, before, after model.Sharing, p sharePlan, dryRun bool) *Result {
+func (s *Service) shareResult(ctx context.Context, res *Resolved, card *model.File, before model.Sharing, p sharePlan, dryRun bool) *Result {
+	after := sharingAfter(card, before)
 	changes := make([]render.Change, 0, 2)
 	to := model.RoleWords(p.role) + expiryWords(p.expires)
 	if p.clearExpiry {
@@ -571,7 +584,7 @@ func (s *Service) shareResult(ctx context.Context, res *Resolved, before, after 
 
 	out := outcome{Action: render.ActionShared, Changes: changes, DryRun: dryRun,
 		Note: s.shareNote(p, after, dryRun)}
-	result := s.report(ctx, res, out)
+	result := s.reportCard(ctx, res, card, out)
 	result.JSON.SharingBefore = before.Summary()
 	result.JSON.SharingAfter = after.Summary()
 	return result
@@ -673,18 +686,10 @@ func (s *Service) UnshareFile(ctx context.Context, in UnshareFileInput) (*Result
 		return nil, err
 	}
 	f := res.File
-	if !model.CanShare(f) {
-		return nil, Errorf(ClassForbidden, "you cannot change sharing on %s. list_permissions shows who "+
-			"can see it; only someone who may share it can change that.", f.Name)
-	}
-
-	before := s.sharingNow(ctx, f)
-	if before.Unknown {
-		// Saying "they have no grant" here would be a guess dressed as a
-		// fact: the list could not be read, so what is on the file is
-		// unknown and removing the right thing is impossible.
-		return nil, Errorf(ClassForbidden, "this account cannot read who has access to %s, so there is no "+
-			"way to tell which grant to remove. get_file shows what you may do with it.", f.Name)
+	before, err := s.sharingStart(ctx, res, ". list_permissions shows who can see it; only someone who "+
+		"may share it can change that.", true)
+	if err != nil {
+		return nil, err
 	}
 	target, err := s.grantToRemove(before, in)
 	if err != nil {
@@ -702,17 +707,18 @@ func (s *Service) UnshareFile(ctx context.Context, in UnshareFileInput) (*Result
 	}
 
 	if in.DryRun {
-		return s.unshareResult(ctx, res, before, before, *target, true), nil
+		return s.unshareResult(ctx, res, nil, before, *target, true), nil
 	}
 	if err := s.api.DeletePermission(ctx, f.ID, target.PermissionID); err != nil {
 		return nil, wrap(err, fmt.Sprintf("removing %s's access to %s", target.Label(), f.Name))
 	}
 	s.forget(f, false)
-	res, after := s.rereadAfterSharing(ctx, res)
-	return s.unshareResult(ctx, res, before, after, *target, false), nil
+	res, card := s.rereadAfterSharing(ctx, res)
+	return s.unshareResult(ctx, res, card, before, *target, false), nil
 }
 
-func (s *Service) unshareResult(ctx context.Context, res *Resolved, before, after model.Sharing, g model.Grant, dryRun bool) *Result {
+func (s *Service) unshareResult(ctx context.Context, res *Resolved, card *model.File, before model.Sharing, g model.Grant, dryRun bool) *Result {
+	after := sharingAfter(card, before)
 	changes := make([]render.Change, 0, 2)
 	changes = append(changes, render.Change{Field: "access for " + g.Label(),
 		From: model.RoleWords(g.Role), To: "no access"})
@@ -725,7 +731,7 @@ func (s *Service) unshareResult(ctx context.Context, res *Resolved, before, afte
 	default:
 		note = "the link that grant made is dead; anyone holding it now sees a request-access page"
 	}
-	result := s.report(ctx, res, outcome{Action: render.ActionUnshared,
+	result := s.reportCard(ctx, res, card, outcome{Action: render.ActionUnshared,
 		Changes: changes, DryRun: dryRun, Note: note})
 	result.JSON.SharingBefore = before.Summary()
 	result.JSON.SharingAfter = after.Summary()
@@ -778,27 +784,48 @@ func (s *Service) grantToRemove(sharing model.Sharing, in UnshareFileInput) (*mo
 		"access through a group or a whole domain is removed at that grant, not per person.", p.label())
 }
 
-// exposure reads the current permission list, returning both the
-// summary a result reports and the grant this principal already has.
-// One listing answers both questions, and asking twice would let them
-// disagree.
-func (s *Service) exposure(ctx context.Context, res *Resolved, p principal) (model.Sharing, *model.Grant, error) {
-	perms, err := s.api.ListPermissions(ctx, res.File.ID)
-	if err != nil {
-		return model.Sharing{}, nil, wrap(err, "reading who can see "+res.File.Name)
+// sharingStart is how every sharing write begins. It refuses an item
+// whose sharing this account may not change, because the sharing guide
+// asks apps to consult capabilities.canShare rather than infer it from a
+// role, and why says what that means for this tool. Then it reads who
+// can reach the item now, which every sharing result shows beside who
+// can after.
+//
+// It lists rather than reading the grants a files.get already carried:
+// an absent `permissions` field and a file with no grants are the same
+// empty slice, and mistaking the first for the second understates
+// exposure. A write that needs the list, because it widens access or
+// must find a grant, refuses when it cannot be read; any other reports it
+// as unknown. TestEverySharingWriteRefusesWhenItCannotReadWhoHasAccess
+// holds it.
+func (s *Service) sharingStart(ctx context.Context, res *Resolved, why string, needsList bool) (model.Sharing, error) {
+	f := res.File
+	if !model.CanShare(f) {
+		return model.Sharing{}, Errorf(ClassForbidden, "you cannot change sharing on %s%s", f.Name, why)
 	}
-	sharing := s.sharingFrom(ctx, res.File, perms, res.DriveName)
+	if !needsList {
+		return s.sharingNow(ctx, f), nil
+	}
+	perms, err := s.api.ListPermissions(ctx, f.ID)
+	if err != nil {
+		return model.Sharing{}, wrap(err, "reading who has access to "+f.Name)
+	}
+	return s.sharingFrom(ctx, f, perms, res.DriveName), nil
+}
+
+// grantFor is the grant this principal already has, or nil.
+func grantFor(sharing model.Sharing, p principal) *model.Grant {
 	for i := range sharing.Grants {
 		if p.matches(sharing.Grants[i]) {
-			return sharing, &sharing.Grants[i], nil
+			return &sharing.Grants[i]
 		}
 	}
-	return sharing, nil, nil
+	return nil
 }
 
 // rereadAfterSharing reads the file again after a grant changed, and
-// returns both the resolved file the card is rendered from and the
-// exposure that file now has.
+// returns the resolved file and the model its card is rendered from,
+// whose Sharing is the exposure after.
 //
 // The card's "sharing:" line is the one a person checks to see what they
 // just exposed, so it is rendered from the file read AFTER the write; the
@@ -806,31 +833,34 @@ func (s *Service) exposure(ctx context.Context, res *Resolved, p principal) (mod
 // "after" summary takes the fresh file's `shared` flag with its grants,
 // so removing the last grant reads "private to you". One read serves
 // both, since a file read carries its own grants outside a shared drive.
-func (s *Service) rereadAfterSharing(ctx context.Context, res *Resolved) (*Resolved, model.Sharing) {
+func (s *Service) rereadAfterSharing(ctx context.Context, res *Resolved) (*Resolved, *model.File) {
 	fresh, err := s.Resolve(ctx, res.File.ID, ResolveOptions{FollowShortcut: false, Fresh: true})
 	if err != nil {
 		// The write happened; failing to describe it must not fail the
 		// call. Fall back to the permission list alone, which is still
 		// better than the state from before the write.
 		s.log.DebugContext(ctx, "could not re-read after a sharing change", "class", gapi.Class(err))
-		return res, s.sharingNow(ctx, res.File)
+		perms, err := s.api.ListPermissions(ctx, res.File.ID)
+		if err != nil {
+			card := s.Model(ctx, res)
+			card.Sharing = model.NewSharing(res.File.Shared, nil, false)
+			return res, card
+		}
+		// The card is built from the listed grants, so its owner agrees
+		// with its sharing line after a transfer.
+		f := *res.File
+		f.Permissions = perms
+		listed := *res
+		listed.File = &f
+		return &listed, s.Model(ctx, &listed)
 	}
-	return fresh, s.Model(ctx, fresh).Sharing
+	return fresh, s.Model(ctx, fresh)
 }
 
-// sharingNow re-reads the permission list. A failure here is reported as
-// unknown rather than as an empty list: a result that said "private to
-// you" because a read failed would understate exposure, which is the one
-// direction that must never happen.
-//
-// It lists rather than reading the grants a files.get already carried,
-// and that is deliberate. Outside a shared drive the file read does
-// carry them, so the list is one round trip that could be saved — but an
-// absent `permissions` field and a file with no grants are the same
-// empty slice, and the saving is only available on the sharing path,
-// which is the one place where mistaking the second for the first
-// understates exposure. TestUnshareSaysSoWhenItCannotReadWhoHasAccess
-// is that distinction with a test around it.
+// sharingNow reads who can reach a file now, for the exposure a write
+// reports. A failure here is reported as unknown rather than as an empty
+// list: a result that said "private to you" because a read failed would
+// understate exposure, which is the one direction that must never happen.
 func (s *Service) sharingNow(ctx context.Context, f *gdrive.File) model.Sharing {
 	perms, err := s.api.ListPermissions(ctx, f.ID)
 	if err != nil {
@@ -848,15 +878,9 @@ func (s *Service) sharingFrom(ctx context.Context, f *gdrive.File, perms []*gdri
 	return sharing
 }
 
-// shareableTarget refuses before the call what Drive would refuse after
-// it, in terms that say what to do instead. The sharing guide asks apps
-// to consult capabilities.canShare rather than infer rights from a role,
-// and this is where that happens.
+// shareableTarget refuses before the call a role Drive would refuse on
+// this item after it, in terms that say what to do instead.
 func (s *Service) shareableTarget(f *gdrive.File, role string) error {
-	if !model.CanShare(f) {
-		return Errorf(ClassForbidden, "you cannot change sharing on %s. Its owner may have turned off "+
-			"re-sharing by editors, or your role does not allow it; get_file shows what you can do with it.", f.Name)
-	}
 	switch role {
 	case model.RoleOrganizer, model.RoleFileOrganizer:
 		if f.DriveID == "" {
