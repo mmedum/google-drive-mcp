@@ -942,6 +942,11 @@ type Approval struct {
 	CreateTime        string              `json:"createTime,omitempty"`
 	ModifyTime        string              `json:"modifyTime,omitempty"`
 	CompleteTime      string              `json:"completeTime,omitempty"`
+	// ApprovedRevisionID is the file's revision when the approval completed,
+	// set only on an APPROVED one. The live step "the approved approval is
+	// listed" reads it.
+	// https://developers.google.com/workspace/drive/api/reference/rest/v3/approvals#Approval
+	ApprovedRevisionID string `json:"approvedRevisionId,omitempty"`
 	// FileContentChangeBehavior is RESET_APPROVAL or NO_APPROVAL_ACTION.
 	// RESET_APPROVAL, the default, means a content change while the
 	// approval is in progress clears the approvals given, and that once

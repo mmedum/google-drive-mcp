@@ -6,15 +6,22 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `list_approvals` names the revision an approved file was approved at, so `list_revisions` shows whether the content changed since.
+
 ### Changed
 
+- `read_file` heads an Apps Script project's text as `json` rather than `JSON`.
 - For contributors: `make vuln` refuses a Go build `govulncheck` cannot read, such as one with a GOEXPERIMENT suffix; rerun with the `GOTOOLCHAIN` it names.
 - `unshare_file` reports the class of a failed permission read, such as `[unavailable]`, rather than always `[forbidden]`.
 
 ### Fixed
 
+- `list_access_requests`, `resolve_access_request`, `list_revisions`, sharing cards and label reads no longer stop at an empty page that carries a continuation token.
 - `doctor` masks the signed-in address to `…@domain`, as `status` does.
 - `resolve_access_request` refuses an accept when it cannot read who has access, as `share_file` and `unshare_file` do, rather than granting with the audience unknown.
+- `read_file` refuses a `format` on a Slides deck, and any but `json` on an Apps Script project, rather than ignoring it.
 
 ### Security
 

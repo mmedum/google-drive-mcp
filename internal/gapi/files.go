@@ -248,9 +248,7 @@ func (c *Client) ListPermissions(ctx context.Context, fileID string) ([]*gdrive.
 	if err != nil {
 		return nil, err
 	}
-	var out []*gdrive.Permission
-	pageToken := ""
-	for {
+	return walkPages("permissions.list", func(pageToken string) ([]*gdrive.Permission, string, error) {
 		v := url.Values{}
 		v.Set("fields", "nextPageToken,permissions("+PermissionFields+")")
 		v.Set("supportsAllDrives", "true")
@@ -261,18 +259,14 @@ func (c *Client) ListPermissions(ctx context.Context, fileID string) ([]*gdrive.
 		u := c.base + "/files/" + segment + "/permissions?" + v.Encode()
 		body, err := c.do(ctx, request{method: http.MethodGet, url: u, resourceIDs: []string{fileID}})
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		var page gdrive.PermissionList
 		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("%w: decode permissions: %w", ErrUnexpected, err)
+			return nil, "", fmt.Errorf("%w: decode permissions: %w", ErrUnexpected, err)
 		}
-		out = append(out, page.Permissions...)
-		if page.NextPageToken == "" || len(page.Permissions) == 0 {
-			return out, nil
-		}
-		pageToken = page.NextPageToken
-	}
+		return page.Permissions, page.NextPageToken, nil
+	})
 }
 
 // rememberKeys records every resource key a response carried, so a later
