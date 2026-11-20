@@ -31,6 +31,9 @@ type Approval struct {
 	Created   time.Time
 	Due       time.Time
 	Completed time.Time
+	// ApprovedRevision is the file's revision the approval approved, empty
+	// unless it is APPROVED.
+	ApprovedRevision string
 	// LocksOnApproval is true when a content change resets the answers
 	// and an approved file is locked. It is the consequence of this
 	// resource nobody expects, so it is carried rather than derived at
@@ -63,6 +66,7 @@ func NewApproval(a *gdrive.Approval) *Approval {
 		Created:               parseTime(a.CreateTime),
 		Due:                   parseTime(a.DueTime),
 		Completed:             parseTime(a.CompleteTime),
+		ApprovedRevision:      a.ApprovedRevisionID,
 		LocksOnApproval:       a.FileContentChangeBehavior == gdrive.ContentChangeReset,
 		IgnoresContentChanges: a.FileContentChangeBehavior == gdrive.ContentChangeNoAction,
 	}
