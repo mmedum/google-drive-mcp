@@ -2,10 +2,13 @@ package service_test
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v3/internal/service"
 )
 
@@ -521,5 +524,87 @@ func TestANameStillNeedsTheListing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no drive with that id either") {
 		t.Errorf("the refusal does not say both readings were tried:\n%v", err)
+	}
+}
+
+// A drive this call created joins a warm cache, so the next call finds it
+// without listing every drive again.
+func TestACreatedDriveIsFoundWithoutListingAgain(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	if _, err := svc.Drives(t.Context()); err != nil {
+		t.Fatalf("Drives: %v", err)
+	}
+	if _, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{Action: "create", Name: "New fixture drive"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	listed := fake.Count("/drives")
+	drives, err := svc.Drives(t.Context())
+	if err != nil {
+		t.Fatalf("Drives: %v", err)
+	}
+	if got := fake.Count("/drives"); got != listed {
+		t.Errorf("the drive list was read again after a create: %d requests, want %d", got, listed)
+	}
+	if !slices.ContainsFunc(drives, func(d *gdrive.Drive) bool { return d.Name == "New fixture drive" }) {
+		t.Errorf("the created drive is not among %d drives", len(drives))
+	}
+}
+
+// Only a missing token ends the drive list: an empty page that carries
+// one is followed.
+func TestTheDriveListFollowsATokenPastAnEmptyPage(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	first := true
+	fake.Rewrite = func(r *http.Request, status int, body []byte) (int, []byte) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/drives") && first {
+			first = false
+			return http.StatusOK, []byte(`{"nextPageToken":"tok-1","drives":[]}`)
+		}
+		return status, body
+	}
+	drives, err := svc.Drives(t.Context())
+	if err != nil || len(drives) == 0 {
+		t.Errorf("Drives = %d drives, %v; want the drives on the page after the empty one", len(drives), err)
+	}
+	if got := lastQuery(t, fake, http.MethodGet, "/drives", "pageToken"); got != "tok-1" {
+		t.Errorf("the second drives.list sent pageToken %q, want the token the empty page carried", got)
+	}
+}
+
+// A token that comes back again would loop for ever, so the walk stops
+// there; an account may see any number of drives, so no count bounds it.
+func TestTheDriveListRefusesATokenItWasSentBefore(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Rewrite = func(r *http.Request, status int, body []byte) (int, []byte) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/drives") {
+			return http.StatusOK, []byte(`{"nextPageToken":"tok-again","drives":[]}`)
+		}
+		return status, body
+	}
+	if _, err := svc.Drives(t.Context()); err == nil || !strings.HasPrefix(err.Error(), "[unexpected]") {
+		t.Errorf("Drives = %v, want [unexpected]", err)
+	}
+	if got := fake.Count("/drives"); got != 2 {
+		t.Errorf("drives.list was asked %d times, want 2: the first answer and the repeat", got)
+	}
+}
+
+// A second drive of one name would make every lookup of it ambiguous, so
+// a create refuses when the list it checks names against cannot be read.
+func TestACreateRefusesWhenItCannotCheckTheName(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/drives") {
+			return &drivetest.Failure{Status: http.StatusInternalServerError, Reason: "backendError", Message: "try again"}
+		}
+		return nil
+	}
+	if _, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{Action: "create", Name: "New fixture drive"}); err == nil {
+		t.Error("a create went ahead without checking the name")
+	}
+	for _, r := range fake.Requests {
+		if r.Method == http.MethodPost {
+			t.Errorf("the refused create sent %s %s", r.Method, r.Path)
+		}
 	}
 }

@@ -518,15 +518,25 @@ func (s *Service) drivesList(ctx context.Context) ([]*gdrive.Drive, error) {
 
 	var all []*gdrive.Drive
 	token := ""
+	sent := map[string]bool{}
 	for {
 		page, err := s.api.ListDrives(ctx, gapi.ListDrivesOptions{PageToken: token})
 		if err != nil {
 			return nil, err
 		}
 		all = append(all, page.Drives...)
-		if page.NextPageToken == "" || len(page.Drives) == 0 {
+		// Only a missing token ends the list; an empty page can carry one
+		// (D-16).
+		if page.NextPageToken == "" {
 			break
 		}
+		// A token that comes back again would loop for ever; an account can
+		// see any number of drives, so the walk is bounded by that, not by
+		// a count.
+		if sent[page.NextPageToken] {
+			return nil, Errorf(ClassUnexpected, "drives.list sent back a continuation token it had sent already")
+		}
+		sent[page.NextPageToken] = true
 		token = page.NextPageToken
 	}
 	s.mu.Lock()
