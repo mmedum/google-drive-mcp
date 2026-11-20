@@ -8,7 +8,12 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `read_file` heads an Apps Script project's text as `json` rather than `JSON`.
 - For contributors: `make vuln` refuses a Go build `govulncheck` cannot read, such as one with a GOEXPERIMENT suffix; rerun with the `GOTOOLCHAIN` it names.
+
+### Fixed
+
+- `read_file` refuses a `format` on a Slides deck, and any but `json` on an Apps Script project, rather than ignoring it.
 
 ### Security
 

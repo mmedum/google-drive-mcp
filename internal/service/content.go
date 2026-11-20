@@ -309,12 +309,22 @@ func (s *Service) readPlan(f *gdrive.File, format string) (readPlan, error) {
 			"Another sheet, or one range of cells, is a Sheets API read, which this server does not offer; " +
 			"download_file writes the whole workbook as xlsx."}, nil
 	case gdrive.MimeSlides:
+		if format != "" {
+			return readPlan{}, Errorf(ClassInvalid, "read_file returns %s as plain text, and format applies "+
+				"to a spreadsheet only. download_file writes it as pptx or pdf.", model.KindWithArticle(f))
+		}
 		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "plain text",
 			note: "the text of the slides, without their layout"}, nil
-	case gdrive.MimeScript:
-		return readPlan{exportMime: mediatype.ReadAs(f.MimeType), formatName: "JSON"}, nil
 	case gdrive.MimeShortcut:
 		return readPlan{}, Errorf(ClassInvalid, "%s is a shortcut whose target could not be read", f.Name)
+	}
+	if readAs := mediatype.ReadAs(f.MimeType); readAs != "" {
+		name := mediatype.ExportName(readAs)
+		if format != "" && format != name {
+			return readPlan{}, Errorf(ClassInvalid, "read_file returns %s as %s, not %q.",
+				model.KindWithArticle(f), name, format)
+		}
+		return readPlan{exportMime: readAs, formatName: name}, nil
 	}
 	if f.IsWorkspaceDoc() {
 		return readPlan{}, Errorf(ClassUnsupported, "%s is %s, which has no text form. "+

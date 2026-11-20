@@ -470,12 +470,8 @@ func TestAFolderWithNoVisibleParentIsNotGivenOne(t *testing.T) {
 	}
 }
 
-// TestTheRegistryAndTheReadDispatchAgree closes the gap a review found:
-// readPlan switches on the media type, and internal/mediatype records
-// which types have a text form, so the two state the same thing twice
-// and can disagree silently. Give an entry a ReadAs that readPlan does
-// not handle and the file falls through to "has no text form" while the
-// registry says otherwise.
+// Every kind the registry gives a text form is one read_file reads, the
+// ones readPlan has no case for included.
 func TestTheRegistryAndTheReadDispatchAgree(t *testing.T) {
 	svc, fake := setup(t, service.Options{})
 	checked := 0
@@ -494,13 +490,24 @@ func TestTheRegistryAndTheReadDispatchAgree(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no entry in the registry claims a text form, so this test is looking at nothing")
 	}
-	// And the other way: every kind readPlan exports has to be in the
-	// registry, or the export format is a literal somewhere.
-	for _, mime := range []string{
-		gdrive.MimeDocument, gdrive.MimeSheet, gdrive.MimeSlides, gdrive.MimeScript,
+}
+
+// A kind with one text form reads only as that form, rather than
+// answering a format it was not asked for.
+func TestAKindWithOneTextFormRefusesAnotherFormat(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	for _, tc := range []struct{ id, mime, accepted string }{
+		{"id-script-fixture", gdrive.MimeScript, "json"},
+		{"id-slides-fixture", gdrive.MimeSlides, ""},
 	} {
-		if mediatype.ReadAs(mime) == "" {
-			t.Errorf("read_file exports %s and the registry does not say what to", mime)
+		fake.AddFile(tc.id, "one-form fixture", tc.mime, "id-2026-fixture")
+		fake.SetContent(tc.id, "some text")
+		if _, err := svc.ReadFile(t.Context(), service.ReadFileInput{File: tc.id, Format: tc.accepted}); err != nil {
+			t.Errorf("%s read with format %q: %v", tc.mime, tc.accepted, err)
+		}
+		_, err := svc.ReadFile(t.Context(), service.ReadFileInput{File: tc.id, Format: "csv"})
+		if err == nil || !strings.HasPrefix(err.Error(), "[invalid] ") {
+			t.Errorf("%s read as csv = %v, want an [invalid] refusal", tc.mime, err)
 		}
 	}
 }
