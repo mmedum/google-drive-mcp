@@ -89,7 +89,7 @@ jobs:
           version: v2.14.0
           install-mode: goinstall
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+        run: go run ./scripts/gates toolchain && go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
       - name: licenses
         run: go run github.com/google/go-licenses@v1.6.0 check ./... --allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC
       # The Makefile holds the linter's command and its version, so `make

@@ -6,9 +6,14 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- For contributors: `make vuln` refuses a Go build `govulncheck` cannot read, such as one with a GOEXPERIMENT suffix; rerun with the `GOTOOLCHAIN` it names.
+
 ### Fixed
 
 - `list_access_requests`, `resolve_access_request`, `list_revisions`, sharing cards and label reads no longer stop at an empty page that carries a continuation token.
+- `doctor` masks the signed-in address to `…@domain`, as `status` does.
 
 ### Security
 
