@@ -198,6 +198,32 @@ func (g *docsCheck) run() {
 	g.readDecisions()
 	g.checkCitations()
 	g.checkCodemap()
+	g.checkConflictMarkers()
+}
+
+// conflictMarker is the start of a line git writes into a file it could
+// not merge: seven characters, or more under conflict-marker-size or in a
+// nested conflict. A bare ======= is left out: it is also a Markdown
+// heading underline.
+var conflictMarker = regexp.MustCompile(`^(<{7,}|\|{7,}|>{7,})(\s|$)`)
+
+// checkConflictMarkers refuses a merge conflict committed as it was left,
+// in every text file git tracks, testdata and Go sources included: no
+// compiler sees one in a doc or a table, and release.yml would publish
+// one from the CHANGELOG. A fixture spells a marker with an escaped line
+// break, as this gate's own test does.
+func (g *docsCheck) checkConflictMarkers() {
+	for _, f := range g.files {
+		text, ok := g.readFile(f)
+		if !ok || strings.IndexByte(text, 0) >= 0 {
+			continue
+		}
+		for i, line := range strings.Split(text, "\n") {
+			if conflictMarker.MatchString(line) {
+				g.at(f, i+1, "a merge conflict marker, %q, committed as git left it", line)
+			}
+		}
+	}
 }
 
 // docsInTestdata reports whether a file is a fixture. Go ignores testdata

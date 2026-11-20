@@ -1380,3 +1380,16 @@ func TestGitHubSlug(t *testing.T) {
 		}
 	}
 }
+
+// A merge left as git wrote it is refused at each marker line. A bare
+// ======= is not one, since a Markdown heading may be underlined with it.
+func TestDocsGateRefusesAMergeConflictMarker(t *testing.T) {
+	checkDocsCases(t, []docsCase{
+		{"a conflict left in the CHANGELOG", []docsEdit{
+			replace(fxChangelog, "## [1.0.0]", "<<<<<<< HEAD\n=======\n>>>>>>> origin/main\n\n## [1.0.0]"),
+		}, []string{
+			`CHANGELOG.md:7: a merge conflict marker, "<<<<<<< HEAD", committed as git left it`,
+			`CHANGELOG.md:9: a merge conflict marker, ">>>>>>> origin/main", committed as git left it`,
+		}},
+	})
+}
