@@ -12,12 +12,18 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `read_file` heads an Apps Script project's text as `json` rather than `JSON`.
 - For contributors: `make vuln` refuses a Go build `govulncheck` cannot read, such as one with a GOEXPERIMENT suffix; rerun with the `GOTOOLCHAIN` it names.
 
 ### Fixed
 
+<<<<<<< HEAD
+- `read_file` refuses a `format` on a Slides deck, and any but `json` on an Apps Script project, rather than ignoring it.
+||||||| 2dbd726
+=======
 - `list_access_requests`, `resolve_access_request`, `list_revisions`, sharing cards and label reads no longer stop at an empty page that carries a continuation token.
 - `doctor` masks the signed-in address to `…@domain`, as `status` does.
+>>>>>>> origin/main
 
 ### Security
 
