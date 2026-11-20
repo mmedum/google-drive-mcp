@@ -6,6 +6,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- For contributors: `make vuln` refuses a Go build `govulncheck` cannot read, such as one with a GOEXPERIMENT suffix; rerun with the `GOTOOLCHAIN` it names.
+
 ### Security
 
 - Built with Go 1.27.4 for GO-2026-6859 (CVE-2026-97054), reachable per `govulncheck`: an HTTP/1 server using `MaxBytesReader` could crash on a header race.
