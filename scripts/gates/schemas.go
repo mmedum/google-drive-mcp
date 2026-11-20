@@ -85,7 +85,7 @@ const schemaBaselineFile = "testdata/schema-baseline.json"
 // old source on every run, and cannot let a deliberate break through,
 // because the tag always wins.
 func schemaDiff(out io.Writer, args []string) error {
-	binary := arg(args, 0, "./google-drive-mcp")
+	binary := arg(args, 0, defaultBinary)
 	// The whole registrable surface, not a default build's: --dump-schemas
 	// emits tools.FullSurface, so a tool behind a feature flag is held
 	// like any other.
@@ -110,9 +110,9 @@ func schemaDiff(out io.Writer, args []string) error {
 // readReleaseState reads the CHANGELOG and the baseline. A missing
 // baseline is nil, not an error.
 func readReleaseState() (changelog string, baseline []byte, err error) {
-	raw, err := os.ReadFile("CHANGELOG.md")
+	raw, err := os.ReadFile(changelogPath)
 	if err != nil {
-		return "", nil, fmt.Errorf("read CHANGELOG.md: %w", err)
+		return "", nil, fmt.Errorf("read %s: %w", changelogPath, err)
 	}
 	baseline, err = os.ReadFile(schemaBaselineFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -180,7 +180,7 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 		_, _ = fmt.Fprintf(out, "%d breaking change(s), each declared under **Breaking:** in [Unreleased]; "+
 			"`make schema-baseline` records them only as a new major version\n", len(breaking))
 	}
-	if len(problems) == 0 && want != "" && countEntries(strings.Split(changelog, "\n"), "Unreleased") == 0 && !changes.empty() {
+	if len(problems) == 0 && want != "" && readChangelog(changelog).entries("Unreleased") == 0 && !changes.empty() {
 		problems = append(problems, fmt.Sprintf("nothing is under [Unreleased], so this build is %s, "+
 			"and its surface differs from the baseline. In %s's release commit, run "+
 			"`make schema-baseline VERSION=%s`; otherwise, say what changed under [Unreleased]", want, want, want))
@@ -193,10 +193,11 @@ func diffSurface(out io.Writer, current, baseline []byte, changelog string) erro
 
 // undeclaredBreaks is each break whose item, a tool by its name or a
 // resource by its URI template, no **Breaking:** line in the CHANGELOG's
-// [Unreleased] section names in backticks.
+// [Unreleased] section names in backticks. A line in fenced code is an
+// example and declares nothing.
 func undeclaredBreaks(breaking []change, changelog string) []string {
 	named := map[string]bool{}
-	for line := range strings.Lines(sectionFor(changelog, "Unreleased")) {
+	for _, line := range readChangelog(changelog).sectionProse("Unreleased") {
 		if !strings.Contains(line, "**Breaking:**") {
 			continue
 		}
@@ -230,7 +231,7 @@ func codeSpans(s string) []string {
 // baseline. The release commit runs it, so the baseline lands with the
 // CHANGELOG heading that names it. checkBaseline says when it may.
 func schemaBaseline(out io.Writer, args []string) error {
-	binary := arg(args, 0, "./google-drive-mcp")
+	binary := arg(args, 0, defaultBinary)
 	_, raw, err := dumpSchemas(binary)
 	if err != nil {
 		return err
@@ -296,8 +297,8 @@ func checkBaseline(out io.Writer, current, baseline []byte, changelog string) er
 // commit. Recording it after the tag instead would fail every branch
 // from the moment the tag is pushed until a second change lands.
 func newestRelease(changelog string) string {
-	if m := versionHeading.FindStringSubmatch(changelog); m != nil {
-		return "v" + m[1]
+	if v := readChangelog(changelog).versions(); len(v) > 0 {
+		return "v" + v[0].label
 	}
 	return ""
 }

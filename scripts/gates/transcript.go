@@ -39,9 +39,15 @@ import (
 // destination would have made that a special case, and an allowlist is
 // how a gate stops being believed.
 func transcript(out io.Writer, _ []string) error {
+	return transcriptCheck(out, transcriptPackages)
+}
+
+// transcriptCheck is the gate over packages, the ones that may not reach a
+// terminal.
+func transcriptCheck(out io.Writer, packages []string) error {
 	var problems []string
 	read := 0
-	for _, dir := range transcriptPackages {
+	for _, dir := range packages {
 		files, err := goFiles(dir)
 		if err != nil {
 			return err
@@ -62,10 +68,10 @@ func transcript(out io.Writer, _ []string) error {
 	// is the failure mode a gate cannot notice about itself.
 	if read < 5 {
 		return fmt.Errorf("only %d Go file(s) were read across %s; this check is not looking at the "+
-			"code it is meant to", read, strings.Join(transcriptPackages, " and "))
+			"code it is meant to", read, strings.Join(packages, " and "))
 	}
 
-	unlisted, err := unlistedDrivers()
+	unlisted, err := unlistedDrivers(packages)
 	if err != nil {
 		return err
 	}
@@ -87,7 +93,7 @@ func transcript(out io.Writer, _ []string) error {
 		return fmt.Errorf("%d way(s) around the redactor", len(problems))
 	}
 	_, _ = fmt.Fprintf(out, "transcript check ok (%d files in %s, one way out)\n",
-		read, strings.Join(transcriptPackages, " and "))
+		read, strings.Join(packages, " and "))
 	return nil
 }
 
@@ -286,7 +292,7 @@ func goFiles(dir string) ([]string, error) {
 // real account answered cannot do its job without one. So importing the
 // redactor, or the transcript that wraps it, is the mark, and being
 // unlisted with that mark is the failure.
-func unlistedDrivers() ([]string, error) {
+func unlistedDrivers(packages []string) ([]string, error) {
 	var problems []string
 	fset := token.NewFileSet()
 	err := filepath.WalkDir("scripts", func(path string, d fs.DirEntry, err error) error {
@@ -294,7 +300,7 @@ func unlistedDrivers() ([]string, error) {
 			return err
 		}
 		dir := filepath.Dir(path)
-		if slices.Contains(transcriptPackages, dir) || dir == transcriptPackage {
+		if slices.Contains(packages, dir) || dir == transcriptPackage {
 			return nil
 		}
 		file, parseErr := parser.ParseFile(fset, path, nil, parser.ImportsOnly)

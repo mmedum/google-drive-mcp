@@ -7,10 +7,14 @@ PKG       = github.com/mmedum/google-drive-mcp/v3
 LDFLAGS   = -s -w -X $(PKG)/internal/version.Version=$(VERSION)
 COVER_MIN ?= 80
 # Tool versions are pinned: @latest means today's green build cannot be
-# reproduced tomorrow. CI installs exactly these.
-GOLANGCI_VERSION    ?= v2.14.0
-GOVULNCHECK_VERSION ?= v1.7.0
-GO_LICENSES_VERSION ?= v1.6.0
+# reproduced tomorrow. CI runs exactly these.
+GOLANGCI_LINT ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+GOVULNCHECK   ?= golang.org/x/vuln/cmd/govulncheck@v1.7.0
+GOLICENSES    ?= github.com/google/go-licenses@v1.6.0
+# The module path is zricethezav, not gitleaks: the project moved
+# organization and the module path did not follow it.
+GITLEAKS      ?= github.com/zricethezav/gitleaks/v8@v8.30.1
+ACTIONLINT    ?= github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 GOBIN    := $(shell $(GO) env GOPATH)/bin
 # Prefer tools installed with the current Go (go install ...@latest) over distro packages.
 export PATH := $(GOBIN):$(PATH)
@@ -28,7 +32,7 @@ install: ## go install the binary
 
 .PHONY: fmt
 fmt: ## Fail if gofmt would change anything
-	@out=$$(gofmt -l .); if [ -n "$$out" ]; then echo "gofmt issues:"; echo "$$out"; exit 1; fi
+	@out=$$(gofmt -l .); [ -z "$$out" ] || { echo "$$out"; exit 1; }
 
 .PHONY: vet
 vet: ## go vet, including the integration-tagged tests so they keep compiling
@@ -37,7 +41,7 @@ vet: ## go vet, including the integration-tagged tests so they keep compiling
 
 .PHONY: lint
 lint: ## golangci-lint, at the version CI pins
-	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run
+	$(GO) run $(GOLANGCI_LINT) run
 
 .PHONY: test
 test: ## Unit tests with race detector and coverage
@@ -69,11 +73,23 @@ bench: ## Benchmarks over the in-memory Drive
 
 .PHONY: vuln
 vuln: ## Known vulnerabilities in anything we actually call
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	$(GO) run $(GOVULNCHECK) ./...
 
 .PHONY: licenses
 licenses: ## Dependencies must carry a license we can redistribute under
-	$(GO) run github.com/google/go-licenses@$(GO_LICENSES_VERSION) check ./... 		--allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC
+	$(GO) run $(GOLICENSES) check ./... 		--allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC
+
+# gitleaks walks `git log --all` unless --log-opts names the commits
+# (https://github.com/gitleaks/gitleaks/blob/v8.30.1/sources/git.go#L90-L94),
+# and CI's full clone holds every pushed branch, so this scans HEAD's
+# history alone. CI checks out the whole history for it.
+.PHONY: gitleaks
+gitleaks: ## No credential in HEAD's history, at the gitleaks version pinned here
+	$(GO) run $(GITLEAKS) git --log-opts=HEAD . --config .gitleaks.toml --redact --no-banner
+
+.PHONY: actionlint
+actionlint: ## Every workflow passes actionlint, at the version pinned here
+	$(GO) run $(ACTIONLINT)
 
 .PHONY: schemas
 schemas: build ## Dump tool schemas
@@ -153,6 +169,10 @@ registry: ## The committed MCP registry entry must obey the registry's own rules
 parity: ## `make check` and CI must run the same gates
 	$(GO) run ./scripts/gates parity
 
+.PHONY: mcpb-manifest
+mcpb-manifest: ## Print the bundle manifest stamped as the packer stamps it: VERSION=X.Y.Z
+	$(GO) run ./scripts/gates mcpb-manifest $(VERSION)
+
 .PHONY: api-diff
 api-diff: ## Refetch the three discovery documents and report what has changed (needs the network)
 	$(GO) run ./scripts/gates api-diff
@@ -165,7 +185,7 @@ schema-refetch: ## Check the vendored schemas against what their sources serve (
 	$(GO) run ./scripts/gates schema-refetch
 
 .PHONY: check
-check: fmt vet lint cover vuln licenses leaks pins classes api-coverage api-fields mcpb transcript schema-diff smoke staleness docs live-cover outcomes registry parity ## Everything CI runs
+check: fmt vet lint cover vuln licenses gitleaks actionlint leaks pins classes api-coverage api-fields mcpb transcript schema-diff smoke staleness docs live-cover outcomes registry parity ## Everything CI runs
 
 .PHONY: clean
 clean:

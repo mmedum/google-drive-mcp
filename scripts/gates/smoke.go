@@ -38,7 +38,7 @@ const negotiatedVersion = "2025-11-25"
 // let the server die at startup, because a server that exits shows the
 // person "failed to connect" and the model never learns why.
 func smoke(out io.Writer, args []string) error {
-	binary := arg(args, 0, "./google-drive-mcp")
+	binary := arg(args, 0, defaultBinary)
 	configDir, err := os.MkdirTemp("", "gates-smoke-*")
 	if err != nil {
 		return err

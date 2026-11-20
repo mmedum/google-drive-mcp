@@ -70,7 +70,13 @@ var vendoredSchemas = map[string]vendoredSchema{
 // loadSchema returns the vendored schema, having first checked that the
 // bytes are the ones recorded.
 func loadSchema(name string) (*jsonschema.Resolved, error) {
-	want, known := vendoredSchemas[name]
+	return loadSchemaFrom(vendoredSchemas, name)
+}
+
+// loadSchemaFrom is loadSchema against recorded, the vendored schemas'
+// sources and hashes by file name.
+func loadSchemaFrom(recorded map[string]vendoredSchema, name string) (*jsonschema.Resolved, error) {
+	want, known := recorded[name]
 	if !known {
 		return nil, fmt.Errorf("no vendored schema named %q; the names are the files under scripts/gates/schemas", name)
 	}

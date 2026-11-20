@@ -116,6 +116,9 @@ const (
 	// section, and names it without the word in [Unreleased].
 	declaredElsewhere = "# Changelog\n\n## [Unreleased]\n\n- `get_file` takes no file.\n- **Breaking:** `trash_file` " +
 		"changed.\n\n## [2.0.1] - 2026-10-01\n\n- **Breaking:** `get_file` changed.\n"
+	// declaredInAFence writes the declaration as an example, in fenced code.
+	declaredInAFence = "# Changelog\n\n## [Unreleased]\n\n- `get_file` takes no file, written up as:\n\n" +
+		"```markdown\n- **Breaking:** `get_file` takes no file.\n```\n\n## [2.0.1] - 2026-10-01\n\n- x\n"
 )
 
 // Every way the diff fails, and the states it passes.
@@ -131,6 +134,8 @@ func TestDiffSurface(t *testing.T) {
 		{"a removed field", surfaceRemoved, surfaceV1, unreleased, "breaks a caller of v2.0.1 in 1 way(s)"},
 		{"a removed field [Unreleased] declares", surfaceRemoved, surfaceV1, declared, ""},
 		{"a removed field declared only where it does not count", surfaceRemoved, surfaceV1, declaredElsewhere,
+			"breaks a caller of v2.0.1 in 1 way(s) above that [Unreleased] does not declare (get_file: input field file removed)"},
+		{"a removed field declared only in fenced code", surfaceRemoved, surfaceV1, declaredInAFence,
 			"breaks a caller of v2.0.1 in 1 way(s) above that [Unreleased] does not declare (get_file: input field file removed)"},
 		{"no baseline once a release exists", surfaceV1, "", released, "names v2.0.1 as released, but testdata/schema-baseline.json is missing"},
 		{"a baseline older than the newest release", surfaceAdded, surfaceV1, cutting, `the baseline is the "v2.0.1" surface, but CHANGELOG.md's newest release is v2.1.0`},

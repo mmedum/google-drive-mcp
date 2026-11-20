@@ -1,9 +1,12 @@
 package main
 
 import (
+	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -179,6 +182,45 @@ func TestLinkDetectionAsksWhatHostAURLIsReallyFor(t *testing.T) {
 	}
 }
 
+// A URL whose host does not parse names a host nobody can check, so it is
+// held to the Drive-link rule: a finding when it carries an id, and a
+// template such as a format verb for the host when it carries none.
+func TestAURLWhoseHostDoesNotParseIsAFinding(t *testing.T) {
+	id := sample("1a2B3c4D5e", "6F7g8H9i0J", "kLmNoPqRsTuVw")
+	const unread = "f.go:1: a URL whose host does not parse carries an id, as a Drive link may not: "
+	const asID = "f.go:1: something shaped like a Drive id: 1a2B…Vw"
+	for _, tc := range []struct {
+		name, line string
+		want       []string
+	}{
+		{"a bad escape in the host", sample("https://drive.google.com", "%zz/file/d/", id, "/view"), []string{unread + "http…ew", asID}},
+		{"an unclosed bracket", sample("https://", "[drive.google.com/file/d/", id), []string{unread + "http…Vw", asID}},
+		// The id rule leaves a line with an action pin to the link rule.
+		{"on a line the id rule leaves alone", sample("uses: https://drive.google.com", "%zz/file/d/", id), []string{unread + "http…Vw"}},
+		{"a templated host carrying a Drive id", "https://%s/file/d/" + id, []string{unread + "http…Vw", asID}},
+		{"a templated host and port with no id", "http://127.0.0.1:%d/callback", nil},
+		{"a templated host with no id", "https://%s/mmedum/google-drive-mcp/releases/download/v%s/%s", nil},
+		{"another templated host with no id", "https://%s.example.com/api/files", nil},
+		// A template in the path is not the host, and does not hide it.
+		{"a template in the path", "https://drive.google.com/file/d/%s/view", nil},
+		{"a host a regular expression escapes", `https://drive\.google\.com/file/d/` + id,
+			[]string{"f.go:1: a Drive link carrying an id", asID}},
+	} {
+		if got := scanForLeaks("f.go", tc.line); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %q -> %q, want %q", tc.name, tc.line, got, tc.want)
+		}
+	}
+}
+
+// A word the usage does not spell is refused rather than read as the tree
+// scan: `leaks histroy` in CI would otherwise pass on the tree alone.
+func TestLeaksRefusesAWordItDoesNotKnow(t *testing.T) {
+	err := leaks(io.Discard, []string{"histroy"})
+	if err == nil || err.Error() != `usage: gates leaks [history], not "histroy"` {
+		t.Errorf("leaks(histroy) = %v, want the usage", err)
+	}
+}
+
 // gitRepo makes a repository with one commit and one annotated tag, both
 // carrying the identity given, and returns its directory.
 func gitRepo(t *testing.T, identity, message string) string {
@@ -200,15 +242,16 @@ func gitRepo(t *testing.T, identity, message string) string {
 
 // gitAs runs git in dir, the working directory when it is empty, as a
 // fixture identity, reading none of the machine's configuration: no
-// signing key, no hooks, no default branch of its own.
+// signing key, no hooks, no default branch of its own, and no automatic
+// maintenance.
 func gitAs(t *testing.T, dir, identity string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(append(os.Environ(),
 		"GIT_AUTHOR_NAME=A Tester", "GIT_AUTHOR_EMAIL="+identity,
 		"GIT_COMMITTER_NAME=A Tester", "GIT_COMMITTER_EMAIL="+identity,
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"), gitNoMaintenance...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
@@ -306,10 +349,10 @@ func TestAnAllowedBlobIsSkippedAndNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowedBlobs[strings.TrimSpace(string(hash))] = "the contact this test allows"
-	t.Cleanup(func() { delete(allowedBlobs, strings.TrimSpace(string(hash))) })
+	allowed := maps.Clone(allowedBlobs)
+	allowed[strings.TrimSpace(string(hash))] = "the contact this test allows"
 	out.Reset()
-	if err := leaksInHistory(&out); err != nil {
+	if err := leaksInHistoryAllowing(&out, allowed); err != nil {
 		t.Errorf("the allowed file version was still flagged: %v\n%s", err, out.String())
 	}
 }
@@ -425,18 +468,8 @@ func TestTheLeakScanSaysHowMuchItReadAndRefusesNothing(t *testing.T) {
 
 	// Nothing to read: a repository whose only commit is empty.
 	empty := t.TempDir()
-	for _, args := range [][]string{
-		{"init", "-q", "-b", "main"},
-		{"-c", "user.name=A Tester", "-c", "user.email=" + sample("a.tester", "@", "example", ".com"),
-			"commit", "-q", "--allow-empty", "-m", "Nothing yet"},
-	} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = empty
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-		if b, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, b)
-		}
-	}
+	gitAs(t, empty, sample("a.tester", "@", "example", ".com"), "init", "-q", "-b", "main")
+	gitAs(t, empty, sample("a.tester", "@", "example", ".com"), "commit", "-q", "--allow-empty", "-m", "Nothing yet")
 	t.Chdir(empty)
 	if err := leaks(&out, nil); err == nil || !strings.Contains(err.Error(), "looked at nothing") {
 		t.Errorf("a tree with no files: err = %v, want the looked-at-nothing refusal", err)
@@ -478,13 +511,7 @@ func TestHistoryFindsWhatTheTipNoLongerHas(t *testing.T) {
 	dir := gitRepo(t, sample("a.tester", "@", "example", ".com"), "Add a file\n")
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=A Tester",
-			"-c", "user.email=" + sample("a.tester", "@", "example", ".com")}, args...)...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-		if b, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, b)
-		}
+		gitAs(t, dir, sample("a.tester", "@", "example", ".com"), args...)
 	}
 	id := sample("1QwErTyUiOp2", "AsDfGhJkL3", "ZxCvBnM4", "pLmNbVcXz")
 	if err := os.WriteFile(filepath.Join(dir, "pasted.md"), []byte("an id: "+id+"\n"), 0o600); err != nil {

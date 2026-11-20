@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -398,6 +399,33 @@ func TestWithoutCredentialsEveryToolAnswersAuth(t *testing.T) {
 	}
 }
 
+// linkedVersion is the version of a module the test binary links, a
+// replacement's when go.mod replaces it. A replacement by a local path has
+// no version, so the test skips.
+func linkedVersion(t *testing.T, module string) string {
+	t.Helper()
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		t.Fatal("the test binary carries no build info")
+	}
+	for _, dep := range info.Deps {
+		if dep.Path != module {
+			continue
+		}
+		if dep.Replace == nil {
+			return dep.Version
+		}
+		// The go command records a path replacement's missing version as
+		// (devel) (https://github.com/golang/go/blob/go1.27.3/src/cmd/go/internal/load/pkg.go#L2381).
+		if dep.Replace.Version == "(devel)" {
+			t.Skipf("go.mod replaces %s with the path %s, which has no version to compare", module, dep.Replace.Path)
+		}
+		return dep.Replace.Version
+	}
+	t.Fatalf("the test binary links no %s; this test is asserting on nothing", module)
+	return ""
+}
+
 func TestDumpSchemas(t *testing.T) {
 	srv := server.New(server.Deps{Config: defaultConfig(), Version: "test"})
 	var buf bytes.Buffer
@@ -419,8 +447,11 @@ func TestDumpSchemas(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
 		t.Fatalf("dump is not valid JSON: %v", err)
 	}
-	if out.Server != server.Name || out.SDK != server.SDKVersion {
-		t.Errorf("dump header = %+v", out)
+	if out.Server != server.Name {
+		t.Errorf("the dump records the server %q, want %q", out.Server, server.Name)
+	}
+	if linked := linkedVersion(t, "github.com/modelcontextprotocol/go-sdk"); out.SDK != linked {
+		t.Errorf("the dump records SDK %q and the binary links %q", out.SDK, linked)
 	}
 	const registeredTools = 33
 	if len(out.Tools) != registeredTools {
