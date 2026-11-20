@@ -18,6 +18,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `unshare_file` reports the class of a failed permission read, such as `[unavailable]`, rather than always `[forbidden]`.
 - An account that cannot create shared drives counts as personal, so shares, access requests, moves and copies reach no colleague; `GDRIVE_ORGANIZATION_DOMAINS` changes that.
 - For contributors: a Breaking entry names a broken field's path beside its tool, and a removed tool alone, so it declares no other break.
+- `share_file` narrows a link, domain or outside grant that already exists, to a lower role or an earlier expiry, without `GDRIVE_ENABLE_DESTRUCTIVE`.
 
 ### Fixed
 

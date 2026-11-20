@@ -241,7 +241,8 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.shareToolTakes(ctx, in.tool, principal, role); err != nil {
+	widensPast, err := s.shareToolTakes(ctx, in.tool, principal, role)
+	if err != nil {
 		return nil, err
 	}
 	if err := principal.allows(role); err != nil {
@@ -249,6 +250,9 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 	}
 	expires, clearExpiry, err := s.parseExpiry(in.expires)
 	if err != nil {
+		return nil, err
+	}
+	if err := principal.mayExpire(expires != "" || clearExpiry); err != nil {
 		return nil, err
 	}
 	res, err := s.shareTarget(ctx, in)
@@ -270,19 +274,15 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 		existing: existing, notify: in.notify, message: in.message,
 		discoverable: in.discoverable, file: f,
 	}
+	if err := plan.onlyNarrows(widensPast); err != nil {
+		return nil, err
+	}
 	if clearExpiry && existing == nil {
 		return nil, Errorf(ClassInvalid, "there is no grant to %s yet, so it has no expiry to remove. "+
 			"Leave expires out to grant access that does not expire.", principal.label())
 	}
 	if existing != nil && existing.Role == role && !plan.changesAnything() {
-		note := fmt.Sprintf("%s already %s. Nothing was changed.", principal.label(), model.RoleWords(role))
-		if existing.Expires != "" {
-			// An unchanged grant that is going to lapse is not the same
-			// as one that is not, and this is the call where somebody
-			// would have found out.
-			note += " That access expires on " + existing.Expires +
-				"; pass expires to move it, or expires: never to remove the expiry."
-		}
+		note := plan.unchangedNote(widensPast != nil)
 		// Its card is built afresh, which in a shared drive lists the
 		// permissions again; nothing changed, so it is the one extra read.
 		return s.report(ctx, res, outcome{Action: render.ActionUnchanged, Note: note}), nil
@@ -384,51 +384,57 @@ func (s *Service) shareTarget(ctx context.Context, in shareRequest) (*Resolved, 
 	return res, nil
 }
 
+// narrowsOnly is what share_file may still do for a principal it may not
+// grant: narrow a grant they already have.
+const narrowsOnly = " share_file may only narrow a grant they already have: a lower role, or for a person or a group an " +
+	"expiry or an earlier one."
+
 // shareToolTakes refuses a grantee the tool is not for, naming the tool
-// that is. Each refusal comes before the file is read, since none
-// depends on it.
-func (s *Service) shareToolTakes(ctx context.Context, tool string, p principal, role string) error {
+// that is, before the file is read. share_file's refusals of a wide or
+// outside principal come back as widensPast instead: they hold only when
+// the call does more than narrow a grant that exists (D-91).
+func (s *Service) shareToolTakes(ctx context.Context, tool string, p principal, role string) (widensPast, err error) {
 	wide := p.kind == principalAnyone || p.kind == principalDomain
 	switch tool {
 	case toolShareFile:
 		switch {
+		case role == model.RoleOwner:
+			return nil, Errorf(ClassBlocked, "share_file does not hand over ownership. Nothing was changed. "+
+				"transfer_ownership does it, when %sENABLE_DESTRUCTIVE=true.", config.EnvPrefix)
 		case wide:
 			return Errorf(ClassBlocked, "share_file does not grant %s: that reaches people nobody named. "+
-				"Nothing was changed. share_by_link does it, when %sENABLE_DESTRUCTIVE=true.",
-				p.label(), config.EnvPrefix)
-		case role == model.RoleOwner:
-			return Errorf(ClassBlocked, "share_file does not hand over ownership. Nothing was changed. "+
-				"transfer_ownership does it, when %sENABLE_DESTRUCTIVE=true.", config.EnvPrefix)
+				"Nothing was changed. share_by_link does it, when %sENABLE_DESTRUCTIVE=true.%s",
+				p.label(), config.EnvPrefix, narrowsOnly), nil
 		}
 		// Read once, so the checks below judge one account.
 		org := s.organization(ctx)
 		switch {
 		case !org.known():
-			return Errorf(ClassBlocked, "this account's own address could not be read, so share_file cannot "+
+			return nil, Errorf(ClassBlocked, "this account's own address could not be read, so share_file cannot "+
 				"tell whether %s is inside its organization, and grants only people and groups inside it. "+
 				"Nothing was changed. get_account shows whether the address can be read now.", p.email)
 		case org.outside(p.email):
 			return Errorf(ClassBlocked, "%s is outside this account's organization, and share_file grants "+
 				"only people and groups inside it. Nothing was changed. share_outside_organization does it, "+
-				"when %sENABLE_DESTRUCTIVE=true.%s", p.email, config.EnvPrefix, org.personalNote())
+				"when %sENABLE_DESTRUCTIVE=true.%s%s", p.email, config.EnvPrefix, narrowsOnly, org.personalNote()), nil
 		}
 	case toolShareOutside:
 		switch {
 		case wide:
-			return Errorf(ClassInvalid, "%s grants people and groups by address; share_by_link grants %s.",
+			return nil, Errorf(ClassInvalid, "%s grants people and groups by address; share_by_link grants %s.",
 				tool, p.label())
 		case role == model.RoleOwner:
-			return Errorf(ClassInvalid, "%s does not hand over ownership; transfer_ownership does.", tool)
+			return nil, Errorf(ClassInvalid, "%s does not hand over ownership; transfer_ownership does.", tool)
 		case !s.organization(ctx).outside(p.email):
-			return Errorf(ClassInvalid, "%s is inside this account's organization; share_file grants it.", p.email)
+			return nil, Errorf(ClassInvalid, "%s is inside this account's organization; share_file grants it.", p.email)
 		}
 	case toolShareByLink:
 		if !wide {
-			return Errorf(ClassInvalid, "%s grants anyone with the link or a domain:, not an address; share_file "+
+			return nil, Errorf(ClassInvalid, "%s grants anyone with the link or a domain:, not an address; share_file "+
 				"grants a person or a group inside the organization, and share_outside_organization one outside it.", tool)
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // personalNote says why every address is outside for a personal Google
@@ -483,7 +489,7 @@ func (p sharePlan) changesAnything() bool {
 	if p.existing == nil {
 		return true
 	}
-	if p.expires != "" && p.expires != p.existing.Expires {
+	if p.expires != "" && !sameInstant(p.expires, p.existing.Expires) {
 		return true
 	}
 	if p.clearExpiry && p.existing.Expires != "" {
@@ -494,6 +500,78 @@ func (p sharePlan) changesAnything() bool {
 		return p.discoverable != nil && *p.discoverable != p.existing.Discoverable
 	}
 	return false
+}
+
+// sameInstant reports whether two RFC 3339 times are the same moment, as
+// Drive may write one with fractional seconds and this server without.
+func sameInstant(a, b string) bool {
+	x, errA := time.Parse(time.RFC3339, a)
+	y, errB := time.Parse(time.RFC3339, b)
+	return errA == nil && errB == nil && x.Equal(y)
+}
+
+// unchangedNote says a repeat changed nothing. An unchanged grant that
+// is going to lapse is not the same as one that is not, and this is the
+// call where somebody would have found out; narrowing says only how the
+// expiry may move.
+func (p sharePlan) unchangedNote(narrowing bool) string {
+	note := fmt.Sprintf("%s already %s. Nothing was changed.", p.principal.label(), model.RoleWords(p.role))
+	if p.existing.Expires == "" {
+		return note
+	}
+	move := "; pass expires to move it, or expires: never to remove the expiry."
+	if narrowing {
+		move = "; pass an earlier expires to bring it forward."
+	}
+	return note + " That access expires on " + p.existing.Expires + move
+}
+
+// onlyNarrows lets share_file reach a principal past the people named
+// inside the organization only to take access away from a grant made on
+// the item itself (D-91). widensPast is the refusal otherwise, nil when
+// the principal is one share_file grants.
+func (p sharePlan) onlyNarrows(widensPast error) error {
+	if widensPast == nil {
+		return nil
+	}
+	if e := p.existing; e != nil && e.InheritedFrom != "" {
+		return Errorf(ClassForbidden, "%s has access to %s through %s, not through a grant on the file itself, "+
+			"so it cannot be narrowed here. Change it where it was given.", e.Label(), p.file.Name, e.InheritedFrom)
+	}
+	if !p.narrows() {
+		return widensPast
+	}
+	return nil
+}
+
+// mayExpire refuses an expiry on a link or a domain grant: Drive lets only
+// a person's or a group's access expire.
+func (p principal) mayExpire(expiring bool) error {
+	if expiring && (p.kind == principalAnyone || p.kind == principalDomain) {
+		return Errorf(ClassInvalid, "%s cannot expire: Drive lets only a person's or a group's access "+
+			"expire. Leave expires out.", p.label())
+	}
+	return nil
+}
+
+// narrows reports whether the plan only takes access away from a grant
+// that exists: a role no higher, an expiry kept, added or brought
+// forward, and discovery not turned on. An expiry that cannot be read
+// counts as moved later.
+func (p sharePlan) narrows() bool {
+	e := p.existing
+	if e == nil || p.clearExpiry || model.RoleWidens(e.Role, p.role) {
+		return false
+	}
+	if p.discoverable != nil && *p.discoverable && !e.Discoverable {
+		return false
+	}
+	if p.expires == "" || e.Expires == "" {
+		return true
+	}
+	next, err1 := time.Parse(time.RFC3339, p.expires)
+	now, err2 := time.Parse(time.RFC3339, e.Expires)
+	return err1 == nil && err2 == nil && !next.After(now)
 }
 
 // findable is whether a domain or anyone grant turns up in search once
@@ -628,9 +706,15 @@ func (s *Service) shareNote(p sharePlan, after model.Sharing, dryRun bool) strin
 		}
 		parts = append(parts, "Google always mails an ownership transfer; that cannot be turned off")
 	} else if p.principal.notifiable() {
-		if p.notify {
+		switch {
+		case p.notify && p.existing != nil:
+			// A change goes through permissions.update, which takes no
+			// notification: Google mails only a new grant.
+			parts = append(parts, tense("no email was sent", "no email would be sent")+
+				": Google mails a new grant, not a change to one")
+		case p.notify:
 			parts = append(parts, tense("Google sent ", "Google would send ")+p.principal.label()+" a notification email")
-		} else {
+		default:
 			parts = append(parts, tense("no email was sent", "no email would be sent")+
 				"; pass notify: true if they should hear about it")
 		}

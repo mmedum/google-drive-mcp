@@ -73,7 +73,8 @@ func TestAPersonalAccountSharesWithNobodyThroughShareFile(t *testing.T) {
 		Role: "reader"})
 	want := "[blocked] someone@" + domain + " is outside this account's organization, and share_file grants only " +
 		"people and groups inside it. Nothing was changed. share_outside_organization does it, when " +
-		"GDRIVE_ENABLE_DESTRUCTIVE=true. This is taken as a personal Google account, which has no organization, so " +
+		"GDRIVE_ENABLE_DESTRUCTIVE=true. share_file may only narrow a grant they already have: a lower role, or for " +
+		"a person or a group an expiry or an earlier one. This is taken as a personal Google account, which has no organization, so " +
 		"every address is outside it; set GDRIVE_ORGANIZATION_DOMAINS if it belongs to one."
 	if err == nil || err.Error() != want {
 		t.Errorf("err = %v\nwant %s", err, want)

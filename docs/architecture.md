@@ -297,7 +297,8 @@ document, or reads an Office file from byte ranges (D-20, D-21).
 `share_file` resolves the file and reads `capabilities.canShare` first.
 It checks that the principal is a named person or group inside the
 organization, and refuses anything wider `[blocked]`, naming the tool
-that does it (D-35, D-38, D-40). A principal with a grant already has it
+that does it (D-35, D-38, D-40), unless the call only narrows a grant
+that wider principal already has on the item (D-91). A principal with a grant already has it
 updated. Notification mail is off unless asked for (D-37), and the
 result shows who could reach the item before and after, read back from
 Drive (D-36).
@@ -511,6 +512,7 @@ registry entry is published last (D-83). Releasing is in
 | D-88 | A revision is published to the web | rejected | — |
 | D-89 | The server acts with domain administrator access | rejected | — |
 | D-90 | The inside is the deployer's domains, else the account's own; an account that cannot create shared drives is personal | accepted | TestTheInsideIsTheSettingThenThePersonalRuleThenTheOwnDomain, TestShareFileOnAnAccountThatCannotCreateDrives, TestAPersonalAddressIsAlwaysOutside, TestOrganizationDomainsAreReadAsLowerCaseDomains |
+| D-91 | `share_file` narrows a wide grant without the destructive flag, and widens none | accepted | TestShareFileNarrowsAWideGrantWithoutTheDestructiveFlag, TestShareFileRefusesWhatReachesPastTheOrganization |
 
 ### D-01 One stdio binary per person, signed in to their own Google account through their own OAuth client
 
@@ -2860,4 +2862,24 @@ Cost: a Workspace account without shared drives shares with nobody
 through `share_file`, and moves and copies to colleagues are refused,
 until the deployer sets the domains.
 
-Next ID: D-91
+### D-91 `share_file` narrows a wide grant without the destructive flag, and widens none
+
+`share_file` may act on a link for anyone, a whole domain or someone
+outside the organization only to take access away from a grant they
+already have: a lower role, an expiry, or an earlier expiry. Anything
+else is refused `[blocked]`, naming the tool that widens, as before
+(D-38, D-40). The result shows who could reach the file before and
+after, as every share does (D-36).
+
+A change that only reduces exposure is not a risky variant, so it does
+not need the flag that keeps the risky ones unregistered. Telling the
+two apart needs the grant that exists, so `share_file` reads the
+permission list before it refuses a wide principal; it still writes
+nothing.
+
+Rejected: a narrowing tool of its own, which adds a tool to do what
+`share_file` already does for a colleague; leaving narrowing behind the
+flag, which makes the safe direction the hard one.
+Cost: a refusal of a wide principal reads the permission list first.
+
+Next ID: D-92
