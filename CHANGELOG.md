@@ -6,6 +6,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- For contributors: `make vuln` refuses a Go build `govulncheck` cannot read, such as one with a GOEXPERIMENT suffix; rerun with the `GOTOOLCHAIN` it names.
+
 ## [3.2.1] - 2026-11-04
 
 ### Changed

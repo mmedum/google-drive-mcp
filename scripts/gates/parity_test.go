@@ -180,6 +180,7 @@ func TestParityCatchesDriftInEitherDirection(t *testing.T) {
 		}},
 		{name: "make check does not scan for vulnerabilities", remove: "vuln", want: []string{
 			".github/workflows/ci.yml:92 runs `go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...` and `make check` does not",
+			"the toolchain gate runs in make check by the dispatch, and no target `make check` runs calls it",
 		}},
 		{name: "a gate runs in CI and not in make check", remove: "staleness", want: []string{
 			"the staleness gate runs in make check by the dispatch, and no target `make check` runs calls it",
@@ -338,6 +339,7 @@ func TestParityReadsWhatRuns(t *testing.T) {
 			replace(fxMakefile, " vuln licenses", " licenses"),
 		}, nil, []string{
 			".github/workflows/ci.yml:92 runs `go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...` and `make check` does not",
+			"the toolchain gate runs in make check by the dispatch, and no target `make check` runs calls it",
 		}},
 		{"a recipe spaced and quoted otherwise than CI's line", []docsEdit{
 			replace(fxMakefile, "\t$(GO) vet ./...\n", "\t$(GO)  vet './...'\n"),
