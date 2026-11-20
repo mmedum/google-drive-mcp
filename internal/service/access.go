@@ -252,9 +252,8 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if (expires != "" || clearExpiry) && (principal.kind == principalAnyone || principal.kind == principalDomain) {
-		return nil, Errorf(ClassInvalid, "%s cannot expire: Drive lets only a person's or a group's access "+
-			"expire. Leave expires out.", principal.label())
+	if err := principal.mayExpire(expires != "" || clearExpiry); err != nil {
+		return nil, err
 	}
 	res, err := s.shareTarget(ctx, in)
 	if err != nil {
@@ -275,35 +274,15 @@ func (s *Service) share(ctx context.Context, in shareRequest) (*Result, error) {
 		existing: existing, notify: in.notify, message: in.message,
 		discoverable: in.discoverable, file: f,
 	}
-	// share_file reaches a principal past the people named inside the
-	// organization only to take access away from a grant made on the item
-	// itself (D-91).
-	if widensPast != nil {
-		if existing != nil && existing.InheritedFrom != "" {
-			return nil, Errorf(ClassForbidden, "%s has access to %s through %s, not through a grant on the "+
-				"file itself, so it cannot be narrowed here. Change it where it was given.",
-				existing.Label(), f.Name, existing.InheritedFrom)
-		}
-		if !plan.narrows() {
-			return nil, widensPast
-		}
+	if err := plan.onlyNarrows(widensPast); err != nil {
+		return nil, err
 	}
 	if clearExpiry && existing == nil {
 		return nil, Errorf(ClassInvalid, "there is no grant to %s yet, so it has no expiry to remove. "+
 			"Leave expires out to grant access that does not expire.", principal.label())
 	}
 	if existing != nil && existing.Role == role && !plan.changesAnything() {
-		note := fmt.Sprintf("%s already %s. Nothing was changed.", principal.label(), model.RoleWords(role))
-		if existing.Expires != "" {
-			// An unchanged grant that is going to lapse is not the same
-			// as one that is not, and this is the call where somebody
-			// would have found out.
-			move := "; pass expires to move it, or expires: never to remove the expiry."
-			if widensPast != nil {
-				move = "; pass an earlier expires to bring it forward."
-			}
-			note += " That access expires on " + existing.Expires + move
-		}
+		note := plan.unchangedNote(widensPast != nil)
 		// Its card is built afresh, which in a shared drive lists the
 		// permissions again; nothing changed, so it is the one extra read.
 		return s.report(ctx, res, outcome{Action: render.ActionUnchanged, Note: note}), nil
@@ -529,6 +508,50 @@ func sameInstant(a, b string) bool {
 	x, errA := time.Parse(time.RFC3339, a)
 	y, errB := time.Parse(time.RFC3339, b)
 	return errA == nil && errB == nil && x.Equal(y)
+}
+
+// unchangedNote says a repeat changed nothing. An unchanged grant that
+// is going to lapse is not the same as one that is not, and this is the
+// call where somebody would have found out; narrowing says only how the
+// expiry may move.
+func (p sharePlan) unchangedNote(narrowing bool) string {
+	note := fmt.Sprintf("%s already %s. Nothing was changed.", p.principal.label(), model.RoleWords(p.role))
+	if p.existing.Expires == "" {
+		return note
+	}
+	move := "; pass expires to move it, or expires: never to remove the expiry."
+	if narrowing {
+		move = "; pass an earlier expires to bring it forward."
+	}
+	return note + " That access expires on " + p.existing.Expires + move
+}
+
+// onlyNarrows lets share_file reach a principal past the people named
+// inside the organization only to take access away from a grant made on
+// the item itself (D-91). widensPast is the refusal otherwise, nil when
+// the principal is one share_file grants.
+func (p sharePlan) onlyNarrows(widensPast error) error {
+	if widensPast == nil {
+		return nil
+	}
+	if e := p.existing; e != nil && e.InheritedFrom != "" {
+		return Errorf(ClassForbidden, "%s has access to %s through %s, not through a grant on the file itself, "+
+			"so it cannot be narrowed here. Change it where it was given.", e.Label(), p.file.Name, e.InheritedFrom)
+	}
+	if !p.narrows() {
+		return widensPast
+	}
+	return nil
+}
+
+// mayExpire refuses an expiry on a link or a domain grant: Drive lets only
+// a person's or a group's access expire.
+func (p principal) mayExpire(expiring bool) error {
+	if expiring && (p.kind == principalAnyone || p.kind == principalDomain) {
+		return Errorf(ClassInvalid, "%s cannot expire: Drive lets only a person's or a group's access "+
+			"expire. Leave expires out.", p.label())
+	}
+	return nil
 }
 
 // narrows reports whether the plan only takes access away from a grant
