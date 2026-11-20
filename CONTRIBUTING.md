@@ -81,7 +81,7 @@ These are worth knowing before they fail on you:
   resource, a field removed at any depth, an input that takes fewer
   types or loses a listed value, an output that may return another type
   or may be missing, and a newly required input. A break passes only
-  when a `**Breaking:**` entry under `[Unreleased]` names the item, and
+  when a `**Breaking:**` entry under `[Unreleased]` declares it, and
   ships only in a new major version. A changed description, annotation,
   title, `_meta` mark or the instructions is reported, since a client
   decides from those whether to ask.
@@ -306,10 +306,13 @@ out changes only contributors see, unless they must act on them.
 - **One line per change, 25 words or fewer, impact first.** Write for
   someone deciding whether to upgrade. The investigation belongs in the
   commit message.
-- **Breaking changes** start with `**Breaking:**`, name the item in
-  backticks, and may add one sentence saying what to do. Anything
-  needing a new login, a new scope or a config change is breaking, and
-  so is a tool moving behind a setting or out from behind one.
+- **Breaking changes** start with `**Breaking:**` and may add one sentence
+  saying what to do. The entry names, in backticks, a removed tool or
+  resource alone, or a broken field's tool and its path as the schema
+  diff prints it, such as `opts.depth`; a path covers both input and
+  output. Anything needing a new login, a new scope or a config change
+  is breaking, and so is a tool moving behind a setting or out from
+  behind one.
 - **Security fixes** name the CVE or GHSA.
 
 `release.yml` lifts the matching section verbatim into the release
