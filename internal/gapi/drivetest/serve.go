@@ -683,7 +683,13 @@ func (s *Server) project(f *gdrive.File, fields string, labelIDs []string) *gdri
 		perms = s.grantsLocked(f.ID)
 	}
 	if len(perms) > 0 {
-		out.Permissions = append([]*gdrive.Permission(nil), perms...)
+		// "Not populated for items in shared drives", so a shared-drive
+		// item's grants come only from permissions.list.
+		// No live step reads it yet; #92 holds the live checks still owed.
+		// https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File.FIELDS.permissions
+		if f.DriveID == "" {
+			out.Permissions = append([]*gdrive.Permission(nil), perms...)
+		}
 		ids := make([]string, 0, len(perms))
 		for _, p := range perms {
 			ids = append(ids, p.ID)
