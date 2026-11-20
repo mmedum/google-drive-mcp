@@ -363,3 +363,31 @@ func TestCommentAndReplyIDsAreHidden(t *testing.T) {
 		t.Errorf("a known id survived a new position: %s", later)
 	}
 }
+
+// An organization's domain names the organization, so once an address
+// has shown it, it is hidden where it stands alone too: in the account
+// card's sharing line and in a domain grant. A word that only contains
+// it stays.
+func TestTheDomainOfAnAddressIsHiddenWhereItStandsAlone(t *testing.T) {
+	r := NewRedactor(false)
+	// A position teaches a domain before any address does.
+	first := r.Do("granted everyone at partner.example.net reader")
+	got := first + "\n" + r.Do("Test Person <Person@Example.Org>\n"+
+		"sharing: share_file grants named people and groups inside this account's organization, which is "+
+		"addresses at example.org, sub.example.net; a link for anyone needs GDRIVE_ENABLE_DESTRUCTIVE=true.\n"+
+		"granted domain:EXAMPLE.ORG reader on example.org.txt and notexample.org.csv\n"+
+		"mail went to eu.example.org and to someone at gmail.com")
+	for _, leak := range []string{"partner", "Example.Org", "EXAMPLE.ORG", "eu.", "sub."} {
+		if strings.Contains(got, leak) {
+			t.Errorf("%q survived:\n%s", leak, got)
+		}
+	}
+	for _, kept := range []string{"example.org.txt", "notexample.org.csv", "gmail.com"} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("%q was cut:\n%s", kept, got)
+		}
+	}
+	if !strings.Contains(got, "addresses at <DOMAIN_3>, <DOMAIN_2>;") || !strings.Contains(got, "domain:<DOMAIN_3> reader") {
+		t.Errorf("a domain is not one stable placeholder:\n%s", got)
+	}
+}
