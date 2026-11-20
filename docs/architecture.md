@@ -145,9 +145,10 @@ In priority order:
   kind filter, export name, the format a read takes, the format a
   download defaults to, and the extensions that name it on every machine
   (D-34).
-- `internal/model` is the server's view of a file: its kind in words,
-  its location with what is above it, the sharing summary, grants and
-  who a change reaches, and what the account may do (D-14, D-15, D-42).
+- `internal/model` is the server's view of a file and of the signed-in
+  account: a file's kind in words, its location with what is above it,
+  the sharing summary, grants and who a change reaches, what the account
+  may do, and the account's storage (D-14, D-15, D-42).
 - `internal/office` reads the text of Word, Excel and PowerPoint files
   and their OpenDocument counterparts from byte ranges, under hard
   bounds. It has no network and imports nothing from this repository

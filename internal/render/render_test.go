@@ -262,7 +262,7 @@ func TestAccountGolden(t *testing.T) {
 		},
 		CanCreateDrives: true,
 	}
-	out := Account(about, AccountOptions{
+	out := Account(model.NewAccount(about), AccountOptions{
 		Sharing: "all", LocalDir: "/home/person/drive-files", MaxDownload: 1 << 30,
 		Drives: []string{"Marketing", "Engineering"}, DrivesKnown: true,
 		Tools: []string{"get_account", "get_file", "list_folder", "search_files"},
@@ -288,7 +288,7 @@ func TestAccountSaysWhatSharingReaches(t *testing.T) {
 			"so every address is outside it and share_file grants nobody; a link for anyone, a whole domain, " +
 			"someone outside the organization and a new owner need GDRIVE_ENABLE_DESTRUCTIVE=true."},
 	} {
-		if out := Account(about, tc.o); !strings.Contains(out, tc.want) {
+		if out := Account(model.NewAccount(about), tc.o); !strings.Contains(out, tc.want) {
 			t.Errorf("%+v: account output missing %q:\n%s", tc.o, tc.want, out)
 		}
 	}
@@ -298,7 +298,7 @@ func TestAccountSaysWhatSharingReaches(t *testing.T) {
 // says nothing removes anything permanently names it when it is there.
 func TestAccountNamesTheOneThingThatDeletesForGood(t *testing.T) {
 	about := &gdrive.About{User: &gdrive.User{EmailAddress: "person@example.com"}}
-	out := Account(about, AccountOptions{Tools: []string{"extract_text", "get_account"}})
+	out := Account(model.NewAccount(about), AccountOptions{Tools: []string{"extract_text", "get_account"}})
 	want := "destructive tools: disabled: nothing registered here removes anything permanently, except the " +
 		"temporary copy extract_text makes to read a PDF or an image, which it deletes for good unless keep_copy " +
 		"is set. Set GDRIVE_ENABLE_DESTRUCTIVE=true to change that.\n"
@@ -312,7 +312,7 @@ func TestAccountLockedDown(t *testing.T) {
 		User:         &gdrive.User{EmailAddress: "person@example.com"},
 		StorageQuota: &gdrive.StorageQuota{Usage: "1073741824", UsageInDrive: "1073741824"},
 	}
-	out := Account(about, AccountOptions{ReadOnly: true, Sharing: "off", Labels: true})
+	out := Account(model.NewAccount(about), AccountOptions{ReadOnly: true, Sharing: "off", Labels: true})
 	for _, want := range []string{
 		"read-only", "GDRIVE_SHARING=off", "destructive tools: disabled",
 		"file transfer: off", "cannot create them", "no limit on this account", "labels: enabled",
@@ -346,7 +346,7 @@ func TestAccountWithoutASignIn(t *testing.T) {
 	if got := Account(nil, AccountOptions{}); !strings.Contains(got, "not signed in") {
 		t.Errorf("Account(nil) = %q", got)
 	}
-	if got := Account(&gdrive.About{}, AccountOptions{}); !strings.Contains(got, "not signed in") {
+	if got := Account(model.NewAccount(&gdrive.About{}), AccountOptions{}); !strings.Contains(got, "not signed in") {
 		t.Errorf("Account without a user = %q", got)
 	}
 }

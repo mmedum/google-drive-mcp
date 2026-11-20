@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 	"github.com/mmedum/google-drive-mcp/v3/internal/render"
 )
 
@@ -16,6 +17,10 @@ func (s *Service) GetAccount(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", wrap(err, "reading the account")
 	}
+	acct := model.NewAccount(about)
+	if acct == nil {
+		return render.Account(nil, render.AccountOptions{}), nil
+	}
 	o := render.AccountOptions{
 		ReadOnly:    s.opts.ReadOnly,
 		Destructive: s.opts.Destructive,
@@ -25,15 +30,13 @@ func (s *Service) GetAccount(ctx context.Context) (string, error) {
 		Labels:      s.opts.Labels,
 		Tools:       s.RegisteredTools(),
 	}
-	if about.User != nil {
-		o.Personal = consumerDomains[domainOf(about.User.EmailAddress)]
-	}
+	o.Personal = consumerDomains[domainOf(acct.Address)]
 	if o.Sharing == "" {
 		o.Sharing = string(config.SharingAll)
 	}
 	// A consumer account has no shared drives at all, and asking costs a
 	// call that will only ever answer "none".
-	if about.CanCreateDrives {
+	if acct.CanCreateDrives {
 		if drives, err := s.drivesList(ctx); err == nil {
 			o.DrivesKnown = true
 			for _, d := range drives {
@@ -45,5 +48,5 @@ func (s *Service) GetAccount(ctx context.Context) (string, error) {
 			}
 		}
 	}
-	return render.Account(about, o), nil
+	return render.Account(acct, o), nil
 }

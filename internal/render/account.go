@@ -3,10 +3,8 @@ package render
 import (
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
-	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 )
 
@@ -37,20 +35,20 @@ type AccountOptions struct {
 
 // Account renders who is signed in and what this server will let the
 // model do on their behalf.
-func Account(about *gdrive.About, o AccountOptions) string {
+func Account(a *model.Account, o AccountOptions) string {
 	var b buf
-	if about == nil || about.User == nil {
+	if a == nil {
 		b.line("not signed in")
 		return b.String()
 	}
-	name := about.User.DisplayName
+	name := a.Name
 	if name == "" {
 		name = "(no display name)"
 	}
-	b.linef("%s <%s>", name, about.User.EmailAddress)
-	b.field("storage", storageLine(about.StorageQuota))
+	b.linef("%s <%s>", name, a.Address)
+	b.field("storage", storageLine(a.Storage))
 
-	if about.CanCreateDrives {
+	if a.CanCreateDrives {
 		b.field("shared drives", "this account can create them")
 	} else {
 		b.field("shared drives", "this account cannot create them (shared drives are a Google Workspace feature)")
@@ -71,7 +69,7 @@ func Account(about *gdrive.About, o AccountOptions) string {
 	case "off":
 		b.field("sharing", "GDRIVE_SHARING=off: no tool here can widen who can see a file.")
 	default:
-		_, domain, _ := strings.Cut(about.User.EmailAddress, "@")
+		_, domain, _ := strings.Cut(a.Address, "@")
 		inside := "share_file grants named people and groups inside this account's organization, which is " +
 			"addresses at " + domain
 		if o.Personal {
@@ -112,21 +110,17 @@ func Account(about *gdrive.About, o AccountOptions) string {
 	return b.String()
 }
 
-func storageLine(q *gdrive.StorageQuota) string {
+func storageLine(q *model.Storage) string {
 	if q == nil {
 		return ""
 	}
-	usage := parseBytes(q.Usage)
-	inDrive := parseBytes(q.UsageInDrive)
-	inTrash := parseBytes(q.UsageInDriveTrash)
-	if q.Limit == "" {
+	if !q.Limited {
 		return fmt.Sprintf("%s used, no limit on this account (%s in Drive, %s in the trash)",
-			model.HumanSize(usage), model.HumanSize(inDrive), model.HumanSize(inTrash))
+			model.HumanSize(q.Used), model.HumanSize(q.InDrive), model.HumanSize(q.InTrash))
 	}
-	limit := parseBytes(q.Limit)
 	return fmt.Sprintf("%s of %s used (%s; %s in Drive, %s in the trash)",
-		model.HumanSize(usage), model.HumanSize(limit), percentUsed(usage, limit),
-		model.HumanSize(inDrive), model.HumanSize(inTrash))
+		model.HumanSize(q.Used), model.HumanSize(q.Limit), percentUsed(q.Used, q.Limit),
+		model.HumanSize(q.InDrive), model.HumanSize(q.InTrash))
 }
 
 // percentUsed renders a share of the quota. A large allowance makes a
@@ -145,13 +139,4 @@ func percentUsed(usage, limit int64) string {
 	default:
 		return fmt.Sprintf("%.0f%%", pct)
 	}
-}
-
-// parseBytes reads the string form Drive uses for int64 counts.
-func parseBytes(s string) int64 {
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return n
 }

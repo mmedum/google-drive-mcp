@@ -660,10 +660,16 @@ func Bool(b bool) *bool { return &b }
 // Google-native document have no size, and zero is a different answer
 // from "no size": every caller that renders one needs to tell them apart.
 func (f *File) SizeBytes() (int64, bool) {
-	if f == nil || f.Size == "" {
+	if f == nil {
 		return 0, false
 	}
-	n, err := strconv.ParseInt(f.Size, 10, 64)
+	return ParseCount(f.Size)
+}
+
+// ParseCount reads a count Drive sends as JSON text, as it sends every
+// int64, and reports whether there was one to read.
+func ParseCount(s string) (int64, bool) {
+	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return 0, false
 	}

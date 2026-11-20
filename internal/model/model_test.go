@@ -724,3 +724,27 @@ func TestTheEpochReadsAsNoTime(t *testing.T) {
 		}
 	}
 }
+
+func TestNewAccountReadsStorageOffTheWire(t *testing.T) {
+	a := NewAccount(&gdrive.About{
+		User:         &gdrive.User{DisplayName: "Test Person", EmailAddress: "person@example.com"},
+		StorageQuota: &gdrive.StorageQuota{Usage: "2048", UsageInDrive: "1024", UsageInDriveTrash: "not a number"},
+	})
+	if a == nil || a.Storage == nil {
+		t.Fatalf("NewAccount = %+v, want an account with storage", a)
+	}
+	if want := (Storage{Used: 2048, InDrive: 1024}); *a.Storage != want {
+		t.Errorf("NewAccount storage = %+v, want %+v: no limit field means no limit, and a bad count reads as 0",
+			*a.Storage, want)
+	}
+	limited := NewAccount(&gdrive.About{User: &gdrive.User{}, StorageQuota: &gdrive.StorageQuota{Limit: "4096"}})
+	if !limited.Storage.Limited || limited.Storage.Limit != 4096 {
+		t.Errorf("a limit of 4096 reads as %+v", limited.Storage)
+	}
+	if unreadable := NewAccount(&gdrive.About{User: &gdrive.User{}, StorageQuota: &gdrive.StorageQuota{Limit: "lots"}}); unreadable.Storage.Limited {
+		t.Errorf("an unreadable limit reads as a limit: %+v", unreadable.Storage)
+	}
+	if NewAccount(&gdrive.About{}) != nil {
+		t.Error("an answer naming nobody made an account")
+	}
+}

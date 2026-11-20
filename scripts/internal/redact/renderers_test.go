@@ -115,13 +115,13 @@ func rendered() map[string]string {
 				},
 			}),
 		}, render.ApprovalsOptions{Subject: "Budget.xlsx", Now: now}),
-		"account": render.Account(&gdrive.About{
+		"account": render.Account(model.NewAccount(&gdrive.About{
 			// With an address, as about.get really answers — and the test
 			// below covers the shape without one, which is what showed
 			// that the name was protected only by the address beside it.
 			User:         &gdrive.User{DisplayName: me, EmailAddress: their, Me: true},
 			StorageQuota: &gdrive.StorageQuota{Limit: "16106127360", Usage: "4294967296"},
-		}, render.AccountOptions{}),
+		}), render.AccountOptions{}),
 		"drives": render.Drives([]*model.Drive{
 			model.NewDrive(&gdrive.Drive{ID: fixtureDriveID, Name: "Marketing"}),
 		}, render.DrivesOptions{}),
@@ -435,7 +435,7 @@ func TestNamesOutsideTheRunAreHidden(t *testing.T) {
 		}, render.ChangesOptions{Title: "changes in this account's Drive: 2 changes", Now: now}),
 		"their card": render.FileCard(theirs, render.FileCardOptions{Now: now}),
 		"our card":   render.FileCard(ours, render.FileCardOptions{Now: now}),
-		"account": render.Account(&gdrive.About{User: &gdrive.User{EmailAddress: "person@example.com"}},
+		"account": render.Account(model.NewAccount(&gdrive.About{User: &gdrive.User{EmailAddress: "person@example.com"}}),
 			render.AccountOptions{Drives: []string{foreignA, ownDrive}, DrivesKnown: true}),
 		"drives": render.Drives([]*model.Drive{drive(foreignA), drive(ownDrive)},
 			render.DrivesOptions{Title: "shared drives this account can see: 2 drives"}),
