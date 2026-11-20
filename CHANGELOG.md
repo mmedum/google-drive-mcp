@@ -6,6 +6,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `doctor` masks the signed-in address to `…@domain`, as `status` does.
+
 ### Security
 
 - Built with Go 1.27.4 for GO-2026-6859 (CVE-2026-97054), reachable per `govulncheck`: an HTTP/1 server using `MaxBytesReader` could crash on a header race.
