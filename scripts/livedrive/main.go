@@ -29,7 +29,7 @@
 // name an account you control. Without it, -destructive runs the
 // transfer only as a dry run and its refusals.
 //
-// -destructive registers what GDRIVE_ENABLE_DESTRUCTIVE does: the five
+// -destructive registers what GDRIVE_ENABLE_DESTRUCTIVE does: the
 // tools that remove something for good, run in a shared drive this run
 // creates and destroys again, and the shares that reach past the
 // organization, run on files in the scratch folder and taken back
@@ -77,7 +77,7 @@ func main() {
 	transfer := flag.String("transfer", "", "with -write and -destructive, an address to hand a scratch file to for good in a real ownership transfer. It CANNOT be undone, and Google emails the address: name an account you control. Empty runs the transfer only as a dry run and its refusals")
 	labels := flag.Bool("labels", false, "exercise the label tools, which need GDRIVE_LABELS and the Drive Labels API enabled with its scopes granted at login")
 	activity := flag.Bool("activity", false, "exercise list_activity, which needs GDRIVE_ACTIVITY and the Drive Activity API enabled with its scope granted at login")
-	destructive := flag.Bool("destructive", false, "also exercise the tools GDRIVE_ENABLE_DESTRUCTIVE registers: the five that remove something for good, in a shared drive this run creates and destroys again, which needs an account that may create shared drives, the shares that reach past the organization, and the ownership transfer as a dry run and its refusals")
+	destructive := flag.Bool("destructive", false, "also exercise the tools GDRIVE_ENABLE_DESTRUCTIVE registers: those that remove something for good, in a shared drive this run creates and destroys again, which needs an account that may create shared drives, the shares that reach past the organization, and the ownership transfer as a dry run and its refusals")
 	unlistable := flag.String("unlistable", "", "a folder this account can see but not list, such as the parent of a file shared with it alone; shows what Drive answers when such a folder is listed; empty skips it")
 	blocked := flag.String("blocked", "", "an address the organization's own sharing policy refuses, to check that the server reports that refusal as [blocked]; needs a Workspace administrator to have put it out of bounds; empty skips it")
 	flag.Parse()
@@ -166,7 +166,7 @@ type options struct {
 	labels   bool
 	activity bool
 	// destructive turns on the tools GDRIVE_ENABLE_DESTRUCTIVE
-	// registers: the five that remove something for good, with the
+	// registers: those that remove something for good, with the
 	// shared drive they run inside, and the shares that reach past the
 	// organization. Off is where every run starts: the server does not
 	// register them without the variable below, and this driver does not
@@ -307,10 +307,10 @@ func run(o options, t *transcript.Transcript) error {
 	}
 
 	if o.file == "" {
-		t.Say("\n(pass -file REF to also exercise get_file and a recursive listing)")
+		skipping(t, "-file REF to also exercise get_file and a recursive listing")
 	}
 	if o.unlistable == "" {
-		t.Say("(pass -unlistable REF to see what Drive answers for a folder this account cannot list)")
+		skipping(t, "-unlistable REF to see what Drive answers for a folder this account cannot list")
 	}
 	if o.write {
 		failures, err := runWrites(sess, t, dir, o)
@@ -400,4 +400,10 @@ func givenFlags(fs *flag.FlagSet) map[string]bool {
 		}
 	})
 	return given
+}
+
+// skipping says what a mode the run was not given would have added:
+// what follows "pass" is the flag and what it exercises.
+func skipping(out *transcript.Transcript, pass string) {
+	out.Say("\n(pass " + pass + ")")
 }
