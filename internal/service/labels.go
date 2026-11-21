@@ -415,6 +415,7 @@ func (s *Service) allLabelDefinitions(ctx context.Context) (map[string]*model.La
 	}
 	out := map[string]*model.LabelDefinition{}
 	token := ""
+	sent := map[string]bool{}
 	for {
 		page, err := s.api.ListLabelDefinitions(ctx, gapi.ListLabelDefinitionsOptions{
 			PageSize: gapi.MaxLabelPageSize, PageToken: token,
@@ -437,9 +438,21 @@ func (s *Service) allLabelDefinitions(ctx context.Context) (map[string]*model.La
 				out[def.ID] = def
 			}
 		}
-		if page.NextPageToken == "" || len(page.Labels) == 0 {
+		// Only a missing token ends the list, which no live step reads.
+		// https://developers.google.com/workspace/drive/labels/reference/rest/v2/labels/list#response-body
+		if page.NextPageToken == "" {
 			break
 		}
+		if sent[page.NextPageToken] {
+			// Remembered as a failure, as an API error is above.
+			looped := Errorf(ClassUnexpected, "the label definitions: Drive sent back a continuation token it "+
+				"had sent already")
+			s.mu.Lock()
+			s.labelDefsErr, s.labelDefsErrAt = looped, s.now()
+			s.mu.Unlock()
+			return nil, looped
+		}
+		sent[page.NextPageToken] = true
 		token = page.NextPageToken
 	}
 	s.mu.Lock()

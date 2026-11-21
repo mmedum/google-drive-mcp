@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
@@ -809,10 +810,10 @@ func (s *Service) refuseDuplicate(ctx context.Context, parent *gdrive.File, name
 	if allow {
 		return nil
 	}
-	list, err := s.api.ListFiles(ctx, gapi.ListQuery{
+	list, err := s.firstFiles(ctx, gapi.ListQuery{
 		Q: childQuery(parent.ID, "name = "+quote(name), false), PageSize: 5,
-		Fields: "files(id,name,mimeType)", ResourceIDs: []string{parent.ID},
-	})
+		Fields: "nextPageToken,files(id,name,mimeType)", ResourceIDs: []string{parent.ID},
+	}, "looking for another "+strconv.Quote(name)+" in "+parent.Name)
 	if err != nil {
 		// The guard is a courtesy; failing at it must not stop the write
 		// the caller actually asked for.
@@ -820,10 +821,16 @@ func (s *Service) refuseDuplicate(ctx context.Context, parent *gdrive.File, name
 		return nil
 	}
 	if len(list.Files) == 0 {
+		// Nothing found, or no answer after many empty pages: the guard is
+		// a courtesy, and the write goes ahead either way.
 		return nil
 	}
+	count := model.Plural(len(list.Files), "item", "items")
+	if list.NextPageToken != "" {
+		count = "at least " + count
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s already holds %s named %q:", parent.Name, model.Plural(len(list.Files), "item", "items"), name)
+	fmt.Fprintf(&b, "%s already holds %s named %q:", parent.Name, count, name)
 	for _, f := range list.Files {
 		fmt.Fprintf(&b, "\n  %s  %s", f.ID, model.Kind(f))
 	}
