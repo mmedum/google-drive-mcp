@@ -203,39 +203,67 @@ func (s *Service) tree(ctx context.Context, folder *gdrive.File, loc model.Locat
 	var skipped, unlistable []string
 
 	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		if cur.level >= depth {
-			cur.node.NotEntered = fmt.Sprintf("depth limit %d", depth)
-			skipped = append(skipped, cur.file.Name)
-			continue
+		// A batch of the queue is listed at once, each with the budget left
+		// when the batch starts, and used in order, so the walk shows what a
+		// walk in turn would. Near the budget a batch can list up to the
+		// budget in each of its folders, and what is past it is dropped.
+		batch := queue[:min(len(queue), levelFanOut)]
+		queue = queue[len(batch):]
+		type listed struct {
+			children []*gdrive.File
+			more     bool
+			err      error
+			skip     string
 		}
-		if shown >= items {
-			cur.node.NotEntered = fmt.Sprintf("item limit %d", items)
-			skipped = append(skipped, cur.file.Name)
-			continue
-		}
-		children, more, err := s.childrenOf(ctx, cur.file, kindClause, in.IncludeTrashed, items-shown)
-		if err != nil {
-			return "", err
-		}
-		cur.node.Items = len(children)
-		if cannotList(cur.file) {
-			cur.node.CannotList = true
-			unlistable = append(unlistable, cur.file.Name)
-		}
-		if more {
-			// The budget cut this folder's own listing, so the count above
-			// is what was shown, not what the folder holds.
-			cur.node.Truncated = fmt.Sprintf("item limit %d reached; more items here", items)
-			skipped = append(skipped, cur.file.Name)
-		}
-		for _, c := range children {
-			shown++
-			node := &render.TreeNode{File: model.New(c, model.Options{Location: loc, SharedDriveName: loc.Drive})}
-			cur.node.Children = append(cur.node.Children, node)
-			if c.IsFolder() {
-				queue = append(queue, queued{node: node, file: c, level: cur.level + 1})
+		out := make([]listed, len(batch))
+		budget := items - shown
+		fanOut(len(batch), levelFanOut, func(i int) {
+			switch {
+			case batch[i].level >= depth:
+				out[i].skip = fmt.Sprintf("depth limit %d", depth)
+			case budget <= 0:
+				out[i].skip = fmt.Sprintf("item limit %d", items)
+			default:
+				out[i].children, out[i].more, out[i].err = s.childrenOf(ctx, batch[i].file, kindClause,
+					in.IncludeTrashed, budget)
+			}
+		})
+		for i, cur := range batch {
+			// Past the budget a folder is not entered, as a walk in turn would
+			// leave it, and what its listing answered is not used, errors too.
+			if out[i].skip == "" && shown >= items {
+				out[i].skip = fmt.Sprintf("item limit %d", items)
+			}
+			if out[i].skip == "" && out[i].err != nil {
+				return "", out[i].err
+			}
+			if out[i].skip != "" {
+				cur.node.NotEntered = out[i].skip
+				skipped = append(skipped, cur.file.Name)
+				continue
+			}
+			children, more := out[i].children, out[i].more
+			if left := items - shown; len(children) > left {
+				children, more = children[:left], true
+			}
+			cur.node.Items = len(children)
+			if cannotList(cur.file) {
+				cur.node.CannotList = true
+				unlistable = append(unlistable, cur.file.Name)
+			}
+			if more {
+				// The budget cut this folder's own listing, so the count above
+				// is what was shown, not what the folder holds.
+				cur.node.Truncated = fmt.Sprintf("item limit %d reached; more items here", items)
+				skipped = append(skipped, cur.file.Name)
+			}
+			for _, c := range children {
+				shown++
+				node := &render.TreeNode{File: model.New(c, model.Options{Location: loc, SharedDriveName: loc.Drive})}
+				cur.node.Children = append(cur.node.Children, node)
+				if c.IsFolder() {
+					queue = append(queue, queued{node: node, file: c, level: cur.level + 1})
+				}
 			}
 		}
 		if shown >= items && len(queue) > 0 {
