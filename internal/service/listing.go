@@ -278,6 +278,8 @@ const childFields = "nextPageToken,incompleteSearch,files(" + gapi.ListFileField
 func (s *Service) childrenOf(ctx context.Context, folder *gdrive.File, kindClause string, includeTrashed bool, budget int) (files []*gdrive.File, more bool, err error) {
 	var out []*gdrive.File
 	token := ""
+	sent := map[string]bool{}
+	empty := 0
 	for budget > 0 {
 		// files.list costs the same whatever the page size, so a walk
 		// takes the largest page Drive allows rather than ten times as
@@ -293,15 +295,87 @@ func (s *Service) childrenOf(ctx context.Context, folder *gdrive.File, kindClaus
 		}
 		out = append(out, list.Files...)
 		budget -= len(list.Files)
-		if len(list.Files) == 0 {
-			return out, false, nil
-		}
+		// Only an empty token ends a folder: "Partial or empty result pages
+		// are possible even before the end of the files list has been
+		// reached" (D-16).
+		// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 		if list.NextPageToken == "" {
 			return out, false, nil
 		}
+		if len(list.Files) == 0 {
+			empty++
+		} else {
+			empty = 0
+		}
+		if empty == maxEmptyPages {
+			// The folder may hold more past these; the caller says so.
+			return out, true, nil
+		}
+		if sent[list.NextPageToken] {
+			return nil, false, Errorf(ClassUnexpected, "listing %s: Drive sent back a continuation token it had "+
+				"sent already", folder.Name)
+		}
+		sent[list.NextPageToken] = true
 		token = list.NextPageToken
 	}
 	// The budget ran out with a page still waiting: this folder holds
 	// more than was listed, and the caller has to say so.
 	return out, true, nil
+}
+
+// maxEmptyPages is how many empty pages in a row a walk follows before
+// it takes the list as unfinished. Drive applies the page size before it
+// filters, so a folder of trashed items can answer page after empty page.
+const maxEmptyPages = 20
+
+// firstFiles is the first page of q that holds any file, or the end of
+// the list. A page can be empty before the end (D-16), so a check that
+// reads one page and finds nothing would answer from no evidence. After
+// maxEmptyPages empty pages it returns the last, still carrying its
+// token, which the caller reads as "more than this".
+func (s *Service) firstFiles(ctx context.Context, q gapi.ListQuery, what string) (*gdrive.FileList, error) {
+	sent := map[string]bool{}
+	for empty := 1; ; empty++ {
+		list, err := s.api.ListFiles(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		if len(list.Files) > 0 || list.NextPageToken == "" || empty == maxEmptyPages {
+			return list, nil
+		}
+		if sent[list.NextPageToken] {
+			return nil, Errorf(ClassUnexpected, "%s: Drive sent back a continuation token it had sent already", what)
+		}
+		sent[list.NextPageToken] = true
+		q.PageToken = list.NextPageToken
+	}
+}
+
+// allFiles is every file q matches, read to the end of the list. A list
+// it cannot finish is refused rather than answered in part, because its
+// callers decide from the whole: no match, one, or several.
+func (s *Service) allFiles(ctx context.Context, q gapi.ListQuery, what string) ([]*gdrive.File, error) {
+	var out []*gdrive.File
+	sent := map[string]bool{}
+	empty := 0
+	for {
+		list, err := s.api.ListFiles(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, list.Files...)
+		if list.NextPageToken == "" {
+			return out, nil
+		}
+		if len(list.Files) == 0 {
+			empty++
+		} else {
+			empty = 0
+		}
+		if empty == maxEmptyPages || sent[list.NextPageToken] {
+			return nil, Errorf(ClassUnexpected, "%s: Drive did not finish the list, so every match cannot be told", what)
+		}
+		sent[list.NextPageToken] = true
+		q.PageToken = list.NextPageToken
+	}
 }
