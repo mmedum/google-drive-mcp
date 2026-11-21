@@ -403,3 +403,46 @@ func TestAStopEndsTheReadsBeforeTheNextCall(t *testing.T) {
 		t.Errorf("a stopped read run returned %v after %d calls, want an error and none", err, len(f.calls))
 	}
 }
+
+// A call Drive refuses for a moment after a write is made once more,
+// after a pause and under its own step name, and only when the first did
+// not take.
+func TestRetriedWaitsOnceThenTriesAgain(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		takes     []bool
+		wantCalls int
+		wantPause int
+		want      bool
+	}{
+		{"the first takes", []bool{true}, 1, 0, true},
+		{"the second takes", []bool{false, true}, 2, 1, true},
+		{"neither takes", []bool{false, false}, 2, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeDrive()
+			w, out := testRun(t, f, options{})
+			var pauses []time.Duration
+			w.pause = func(d time.Duration) { pauses = append(pauses, d) }
+			answers := 0
+			got := w.retried(call{name: "a file is read", tool: "get_file", args: map[string]any{"file": "id-x"}},
+				"a file is read again after a pause", "waiting for Drive", func(string) bool {
+					answers++
+					return tc.takes[answers-1]
+				})
+			// A failure is the caller's to report, once.
+			if w.failures != 0 {
+				t.Errorf("retried counted %d failures itself", w.failures)
+			}
+			if got != tc.want || answers != tc.wantCalls || len(pauses) != tc.wantPause {
+				t.Errorf("retried = %t after %d calls and %d pauses, want %t, %d and %d",
+					got, answers, len(pauses), tc.want, tc.wantCalls, tc.wantPause)
+			}
+			if tc.wantPause > 0 && (pauses[0] != retryPause ||
+				!strings.Contains(out.String(), "a file is read again after a pause") ||
+				!strings.Contains(out.String(), "(waiting for Drive)")) {
+				t.Errorf("the retry did not wait %v under its own name and note:\n%s", retryPause, out)
+			}
+		})
+	}
+}
