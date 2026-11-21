@@ -24,12 +24,16 @@ type spent struct {
 	res   *office.Result
 	err   error
 	alloc uint64
-	took  time.Duration
+	took  time.Duration // CPU time
+	wall  time.Duration
 }
 
-// measure runs one extraction and reports what it allocated and how long
+// measure runs one extraction and reports what it allocated and the time
 // it took. The bytes counted are every allocation made, kept or not,
-// which bounds what the read can hold at once.
+// which bounds what the read can hold at once. The work is bounded by CPU
+// time, because load on the machine stretches the wall clock; one P keeps
+// idle GC workers on other cores out of the count, and the package has no
+// parallel tests whose goroutines would be counted too.
 func measure(t *testing.T, r interface {
 	ReadAt([]byte, int64) (int, error)
 }, size int64, kind office.Kind, o office.Options) spent {
@@ -37,11 +41,12 @@ func measure(t *testing.T, r interface {
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	start := time.Now()
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
+	start, wallStart := cpuTime(), time.Now()
 	res, err := office.Extract(t.Context(), r, size, kind, o)
-	took := time.Since(start)
+	took, wall := cpuTime()-start, time.Since(wallStart)
 	runtime.ReadMemStats(&after)
-	return spent{res: res, err: err, alloc: after.TotalAlloc - before.TotalAlloc, took: took}
+	return spent{res: res, err: err, alloc: after.TotalAlloc - before.TotalAlloc, took: took, wall: wall}
 }
 
 // Bounds for a read under smallCap. A file that costs what its text
@@ -51,6 +56,9 @@ const (
 	smallCap  = 64 << 10
 	maxAlloc  = 16 << 20
 	maxTaking = 3 * time.Second
+	// maxWaiting catches a read that waits rather than works, which costs
+	// no CPU; it is wide enough that load on the machine stays inside it.
+	maxWaiting = 30 * time.Second
 )
 
 func TestHostileFilesCostWhatTheCapAllows(t *testing.T) {
@@ -108,7 +116,10 @@ func TestHostileFilesCostWhatTheCapAllows(t *testing.T) {
 				t.Errorf("a %d-byte file allocated %d MiB under a %d KiB cap", len(c.data), s.alloc>>20, smallCap>>10)
 			}
 			if s.took > maxTaking {
-				t.Errorf("a %d-byte file took %v", len(c.data), s.took)
+				t.Errorf("a %d-byte file took %v of CPU", len(c.data), s.took)
+			}
+			if s.wall > maxWaiting {
+				t.Errorf("a %d-byte file took %v", len(c.data), s.wall)
 			}
 		})
 	}
