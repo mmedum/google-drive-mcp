@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
@@ -154,53 +155,116 @@ func (p *treePlan) words(name, destination string) string {
 // executed out of order.
 func (s *Service) planCopy(ctx context.Context, root *gdrive.File, maxItems int) (*treePlan, error) {
 	plan := &treePlan{folderIDs: map[string]bool{root.ID: true}}
-	type queued struct {
-		folder *gdrive.File
-		depth  int
-	}
-	queue := []queued{{folder: root, depth: 0}}
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		if cur.depth > plan.depth {
-			plan.depth = cur.depth
-		}
-		if cur.depth >= MaxCopyDepth {
+	// One level at a time, a batch of its folders listed at once: each
+	// listing is a round trip that does not depend on the others. The
+	// results are read in order, and the budget and any error are checked
+	// between batches, so a tree too big is refused after at most one
+	// batch past the point a walk in turn would stop.
+	level := []*gdrive.File{root}
+	for depth := 0; len(level) > 0; depth++ {
+		plan.depth = depth
+		if depth >= MaxCopyDepth {
 			return nil, Errorf(ClassUnsupported, "%s is more than %d folders deep. Copying part of it at a "+
 				"time is the way through: a copy that stopped at the limit would look finished and would "+
 				"not be.", root.Name, MaxCopyDepth)
 		}
-		// One over the remaining budget, so a tree that is exactly too
-		// big is caught by what came back rather than by a second call.
-		left := maxItems - len(plan.items)
-		children, more, err := s.childrenOf(ctx, cur.folder, "", false, left+1)
-		if err != nil {
-			return nil, err
-		}
-		if more || len(children) > left {
-			return nil, Errorf(ClassInvalid, "%s holds more than the %d items this copy is allowed. Raise "+
-				"max_items, up to %d, or copy a subfolder at a time; nothing has been copied.",
-				root.Name, maxItems, MaxCopyItems)
-		}
-		for _, c := range children {
-			if c.IsFolder() && cannotList(c) {
-				return nil, Errorf(ClassForbidden, "this account cannot list what is inside %s, in %s, so it "+
-					"cannot copy %s whole; nothing has been copied.", c.Name, root.Name, root.Name)
+		var next []*gdrive.File
+		for start := 0; start < len(level); start += levelFanOut {
+			batch := level[start:min(len(level), start+levelFanOut)]
+			// One over the budget left when the batch starts, so a tree that
+			// is exactly too big is caught by what came back rather than by
+			// a second call.
+			left := maxItems - len(plan.items)
+			type listed struct {
+				children []*gdrive.File
+				more     bool
+				err      error
 			}
-			plan.items = append(plan.items, c)
-			switch {
-			case c.IsFolder():
-				plan.folders++
-				plan.folderIDs[c.ID] = true
-				queue = append(queue, queued{folder: c, depth: cur.depth + 1})
-			case c.IsShortcut():
-				plan.shortcuts++
-			default:
-				plan.files++
+			out := make([]listed, len(batch))
+			fanOut(len(batch), levelFanOut, func(i int) {
+				out[i].children, out[i].more, out[i].err = s.childrenOf(ctx, batch[i], "", false, left+1)
+			})
+			for i := range batch {
+				if out[i].err != nil {
+					return nil, out[i].err
+				}
+				if out[i].more || len(out[i].children) > maxItems-len(plan.items) {
+					return nil, Errorf(ClassInvalid, "%s holds more than the %d items this copy is allowed. Raise "+
+						"max_items, up to %d, or copy a subfolder at a time; nothing has been copied.",
+						root.Name, maxItems, MaxCopyItems)
+				}
+				for _, c := range out[i].children {
+					if c.IsFolder() && cannotList(c) {
+						return nil, Errorf(ClassForbidden, "this account cannot list what is inside %s, in %s, so "+
+							"it cannot copy %s whole; nothing has been copied.", c.Name, root.Name, root.Name)
+					}
+					plan.items = append(plan.items, c)
+					switch {
+					case c.IsFolder():
+						plan.folders++
+						plan.folderIDs[c.ID] = true
+						next = append(next, c)
+					case c.IsShortcut():
+						plan.shortcuts++
+					default:
+						plan.files++
+					}
+				}
 			}
 		}
+		level = next
 	}
 	return plan, nil
+}
+
+// levelFanOut is how many listings or writes of one level of a tree run at
+// once, for a recursive copy and a recursive listing. The client paces
+// both, so this only keeps a level from waiting on each round trip in
+// turn.
+const levelFanOut = 4
+
+// fanOut runs do for each of 0 to n-1, at most limit at once, and
+// returns when every one has. A panic in one is raised again here, on the
+// caller's goroutine, where the handler's recovery sees it as before.
+func fanOut(n, limit int, do func(i int)) {
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	var once sync.Once
+	var panicked any
+	for i := range n {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					once.Do(func() { panicked = r })
+				}
+			}()
+			do(i)
+		}()
+	}
+	wg.Wait()
+	if panicked != nil {
+		panic(panicked)
+	}
+}
+
+// byLevel splits a breadth-first plan into its levels, so every item's
+// parent is the source or is in an earlier level.
+func byLevel(source string, items []*gdrive.File) [][]*gdrive.File {
+	depth := map[string]int{source: 0}
+	var levels [][]*gdrive.File
+	for _, item := range items {
+		d := depth[item.Parent()] + 1
+		depth[item.ID] = d
+		for len(levels) < d {
+			levels = append(levels, nil)
+		}
+		levels[d-1] = append(levels[d-1], item)
+	}
+	return levels
 }
 
 // runCopy writes the tree. Every item is attempted: a failure partway
@@ -224,21 +288,37 @@ func (s *Service) runCopy(ctx context.Context, source *gdrive.File, plan *treePl
 	copies := map[string]string{source.ID: created.ID}
 	var failed []string
 	done := 0
-	for _, item := range plan.items {
-		parent, ok := copies[item.Parent()]
-		if !ok {
-			// Its folder failed, so there is nowhere to put it. Saying so
-			// once per orphan would bury the failure that caused them.
-			continue
+	// A level's items are written at once: each one's folder was made in an
+	// earlier level, and copies is written only between levels. The
+	// results are read in plan order, so what a copy reports is the same.
+	for _, level := range byLevel(source.ID, plan.items) {
+		type written struct {
+			id       string
+			err      error
+			orphaned bool
 		}
-		newID, err := s.copyOne(ctx, item, parent, ids, keepRevision)
-		if err != nil {
-			failed = append(failed, fmt.Sprintf("%s (%s)", item.Name, gapi.Message(err)))
-			continue
-		}
-		done++
-		if item.IsFolder() {
-			copies[item.ID] = newID
+		out := make([]written, len(level))
+		fanOut(len(level), levelFanOut, func(i int) {
+			parent, ok := copies[level[i].Parent()]
+			if !ok {
+				out[i].orphaned = true
+				return
+			}
+			out[i].id, out[i].err = s.copyOne(ctx, level[i], parent, ids, keepRevision)
+		})
+		for i, item := range level {
+			switch r := out[i]; {
+			case r.orphaned:
+				// Its folder failed, so there is nowhere to put it. Saying so
+				// once per orphan would bury the failure that caused them.
+			case r.err != nil:
+				failed = append(failed, fmt.Sprintf("%s (%s)", item.Name, gapi.Message(r.err)))
+			default:
+				done++
+				if item.IsFolder() {
+					copies[item.ID] = r.id
+				}
+			}
 		}
 	}
 	return created, copyNote(source, plan, destName, done, failed), nil
@@ -338,6 +418,7 @@ func copyNote(source *gdrive.File, plan *treePlan, destName string, done int, fa
 // The Docs Editors formats refuse a generated id, so a copy that becomes
 // one takes none, and take() is the single place that knows it.
 type idPool struct {
+	mu  sync.Mutex
 	ids []string
 }
 
@@ -367,7 +448,12 @@ func (s *Service) idPool(ctx context.Context, plan *treePlan) *idPool {
 // take returns an id for a file of this type, or "" when Drive would
 // refuse one.
 func (p *idPool) take(mime string) string {
-	if p == nil || len(p.ids) == 0 || !gapi.AcceptsGeneratedID(mime) {
+	if p == nil {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.ids) == 0 || !gapi.AcceptsGeneratedID(mime) {
 		return ""
 	}
 	id := p.ids[0]

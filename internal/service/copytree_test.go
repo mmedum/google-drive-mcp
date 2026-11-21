@@ -1,9 +1,12 @@
 package service_test
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
 	"github.com/mmedum/google-drive-mcp/v3/internal/gapi/drivetest"
@@ -375,5 +378,96 @@ func TestSharingOffRefusesATreeCopyThatWidensAnyPart(t *testing.T) {
 	}
 	if fake.Count(http.MethodPost) != 0 {
 		t.Error("a refused tree copy wrote something")
+	}
+}
+
+// A level of a tree copy is listed and written several items at once,
+// against a Drive that answers slowly, and the copy is still whole.
+func TestATreeCopyWritesALevelAtOnce(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-wide-source-fixture", "Wide source", "id-2026-fixture")
+	for i := range 8 {
+		fake.AddFile(fmt.Sprintf("id-wide-item-%d-fixture", i), fmt.Sprintf("item %d.txt", i), "text/plain",
+			"id-wide-source-fixture")
+	}
+	most := slowDrive(fake)
+	got, err := svc.CopyFile(t.Context(), service.CopyFileInput{
+		File: "id-wide-source-fixture", To: "id-archive-fixture", Name: "Wide copy", Recursive: true,
+	})
+	if err != nil {
+		t.Fatalf("CopyFile: %v", err)
+	}
+	if names := childrenNamed(fake, got.JSON.File.ID); len(names) != 8 {
+		t.Errorf("the copy holds %v, want the eight items", names)
+	}
+	if most.Load() < 2 {
+		t.Errorf("at most %d request ran at once; a level is written several at a time", most.Load())
+	}
+}
+
+// A recursive listing enters a level's folders several at once, and
+// still shows every one.
+func TestARecursiveListingEntersALevelAtOnce(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-wide-root-fixture", "Wide root", "id-2026-fixture")
+	for i := range 4 {
+		sub := fmt.Sprintf("id-wide-sub-%d-fixture", i)
+		fake.AddFolder(sub, fmt.Sprintf("sub %d", i), "id-wide-root-fixture")
+		fake.AddFile(fmt.Sprintf("id-wide-leaf-%d-fixture", i), fmt.Sprintf("leaf %d.txt", i), "text/plain", sub)
+	}
+	most := slowDrive(fake)
+	out, err := svc.ListFolder(t.Context(), service.ListFolderInput{Folder: "id-wide-root-fixture", Recursive: true})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	for i := range 4 {
+		if leaf := fmt.Sprintf("leaf %d.txt", i); !strings.Contains(out, leaf) {
+			t.Errorf("the tree does not show %s:\n%s", leaf, out)
+		}
+	}
+	if most.Load() < 2 {
+		t.Errorf("at most %d request ran at once; a level is entered several folders at a time", most.Load())
+	}
+}
+
+// slowDrive makes every answer of fake take a moment, and returns the
+// most requests it saw in flight at once.
+func slowDrive(fake *drivetest.Server) *atomic.Int32 {
+	var inFlight, most atomic.Int32
+	fake.Fail = func(*http.Request) *drivetest.Failure {
+		now := inFlight.Add(1)
+		for seen := most.Load(); now > seen && !most.CompareAndSwap(seen, now); seen = most.Load() {
+		}
+		time.Sleep(20 * time.Millisecond)
+		inFlight.Add(-1)
+		return nil
+	}
+	return &most
+}
+
+// A folder past the item budget is not entered, as a walk in turn would
+// leave it, so its listing failing cannot fail the walk.
+func TestAFolderPastTheBudgetCannotFailTheWalk(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.AddFolder("id-budget-root-fixture", "Budget root", "id-2026-fixture")
+	fake.AddFolder("id-budget-full-fixture", "a full", "id-budget-root-fixture")
+	fake.AddFolder("id-budget-broken-fixture", "b broken", "id-budget-root-fixture")
+	for i := range 3 {
+		fake.AddFile(fmt.Sprintf("id-budget-leaf-%d-fixture", i), fmt.Sprintf("leaf %d.txt", i), "text/plain",
+			"id-budget-full-fixture")
+	}
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if strings.Contains(r.URL.Query().Get("q"), "id-budget-broken-fixture") {
+			return &drivetest.Failure{Status: http.StatusInternalServerError, Reason: "backendError", Message: "try again"}
+		}
+		return nil
+	}
+	out, err := svc.ListFolder(t.Context(), service.ListFolderInput{Folder: "id-budget-root-fixture",
+		Recursive: true, MaxItems: 5})
+	if err != nil {
+		t.Fatalf("a folder past the budget failed the walk: %v", err)
+	}
+	if !strings.Contains(out, "b broken") || !strings.Contains(out, "item limit 5") {
+		t.Errorf("the tree does not show the folder past the budget as not entered:\n%s", out)
 	}
 }

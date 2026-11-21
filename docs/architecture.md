@@ -1019,10 +1019,10 @@ Drive accepts, which no reference states.
 Rejected: copying half a tree and reporting what was left; searching
 part of a tree.
 Cost: a folder-tree search covers a bounded number of folders, and a
-larger tree is searched folder by folder. An open issue covers speed: a
-tree copy and a tree walk visit one item at a time, and a fan-out per
-level needs the shared budget made safe and a fake that can be slow
-(#99).
+larger tree is searched folder by folder. A tree copy and a recursive
+listing work through a level a batch at a time, reading the batch's
+results in order against the budget left, so near the budget a batch
+may list past it and drop the rest.
 
 ### D-20 `read_file` fetches only the byte window it shows, and has no size limit
 
