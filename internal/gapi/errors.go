@@ -20,9 +20,9 @@ var (
 	ErrUnauthorized = errors.New("unauthorized")
 	ErrMissingScope = errors.New("missing scope")
 	ErrForbidden    = errors.New("forbidden")
-	// ErrBlocked is the organization's own policy refusing a share. It is
-	// not a bug and not something the server can work around: the
-	// Workspace admin's external-sharing setting is enforced by Drive.
+	// ErrBlocked is the organization's own policy refusing a share, or a
+	// change it keeps for its admins. It is not a bug and not something the
+	// server can work around: Drive enforces the Workspace admin's setting.
 	ErrBlocked     = errors.New("blocked by policy")
 	ErrNotFound    = errors.New("not found")
 	ErrExists      = errors.New("already exists")
@@ -67,6 +67,7 @@ const (
 	reasonStorageFull             = "storageQuotaExceeded"
 	reasonActiveItemCreationLimit = "activeItemCreationLimitExceeded"
 	reasonKeptForever             = "illegalKeepForeverModification"
+	reasonRestrictionsReserved    = "userCannotChangeDriveRestrictionsUnderOrgPolicy"
 )
 
 // NoCredentials is a token source that always fails with ErrNoCredentials
@@ -140,6 +141,14 @@ func (e *APIError) Unwrap() error {
 	case sameReason(e.Reason, reasonDomainPolicy) || sameReason(e.Reason, reasonShareOutBlocked):
 		return ErrBlocked
 	case e.Status == 403 && sameReason(e.Reason, reasonInvalidSharing):
+		return ErrBlocked
+	// An organization can keep shared-drive restrictions for its admins.
+	// Drive answers 400 with an empty message and this reason, while the
+	// drive still says canChangeDriveRestrictions. The source is a live
+	// probe: neither the handle-errors guide nor the discovery document
+	// names the reason. Checked by the live step "a drive restriction is
+	// turned on".
+	case sameReason(e.Reason, reasonRestrictionsReserved):
 		return ErrBlocked
 	case e.Status == 403 && sameReason(e.Reason, reasonStorageFull):
 		return ErrInvalid
@@ -228,6 +237,13 @@ func IsNotOwner(err error) bool {
 func IsDailyQuota(err error) bool {
 	var e *APIError
 	return errors.As(err, &e) && sameReason(e.Reason, reasonDailyLimit)
+}
+
+// IsRestrictionsReserved reports whether the organization keeps changing a
+// shared drive's restrictions for its admins.
+func IsRestrictionsReserved(err error) bool {
+	var e *APIError
+	return errors.As(err, &e) && sameReason(e.Reason, reasonRestrictionsReserved)
 }
 
 // IsPinnedForGood reports whether Drive refused to unpin a revision kept

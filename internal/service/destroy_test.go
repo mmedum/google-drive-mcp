@@ -286,3 +286,18 @@ func TestEmptyTrashCountsOnlyTheTrashItWillEmpty(t *testing.T) {
 		t.Errorf("the result does not name whose trash:\n%s", inDrive.Text)
 	}
 }
+
+// A shared-drive item's card needs its permission list, which cannot be
+// read once the item is gone, so the card is read before the delete.
+func TestADeletedSharedDriveItemStillSaysWhoHadIt(t *testing.T) {
+	svc, fake := setup(t, service.Options{Destructive: true})
+	fake.AddFile("id-drive-plan-fixture", "plan.txt", "text/plain", "id-drive-marketing",
+		drivetest.InDrive("id-drive-marketing"))
+	got, err := svc.DeleteFile(t.Context(), service.DeleteFileInput{File: "id-drive-plan-fixture", Confirm: true})
+	if err != nil {
+		t.Fatalf("DeleteFile: %v", err)
+	}
+	if want := "no grants of its own: everyone with access to the shared drive Marketing can see it"; got.JSON.File.Sharing != want {
+		t.Errorf("the deleted item's sharing reads %q, want %q", got.JSON.File.Sharing, want)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
+	"github.com/mmedum/google-drive-mcp/v3/internal/gapi"
 	"github.com/mmedum/google-drive-mcp/v3/internal/gdrive"
 	"github.com/mmedum/google-drive-mcp/v3/internal/model"
 	"github.com/mmedum/google-drive-mcp/v3/internal/render"
@@ -340,6 +341,11 @@ func (s *Service) applyDriveChange(ctx context.Context, d *gdrive.Drive, action 
 		updated, err = s.api.UpdateDrive(ctx, d.ID, meta)
 	}
 	if err != nil {
+		if gapi.IsRestrictionsReserved(err) {
+			return nil, Errorf(ClassBlocked, "your organization keeps changing a shared drive's restrictions "+
+				"for its admins, so changing those of %s was refused and nothing changed. A Workspace admin "+
+				"can make the change.", d.Name)
+		}
 		return nil, wrap(err, fmt.Sprintf("%s on the shared drive %s", action, d.Name))
 	}
 	s.forgetDrives()

@@ -328,10 +328,12 @@ func (w *writeRun) approvals(m made) {
 			errors.New("no address"))
 		return
 	}
-	w.needing(m.doc, call{name: "an approval is started as a dry run first, which mails nobody",
+	if _, ok := w.offered(call{name: "an approval is started as a dry run first, which mails nobody",
 		tool: "manage_approval", args: map[string]any{
 			"file": m.doc, "action": "start", "reviewers": []any{account}, "due": w.dueDate, "dry_run": true,
-		}})
+		}}, noApprovals); !ok {
+		return
+	}
 	started := w.call(call{name: "an approval is started with a future due date",
 		tool: "manage_approval", args: map[string]any{
 			"file": m.doc, "action": "start", "reviewers": []any{account},
@@ -1597,6 +1599,17 @@ func (w *writeRun) underFolder() {
 				"name": name, "parent": inner, "content": "two levels down\n", "mime_type": "text/plain",
 			}}))
 	}
+	// A tree copy writes a level several items at once; Inner's two files
+	// are the smallest level that does. The copy's own count is read, since
+	// a listing right after may lag the writes (D-30).
+	if files[0] != "" && files[1] != "" {
+		copied := w.call(call{name: "a tree with two files on one level is copied recursively",
+			tool: "copy_file", args: map[string]any{"file": outer, "to": w.scratchID, "name": "Under copy", "recursive": true}})
+		if !strings.Contains(copied, "copied 3 of 3 items") {
+			w.problem("the recursive copy of Under does not report all three items written",
+				errors.New("a level written at once lost an item"))
+		}
+	}
 	search := map[string]any{"under_folder": outer, "name": "found", "limit": 1}
 	page := ""
 	for i := range 10 {
@@ -2030,6 +2043,32 @@ func (w *writeRun) do(c call) (out string, isError bool) {
 		}
 	}
 	return out, isError
+}
+
+// Refusals that are the account's answer rather than the server's fault:
+// an edition or an admin that turns a feature off.
+const (
+	noApprovals          = "Drive does not offer one on this file"
+	restrictionsReserved = "keeps changing a shared drive's restrictions for its admins"
+)
+
+// offered runs a step the account may not offer, and reports whether it
+// went through. A refusal naming limit is said out loud and not counted,
+// so the steps that need the feature can be skipped; any other is counted.
+func (w *writeRun) offered(c call, limit string) (string, bool) {
+	out, isError, err := w.send(c)
+	switch {
+	case err != nil:
+		return "", false
+	case !isError:
+		return out, true
+	case strings.Contains(out, limit):
+		w.out.Say("(this account does not offer it, a correct answer: the steps that need it are skipped)")
+		return "", false
+	}
+	w.failures++
+	w.out.Say("!! unexpected tool error")
+	return "", false
 }
 
 // send prints a step's banner, runs it and prints the answer, leaving

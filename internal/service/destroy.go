@@ -53,12 +53,15 @@ func (s *Service) DeleteFile(ctx context.Context, in DeleteFileInput) (*Result, 
 		"trash_file removes it reversibly instead"); err != nil {
 		return nil, err
 	}
+	// Read before the delete: a shared-drive item's permission list is part
+	// of its card, and it cannot be read once the item is gone.
+	card := s.Model(ctx, res)
 	if err := s.api.DeleteFile(ctx, f.ID); err != nil {
 		return nil, wrap(err, "permanently deleting "+f.Name)
 	}
 	// Everything that pointed here now points at nothing.
 	s.forget(f, true)
-	return s.report(ctx, res, outcome{Action: render.ActionDeleted,
+	return s.reportCard(ctx, res, card, outcome{Action: render.ActionDeleted,
 		Note: what + " is gone for good. It was not put in the trash, so there is nothing to restore."}), nil
 }
 

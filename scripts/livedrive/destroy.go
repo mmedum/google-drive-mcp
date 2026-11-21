@@ -326,11 +326,16 @@ func (d *destroyRun) approvalLock() {
 
 	// lock_file on an OPEN approval, first and on its own, so whatever
 	// it does can be told apart from what approving does.
-	locked := approvalFromResult(d.call(call{name: "an approval starts with lock_file set",
+	started, ok := d.offered(call{name: "an approval starts with lock_file set",
 		tool: "manage_approval", args: map[string]any{
 			"file": id, "action": "start", "reviewers": []string{me},
 			"message": "a scratch approval that locks the file", "lock_file": true,
-		}}))
+		}}, noApprovals)
+	if !ok {
+		d.destroyFile(call{name: "a file with no approval to lock it is deleted for good"}, id)
+		return
+	}
+	locked := approvalFromResult(started)
 	d.out.Say("\n(the card below is the whole question: manage_approval has just said the file " +
 		"is LOCKED, so a content restriction should be on it)")
 	d.call(call{name: "the card shows what lock_file did to the file", tool: "get_file", args: map[string]any{"file": id}})
@@ -383,11 +388,15 @@ func (d *destroyRun) approvalNoAction() {
 		d.out.Say("\n=== approval without a lock: skipped, the address or the file it needs is missing ===")
 		return
 	}
-	started := d.call(call{name: "an approval starts with on_content_change no_action",
+	started, ok := d.offered(call{name: "an approval starts with on_content_change no_action",
 		tool: "manage_approval", args: map[string]any{
 			"file": id, "action": "start", "reviewers": []string{me}, "on_content_change": "no_action",
 			"message": "a scratch approval that should not lock the file",
-		}})
+		}}, noApprovals)
+	if !ok {
+		d.destroyFile(call{name: "a file with no approval is deleted for good"}, id)
+		return
+	}
 	if !strings.Contains(started, "approving does not lock the file") {
 		d.problem("the start of an approval with on_content_change no_action does not say approving leaves "+
 			"the file unlocked", errors.New("no NO_APPROVAL_ACTION in the answer"))
@@ -509,16 +518,19 @@ func (d *destroyRun) driveScopedArguments() {
 			"action": "restrict", "drive": d.driveID, "dry_run": true,
 			"restrictions": map[string]any{"copy_requires_writer_permission": true},
 		}})
-	d.needing(d.driveID, call{name: "a drive restriction is turned on", tool: "manage_drive", args: map[string]any{
+	if _, ok := d.offered(call{name: "a drive restriction is turned on", tool: "manage_drive", args: map[string]any{
 		"action": "restrict", "drive": d.driveID,
 		"restrictions": map[string]any{"copy_requires_writer_permission": true},
-	}})
+	}}, restrictionsReserved); !ok {
+		d.liftDomainUsersOnly(false)
+		return
+	}
 	// Turning it off again loosens the drive, and is an ordinary write.
 	d.needing(d.driveID, call{name: "a drive restriction is turned off again", tool: "manage_drive", args: map[string]any{
 		"action": "restrict", "drive": d.driveID,
 		"restrictions": map[string]any{"copy_requires_writer_permission": false},
 	}})
-	d.liftDomainUsersOnly()
+	d.liftDomainUsersOnly(true)
 }
 
 // liftDomainUsersOnly turns domain_users_only on with manage_drive, then
@@ -528,7 +540,18 @@ func (d *destroyRun) driveScopedArguments() {
 // and lifts it, read back from the drive. members_only off stays
 // manage_drive's, since whether turning it off restores access already
 // granted to non-members is unverified.
-func (d *destroyRun) liftDomainUsersOnly() {
+//
+// The stale-name refusal needs no restriction on; the rest need the
+// account to be allowed to set one, which restrictable says.
+func (d *destroyRun) liftDomainUsersOnly(restrictable bool) {
+	d.refusing(d.driveID, call{name: "lifting a drive restriction is refused under a stale drive name",
+		tool: "lift_drive_restriction", args: map[string]any{
+			"drive": d.driveID, "drive_name": d.driveName + " (another)", "restriction": "domain_users_only",
+			"confirm": true,
+		}, why: "[stale]"})
+	if !restrictable {
+		return
+	}
 	d.needing(d.driveID, call{name: "a drive is limited to the organization's users",
 		tool: "manage_drive", args: map[string]any{
 			"action": "restrict", "drive": d.driveID,
@@ -543,11 +566,6 @@ func (d *destroyRun) liftDomainUsersOnly() {
 		tool: "lift_drive_restriction", args: map[string]any{
 			"drive": d.driveID, "drive_name": d.driveName, "restriction": "domain_users_only",
 		}, why: "confirm: true"})
-	d.refusing(d.driveID, call{name: "lifting a drive restriction is refused under a stale drive name",
-		tool: "lift_drive_restriction", args: map[string]any{
-			"drive": d.driveID, "drive_name": d.driveName + " (another)", "restriction": "domain_users_only",
-			"confirm": true,
-		}, why: "[stale]"})
 	d.needing(d.driveID, call{name: "a dry run of lifting a drive restriction says what would change",
 		tool: "lift_drive_restriction", args: map[string]any{
 			"drive": d.driveID, "drive_name": d.driveName, "restriction": "domain_users_only", "dry_run": true,

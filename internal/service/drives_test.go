@@ -608,3 +608,20 @@ func TestACreateRefusesWhenItCannotCheckTheName(t *testing.T) {
 		}
 	}
 }
+
+// An organization that keeps drive restrictions for its admins answers a
+// change with a bare 400; the call says who can make it, as [blocked].
+func TestARestrictionTheOrganizationReservesIsBlocked(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	fake.Fail = drivetest.FailTimes(1, "/drives/id-drive-marketing", drivetest.Failure{
+		Status: http.StatusBadRequest, Reason: "userCannotChangeDriveRestrictionsUnderOrgPolicy",
+		Message: `Bad Request. User message: ""`,
+	})
+	_, err := svc.ManageDrive(t.Context(), service.ManageDriveInput{
+		Action: "restrict", Drive: "id-drive-marketing",
+		Restrictions: map[string]bool{"copy_requires_writer_permission": true},
+	})
+	if err == nil || !strings.HasPrefix(err.Error(), "[blocked] ") {
+		t.Errorf("a restriction the organization reserves gave %v, want [blocked]", err)
+	}
+}
