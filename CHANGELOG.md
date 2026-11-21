@@ -29,6 +29,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `resolve_access_request` refuses an accept when it cannot read who has access, as `share_file` and `unshare_file` do, rather than granting with the audience unknown.
 - A personal Google account at another mail provider no longer counts that provider's addresses as inside its organization.
 - `list_activity` names a kind of create, actor or person Google added, rather than reading it as a plain create or as somebody.
+- Shared drives are read past an empty page that carries a continuation token, so no drive is missed by name or in `list_drives`.
+- `manage_drive` refuses a create when it cannot read the drives to check the name, rather than risk a second drive of that name.
 
 ### Security
 
