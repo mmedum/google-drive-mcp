@@ -1125,20 +1125,30 @@ type ActionDetail struct {
 // leave every field nil, and the difference between them is the
 // difference between nothing to do and Google having added a kind.
 func (d *ActionDetail) UnmarshalJSON(b []byte) error {
-	// The alias sheds this method; without it the decode below calls it
-	// again on the same bytes, forever.
-	type detail ActionDetail
-	var typed detail
-	if err := json.Unmarshal(b, &typed); err != nil {
+	type plain ActionDetail
+	var p plain
+	members, err := decodeWithMembers(b, &p)
+	if err != nil {
 		return err
+	}
+	*d, d.Members = ActionDetail(p), members
+	return nil
+}
+
+// decodeWithMembers decodes b into into and returns the name of every
+// member the object carried, sorted, so a kind Google adds shows as a name
+// rather than as an object that looks empty. into must be a method-free
+// alias of the type being decoded; the type itself would call its own
+// UnmarshalJSON again on the same bytes, forever.
+func decodeWithMembers(b []byte, into any) ([]string, error) {
+	if err := json.Unmarshal(b, into); err != nil {
+		return nil, err
 	}
 	var members map[string]json.RawMessage
 	if err := json.Unmarshal(b, &members); err != nil {
-		return err
+		return nil, err
 	}
-	*d = ActionDetail(typed)
-	d.Members = slices.Sorted(maps.Keys(members))
-	return nil
+	return slices.Sorted(maps.Keys(members)), nil
 }
 
 // ActivityCreate says how an item came to be.
@@ -1146,6 +1156,20 @@ type ActivityCreate struct {
 	New    *struct{} `json:"new,omitempty"`
 	Upload *struct{} `json:"upload,omitempty"`
 	Copy   *struct{} `json:"copy,omitempty"`
+	// Members names every member it carried; see ActionDetail.
+	Members []string `json:"-"`
+}
+
+// UnmarshalJSON decodes the detail and records which members arrived.
+func (c *ActivityCreate) UnmarshalJSON(b []byte) error {
+	type plain ActivityCreate
+	var p plain
+	members, err := decodeWithMembers(b, &p)
+	if err != nil {
+		return err
+	}
+	*c, c.Members = ActivityCreate(p), members
+	return nil
 }
 
 // ActivityMove records the parents added and removed.
@@ -1187,6 +1211,20 @@ type ActivityActor struct {
 	System        *struct{}     `json:"system,omitempty"`
 	Administrator *struct{}     `json:"administrator,omitempty"`
 	Impersonation *struct{}     `json:"impersonation,omitempty"`
+	// Members names every member it carried; see ActionDetail.
+	Members []string `json:"-"`
+}
+
+// UnmarshalJSON decodes the actor and records which members arrived.
+func (a *ActivityActor) UnmarshalJSON(b []byte) error {
+	type plain ActivityActor
+	var p plain
+	members, err := decodeWithMembers(b, &p)
+	if err != nil {
+		return err
+	}
+	*a, a.Members = ActivityActor(p), members
+	return nil
 }
 
 // ActivityUser is a person, as far as this API will say.
@@ -1194,6 +1232,20 @@ type ActivityUser struct {
 	KnownUser   *ActivityKnownUser `json:"knownUser,omitempty"`
 	DeletedUser *struct{}          `json:"deletedUser,omitempty"`
 	UnknownUser *struct{}          `json:"unknownUser,omitempty"`
+	// Members names every member it carried; see ActionDetail.
+	Members []string `json:"-"`
+}
+
+// UnmarshalJSON decodes the user and records which members arrived.
+func (u *ActivityUser) UnmarshalJSON(b []byte) error {
+	type plain ActivityUser
+	var p plain
+	members, err := decodeWithMembers(b, &p)
+	if err != nil {
+		return err
+	}
+	*u, u.Members = ActivityUser(p), members
+	return nil
 }
 
 // ActivityKnownUser is a person the API will identify only by a People

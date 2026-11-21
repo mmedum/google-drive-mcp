@@ -106,3 +106,67 @@ func TestActivityWordsForDeletesAndSharing(t *testing.T) {
 		}
 	}
 }
+
+// A kind Google adds is named rather than read as the nearest known one:
+// a new way to create is still a create, and says which; a new kind of
+// actor or person says what it is called.
+func TestAnUnknownKindIsNamedNotGuessed(t *testing.T) {
+	for _, tc := range []struct {
+		name, json, what, detail, who string
+	}{
+		{"a create Google added", `{"primaryActionDetail":{"create":{"fromTemplate":{}}},` +
+			`"actors":[{"user":{"knownUser":{"isCurrentUser":true}}}]}`,
+			"created", "by a kind of create this server has no word for: fromTemplate", "you"},
+		{"a plain create", `{"primaryActionDetail":{"create":{"new":{}}},"actors":[{"system":{}}]}`,
+			"created", "", "Drive itself"},
+		{"an actor Google added", `{"primaryActionDetail":{"edit":{}},"actors":[{"robot":{}}]}`,
+			"edited", "", "an actor of a kind this server has no word for: robot"},
+		{"a person Google cannot identify", `{"primaryActionDetail":{"edit":{}},"actors":[{"user":{"unknownUser":{}}}]}`,
+			"edited", "", "somebody Drive cannot identify"},
+		{"a kind of person Google added", `{"primaryActionDetail":{"edit":{}},"actors":[{"user":{"guestUser":{}}}]}`,
+			"edited", "", "a person, of a kind this server has no word for: guestUser"},
+		{"no actor at all", `{"primaryActionDetail":{"edit":{}}}`, "edited", "", "somebody"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var a gdrive.DriveActivity
+			if err := json.Unmarshal([]byte(tc.json), &a); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := NewActivity(&a)
+			if got == nil || got.What != tc.what || got.Detail != tc.detail || got.Who != tc.who {
+				t.Errorf("NewActivity = %+v, want what %q, detail %q, who %q", got, tc.what, tc.detail, tc.who)
+			}
+		})
+	}
+}
+
+// An actor the API identifies wins over one it does not, wherever each
+// stands in the list, and a member that decoded from null is not a kind
+// Google added.
+func TestTheIdentifiedActorIsTheAnswer(t *testing.T) {
+	for _, tc := range []struct{ name, actors, who string }{
+		{"an unidentified person first", `[{"user":{"unknownUser":{}}},{"user":{"knownUser":{"isCurrentUser":true}}}]`, "you"},
+		{"an unknown kind first", `[{"robot":{}},{"system":{}}]`, "Drive itself"},
+		{"an empty person first", `[{"user":{}},{"administrator":{}}]`, "an administrator"},
+		{"a known member sent as null", `[{"user":null}]`, "somebody"},
+		{"only an unidentified person", `[{"user":{"unknownUser":{}}}]`, "somebody Drive cannot identify"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var a gdrive.DriveActivity
+			if err := json.Unmarshal([]byte(`{"primaryActionDetail":{"edit":{}},"actors":`+tc.actors+`}`), &a); err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := NewActivity(&a); got == nil || got.Who != tc.who {
+				t.Errorf("Who = %+v, want %q", got, tc.who)
+			}
+		})
+	}
+	var a gdrive.DriveActivity
+	if err := json.Unmarshal([]byte(`{"primaryActionDetail":{"create":{"copy":{},"fromTemplate":{}}}}`), &a); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := NewActivity(&a); got == nil || got.What != "copied" ||
+		got.Detail != "by a kind of create this server has no word for: fromTemplate" {
+		t.Errorf("a copy that also carries an unknown kind = %+v, want copied, with the kind named", got)
+	}
+}

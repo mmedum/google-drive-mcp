@@ -1,6 +1,8 @@
 package model
 
 import (
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -131,14 +133,18 @@ var namedMembers = map[string]bool{
 func actionWords(d *gdrive.ActionDetail) (what, detail string) {
 	switch {
 	case d.Create != nil:
+		// A kind of create Google added since is still a create, and is
+		// named beside whatever else the detail carried, so it shows.
+		if unknown := unknownOf(d.Create.Members, createMembers); len(unknown) > 0 {
+			detail = "by a kind of create this server has no word for: " + strings.Join(unknown, ", ")
+		}
 		switch {
 		case d.Create.Upload != nil:
-			return "uploaded", ""
+			return "uploaded", detail
 		case d.Create.Copy != nil:
-			return "copied", ""
-		default:
-			return "created", ""
+			return "copied", detail
 		}
+		return "created", detail
 	case d.Edit != nil:
 		return "edited", ""
 	case d.Rename != nil:
@@ -196,6 +202,10 @@ func permissionWords(p *gdrive.ActivityPermission) string {
 // actorWords says who, as far as the API will say. It never returns a
 // name, because the API never gives one.
 func actorWords(actors []*gdrive.ActivityActor) string {
+	// The first actor the API identifies is the answer; one it does not
+	// identify, or of a kind this server has no word for, is the answer
+	// only when no other actor is identified.
+	fallback := "somebody"
 	for _, a := range actors {
 		if a == nil {
 			continue
@@ -216,7 +226,47 @@ func actorWords(actors []*gdrive.ActivityActor) string {
 			return "Drive itself"
 		case a.Anonymous != nil:
 			return "somebody not signed in"
+		case a.User != nil && a.User.UnknownUser != nil:
+			fallback = "somebody Drive cannot identify"
+		case a.User != nil:
+			if unknown := unknownOf(a.User.Members, userMembers); len(unknown) > 0 {
+				fallback = "a person, of a kind this server has no word for: " + strings.Join(unknown, ", ")
+			}
+		default:
+			if unknown := unknownOf(a.Members, actorMembers); len(unknown) > 0 {
+				fallback = "an actor of a kind this server has no word for: " + strings.Join(unknown, ", ")
+			}
 		}
 	}
-	return "somebody"
+	return fallback
+}
+
+// The members each wire type names, read off its json tags, so a member
+// gdrive gains is known here the moment it is modeled.
+var (
+	createMembers = jsonMembers(reflect.TypeFor[gdrive.ActivityCreate]())
+	actorMembers  = jsonMembers(reflect.TypeFor[gdrive.ActivityActor]())
+	userMembers   = jsonMembers(reflect.TypeFor[gdrive.ActivityUser]())
+)
+
+// jsonMembers is the json names of a struct's fields.
+func jsonMembers(t reflect.Type) []string {
+	var out []string
+	for f := range t.Fields() {
+		if name, _, _ := strings.Cut(f.Tag.Get("json"), ","); name != "" && name != "-" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// unknownOf is the members a decoder kept that are not among the known.
+func unknownOf(members, known []string) []string {
+	var out []string
+	for _, m := range members {
+		if !slices.Contains(known, m) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
