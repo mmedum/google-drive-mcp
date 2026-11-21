@@ -124,9 +124,9 @@ func runWrites(s session, t *transcript.Transcript, dir string, o options) (int,
 		if o.destructive {
 			runDestructive(w, driveScratchName(stamp))
 		} else {
-			w.out.Say("\n(pass -destructive to also exercise the five tools that remove things for " +
-				"good, in a shared drive this run creates and destroys again, and the shares that reach past " +
-				"the organization)")
+			skipping(w.out, "-destructive to also exercise the tools that remove things for "+
+				"good, in a shared drive this run creates and destroys again, and the shares that reach past "+
+				"the organization")
 		}
 	})
 	w.cleanup(w.trashScratch)
@@ -368,7 +368,7 @@ func (w *writeRun) approvals(m made) {
 // published to it, which is not a failure.
 func (w *writeRun) labeling(m made) {
 	if !w.labels {
-		w.out.Say("\n(pass -labels to exercise the label tools, which need GDRIVE_LABELS and its scopes)")
+		skipping(w.out, "-labels to exercise the label tools, which need GDRIVE_LABELS and its scopes")
 		return
 	}
 	w.out.Say("\n--- labels ---")
@@ -418,7 +418,7 @@ func (w *writeRun) labeling(m made) {
 // possibility rather than a defect, as it is for the changes feed.
 func (w *writeRun) activityFeed(m made) {
 	if !w.activity {
-		w.out.Say("\n(pass -activity to exercise list_activity, which needs GDRIVE_ACTIVITY and its scope)")
+		skipping(w.out, "-activity to exercise list_activity, which needs GDRIVE_ACTIVITY and its scope")
 		return
 	}
 	w.out.Say("\n--- activity ---")
@@ -685,12 +685,12 @@ func (w *writeRun) access(m made) {
 	if w.destructive {
 		w.linkShare(m)
 	} else {
-		w.out.Say("\n(pass -destructive to also exercise share_by_link, share_outside_organization and " +
-			"transfer_ownership, which only GDRIVE_ENABLE_DESTRUCTIVE registers)")
+		skipping(w.out, "-destructive to also exercise share_by_link, share_outside_organization and "+
+			"transfer_ownership, which only GDRIVE_ENABLE_DESTRUCTIVE registers")
 	}
 
 	if w.share == "" {
-		w.out.Say("\n(pass -share SOMEONE@EXAMPLE.COM to also exercise a real grant and an expiry)")
+		skipping(w.out, "-share SOMEONE@EXAMPLE.COM to also exercise a real grant and an expiry")
 		return
 	}
 	tool := w.shareToolFor(m.text)
@@ -742,7 +742,7 @@ func (w *writeRun) revoke(file, principal string) {
 		}
 		// Once more after a pause. Tolerant, because a removal Drive had
 		// taken and not yet listed is refused as having nothing to remove.
-		w.pause(10 * time.Second)
+		w.pause(retryPause)
 		w.call(call{name: "the second person's grant is taken back again after a pause",
 			tool: "unshare_file", args: map[string]any{"file": file, "principal": principal},
 			tolerant: true})
@@ -923,8 +923,8 @@ func (w *writeRun) ownershipTransfer() {
 			tool: "get_file", args: map[string]any{"file": transfer}})); after != before {
 			w.problem("the owner changed although no transfer was asked for", errors.New("owner changed"))
 		}
-		w.out.Say("\n(pass -transfer ADDRESS as well, an account you control, to make the real transfer. " +
-			"It cannot be undone, and Google emails that address)")
+		skipping(w.out, "-transfer ADDRESS as well, an account you control, to make the real transfer. "+
+			"It cannot be undone, and Google emails that address")
 		return
 	}
 	w.out.Say("\n!! the next call hands this file to " + w.transfer + " for good, and Google emails them.")
@@ -1358,8 +1358,8 @@ func (w *writeRun) organize(m made) {
 // link again before each step that needs it shared.
 func (w *writeRun) moveExposure() {
 	if !w.destructive {
-		w.out.Say("\n(pass -destructive to check that a move or a copy that would reach anyone with the " +
-			"link is refused: opening a folder by link is share_by_link's)")
+		skipping(w.out, "-destructive to check that a move or a copy that would reach anyone with the "+
+			"link is refused: opening a folder by link is share_by_link's")
 		return
 	}
 	const openName, fileName = "Open by link", "moves into the open folder.txt"
@@ -1833,7 +1833,7 @@ func (w *writeRun) refusals(m made) {
 // touches anything outside the scratch folder.
 func (w *writeRun) sharedDrive(m made) {
 	if w.drive == "" {
-		w.out.Say("\n(pass -drive NAME_OR_ID to also exercise moving a file into a shared drive and back)")
+		skipping(w.out, "-drive NAME_OR_ID to also exercise moving a file into a shared drive and back")
 		return
 	}
 	if m.small == "" || m.folder == "" {
@@ -2543,3 +2543,29 @@ func tokenIn(result string) string {
 }
 
 var pageTokenLine = regexp.MustCompile(`page_token "([^"]+)"`)
+
+// retried makes first, and once more after a pause when done says it did
+// not take: after a write Drive refuses for a moment what it agrees to
+// minutes later, and an immediate retry does not help it catch up.
+func (w *writeRun) retried(first call, again, note string, done func(string) bool) bool {
+	if done(w.call(first)) {
+		return true
+	}
+	// A stop ends the run here rather than after the pause, except in a
+	// cleanup, which finishes.
+	w.checkStop()
+	if note != "" {
+		w.out.Say("\n(" + note + ")")
+	}
+	w.pause(retryPause)
+	// Tolerant, so the caller reports a failure once, as a problem.
+	second := first
+	second.name, second.tolerant = again, true
+	return done(w.call(second))
+}
+
+// retryPause is how long retried waits before its second call.
+const retryPause = 10 * time.Second
+
+// goneForGood reports whether a permanent delete's answer says it took.
+func goneForGood(out string) bool { return strings.Contains(out, "gone for good") }

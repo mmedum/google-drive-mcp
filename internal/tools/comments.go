@@ -13,16 +13,16 @@ import (
 
 // CommentsInput selects a file's threads.
 type CommentsInput struct {
-	File           string `json:"file" jsonschema:"the file whose comments to list: an id, any Drive URL, a path from My Drive, or a shared-drive path. A name or path matching more than one item is refused with the candidates listed."`
+	File           string `json:"file" jsonschema:"the file whose comments to list: {{ref}}. {{ambiguous}}."`
 	IncludeDeleted bool   `json:"include_deleted,omitempty" jsonschema:"also show threads that were deleted. Drive keeps them with their words removed, so they say that something was said and removed, and nothing more."`
 	Since          string `json:"since,omitempty" jsonschema:"only threads touched since this moment, as a date like 2026-01-31 or a full RFC 3339 timestamp"`
 	PageSize       int    `json:"page_size,omitempty" jsonschema:"how many threads to return, default 20, maximum 100"`
-	PageToken      string `json:"page_token,omitempty" jsonschema:"the token a previous call returned, to get the next page"`
+	PageToken      string `json:"page_token,omitempty" jsonschema:"{{next_page}}"`
 }
 
 // AddCommentInput is a new thread.
 type AddCommentInput struct {
-	File string `json:"file" jsonschema:"the file to comment on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	File string `json:"file" jsonschema:"the file to comment on: {{ref}}"`
 	// Not required in the schema, on purpose. The SDK checks a required
 	// field before the handler runs and answers with its own unclassed
 	// schema error; the service's [invalid] refusal says what is missing
@@ -32,7 +32,7 @@ type AddCommentInput struct {
 
 // ReplyCommentInput acts on one thread.
 type ReplyCommentInput struct {
-	File    string `json:"file" jsonschema:"the file the thread is on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	File    string `json:"file" jsonschema:"the file the thread is on: {{ref}}"`
 	Comment string `json:"comment" jsonschema:"the thread to act on, by the id list_comments shows"`
 	Action  string `json:"action,omitempty" jsonschema:"reply to add to the thread (the default), resolve to close it, reopen to open it again, or edit to change wording already there"`
 	Content string `json:"content,omitempty" jsonschema:"what to say. Required for reply and edit; optional with resolve and reopen, which Drive records as a reply of their own."`
@@ -41,7 +41,7 @@ type ReplyCommentInput struct {
 
 // DeleteCommentInput removes a thread or one reply.
 type DeleteCommentInput struct {
-	File    string `json:"file" jsonschema:"the file the thread is on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	File    string `json:"file" jsonschema:"the file the thread is on: {{ref}}"`
 	Comment string `json:"comment" jsonschema:"the thread to delete, by the id list_comments shows"`
 	Reply   string `json:"reply,omitempty" jsonschema:"delete one reply instead of the whole thread, by its id"`
 	Confirm bool   `json:"confirm,omitempty" jsonschema:"required to actually delete. Without it the call is refused, because there is no trash for a comment and nothing brings the words back."`
@@ -50,12 +50,12 @@ type DeleteCommentInput struct {
 
 // AccessRequestsInput selects a file's pending requests.
 type AccessRequestsInput struct {
-	File string `json:"file" jsonschema:"the file to check: an id, any Drive URL, a path from My Drive, or a shared-drive path. Only somebody who can approve access to it may see the requests."`
+	File string `json:"file" jsonschema:"the file to check: {{ref}}. Only somebody who can approve access to it may see the requests."`
 }
 
 // ResolveAccessRequestInput answers one pending request.
 type ResolveAccessRequestInput struct {
-	File    string `json:"file" jsonschema:"the file the request is about: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	File    string `json:"file" jsonschema:"the file the request is about: {{ref}}"`
 	Request string `json:"request" jsonschema:"the request to answer, by the id list_access_requests shows"`
 	Action  string `json:"action" jsonschema:"accept to grant the access, or deny to refuse it. Either way the request is gone afterwards."`
 	Role    string `json:"role,omitempty" jsonschema:"what to grant on an acceptance: reader, commenter or writer. Left out, the role the person asked for is granted, unless they asked for more than one, which is refused rather than guessed at."`
@@ -69,7 +69,7 @@ type ResolveAccessRequestInput struct {
 // resolve_access_request goes further — it grants a permission, so
 // GDRIVE_SHARING=off removes it alongside share_file.
 func registerComments(s *mcp.Server, d Deps) []string {
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_comments",
 		Description: "The comment threads on a file, oldest first, each with its replies and whether it is " +
 			"still open. Comments live on the file in Drive, so this works for a PDF or an image as well as for " +
@@ -88,7 +88,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 		return text(out), nil, nil
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_access_requests",
 		Description: "Who has asked to be let into this file, what they asked for, and when. Only somebody " +
 			"who can approve access can see these; for anybody else Drive refuses the call. There is no way to " +
@@ -108,7 +108,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 		return names
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "add_comment",
 		Description: "Start a comment thread on a file. Everybody who can see the file can see the comment, " +
 			"and Drive mails the people who follow it. The comment is not pinned to any place in the file: " +
@@ -120,7 +120,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 		return result(d.Service.AddComment(ctx, service.AddCommentInput{File: in.File, Content: in.Content}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "reply_comment",
 		Description: "Answer a comment thread, close it, reopen it, or change wording already in it. Actions: " +
 			strings.Join(service.CommentActions(), ", ") + ". " +
@@ -135,7 +135,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 	names = append(names, "add_comment", "reply_comment")
 
 	if d.Config.Sharing != config.SharingOff {
-		mcp.AddTool(s, &mcp.Tool{
+		addTool(s, &mcp.Tool{
 			Name: "resolve_access_request",
 			Description: "Accept or deny somebody's request to be let into a file. Accepting GRANTS THEM " +
 				"ACCESS, so this reports who could see the file before and who can see it after, the way " +
@@ -158,7 +158,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 	if !d.Config.EnableDestructive {
 		return names
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "delete_comment",
 		Description: "Delete a comment thread, or one reply in it, permanently. THERE IS NO UNDO: Drive keeps " +
 			"the thread with its words removed and nothing brings them back. Resolving a thread with " +

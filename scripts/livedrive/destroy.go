@@ -7,10 +7,9 @@ import (
 
 	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/mcpstdio"
 	"strings"
-	"time"
 )
 
-// The five tools that remove something for good are registered only
+// The tools that remove something for good are registered only
 // under GDRIVE_ENABLE_DESTRUCTIVE. empty_trash cannot be scoped to a
 // folder — without a shared drive it takes the whole account's trash —
 // so a scratch folder cannot hold it without risking somebody's real
@@ -30,7 +29,7 @@ import (
 // allowItemDeletion needs useDomainAdminAccess, which this server does
 // not offer, so the drive has to be emptied before it can go.
 
-// destroyRun exercises the destructive five and the approval lock inside
+// destroyRun exercises the destructive tools and the approval lock inside
 // one throwaway shared drive.
 //
 // Every call it makes is scoped to driveID, and that is the whole safety
@@ -85,7 +84,7 @@ func (d *destroyRun) destroyFile(c call, id string) {
 // every call below is only safe inside one.
 func runDestructive(w *writeRun, name string) {
 	d := &destroyRun{writeRun: w, driveName: name}
-	d.out.Say("\n--- destructive five, in a shared drive of their own ---")
+	d.out.Say("\n--- the destructive tools, in a shared drive of their own ---")
 	d.out.Say("(everything below happens in a shared drive this run creates and destroys again)")
 
 	d.driveID = w.createAndKeepID(call{name: "a scratch shared drive is created",
@@ -212,7 +211,7 @@ func (d *destroyRun) deleteARevision() {
 		// fine here: this is a driver, not a tool call somebody is waiting
 		// on.
 		d.out.Say("\n(only the current revision is listed yet; waiting for Drive to catch up)")
-		d.pause(10 * time.Second)
+		d.pause(retryPause)
 		first = d.revisionID(id, true)
 	}
 	if first == "" {
@@ -229,19 +228,14 @@ func (d *destroyRun) deleteARevision() {
 	d.call(call{name: "a dry run of deleting a revision says what would go", tool: "delete_revision", args: map[string]any{
 		"file": id, "revision": first, "dry_run": true, "confirm": true,
 	}})
-	gone := d.call(call{name: "an old revision is deleted for good", tool: "delete_revision", args: map[string]any{
+	// The dry run above found this revision; a delete that does not is
+	// Drive disagreeing with itself for a moment after a write.
+	if !d.retried(call{name: "an old revision is deleted for good", tool: "delete_revision", args: map[string]any{
 		"file": id, "revision": first, "confirm": true,
-	}, tolerant: true})
-	if !strings.Contains(gone, "gone for good") {
-		// The dry run above found this revision and the delete did not,
-		// which is Drive disagreeing with itself for a moment after a
-		// write. One retry after a pause, the same treatment the drive
-		// delete gets and for the same reason.
-		d.out.Say("\n(the revision was there for the dry run and not for the delete; waiting)")
-		d.pause(10 * time.Second)
-		d.call(call{name: "an old revision is deleted again after a pause", tool: "delete_revision", args: map[string]any{
-			"file": id, "revision": first, "confirm": true,
-		}})
+	}, tolerant: true}, "an old revision is deleted again after a pause",
+		"the revision was there for the dry run and not for the delete; waiting", goneForGood) {
+		d.problem("delete_revision did not delete an old revision the dry run found, after a pause",
+			errors.New("delete_revision failed twice"))
 	}
 	// The content the file is at now must have survived it.
 	d.call(call{name: "the current content survives deleting an old revision",
@@ -470,22 +464,10 @@ func (d *destroyRun) deleteTheDrive() {
 	}
 	d.emptyTrash(call{name: "the drive's trash is emptied before the drive is deleted",
 		args: map[string]any{"confirm": true}})
-	out := d.call(call{name: "the scratch shared drive is deleted", tool: "delete_drive", args: map[string]any{
+	// A first refusal is Drive not yet agreeing the trash is empty.
+	if d.retried(call{name: "the scratch shared drive is deleted", tool: "delete_drive", args: map[string]any{
 		"drive": d.driveID, "confirm": true,
-	}})
-	if strings.Contains(out, "gone for good") {
-		return
-	}
-	// One retry, AFTER a pause. The reason for the first refusal is
-	// Drive not yet agreeing the trash is empty, and an immediate retry
-	// is the one thing least likely to help something that is waiting to
-	// catch up: the same delete succeeds minutes later.
-	d.pause(10 * time.Second)
-	again := d.call(call{name: "the scratch shared drive is deleted again after a pause",
-		tool: "delete_drive", args: map[string]any{
-			"drive": d.driveID, "confirm": true,
-		}})
-	if strings.Contains(again, "gone for good") {
+	}}, "the scratch shared drive is deleted again after a pause", "", goneForGood) {
 		return
 	}
 	d.problem("A SCRATCH SHARED DRIVE IS STILL THERE, named "+d.driveName+
