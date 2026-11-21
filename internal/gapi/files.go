@@ -440,8 +440,9 @@ func (c *Client) CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta,
 // AcceptsGeneratedID reports whether a file of this type may be created
 // with an id from files.generateIds.
 //
-// Four answers hold, and they do not follow one rule that Google states
-// anywhere:
+// Google's guide says a Google Workspace type refuses an id, except a
+// folder and drive-sdk. This follows it, except that drive-sdk, never
+// tried, is refused on the safe side. Four answers have been seen live:
 //
 //   - a file with bytes of its own takes an id;
 //   - a folder takes one;
@@ -458,6 +459,7 @@ func (c *Client) CopyFile(ctx context.Context, id string, meta *gdrive.FileMeta,
 // call. Checked by the live steps "a Google Doc is created", "a file of
 // every Google kind is created" and "a shortcut to a file is created".
 // https://developers.google.com/workspace/drive/api/reference/rest/v3/files/generateIds
+// https://developers.google.com/workspace/drive/api/guides/create-file
 func AcceptsGeneratedID(mime string) bool {
 	mime = strings.TrimSpace(mime)
 	return mime == gdrive.MimeFolder || !gdrive.IsGoogleMime(mime)

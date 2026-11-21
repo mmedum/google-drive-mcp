@@ -1221,11 +1221,12 @@ takes one, and a duplicate-id answer after an ambiguous failure is
 `[ambiguous_outcome]`. A recursive copy asks for the whole tree's ids in
 one call. `drives.create` carries a `requestId`, kept for the retry.
 
-The reference does not say which files refuse an id. The Docs Editors
-formats refuse it with one message and a shortcut with another, and
-neither is listed. So the rule names what is known to work: a folder, or
-a type that is not Drive's own. A Google-native type nobody has tried
-falls on the safe side. `TestLiveGenerateIDsAreUsableAndUnique` checks
+Google's guide says a Google Workspace type refuses an id except a
+folder and `drive-sdk`, and so does an upload converting to one
+([Create and manage files](https://developers.google.com/workspace/drive/api/guides/create-file)).
+The rule names what is known to work: a folder, or a type that is not
+Drive's own. `drive-sdk` and a Google-native type nobody has tried fall
+on the safe side. `TestLiveGenerateIDsAreUsableAndUnique` checks
 the ids against the account.
 
 A create that cannot carry an id is never repeated after a failure that
@@ -1233,11 +1234,12 @@ may have landed (D-28), and the duplicate-name guard catches a second
 one (D-32).
 
 Rejected: a list of the formats that refuse an id, which fails open on
-the next kind nobody listed.
+the next kind nobody listed; a pool of ids kept across calls, which
+would spare a single create its id round trip but depends on how long
+an unused id stays valid, which neither the reference nor the guide
+says (#97).
 Cost: creating a Doc, Sheet, Slides deck, Drawing or Form is not
-idempotent, and a single create spends a round trip on its id. An open
-issue asks for one id source, which needs a live measurement first
-(#97).
+idempotent, and a single create spends a round trip on its id.
 
 ### D-28 Repeatability follows the HTTP method, and a write that may have landed is `[ambiguous_outcome]`
 
