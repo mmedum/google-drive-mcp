@@ -294,8 +294,9 @@ func (r *Redactor) hideDomains(text string) string {
 // replaceHost replaces each host that is d or ends in .d.
 func (r *Redactor) replaceHost(text, d string) string {
 	var b strings.Builder
+	low := lowerASCII(text)
 	for {
-		i := strings.Index(strings.ToLower(text), d)
+		i := strings.Index(low, d)
 		if i < 0 {
 			b.WriteString(text)
 			return b.String()
@@ -313,13 +314,27 @@ func (r *Redactor) replaceHost(text, d string) string {
 		// Starts as a host: what precedes d is nothing, or a subdomain.
 		starts := start == i || text[i-1] == '.'
 		b.WriteString(text[:start])
-		if ends && starts && !strings.Contains(text[start:i], "@") {
+		if ends && starts {
 			b.WriteString(r.placeholder("DOMAIN", "@"+strings.ToLower(text[start:end])))
 		} else {
 			b.WriteString(text[start:end])
 		}
-		text = text[end:]
+		text, low = text[end:], low[end:]
 	}
+}
+
+// lowerASCII lower-cases A to Z alone. strings.ToLower can change a string's
+// length, as İ and Ⱥ do, and the index found in it would then miss in text.
+// A domain is ASCII, so a letter that folds to ASCII, such as the Kelvin
+// sign, is left as written.
+func lowerASCII(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
 }
 
 func hostChar(c byte) bool {
