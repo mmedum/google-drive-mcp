@@ -197,20 +197,22 @@ func (s *Service) child(ctx context.Context, parent, name, rootName string, walk
 	// TestLiveNameEqualsIgnoresCase.
 	// https://developers.google.com/workspace/drive/api/guides/ref-search-terms
 	q := childQuery(parent, "name = "+quote(name), false)
-	list, err := s.api.ListFiles(ctx, gapi.ListQuery{
+	// Every page is read, because a match on a later page makes a path
+	// that looked single [ambiguous] (D-12, D-16).
+	matches, err := s.allFiles(ctx, gapi.ListQuery{
 		Q: q, PageSize: 10,
-		Fields:      "files(id,name,mimeType,modifiedTime,shortcutDetails,driveId,resourceKey)",
+		Fields:      "nextPageToken,files(id,name,mimeType,modifiedTime,shortcutDetails,driveId,resourceKey)",
 		ResourceIDs: []string{parent},
-	})
+	}, fmt.Sprintf("looking for %q in %s", name, pathSoFar(rootName, walked)))
 	if err != nil {
 		return "", wrap(err, fmt.Sprintf("looking for %q in %s", name, pathSoFar(rootName, walked)))
 	}
 
-	switch len(list.Files) {
+	switch len(matches) {
 	case 0:
 		return "", s.notFoundInFolder(ctx, parent, name, rootName, walked)
 	case 1:
-		got := list.Files[0]
+		got := matches[0]
 		if followShortcut && got.IsShortcut() && got.ShortcutDetails != nil && got.ShortcutDetails.TargetID != "" {
 			s.log.DebugContext(ctx, "path went through a shortcut", "at", gapi.ShortID(got.ID))
 			got = &gdrive.File{ID: got.ShortcutDetails.TargetID}
@@ -220,7 +222,7 @@ func (s *Service) child(ctx context.Context, parent, name, rootName string, walk
 		s.mu.Unlock()
 		return got.ID, nil
 	}
-	return "", s.ambiguous(name, pathSoFar(rootName, walked), list.Files)
+	return "", s.ambiguous(name, pathSoFar(rootName, walked), matches)
 }
 
 // ambiguous refuses to guess and hands back every candidate, because
@@ -249,10 +251,10 @@ func (s *Service) notFoundInFolder(ctx context.Context, parent, name, rootName s
 	where := pathSoFar(rootName, walked)
 	msg := fmt.Sprintf("nothing named %q in %s. Names must match exactly, including capitals; "+
 		"search_files matches word beginnings instead", name, where)
-	list, err := s.api.ListFiles(ctx, gapi.ListQuery{
+	list, err := s.firstFiles(ctx, gapi.ListQuery{
 		Q: childQuery(parent, "", false), PageSize: siblingsShown + 1,
-		OrderBy: "folder,name_natural", Fields: "files(id,name,mimeType)", ResourceIDs: []string{parent},
-	})
+		OrderBy: "folder,name_natural", Fields: "nextPageToken,files(id,name,mimeType)", ResourceIDs: []string{parent},
+	}, "the contents of "+where)
 	if err != nil {
 		// Naming the siblings is a courtesy; failing at it must not
 		// replace the error the caller actually needs.
@@ -270,7 +272,7 @@ func (s *Service) notFoundInFolder(ctx context.Context, parent, name, rootName s
 		names = append(names, n)
 	}
 	msg += ". That folder holds " + strings.Join(names, ", ")
-	if len(list.Files) > siblingsShown {
+	if len(list.Files) > siblingsShown || list.NextPageToken != "" {
 		msg += ", and more (list_folder shows them all)"
 	}
 	return &Error{Class: ClassNotFound, Message: msg + "."}

@@ -31,6 +31,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `list_activity` names a kind of create, actor or person Google added, rather than reading it as a plain create or as somebody.
 - Shared drives are read past an empty page that carries a continuation token, so no drive is missed by name or in `list_drives`.
 - `manage_drive` refuses a create when it cannot read the drives to check the name, rather than risk a second drive of that name.
+- `list_folder`, label names, the duplicate-name check before a create and a not-found's folder contents no longer stop at an empty page Drive sends early.
+- A path whose second match Drive sends on a later page is refused `[ambiguous]`, rather than resolved to the first match.
 
 ### Security
 
