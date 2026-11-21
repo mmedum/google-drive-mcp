@@ -1,6 +1,6 @@
 {
   "server": "google-drive-mcp",
-  "version": "v3.2.1",
+  "version": "v3.3.0",
   "sdk": "v1.8.0",
   "instructions": "Google Drive tools, at the file boundary: finding files, where they live, who can see them, folders, transfers, sharing and history. What is inside a Google Doc, Sheet or Slides deck is out of scope; those have their own APIs. Start with get_file on any id, URL or path: it is cheap and it shows the folder a file sits in and who can reach it, both of which change what an action means. Use list_folder when you know where something is and search_files when you do not; a listing costs twenty times a read, so do not walk a tree to find one file. Drive has no substring search: `name` matches the beginnings of words, in any order, and `text` is searched by whole words, since how Drive matches part of a word is not documented. Ids are the contract. A name or path that matches more than one item comes back as [ambiguous] with the candidates; pick one and pass its id rather than retrying the name. Three of the reads are also resources, for a client that attaches them rather than calling a tool: gdrive://\u003cid\u003e is the file's text, gdrive://\u003cid\u003e/meta is the card, and gdrive://\u003cid\u003e/children is a folder's first page. A reference with a slash in it has to be percent-encoded there, so pass an id. share_file reaches named people and groups inside the organization. A link for anyone, a whole domain, someone outside the organization and a new owner each have their own tool, which only a server started with GDRIVE_ENABLE_DESTRUCTIVE=true registers. A move, a copy, or a folder's limited access turned off, that would let anyone with the link, a domain or someone outside the organization reach a file is refused [blocked], naming who; share with them first only when the person asked for that.",
   "tools": [
@@ -18,6 +18,10 @@
           "content": {
             "description": "what the comment says, as plain text. Required. Everybody who can see the file can see it.",
             "type": "string"
+          },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
           },
           "file": {
             "description": "the file to comment on: an id, any Drive URL, a path from My Drive, or a shared-drive path",
@@ -277,6 +281,10 @@
           "approval": {
             "description": "the approval to approve, by the id list_approvals shows",
             "type": "string"
+          },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
           },
           "file": {
             "description": "the file the approval is on: an id, any Drive URL, a path from My Drive, or a shared-drive path",
@@ -849,6 +857,10 @@
             "description": "a description stored on the file",
             "type": "string"
           },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
+          },
           "kind": {
             "description": "make an empty Google file of this kind: doc, sheet, slides, drawing or form. Pass this or content, not both.",
             "type": "string"
@@ -1132,6 +1144,10 @@
             "description": "a description stored on the folder",
             "type": "string"
           },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
+          },
           "name": {
             "description": "the name for the new folder",
             "type": "string"
@@ -1393,6 +1409,10 @@
         "properties": {
           "allow_duplicate": {
             "description": "create it even though the folder already holds something of that name",
+            "type": "boolean"
+          },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
             "type": "boolean"
           },
           "name": {
@@ -2734,6 +2754,10 @@
             "description": "download a file Google has flagged as malware or spam. Only pass this after a refusal that named the flag, and only when you know what the file is.",
             "type": "boolean"
           },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
+          },
           "file": {
             "description": "a file id, any Drive or Docs URL, a path from My Drive like /Projects/2026/Budget.xlsx, or a shared-drive path like drive:Marketing/Campaigns. A name or path matching more than one item is refused with the candidates listed, so pass an id when you have one. A shortcut is followed to what it points at.",
             "type": "string"
@@ -3028,6 +3052,10 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
+          },
           "file": {
             "description": "the PDF or image: a file id, any Drive URL, a path from My Drive like /Scans/receipt.pdf, or a shared-drive path like drive:Finance/Receipts/receipt.pdf. A name or path matching more than one item is refused with the candidates listed, so pass an id when you have one. A shortcut is followed to what it points at.",
             "type": "string"
@@ -3697,6 +3725,10 @@
             "description": "the approval to act on, by the id list_approvals shows. Required for everything except start.",
             "type": "string"
           },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
+          },
           "due": {
             "description": "with start, when the approval is wanted by, as a date like 2026-01-31 or a full RFC 3339 timestamp",
             "type": "string"
@@ -4267,6 +4299,10 @@
             "description": "apply to put the label on the file, set_field to give one of its fields a value, unset_field to clear one, or remove to take the label off",
             "type": "string"
           },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
+          },
           "field": {
             "description": "with set_field and unset_field, the field to change, by the id list_labels shows",
             "type": "string"
@@ -4545,6 +4581,10 @@
           "action": {
             "description": "keep to pin it so Drive never discards it, or unkeep to unpin the current revision so Drive may discard it once it is replaced. A pin on any other revision cannot be undone.",
             "type": "string"
+          },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
           },
           "file": {
             "description": "the file the revision belongs to: an id, any Drive URL, a path from My Drive, or a shared-drive path",
@@ -5125,6 +5165,10 @@
           "content": {
             "description": "what to say. Required for reply and edit; optional with resolve and reopen, which Drive records as a reply of their own.",
             "type": "string"
+          },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
           },
           "file": {
             "description": "the file the thread is on: an id, any Drive URL, a path from My Drive, or a shared-drive path",
@@ -6305,7 +6349,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Give a named person or group inside this account's organization access to a file, or change the access they have. The result shows who could see it before and who can see it after, because that is the part worth checking. Granting to somebody who already has access changes their role rather than adding a second grant. Accepted roles: commenter, file_organizer, organizer, reader, writer. No email is sent unless notify is set. A grant to a group reaches everyone in the group, including people added later; a member outside the organization too, if the organization's sharing policy lets them in. A link for anyone, a whole domain, someone outside the organization and a new owner are refused here with [blocked]: share_by_link, share_outside_organization and transfer_ownership do those, and exist only on a server started with GDRIVE_ENABLE_DESTRUCTIVE=true. Outside means an address whose domain is not this account's; for a personal Google account that is every address. What may actually be shared is decided by the organization's own policy, which Google enforces: a refusal comes back as [blocked] with Google's own words.",
+      "description": "Give a named person or group inside this account's organization access to a file, or change the access they have. The result shows who could see it before and who can see it after, because that is the part worth checking. Granting to somebody who already has access changes their role rather than adding a second grant. Accepted roles: commenter, file_organizer, organizer, reader, writer. No email is sent unless notify is set. A grant to a group reaches everyone in the group, including people added later; a member outside the organization too, if the organization's sharing policy lets them in. A link for anyone, a whole domain, someone outside the organization and a new owner are refused here with [blocked]: share_by_link, share_outside_organization and transfer_ownership do those, and exist only on a server started with GDRIVE_ENABLE_DESTRUCTIVE=true. A grant one of them already has can still be narrowed here: a lower role, or for a person or group an expiry or an earlier one. Outside means an address at a domain the organization does not hold, as get_account names it; for a personal Google account that is every address. What may actually be shared is decided by the organization's own policy, which Google enforces: a refusal comes back as [blocked] with Google's own words.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7695,6 +7739,10 @@
             "description": "the new text, written inline. Pass this or local_path.",
             "type": "string"
           },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
+          },
           "expect_head_revision": {
             "description": "the head revision id you last saw. The write is refused if the file has changed since. Drive has no true preconditions, so this is a check, not a lock.",
             "type": "string"
@@ -7983,6 +8031,10 @@
               "null",
               "string"
             ]
+          },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
           },
           "file": {
             "description": "the item to change: an id, a Drive URL, a path from My Drive, or a shared-drive path. A name or path matching more than one item is refused with the candidates listed. A shortcut is changed itself, not what it points at.",
@@ -8290,6 +8342,10 @@
           "description": {
             "description": "a description stored on the file",
             "type": "string"
+          },
+          "dry_run": {
+            "description": "report what would happen and change nothing",
+            "type": "boolean"
           },
           "local_path": {
             "description": "the file to send, inside the server's local directory. Either a bare name in that directory or an absolute path inside it; anything outside is refused.",
