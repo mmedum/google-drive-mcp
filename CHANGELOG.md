@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-21
+
 ### Added
 
 - `list_approvals` names the revision an approved file was approved at, so `list_revisions` shows whether the content changed since.
@@ -2256,7 +2258,8 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
-[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v3.2.1...HEAD
+[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v3.3.0...HEAD
+[3.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/mmedum/google-drive-mcp/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v3.1.2...v3.2.0
 [3.1.2]: https://github.com/mmedum/google-drive-mcp/compare/v3.1.1...v3.1.2
