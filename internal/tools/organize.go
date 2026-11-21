@@ -46,7 +46,7 @@ type UploadFileInput struct {
 // purge.
 // https://developers.google.com/workspace/drive/api/guides/change-overview
 type UpdateContentInput struct {
-	File                 string `json:"file" jsonschema:"the file whose content to replace: an id, a Drive URL, a path from My Drive, or a shared-drive path. A name or path matching more than one item is refused with the candidates listed."`
+	File                 string `json:"file" jsonschema:"the file whose content to replace: an id, a Drive URL, a path from My Drive, or a shared-drive path. {{ambiguous}}."`
 	Content              string `json:"content,omitempty" jsonschema:"the new text, written inline. Pass this or local_path."`
 	LocalPath            string `json:"local_path,omitempty" jsonschema:"a file inside the server's local directory to take the new content from. Pass this or content."`
 	MimeType             string `json:"mime_type,omitempty" jsonschema:"what the new content is; by default the file keeps the type it had"`
@@ -66,7 +66,7 @@ type CreateFolderInput struct {
 
 // UpdateFileMetaInput is a metadata patch; only the fields passed change.
 type UpdateFileMetaInput struct {
-	File                         string            `json:"file" jsonschema:"the item to change: an id, a Drive URL, a path from My Drive, or a shared-drive path. A name or path matching more than one item is refused with the candidates listed. A shortcut is changed itself, not what it points at."`
+	File                         string            `json:"file" jsonschema:"the item to change: an id, a Drive URL, a path from My Drive, or a shared-drive path. {{ambiguous}}. A shortcut is changed itself, not what it points at."`
 	Name                         string            `json:"name,omitempty" jsonschema:"a new name"`
 	Description                  *string           `json:"description,omitempty" jsonschema:"a new description; an empty string clears it"`
 	Starred                      *bool             `json:"starred,omitempty" jsonschema:"star or unstar it"`
@@ -119,7 +119,7 @@ type TrashInput struct {
 // registerWrite adds the tools that change Drive. None of them is
 // registered in read-only mode.
 func registerWrite(s *mcp.Server, d Deps) []string {
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "create_file",
 		Description: "Make a new file: an empty Google Doc, Sheet, Slides deck, Drawing or Form with kind, or a " +
 			"file written from text you have here with content. With convert_to, markdown or csv you have " +
@@ -135,7 +135,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "upload_file",
 		Description: "Send a file from the server's local directory to Drive. A small file goes in one request; " +
 			"a large one goes in chunks and survives a dropped connection, so uploading gigabytes is a normal " +
@@ -152,7 +152,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "update_content",
 		Description: "Replace what is inside a file, keeping its id, its place, its sharing and every link and " +
 			"shortcut that points at it. Drive keeps the old version as a revision for about 30 days, and sooner " +
@@ -174,7 +174,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "create_folder",
 		Description: "Make a folder. Refuses a second folder of the same name beside the first unless " +
 			"allow_duplicate is set: Drive allows two, and nothing afterwards can tell you which one you meant.",
@@ -186,7 +186,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "update_file",
 		Description: "Change a file's details without touching its content: rename it, describe it, star it, " +
 			"color a folder, set custom properties, mark it as opened, stop downloads and re-sharing, or give a " +
@@ -208,7 +208,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "move_file",
 		Description: "Move an item into another folder or into a shared drive, or up to 50 items with files. A " +
 			"file in Drive has exactly one parent, so this takes it out of where it was. A move also changes who " +
@@ -227,7 +227,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "copy_file",
 		Description: "Copy one file, leaving the original alone. With convert_to, Google imports the copy as one " +
 			"of its own kinds; a PDF or a scanned image copied with convert_to: doc becomes a Google Doc with its " +
@@ -252,7 +252,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "create_shortcut",
 		Description: "Put a pointer to one item in another folder. A file has one parent in Drive, so this is " +
 			"what to use when something has to appear in two places. Organizing, sharing and trashing a shortcut " +
@@ -264,7 +264,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "trash_file",
 		Description: "Move an item to the trash, which is reversible: restore_file brings it back, and Drive " +
 			"empties the trash 30 days after an item goes in. Trashing a folder takes everything inside it. " +
@@ -275,7 +275,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 		return result(d.Service.TrashFile(ctx, service.TrashInput{File: in.File, DryRun: in.DryRun}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "restore_file",
 		Description: "Take an item out of the trash. It goes back to the folder it came from, which the result " +
 			"names, because that may not be where you were looking.",

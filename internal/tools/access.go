@@ -16,7 +16,7 @@ import (
 
 // PermissionsInput selects what to describe.
 type PermissionsInput struct {
-	File string `json:"file" jsonschema:"the item to describe: a file id, any Drive URL, the word root for My Drive, a path from My Drive like /Projects/2026, or a shared drive as drive:Marketing, which lists that drive's members. A name or path matching more than one item is refused with the candidates listed."`
+	File string `json:"file" jsonschema:"the item to describe: a file id, any Drive URL, the word root for My Drive, a path from My Drive like /Projects/2026, or a shared drive as drive:Marketing, which lists that drive's members. {{ambiguous}}."`
 }
 
 // ShareInput is one grant to make or change, inside the organization.
@@ -79,7 +79,7 @@ type UnshareInput struct {
 // and a server that hides exposure is worse than one that cannot change
 // it. GDRIVE_SHARING=off removes the rest.
 func registerAccess(s *mcp.Server, d Deps) []string {
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_permissions",
 		Description: "WHO CAN SEE this file, and how: every grant with the role it carries, when it expires, " +
 			"whether it reaches people by link or by search, and where it came from. On a shared drive it lists " +
@@ -100,7 +100,7 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 		return names
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "share_file",
 		Description: "Give a named person or group inside this account's organization access to a file, or " +
 			"change the access they have. The result shows who could see it before and who can see it after, " +
@@ -123,7 +123,7 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "unshare_file",
 		Description: "Take someone's access away, or kill the link that let anybody open it. The result shows who " +
 			"can still see the file afterwards. A grant that comes from a shared drive or a folder above is " +
@@ -150,7 +150,7 @@ func registerAccess(s *mcp.Server, d Deps) []string {
 // and each exists only on a server started with
 // GDRIVE_ENABLE_DESTRUCTIVE=true, with confirm: true on the call.
 func registerWideShares(s *mcp.Server, d Deps) []string {
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "share_by_link",
 		Description: "Open a file to anyone with the link, or to everyone in a domain, or change the access such " +
 			"a grant gives. ANYONE WITH THE LINK means everybody who has or guesses it, with no sign-in. The result " +
@@ -166,7 +166,7 @@ func registerWideShares(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "share_outside_organization",
 		Description: "Give a person or group outside this account's organization access to a file, or change " +
 			"the access they have. Outside means an address whose domain is not this account's; for a personal " +
@@ -182,7 +182,7 @@ func registerWideShares(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "transfer_ownership",
 		Description: "Make another person the owner of a file or folder in My Drive. This account becomes a " +
 			"writer on it and CANNOT TAKE IT BACK: only the new owner can hand it on. Google always emails the new " +

@@ -11,7 +11,7 @@ import (
 
 // DeleteFileInput names one item to remove for good.
 type DeleteFileInput struct {
-	File    string `json:"file" jsonschema:"the item to destroy: an id, any Drive URL, a path from My Drive, or a shared-drive path. A shortcut is deleted itself, not what it points at."`
+	File    string `json:"file" jsonschema:"the item to destroy: {{ref}}. A shortcut is deleted itself, not what it points at."`
 	Confirm bool   `json:"confirm,omitempty" jsonschema:"required to actually delete. Without it the call is refused, because this cannot be undone by anyone, including a Workspace administrator."`
 	DryRun  bool   `json:"dry_run,omitempty" jsonschema:"report what would be destroyed and destroy nothing"`
 }
@@ -32,7 +32,7 @@ type DeleteDriveInput struct {
 
 // DeleteRevisionInput names one revision to remove.
 type DeleteRevisionInput struct {
-	File     string `json:"file" jsonschema:"the file the revision belongs to: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	File     string `json:"file" jsonschema:"the file the revision belongs to: {{ref}}"`
 	Revision string `json:"revision" jsonschema:"the revision id, from list_revisions"`
 	Confirm  bool   `json:"confirm,omitempty" jsonschema:"required to actually delete it. Without it the call is refused."`
 	DryRun   bool   `json:"dry_run,omitempty" jsonschema:"report what would be destroyed and destroy nothing"`
@@ -49,7 +49,7 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 		return nil
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "delete_file",
 		Description: "Destroy a file or folder permanently, skipping the trash. THERE IS NO UNDO: not in Drive, " +
 			"not for an administrator, not through support. Deleting a folder takes everything inside it that " +
@@ -63,7 +63,7 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "empty_trash",
 		Description: "Destroy everything in the trash permanently. THERE IS NO UNDO, and this is the one " +
 			"destructive call that does not name what it removes, so run it with dry_run first: that says how " +
@@ -77,7 +77,7 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "delete_drive",
 		Description: "Destroy a shared drive permanently. THERE IS NO UNDO. Drive refuses it while the drive " +
 			"still holds anything untrashed, and this server never asks for the override that would take the " +
@@ -90,7 +90,7 @@ func registerDestructive(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "delete_revision",
 		Description: "Destroy one old version of a file's content permanently. THERE IS NO UNDO. The file's " +
 			"current content is untouched. Drive allows this only for a file with bytes of its own, never for a " +
