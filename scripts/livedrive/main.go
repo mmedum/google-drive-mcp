@@ -127,6 +127,9 @@ type call struct {
 	// result is still printed, and which way it went is said out loud,
 	// because that is the thing a reader wants.
 	tolerant bool
+	// limit marks a step the account may not offer: a refusal naming it is
+	// a correct answer, said out loud and not counted.
+	limit string
 }
 
 // banner is what the transcript prints above a call: its header, with

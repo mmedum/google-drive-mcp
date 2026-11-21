@@ -216,6 +216,14 @@ Google enforces it on every call (D-35).
 **Fix:** none from this server. A Workspace administrator decides the
 policy.
 
+## `[blocked] your organization keeps changing a shared drive's restrictions for its admins, …`
+
+**Cause:** the organization lets only its admins change a shared
+drive's restrictions, though the drive still lists the capability.
+
+**Fix:** none from this server. A Workspace administrator can make the
+change, or allow managers to.
+
 ## `[rate_limited] Drive is rate-limiting this account; …`
 
 **Cause:** the account spent its Drive quota for the moment, and the

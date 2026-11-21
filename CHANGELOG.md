@@ -35,6 +35,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `manage_drive` refuses a create when it cannot read the drives to check the name, rather than risk a second drive of that name.
 - `list_folder`, label names, the duplicate-name check before a create and a not-found's folder contents no longer stop at an empty page Drive sends early.
 - A path whose second match Drive sends on a later page is refused `[ambiguous]`, rather than resolved to the first match.
+- `manage_drive` reports a restriction change the organization keeps for admins as `[blocked]`, saying who can make it, rather than a bare `[invalid]`.
+- `delete_file` on a shared-drive item shows who had access, rather than saying the permission list cannot be read.
 
 ### Security
 
