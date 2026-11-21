@@ -24,6 +24,7 @@ type CreateFileInput struct {
 	Description    string `json:"description,omitempty" jsonschema:"a description stored on the file"`
 	Starred        bool   `json:"starred,omitempty" jsonschema:"star it"`
 	AllowDuplicate bool   `json:"allow_duplicate,omitempty" jsonschema:"create it even though the folder already holds something of that name. Drive allows duplicates; this server refuses them unless you say so, because a retried call is the usual way they appear."`
+	DryRun         bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // UploadFileInput describes a local file to send to Drive.
@@ -37,6 +38,7 @@ type UploadFileInput struct {
 	UseContentAsIndexableText bool   `json:"use_content_as_indexable_text,omitempty" jsonschema:"index the uploaded bytes as the file's searchable text, so Drive search can find it by its words. For a type Drive does not read on its own; it does nothing for a type it already indexes."`
 	Description               string `json:"description,omitempty" jsonschema:"a description stored on the file"`
 	AllowDuplicate            bool   `json:"allow_duplicate,omitempty" jsonschema:"upload it even though the folder already holds something of that name"`
+	DryRun                    bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // UpdateContentInput replaces a file's bytes. keep_previous_revision
@@ -53,6 +55,7 @@ type UpdateContentInput struct {
 	KeepPreviousRevision bool   `json:"keep_previous_revision,omitempty" jsonschema:"pin the version being replaced so Drive keeps it. Without this Drive may discard it after 30 days, or sooner once the file has 100 revisions. The pin is for good: Drive does not unpin a version that is no longer current, only deleting it removes the pin, and a file keeps at most 200."`
 	ExpectHeadRevision   string `json:"expect_head_revision,omitempty" jsonschema:"the head revision id you last saw. The write is refused if the file has changed since. Drive has no true preconditions, so this is a check, not a lock."`
 	AllowCommentChanges  bool   `json:"allow_comment_changes,omitempty" jsonschema:"replace a Markdown file even though the new content drops, unpins or changes comments made on it in Google Docs. Without it that is refused, because those comments live only in the file's text and the replacement deletes them."`
+	DryRun               bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // CreateFolderInput describes a folder to create.
@@ -62,6 +65,7 @@ type CreateFolderInput struct {
 	Description    string `json:"description,omitempty" jsonschema:"a description stored on the folder"`
 	Color          string `json:"color,omitempty" jsonschema:"an RGB hex color like #4986e7. Drive keeps a palette and uses the nearest color in it."`
 	AllowDuplicate bool   `json:"allow_duplicate,omitempty" jsonschema:"create it even though a folder of that name is already there"`
+	DryRun         bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // UpdateFileMetaInput is a metadata patch; only the fields passed change.
@@ -77,6 +81,7 @@ type UpdateFileMetaInput struct {
 	RestrictDownload             string            `json:"restrict_download,omitempty" jsonschema:"who cannot download, print or copy it: none, viewers (viewers and commenters), or editors (editors as well). Only its owner, or an organizer of its shared drive, can change it. A shared drive or an organization rule can restrict more than this sets; the result shows what is in effect."`
 	LimitedAccess                *bool             `json:"limited_access,omitempty" jsonschema:"for a folder: true lets only the people added to it directly open it, and those who reach the folder above see it without opening it. false lets everyone who reaches the folder above open it and everything inside it, which is refused when that includes anyone with the link, a domain or someone outside the organization."`
 	Viewed                       bool              `json:"viewed,omitempty" jsonschema:"mark the file as opened by you just now, which is what puts it at the top of Drive's Recent view. Only true does anything: Drive stores a timestamp and offers no way to say a file was never opened."`
+	DryRun                       bool              `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // MoveFileInput moves one item, or several, somewhere else.
@@ -108,12 +113,13 @@ type CreateShortcutInput struct {
 	Parent         string `json:"parent,omitempty" jsonschema:"the folder to put the shortcut in. Defaults to the root of My Drive."`
 	Name           string `json:"name,omitempty" jsonschema:"the shortcut's name, default the target's own name"`
 	AllowDuplicate bool   `json:"allow_duplicate,omitempty" jsonschema:"create it even though the folder already holds something of that name"`
+	DryRun         bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // TrashInput selects an item to trash or restore.
 type TrashInput struct {
 	File   string `json:"file" jsonschema:"the item: an id, a Drive URL, a path from My Drive, or a shared-drive path. A shortcut is trashed itself, not what it points at."`
-	DryRun bool   `json:"dry_run,omitempty" jsonschema:"report what would happen and change nothing"`
+	DryRun bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // registerWrite adds the tools that change Drive. None of them is
@@ -128,7 +134,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			"because a retried call is how a folder ends up with two.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CreateFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.CreateFile(ctx, service.CreateFileInput{
+		return result(d.Service.CreateFile(ctx, service.CreateFileInput{DryRun: in.DryRun,
 			Name: in.Name, Parent: in.Parent, Kind: in.Kind, Content: in.Content,
 			MimeType: in.MimeType, ConvertTo: in.ConvertTo, Description: in.Description,
 			Starred: in.Starred, AllowDuplicate: in.AllowDuplicate,
@@ -144,7 +150,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			"Needs the server to have been started with GDRIVE_LOCAL_DIR; get_account says whether it was.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UploadFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.UploadFile(ctx, service.UploadFileInput{
+		return result(d.Service.UploadFile(ctx, service.UploadFileInput{DryRun: in.DryRun,
 			LocalPath: in.LocalPath, Name: in.Name, Parent: in.Parent, MimeType: in.MimeType,
 			ConvertTo: in.ConvertTo, OCRLanguage: in.OCRLanguage,
 			UseContentAsIndexableText: in.UseContentAsIndexableText, Description: in.Description,
@@ -167,7 +173,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			"the last moment is named in the result, which says the upload replaced it.",
 		Annotations: replacing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateContentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.UpdateContent(ctx, service.UpdateContentInput{
+		return result(d.Service.UpdateContent(ctx, service.UpdateContentInput{DryRun: in.DryRun,
 			File: in.File, Content: in.Content, LocalPath: in.LocalPath, MimeType: in.MimeType,
 			KeepPreviousRevision: in.KeepPreviousRevision, ExpectHeadRevision: in.ExpectHeadRevision,
 			AllowCommentChanges: in.AllowCommentChanges,
@@ -180,7 +186,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			"allow_duplicate is set: Drive allows two, and nothing afterwards can tell you which one you meant.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CreateFolderInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.CreateFolder(ctx, service.CreateFolderInput{
+		return result(d.Service.CreateFolder(ctx, service.CreateFolderInput{DryRun: in.DryRun,
 			Name: in.Name, Parent: in.Parent, Description: in.Description,
 			Color: in.Color, AllowDuplicate: in.AllowDuplicate,
 		}))
@@ -197,7 +203,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			"update_content replaces what is inside a file; move_file changes where it is.",
 		Annotations: idempotentWrite,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateFileMetaInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.UpdateFile(ctx, service.UpdateFileInput{
+		return result(d.Service.UpdateFile(ctx, service.UpdateFileInput{DryRun: in.DryRun,
 			File: in.File, Name: in.Name, Description: in.Description, Starred: in.Starred,
 			Color: in.Color, Properties: in.Properties,
 			CopyRequiresWriterPermission: in.CopyRequiresWriterPermission,
@@ -259,7 +265,7 @@ func registerWrite(s *mcp.Server, d Deps) []string {
 			"act on the shortcut, never on what it points at.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CreateShortcutInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.CreateShortcut(ctx, service.CreateShortcutInput{
+		return result(d.Service.CreateShortcut(ctx, service.CreateShortcutInput{DryRun: in.DryRun,
 			Target: in.Target, Parent: in.Parent, Name: in.Name, AllowDuplicate: in.AllowDuplicate,
 		}))
 	})

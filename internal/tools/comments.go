@@ -28,6 +28,7 @@ type AddCommentInput struct {
 	// schema error; the service's [invalid] refusal says what is missing
 	// and why, as reply_comment's does.
 	Content string `json:"content,omitempty" jsonschema:"what the comment says, as plain text. Required. Everybody who can see the file can see it."`
+	DryRun  bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // ReplyCommentInput acts on one thread.
@@ -37,6 +38,7 @@ type ReplyCommentInput struct {
 	Action  string `json:"action,omitempty" jsonschema:"reply to add to the thread (the default), resolve to close it, reopen to open it again, or edit to change wording already there"`
 	Content string `json:"content,omitempty" jsonschema:"what to say. Required for reply and edit; optional with resolve and reopen, which Drive records as a reply of their own."`
 	Reply   string `json:"reply,omitempty" jsonschema:"with action edit, the reply to change. Without it, edit changes the comment that opened the thread."`
+	DryRun  bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // DeleteCommentInput removes a thread or one reply.
@@ -117,7 +119,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 			"Use reply_comment to answer, close or reopen a thread.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in AddCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.AddComment(ctx, service.AddCommentInput{File: in.File, Content: in.Content}))
+		return result(d.Service.AddComment(ctx, service.AddCommentInput{DryRun: in.DryRun, File: in.File, Content: in.Content}))
 	})
 
 	addTool(s, &mcp.Tool{
@@ -128,7 +130,7 @@ func registerComments(s *mcp.Server, d Deps) []string {
 			"sees who closed a thread. An edit replaces the text with no history of what it said before.",
 		Annotations: replacing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ReplyCommentInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.ReplyComment(ctx, service.ReplyCommentInput{
+		return result(d.Service.ReplyComment(ctx, service.ReplyCommentInput{DryRun: in.DryRun,
 			File: in.File, Comment: in.Comment, Action: in.Action, Content: in.Content, Reply: in.Reply,
 		}))
 	})

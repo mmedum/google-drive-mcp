@@ -452,7 +452,7 @@ registry entry is published last (D-83). Releasing is in
 | D-28 | Repeatability follows the HTTP method, and a write that may have landed is `[ambiguous_outcome]` | accepted | TestRepeatabilityDefaultsToTheSafeAnswer, TestARateLimitIsRetriedWhateverTheRequestIs, TestASharingWriteIsNeverRepeatedAfterAnAmbiguousFailure, TestOnlyAWriteThatMayHaveLandedIsAmbiguous, TestOpeningAResumableSessionIsRetried, TestActivityQueryIsTreatedAsARead |
 | D-29 | A result says what Drive's answer carried, never an outcome built from the request | accepted | outcomes, TestTheGateCatchesTheMistakeItWasWrittenFor, TestEveryBooleanInputIsInScope, TestTheExemptionRecordIsHeldToTheBranches, TestLockFileReportsWhatDriveDidRatherThanWhatWasAsked, TestRestrictReportsOnlyWhatActuallyChanged, TestMoveFileSaysWhenDriveAnswersOtherThanPredicted |
 | D-30 | A tool never sleeps and retries; where Drive's reads lag its writes, the result says so | accepted | TestAFreshlyCreatedDriveIsReachableByID, TestManageRevisionExplainsAMissingRevision |
-| D-31 | The writes that move, share, trash or destroy take `dry_run`, which sends nothing | accepted | TestADryRunOfOneFileCopiesNothing, TestDryRunSharesNothing, TestDryRunChangesNoDrive, TestMoveSeveralDryRunListsEachOutcomeAndMovesNothing |
+| D-31 | The writes that move, share, trash or destroy take `dry_run`, which sends nothing | superseded by D-92 | — |
 | D-32 | A create refuses a same-named sibling unless `allow_duplicate` | accepted | TestCreateRefusesADuplicateNameUnlessAsked, TestCreateDriveRefusesASecondOfTheSameName |
 | D-33 | Replacing a Markdown file keeps the comments Google Docs wrote into its text | accepted | TestUpdateContentRefusesToLoseAMarkdownFilesComments, TestUpdateContentRefusesAMarkdownFileSavedWhileItWasChecked, TestUpdateContentNamesASaveItReplaced, FuzzScan |
 | D-34 | One registry says what each media type is called, filtered, exported and read as, and is asked before the platform's tables | accepted | TestTypeByExtensionAnswersTheSameOnEveryMachine, TestEveryTypeAppearsOnce, TestUploadFileTypesAMarkdownFileTheSameOnEveryPlatform |
@@ -513,6 +513,7 @@ registry entry is published last (D-83). Releasing is in
 | D-89 | The server acts with domain administrator access | rejected | — |
 | D-90 | The inside is the deployer's domains, else the account's own; an account that cannot create shared drives is personal | accepted | TestTheInsideIsTheSettingThenThePersonalRuleThenTheOwnDomain, TestShareFileOnAnAccountThatCannotCreateDrives, TestAPersonalAddressIsAlwaysOutside, TestOrganizationDomainsAreReadAsLowerCaseDomains |
 | D-91 | `share_file` narrows a wide grant without the destructive flag, and widens none | accepted | TestShareFileNarrowsAWideGrantWithoutTheDestructiveFlag, TestShareFileRefusesWhatReachesPastTheOrganization |
+| D-92 | Every write takes `dry_run`, which runs its checks and sends nothing | accepted | TestEveryWriteSendsNothingOnADryRun, TestADryRunOfOneFileCopiesNothing, TestDryRunSharesNothing, TestDryRunChangesNoDrive, TestMoveSeveralDryRunListsEachOutcomeAndMovesNothing |
 
 ### D-01 One stdio binary per person, signed in to their own Google account through their own OAuth client
 
@@ -1338,6 +1339,8 @@ and a batch move hold that a dry run sends nothing.
 
 The creates, uploads, content updates and the comment tools take no
 `dry_run`, and nothing in the client refuses a write under one.
+
+Superseded by D-92, which gives every write `dry_run`.
 
 Rejected: a dry run that skips the checks, and so answers yes for a call
 the real one refuses.
@@ -2882,4 +2885,24 @@ Rejected: a narrowing tool of its own, which adds a tool to do what
 flag, which makes the safe direction the hard one.
 Cost: a refusal of a wide principal reads the permission list first.
 
-Next ID: D-92
+### D-92 Every write takes `dry_run`, which runs its checks and sends nothing
+
+Every tool that writes takes `dry_run`: the creates, uploads, content
+updates, metadata changes, comments, approvals, labels, revisions and
+the local writes `download_file` and `extract_text`, beside the writes
+D-31 named. A dry run runs every check the call would, returns before
+the first write to Drive or to the local directory, and says what the
+call would do. A write with no item yet to show, such as a create,
+answers in words, not with a card.
+
+A caller previews any write the same way, so no tool is the one whose
+effect has to be guessed. The refusals hold under a dry run as under
+the real call (D-41, D-42).
+
+Rejected: keeping `dry_run` to the writes that widen or destroy, which
+left a create or a content change with no preview.
+Cost: each tool reads the flag itself, with no guard in the API client;
+one test calls every write with it and holds that only reads reach
+Drive and nothing reaches the local directory.
+
+Next ID: D-93

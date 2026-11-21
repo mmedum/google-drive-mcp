@@ -49,6 +49,8 @@ func (w *writeRun) ocr() {
 		tool: "read_file", args: map[string]any{"file": scan},
 		why: "a PDF is not text, and the refusal names extract_text"})
 
+	w.needing(scan, call{name: "extract_text is tried as a dry run first, which copies nothing",
+		tool: "extract_text", args: map[string]any{"file": scan, "dry_run": true}})
 	whole := w.call(call{name: "extract_text reads the words in a scanned PDF",
 		tool: "extract_text", args: map[string]any{"file": scan}})
 	w.ocrFound("extract_text", whole)

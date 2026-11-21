@@ -20,6 +20,7 @@ type ManageRevisionInput struct {
 	File     string `json:"file" jsonschema:"the file the revision belongs to: {{ref}}"`
 	Revision string `json:"revision" jsonschema:"the revision id, from list_revisions"`
 	Action   string `json:"action" jsonschema:"keep to pin it so Drive never discards it, or unkeep to unpin the current revision so Drive may discard it once it is replaced. A pin on any other revision cannot be undone."`
+	DryRun   bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // ChangesInput asks for a start token or for the changes since one.
@@ -85,7 +86,7 @@ func registerHistory(s *mcp.Server, d Deps) []string {
 			strings.Join(service.RevisionActions(), ", ") + ".",
 		Annotations: idempotentWrite,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageRevisionInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.ManageRevision(ctx, service.ManageRevisionInput{
+		return result(d.Service.ManageRevision(ctx, service.ManageRevisionInput{DryRun: in.DryRun,
 			File: in.File, Revision: in.Revision, Action: in.Action,
 		}))
 	})

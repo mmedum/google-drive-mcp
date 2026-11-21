@@ -19,3 +19,5 @@
 
 internal/service/drives.go:IncludeHidden	the count comes from the listing Drive just answered, and what the sentence claims — that this server left those drives out — is this server's own filtering, which is the one thing it can assert without asking anybody
 internal/service/organize.go:CopyComments	it states what Drive was ASKED to do and says outright that Drive does not report whether it did, then names list_comments as the call that settles it. Saying the threads "were copied with it" would claim what files.copy cannot know — it answers with a File and mentions comments nowhere
+internal/service/extract.go:KeepCopy	inside a dry run that marks itself DryRun: it says what the call would do with the copy, and nothing is sent, so there is no answer to read back
+internal/service/write.go:KeepPreviousRevision	inside a dry run that marks itself DryRun: it says the replaced revision would be pinned, and nothing is sent, so there is no answer to read back

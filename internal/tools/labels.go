@@ -24,6 +24,7 @@ type ManageLabelsInput struct {
 	Action string   `json:"action" jsonschema:"apply to put the label on the file, set_field to give one of its fields a value, unset_field to clear one, or remove to take the label off"`
 	Field  string   `json:"field,omitempty" jsonschema:"with set_field and unset_field, the field to change, by the id list_labels shows"`
 	Values []string `json:"values,omitempty" jsonschema:"with set_field, the whole new value of the field. It REPLACES what was there rather than adding to it. A selection field takes choice ids, a date field YYYY-MM-DD, a user field email addresses."`
+	DryRun bool     `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // registerLabels adds the two label tools. They are registered only with
@@ -72,7 +73,7 @@ func registerLabels(s *mcp.Server, d Deps) []string {
 			"The result is the file as it stands afterwards, with every label on it.",
 		Annotations: replacing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageLabelsInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.ManageLabels(ctx, service.ManageLabelsInput{
+		return result(d.Service.ManageLabels(ctx, service.ManageLabelsInput{DryRun: in.DryRun,
 			File: in.File, Label: in.Label, Action: in.Action, Field: in.Field, Values: in.Values,
 		}))
 	})

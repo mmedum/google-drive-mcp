@@ -71,6 +71,8 @@ type CreateFileInput struct {
 	// AllowDuplicate permits a second file of the same name in one
 	// folder, which Drive allows and this server does not by default.
 	AllowDuplicate bool
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // CreateFile makes an empty Workspace document or a small file from
@@ -124,6 +126,9 @@ func (s *Service) CreateFile(ctx context.Context, in CreateFileInput) (*Result, 
 			return nil, Errorf(ClassInvalid, "kind %q is not one of %s", in.Kind, strings.Join(NewKinds(), ", "))
 		}
 		meta.MimeType = target
+		if in.DryRun {
+			return dryRunResult(outcome{Action: render.ActionCreated, DryRun: true, Note: fmt.Sprintf("%s would be created in %s, empty.", name, parent.Name)}), nil
+		}
 		if err := s.assignID(ctx, meta); err != nil {
 			return nil, err
 		}
@@ -143,6 +148,10 @@ func (s *Service) CreateFile(ctx context.Context, in CreateFileInput) (*Result, 
 		// that is absent, the content's. The id decision has to use the
 		// same one: meta.MimeType is empty whenever nothing is being
 		// converted.
+		if in.DryRun {
+			return dryRunResult(outcome{Action: render.ActionCreated, DryRun: true, Note: fmt.Sprintf("%s would be created in %s, from %s of %s, as %s.",
+				name, parent.Name, model.HumanSize(int64(len(in.Content))), sending, orElse(meta.MimeType, sending))}), nil
+		}
 		if err := s.assignIDFor(ctx, meta, orElse(meta.MimeType, sending)); err != nil {
 			return nil, err
 		}
@@ -173,6 +182,8 @@ type UploadFileInput struct {
 	UseContentAsIndexableText bool
 	Description               string
 	AllowDuplicate            bool
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // UploadFile sends a file from GDRIVE_LOCAL_DIR to Drive: one request up
@@ -216,6 +227,10 @@ func (s *Service) UploadFile(ctx context.Context, in UploadFileInput) (*Result, 
 	}
 	if err := s.checkConversion(ctx, sending, meta.MimeType); err != nil {
 		return nil, err
+	}
+	if in.DryRun {
+		return dryRunResult(outcome{Action: render.ActionUploaded, DryRun: true, Note: fmt.Sprintf("%s would be uploaded to %s as %s, from %s.",
+			name, parent.Name, orElse(meta.MimeType, sending), in.LocalPath)}), nil
 	}
 	if err := s.assignIDFor(ctx, meta, orElse(meta.MimeType, sending)); err != nil {
 		return nil, err
@@ -287,6 +302,8 @@ type UpdateContentInput struct {
 	// AllowCommentChanges replaces a Markdown file even though the new
 	// content loses comments Google Docs keeps in its text.
 	AllowCommentChanges bool
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // UpdateContent replaces what is in a file, keeping its id, its place
@@ -357,6 +374,17 @@ func (s *Service) UpdateContent(ctx context.Context, in UpdateContentInput) (*Re
 	kept, err := s.guardMarkdown(ctx, f, in.AllowCommentChanges, next, sending)
 	if err != nil {
 		return nil, err
+	}
+	if in.DryRun {
+		if local == nil {
+			size = int64(len(in.Content))
+		}
+		note := fmt.Sprintf("the content of %s would be replaced with %s of %s; the content it has now would "+
+			"become a past revision.", f.Name, model.HumanSize(size), sending)
+		if in.KeepPreviousRevision {
+			note += " That revision would be kept forever, and " + pinRule + "."
+		}
+		return dryRunResult(outcome{Action: render.ActionUpdated, DryRun: true, Note: note}), nil
 	}
 
 	var updated *gdrive.File
@@ -926,4 +954,13 @@ func sortedKeys[V any](m map[string]V, extra ...string) []string {
 	out = append(out, extra...)
 	sort.Strings(out)
 	return out
+}
+
+// dryRunResult is a dry run's answer where no item stands to render, as
+// for a create: what would happen, in the words a card's dry run uses.
+// The caller marks out as a dry run where `gates outcomes` reads it.
+func dryRunResult(out outcome) *Result {
+	text := "NOTHING WAS CHANGED: this was a dry run. Call it again without dry_run to do it.\n" + out.Note
+	return &Result{Text: text, JSON: &render.WriteJSON{Summary: text, Action: string(out.Action), Note: out.Note,
+		DryRun: out.DryRun}}
 }
