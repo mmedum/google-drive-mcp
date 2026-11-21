@@ -5,9 +5,14 @@ package tools
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
+	"reflect"
+	"regexp"
 	"slices"
+	"strings"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mmedum/google-drive-mcp/v3/internal/config"
@@ -207,4 +212,71 @@ func Gated() (widening, destroying []string) {
 	slices.Sort(widening)
 	slices.Sort(destroying)
 	return widening, destroying
+}
+
+// phrases are the words several tools' argument descriptions share. A
+// jsonschema tag places one by its key, so the words are written once.
+var phrases = map[string]string{
+	"{{ref}}":       "an id, any Drive URL, a path from My Drive, or a shared-drive path",
+	"{{ambiguous}}": "A name or path matching more than one item is refused with the candidates listed",
+	"{{next_page}}": "the token a previous call returned, to get the next page",
+}
+
+// placeholder is a phrase's key, in double braces so that a description
+// may show a literal one, such as gdrive://{id}; one left after filling
+// names no phrase.
+var placeholder = regexp.MustCompile(`\{\{[^}\s]*\}\}`)
+
+// addTool is mcp.AddTool with the input schema inferred here, as the SDK
+// infers it, and each shared phrase put in place.
+func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
+	rt := reflect.TypeFor[In]()
+	if rt.Kind() == reflect.Pointer {
+		rt = rt.Elem()
+	}
+	if t.InputSchema == nil && rt != reflect.TypeFor[any]() {
+		schema, err := jsonschema.ForType(rt, &jsonschema.ForOptions{})
+		if err != nil {
+			panic(fmt.Sprintf("tool %s: input schema: %v", t.Name, err))
+		}
+		fillPhrases(t.Name, schema)
+		t.InputSchema = schema
+	}
+	t.Description = fillText(t.Name, t.Description)
+	mcp.AddTool(s, t, h)
+}
+
+// fillPhrases puts each shared phrase in place in a schema's descriptions,
+// at every depth. A key that names no phrase stops registration, since a
+// description that reads "{{ref}}" helps no model.
+func fillPhrases(tool string, s *jsonschema.Schema) {
+	if s == nil {
+		return
+	}
+	s.Description = fillText(tool, s.Description)
+	for _, p := range s.Properties {
+		fillPhrases(tool, p)
+	}
+	for _, p := range s.Defs {
+		fillPhrases(tool, p)
+	}
+	for _, list := range [][]*jsonschema.Schema{s.AnyOf, s.OneOf, s.AllOf, s.PrefixItems} {
+		for _, p := range list {
+			fillPhrases(tool, p)
+		}
+	}
+	fillPhrases(tool, s.Items)
+	fillPhrases(tool, s.AdditionalProperties)
+}
+
+// fillText puts each shared phrase in place in one text, and refuses a
+// key that names none.
+func fillText(tool, text string) string {
+	for key, phrase := range phrases {
+		text = strings.ReplaceAll(text, key, phrase)
+	}
+	if left := placeholder.FindString(text); left != "" {
+		panic(fmt.Sprintf("tool %s: %s names no shared phrase", tool, left))
+	}
+	return text
 }

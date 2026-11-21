@@ -17,7 +17,7 @@ type AccountInput struct{}
 
 // FileInput identifies one file.
 type FileInput struct {
-	File string `json:"file" jsonschema:"a file id, any Drive or Docs URL, the word root for My Drive, a path from My Drive like /Projects/2026/Budget.xlsx, or a shared-drive path like drive:Marketing/Campaigns. A name or path matching more than one item is refused with the candidates listed, so pass an id when you have one."`
+	File string `json:"file" jsonschema:"a file id, any Drive or Docs URL, the word root for My Drive, a path from My Drive like /Projects/2026/Budget.xlsx, or a shared-drive path like drive:Marketing/Campaigns. {{ambiguous}}, so pass an id when you have one."`
 	// IncludeLabels only does anything when the deployer enabled labels.
 	IncludeLabels bool `json:"include_labels,omitempty" jsonschema:"also read the Workspace labels applied to the file; only available when the server was started with GDRIVE_LABELS=true"`
 }
@@ -49,7 +49,7 @@ type SearchInput struct {
 
 // FolderInput selects a folder to list.
 type FolderInput struct {
-	Folder         string `json:"folder,omitempty" jsonschema:"the folder to list. Give a file id, any Drive or Docs URL, the word root for My Drive, a path from My Drive like /Projects/2026/Budget.xlsx, or a shared-drive path like drive:Marketing/Campaigns. A name or path matching more than one item is refused with the candidates listed, so pass an id when you have one. Defaults to the root of My Drive."`
+	Folder         string `json:"folder,omitempty" jsonschema:"the folder to list. Give a file id, any Drive or Docs URL, the word root for My Drive, a path from My Drive like /Projects/2026/Budget.xlsx, or a shared-drive path like drive:Marketing/Campaigns. {{ambiguous}}, so pass an id when you have one. Defaults to the root of My Drive."`
 	Kind           string `json:"kind,omitempty" jsonschema:"only show one kind: folder, doc, sheet, slides, form, drawing, pdf, image, video, audio, shortcut, office, or any (the default)"`
 	PageSize       int    `json:"page_size,omitempty" jsonschema:"how many items per page, default 100, maximum 200"`
 	PageToken      string `json:"page_token,omitempty" jsonschema:"the page_token from a previous result, to see the next page"`
@@ -60,7 +60,7 @@ type FolderInput struct {
 }
 
 func registerRead(s *mcp.Server, d Deps) []string {
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_account",
 		Description: "Who is signed in to Google, how much storage their Drive uses, whether this account can create " +
 			"shared drives and which ones it can see, and what this server will let you do on their behalf: whether it " +
@@ -77,7 +77,7 @@ func registerRead(s *mcp.Server, d Deps) []string {
 		return text(out), nil, nil
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_file",
 		Description: "Everything about one file, folder or shortcut: what kind of thing it is, WHERE IT LIVES, its " +
 			"link, size, when it changed and who changed it, who owns it, WHO CAN SEE IT, and what this account may " +
@@ -94,7 +94,7 @@ func registerRead(s *mcp.Server, d Deps) []string {
 		return text(out), nil, nil
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "search_files",
 		Description: "Find files across My Drive, files shared with you, and every shared drive, by name, content, " +
 			"kind, folder, owner, star, date, who it is shared with or who can open it. Each hit shows its kind, " +
@@ -120,7 +120,7 @@ func registerRead(s *mcp.Server, d Deps) []string {
 		return text(out), nil, nil
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_folder",
 		Description: "List what is in a folder: one page, folders first and then names in natural order, or with " +
 			"recursive: true a tree of the folders below it. Prefer this over search_files when you know where to " +

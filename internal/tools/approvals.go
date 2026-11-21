@@ -12,14 +12,14 @@ import (
 
 // ApprovalsInput selects a file's approvals.
 type ApprovalsInput struct {
-	File      string `json:"file" jsonschema:"the file to check: an id, any Drive URL, a path from My Drive, or a shared-drive path. A name or path matching more than one item is refused with the candidates listed."`
+	File      string `json:"file" jsonschema:"the file to check: {{ref}}. {{ambiguous}}."`
 	PageSize  int    `json:"page_size,omitempty" jsonschema:"how many approvals to return, default 20, maximum 100"`
-	PageToken string `json:"page_token,omitempty" jsonschema:"the token a previous call returned, to get the next page"`
+	PageToken string `json:"page_token,omitempty" jsonschema:"{{next_page}}"`
 }
 
 // ManageApprovalInput is one action on one approval.
 type ManageApprovalInput struct {
-	File             string   `json:"file" jsonschema:"the file the approval is on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	File             string   `json:"file" jsonschema:"the file the approval is on: {{ref}}"`
 	Action           string   `json:"action" jsonschema:"start a new approval, decline one you are a reviewer of, cancel one you started, comment on one, or reassign it to different reviewers. approve_file approves."`
 	Approval         string   `json:"approval,omitempty" jsonschema:"the approval to act on, by the id list_approvals shows. Required for everything except start."`
 	Reviewers        []string `json:"reviewers,omitempty" jsonschema:"email addresses. With start, the people being asked to approve — at least one is required. With reassign, the people to ADD to the reviewers."`
@@ -32,7 +32,7 @@ type ManageApprovalInput struct {
 
 // ApproveFileInput is this account's approval of one review.
 type ApproveFileInput struct {
-	File     string `json:"file" jsonschema:"the file the approval is on: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	File     string `json:"file" jsonschema:"the file the approval is on: {{ref}}"`
 	Approval string `json:"approval" jsonschema:"the approval to approve, by the id list_approvals shows"`
 	Message  string `json:"message,omitempty" jsonschema:"a message that goes into the notification and into the approval's log"`
 }
@@ -51,7 +51,7 @@ type ApproveFileInput struct {
 // read before the call rather than after, so an argument that
 // overpromises there is worse than a result that does.
 func registerApprovals(s *mcp.Server, d Deps) []string {
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_approvals",
 		Description: "The approvals on a file: who asked for a review, who has to answer, what they have " +
 			"said, and whether it is waiting on you. Approvals are a Workspace feature and not every edition " +
@@ -70,7 +70,7 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 		return []string{"list_approvals"}
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "manage_approval",
 		Description: "Ask people to review a file, decline a review you were asked for, withdraw one, " +
 			"comment on one, or change who is being asked. Approving is approve_file. Actions: " +
@@ -92,7 +92,7 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 		}))
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "approve_file",
 		Description: "Approve a review of a file that you were asked for: your sign-off, recorded under your " +
 			"name and mailed to the person who asked and the other reviewers. Drive has no call that takes an " +

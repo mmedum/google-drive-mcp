@@ -40,7 +40,7 @@ type LiftDriveRestrictionInput struct {
 // registerDrives adds the shared-drive tools. list_drives is a read and
 // is always registered; manage_drive is not, in read-only mode.
 func registerDrives(s *mcp.Server, d Deps) []string {
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_drives",
 		Description: "The shared drives this account can see, with the id every other tool takes, what this " +
 			"account may do in each, and which restrictions are in force. Shared drives are a Google Workspace " +
@@ -59,7 +59,7 @@ func registerDrives(s *mcp.Server, d Deps) []string {
 		return []string{"list_drives"}
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "manage_drive",
 		Description: "Make a shared drive, rename one, hide or unhide it, or change its restrictions. " +
 			"Everything in a shared drive belongs to the organization rather than to a person, which is the " +
@@ -82,7 +82,7 @@ func registerDrives(s *mcp.Server, d Deps) []string {
 		return []string{"list_drives", "manage_drive"}
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "lift_drive_restriction",
 		Description: "Turn off a shared drive restriction that keeps what is in the drive inside the " +
 			"organization. Restrictions: " + strings.Join(service.LiftableRestrictions(), ", ") + ". With " +
