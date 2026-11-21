@@ -658,6 +658,21 @@ func workspaceTasks() []task {
 			// prompt names the MECHANISM and still not the tool, which is
 			// the line these prompts are supposed to walk. Where two tools
 			// answer one sentence, the more familiar one wins.
+			// Drive offers approvals by edition and by admin setting, and says
+			// which in canStartApproval. A dry run runs that check and sends
+			// nothing, so a probe file tells before the agent is paid for.
+			reachable: func(s *taskState) (bool, string) {
+				if err := s.makeFile("probe", "approval probe", "probe\n"); err != nil {
+					return false, "no file could be made to ask Drive about approvals: " + err.Error()
+				}
+				_, err := s.call("manage_approval", map[string]any{"file": s.get("probe_id"), "action": "start",
+					"reviewers": []string{s.address}, "dry_run": true})
+				if err != nil && strings.Contains(err.Error(), "Drive does not offer one") {
+					return false, "Drive offers this account no approvals (canStartApproval is false), which " +
+						"its edition or an administrator decides; this server cannot."
+				}
+				return true, ""
+			},
 			prompt: "Start a formal approval on \"Contract draft\" in the folder with id {folder}, " +
 				"with {address} as the reviewer.",
 			check: func(s *taskState, run agentRun) []string {
