@@ -69,6 +69,8 @@ func (w *writeRun) officeFiles() {
 			w.problem("could not write "+f.local+" to upload", err)
 			continue
 		}
+		w.needing(w.scratchID, call{name: "an Office file is uploaded as a dry run first", tool: "upload_file",
+			args: map[string]any{"local_path": f.local, "parent": w.scratchID, "name": f.name, "dry_run": true}})
 		id := w.createAndKeepID(call{name: "an Office file the driver built is uploaded",
 			tool: "upload_file", args: map[string]any{
 				"local_path": f.local, "parent": w.scratchID, "name": f.name,

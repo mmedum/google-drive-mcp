@@ -119,6 +119,8 @@ func runWrites(s session, t *transcript.Transcript, dir string, o options) (int,
 			return
 		}
 		w.out.Say("\n(everything below happens inside that folder, and it is trashed at the end)")
+		w.needing(w.scratchID, call{name: "a folder is made as a dry run, which sends nothing", tool: "create_folder",
+			args: map[string]any{"name": "dry run folder", "parent": w.scratchID, "dry_run": true}})
 
 		w.exercise()
 		if o.destructive {
@@ -198,6 +200,8 @@ func (w *writeRun) extraParameters(m made) {
 	// than to "Docs yes".
 	w.copyAndCheckComments(m.sheet, "Figures with its comments", "a Google Sheet", true)
 	if m.text != "" {
+		w.needing(m.text, call{name: "a file is renamed as a dry run, which sends nothing",
+			tool: "update_file", args: map[string]any{"file": m.text, "name": "rows renamed", "dry_run": true}})
 		w.needing(m.text, call{name: "a file is marked as viewed",
 			tool: "update_file", args: map[string]any{"file": m.text, "viewed": true}})
 	}
@@ -324,6 +328,10 @@ func (w *writeRun) approvals(m made) {
 			errors.New("no address"))
 		return
 	}
+	w.needing(m.doc, call{name: "an approval is started as a dry run first, which mails nobody",
+		tool: "manage_approval", args: map[string]any{
+			"file": m.doc, "action": "start", "reviewers": []any{account}, "due": w.dueDate, "dry_run": true,
+		}})
 	started := w.call(call{name: "an approval is started with a future due date",
 		tool: "manage_approval", args: map[string]any{
 			"file": m.doc, "action": "start", "reviewers": []any{account},
@@ -344,6 +352,8 @@ func (w *writeRun) approvals(m made) {
 	}
 	w.needing(m.doc, call{name: "the started approval is listed",
 		tool: "list_approvals", args: map[string]any{"file": m.doc}})
+	w.needing(m.doc, call{name: "approving an open approval is tried as a dry run, which sends nothing",
+		tool: "approve_file", args: map[string]any{"file": m.doc, "approval": id, "dry_run": true}})
 	w.needing(m.doc, call{name: "a comment is added to an approval", tool: "manage_approval", args: map[string]any{
 		"file": m.doc, "action": "comment", "approval": id, "message": "still looking",
 	}})
@@ -387,6 +397,8 @@ func (w *writeRun) labeling(m made) {
 	if m.doc == "" {
 		return
 	}
+	w.needing(m.doc, call{name: "a label is applied as a dry run first",
+		tool: "manage_labels", args: map[string]any{"file": m.doc, "label": id, "action": "apply", "dry_run": true}})
 	w.needing(m.doc, call{name: "a label is applied to a document",
 		tool: "manage_labels", args: map[string]any{"file": m.doc, "label": id, "action": "apply"}})
 	if field != "" && choice != "" {
@@ -481,6 +493,9 @@ func (w *writeRun) collaboration(m made) {
 				errors.New("the result carried no comment id"))
 			continue
 		}
+		w.needing(target.id, call{name: "a reply is added as a dry run first", tool: "reply_comment", args: map[string]any{
+			"file": target.id, "comment": id, "content": "checked, it is", "dry_run": true,
+		}})
 		w.needing(target.id, call{name: "a reply is added to a thread", tool: "reply_comment", args: map[string]any{
 			"file": target.id, "comment": id, "content": "checked, it is",
 		}})
@@ -888,6 +903,10 @@ func (w *writeRun) ownershipTransfer() {
 		return
 	}
 	const name = "ownership transfer probe"
+	w.needing(w.scratchID, call{name: "a file is made as a dry run first", tool: "create_file", args: map[string]any{
+		"name": name, "parent": w.scratchID, "content": "this file is about to change hands\n",
+		"mime_type": "text/plain", "dry_run": true,
+	}})
 	transfer := w.createAndKeepID(call{name: "a file is made to hand to a new owner",
 		tool: "create_file", args: map[string]any{
 			"name": name, "parent": w.scratchID,
@@ -987,6 +1006,8 @@ func (w *writeRun) history(m made) {
 	// A pin, then the same call again, which must report that nothing
 	// changed rather than a write that did not happen.
 	if rev := w.firstRevision(m.text); rev != "" {
+		w.needing(m.text, call{name: "a revision is kept forever as a dry run first", tool: "manage_revision",
+			args: map[string]any{"file": m.text, "revision": rev, "action": "keep", "dry_run": true}})
 		w.needing(m.text, call{name: "a revision is kept forever", tool: "manage_revision", args: map[string]any{
 			"file": m.text, "revision": rev, "action": "keep",
 		}})
@@ -1255,6 +1276,8 @@ func (w *writeRun) readBack(m made) {
 	w.needing(m.sheet, call{name: "a Google Sheet is read as tab-separated values",
 		tool: "read_file", args: map[string]any{"file": m.sheet, "format": "tsv"}})
 
+	w.needing(m.text, call{name: "a csv is downloaded as a dry run first, which writes nothing",
+		tool: "download_file", args: map[string]any{"file": m.text, "dry_run": true}})
 	w.needing(m.text, call{name: "a csv is downloaded to the local directory",
 		tool: "download_file", args: map[string]any{"file": m.text}})
 	w.needing(m.doc, call{name: "a Google Doc is exported as a PDF",
@@ -1269,6 +1292,9 @@ func (w *writeRun) readBack(m made) {
 
 // organize runs everything that changes a file without replacing it.
 func (w *writeRun) organize(m made) {
+	w.needing(m.text, call{name: "new content is tried as a dry run first", tool: "update_content", args: map[string]any{
+		"file": m.text, "content": "name,amount\nfirst,10\n", "dry_run": true,
+	}})
 	w.needing(m.text, call{name: "new content keeps the previous revision", tool: "update_content", args: map[string]any{
 		"file": m.text, "content": "name,amount\nfirst,10\n", "keep_previous_revision": true,
 	}})
@@ -1329,6 +1355,9 @@ func (w *writeRun) organize(m made) {
 	w.needing(m.text, call{name: "a csv copied into a Google Doc is refused", tool: "copy_file", args: map[string]any{
 		"file": m.text, "name": "rows as a doc", "to": w.scratchID, "convert_to": "doc",
 	}, why: "Google imports a csv as a Sheet, not as a Doc"})
+	w.needing(m.text, call{name: "a shortcut is made as a dry run first", tool: "create_shortcut", args: map[string]any{
+		"target": m.text, "parent": w.scratchID, "name": "rows shortcut", "dry_run": true,
+	}})
 	w.needing(m.text, call{name: "a shortcut to a file is created", tool: "create_shortcut", args: map[string]any{
 		"target": m.text, "parent": w.scratchID, "name": "rows shortcut",
 	}})

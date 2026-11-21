@@ -100,6 +100,8 @@ type ManageLabelsInput struct {
 	// REPLACES the field's values, so this is the whole new value of the
 	// field and not an addition to it.
 	Values []string
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // ManageLabels applies a label to a file, sets or clears one of its
@@ -152,6 +154,10 @@ func (s *Service) ManageLabels(ctx context.Context, in ManageLabelsInput) (*Resu
 	mod, err := s.labelModification(action, labelID, in, def, defErr)
 	if err != nil {
 		return nil, err
+	}
+	if in.DryRun {
+		return s.report(ctx, res, outcome{Action: render.ActionUpdated, DryRun: true,
+			Note: fmt.Sprintf("on %s this would have %s.", f.Name, labelActionWords(action, labelID, def))}), nil
 	}
 	if _, err := s.api.ModifyLabels(ctx, f.ID, gdrive.ModifyLabelsRequest{
 		LabelModifications: []gdrive.LabelModification{mod},

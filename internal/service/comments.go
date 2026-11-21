@@ -115,6 +115,8 @@ func (s *Service) commentListError(err error, f *gdrive.File, token string) erro
 type AddCommentInput struct {
 	File    string
 	Content string
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // AddComment starts a thread. The comment is unanchored: pinning one to
@@ -136,6 +138,10 @@ func (s *Service) AddComment(ctx context.Context, in AddCommentInput) (*Result, 
 	f := res.File
 	if err := s.commentable(f); err != nil {
 		return nil, err
+	}
+	if in.DryRun {
+		return s.report(ctx, res, outcome{Action: render.ActionCommented, DryRun: true,
+			Note: fmt.Sprintf("a comment of %s would be added to %s.", model.HumanSize(int64(len(content))), f.Name)}), nil
 	}
 	created, err := s.api.CreateComment(ctx, f.ID, &gdrive.CommentMeta{Content: content})
 	if err != nil {
@@ -169,6 +175,8 @@ type ReplyCommentInput struct {
 	// one changes that reply, and editing without one changes the comment
 	// that opened the thread.
 	Reply string
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // ReplyComment answers a thread, resolves it, reopens it, or edits
@@ -196,9 +204,9 @@ func (s *Service) ReplyComment(ctx context.Context, in ReplyCommentInput) (*Resu
 	}
 	switch action {
 	case CommentReply, CommentResolve, CommentReopen:
-		return s.replyTo(ctx, res, commentID, action, content)
+		return s.replyTo(ctx, res, commentID, action, content, in.DryRun)
 	case CommentEdit:
-		return s.editComment(ctx, res, commentID, strings.TrimSpace(in.Reply), content)
+		return s.editComment(ctx, res, commentID, strings.TrimSpace(in.Reply), content, in.DryRun)
 	default:
 		return nil, Errorf(ClassInvalid, "action %q is not one of %s", in.Action,
 			strings.Join(CommentActions(), ", "))
@@ -212,7 +220,7 @@ func (s *Service) ReplyComment(ctx context.Context, in ReplyCommentInput) (*Resu
 // Checked by the live steps "a thread is resolved" and "resolving a
 // resolved thread changes nothing".
 // https://developers.google.com/workspace/drive/api/reference/rest/v3/replies/create
-func (s *Service) replyTo(ctx context.Context, res *Resolved, commentID, action, content string) (*Result, error) {
+func (s *Service) replyTo(ctx context.Context, res *Resolved, commentID, action, content string, dryRun bool) (*Result, error) {
 	f := res.File
 	if action == CommentReply && content == "" {
 		return nil, Errorf(ClassInvalid, "content is required to reply. To close the thread without saying "+
@@ -240,6 +248,10 @@ func (s *Service) replyTo(ctx context.Context, res *Resolved, commentID, action,
 		default:
 			meta.Action = gdrive.ReplyActionReopen
 		}
+	}
+	if dryRun {
+		return s.report(ctx, res, outcome{Action: render.ActionReplied, DryRun: true, Note: fmt.Sprintf(
+			"comment %s on %s would be answered: %s.", commentID, f.Name, action)}), nil
 	}
 	reply, err := s.api.CreateReply(ctx, f.ID, commentID, meta)
 	if err != nil {
@@ -269,11 +281,19 @@ func (s *Service) replyTo(ctx context.Context, res *Resolved, commentID, action,
 // editComment changes the text of something already said. With a reply
 // id it edits that reply; without one it edits the comment that opened
 // the thread, which is the only other thing in it that has text.
-func (s *Service) editComment(ctx context.Context, res *Resolved, commentID, replyID, content string) (*Result, error) {
+func (s *Service) editComment(ctx context.Context, res *Resolved, commentID, replyID, content string, dryRun bool) (*Result, error) {
 	f := res.File
 	if content == "" {
 		return nil, Errorf(ClassInvalid, "content is required to edit: Drive has no way to blank a comment, "+
 			"and an edit to nothing would leave the thread saying nothing while still being there.")
+	}
+	if dryRun {
+		what := "comment " + commentID
+		if replyID != "" {
+			what = "reply " + replyID + " on comment " + commentID
+		}
+		return s.report(ctx, res, outcome{Action: render.ActionUpdated, DryRun: true, Note: fmt.Sprintf(
+			"%s on %s would read as given.", what, f.Name)}), nil
 	}
 	if replyID != "" {
 		updated, err := s.api.UpdateReply(ctx, f.ID, commentID, replyID, &gdrive.ReplyMeta{Content: content})

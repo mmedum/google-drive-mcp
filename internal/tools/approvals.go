@@ -28,6 +28,7 @@ type ManageApprovalInput struct {
 	LockFile         bool     `json:"lock_file,omitempty" jsonschema:"with start, ask Drive to lock the file's content while the approval is open. Drive does not always apply it, and the result says whether it did. Separately, an approval started with on_content_change reset_approval locks the file once it is APPROVED"`
 	Due              string   `json:"due,omitempty" jsonschema:"with start, when the approval is wanted by, as a date like 2026-01-31 or a full RFC 3339 timestamp"`
 	OnContentChange  string   `json:"on_content_change,omitempty" jsonschema:"with start, what a change to the file's content does to the approval: reset_approval (the default) clears answers already given while it is open and LOCKS the file once it is approved; no_action leaves the answers as they are and does not lock the file"`
+	DryRun           bool     `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // ApproveFileInput is this account's approval of one review.
@@ -35,6 +36,7 @@ type ApproveFileInput struct {
 	File     string `json:"file" jsonschema:"the file the approval is on: {{ref}}"`
 	Approval string `json:"approval" jsonschema:"the approval to approve, by the id list_approvals shows"`
 	Message  string `json:"message,omitempty" jsonschema:"a message that goes into the notification and into the approval's log"`
+	DryRun   bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // registerApprovals adds the approval tools. list_approvals is a read and
@@ -85,7 +87,7 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 			"else, but never simply removed.",
 		Annotations: changing,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageApprovalInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.ManageApproval(ctx, service.ManageApprovalInput{
+		return result(d.Service.ManageApproval(ctx, service.ManageApprovalInput{DryRun: in.DryRun,
 			File: in.File, Approval: in.Approval, Action: in.Action,
 			Reviewers: in.Reviewers, ReplaceReviewers: in.ReplaceReviewers,
 			Message: in.Message, LockFile: in.LockFile, Due: in.Due, OnContentChange: in.OnContentChange,
@@ -101,7 +103,7 @@ func registerApprovals(s *mcp.Server, d Deps) []string {
 			"list_approvals shows the approval's id and whether it is waiting on you.",
 		Annotations: final,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ApproveFileInput) (*mcp.CallToolResult, *render.WriteJSON, error) {
-		return result(d.Service.ApproveFile(ctx, service.ApproveFileInput{
+		return result(d.Service.ApproveFile(ctx, service.ApproveFileInput{DryRun: in.DryRun,
 			File: in.File, Approval: in.Approval, Message: in.Message,
 		}))
 	})

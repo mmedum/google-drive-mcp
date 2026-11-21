@@ -119,6 +119,8 @@ type ManageApprovalInput struct {
 	// OnContentChange is what a content change does to a started
 	// approval: OnChangeReset, the default, or OnChangeNoAction.
 	OnContentChange string
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // What a content change does to an approval, as on_content_change takes
@@ -158,6 +160,8 @@ type ApproveFileInput struct {
 	File     string
 	Approval string
 	Message  string
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // ApproveFile records this account's approval. It is its own tool, apart
@@ -166,7 +170,7 @@ type ApproveFileInput struct {
 // approval started with reset_approval locks the file for good.
 func (s *Service) ApproveFile(ctx context.Context, in ApproveFileInput) (*Result, error) {
 	return s.approval(ctx, "approve_file", ManageApprovalInput{File: in.File, Approval: in.Approval,
-		Action: ApprovalApprove, Message: in.Message})
+		Action: ApprovalApprove, Message: in.Message, DryRun: in.DryRun})
 }
 
 // approval is the one path every approval action takes, under the name
@@ -196,6 +200,11 @@ func (s *Service) approval(ctx context.Context, tool string, in ManageApprovalIn
 	approval, note, err := s.approvalAction(ctx, f, action, in)
 	if err != nil {
 		return nil, err
+	}
+	if in.DryRun {
+		// Every check the action makes has run, and nothing was sent.
+		return s.report(ctx, res, outcome{Action: approvalOutcome(action), DryRun: true,
+			Note: note + " Every approval verb mails somebody; this sent nothing."}), nil
 	}
 	converted := model.NewApproval(approval)
 	// Forget BEFORE the read-back, not after: forgetting afterwards
@@ -287,6 +296,9 @@ func (s *Service) startApproval(ctx context.Context, f *gdrive.File, in ManageAp
 		}
 		body.DueTime = stamp
 	}
+	if in.DryRun {
+		return nil, fmt.Sprintf("An approval would start on %s, asking %s.", f.Name, strings.Join(in.Reviewers, ", ")), nil
+	}
 	started, err := s.api.StartApproval(ctx, f.ID, body)
 	if err != nil {
 		return nil, "", s.approvalError(err, f, "starting an approval on", "")
@@ -366,6 +378,9 @@ func (s *Service) answerApproval(ctx context.Context, f *gdrive.File, action str
 			"message is required to comment on an approval; there is nothing else for the call to say")
 	}
 	body := &gdrive.ApprovalMessage{Message: message}
+	if in.DryRun {
+		return nil, fmt.Sprintf("Approval %s on %s would be answered: %s.", id, f.Name, action), nil
+	}
 	var (
 		out   *gdrive.Approval
 		err   error
@@ -421,6 +436,9 @@ func (s *Service) reassignApproval(ctx context.Context, f *gdrive.File, in Manag
 	body := &gdrive.ReassignApproval{ReplaceReviewers: replaced, Message: in.Message}
 	for _, address := range added {
 		body.AddReviewers = append(body.AddReviewers, gdrive.AddReviewer{AddedReviewerEmail: address})
+	}
+	if in.DryRun {
+		return nil, fmt.Sprintf("The reviewers of approval %s on %s would change.", id, f.Name), nil
 	}
 	out, err := s.api.ReassignApproval(ctx, f.ID, id, body)
 	if err != nil {

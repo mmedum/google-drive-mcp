@@ -254,6 +254,9 @@ func (d *destroyRun) deleteAComment() {
 		d.out.Say("\n=== delete_comment: skipped, the file it needs was never created ===")
 		return
 	}
+	d.needing(id, call{name: "a comment is tried as a dry run first", tool: "add_comment", args: map[string]any{
+		"file": id, "content": "this thread is about to be removed", "dry_run": true,
+	}})
 	comment := commentFromResult(d.call(call{name: "a comment is added to a file in a shared drive",
 		tool: "add_comment", args: map[string]any{
 			"file": id, "content": "this thread is about to be removed",

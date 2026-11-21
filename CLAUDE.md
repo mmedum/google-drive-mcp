@@ -114,10 +114,9 @@ the tool surface, the addressing, the sharing policy or the transfers.
 - **Green gates are not done.** `internal/gapi/drivetest` is written
   from belief about Drive; only `make live` and `make integration` test
   it (D-67, D-70).
-- **`dry_run` is taken by the writes that move, share, copy, trash,
-  grant or destroy, not every write** (D-31). Each returns before
-  sending, with no guard in the API client, so a write that takes it
-  needs its own "sends nothing" test.
+- **Every write takes `dry_run`, and each returns before sending with no
+  guard in the API client** (D-92). A new write needs a row in
+  `TestEveryWriteSendsNothingOnADryRun`.
 - **A short or empty page is not the end of a listing** (D-16).
 - **Drive's reads lag its writes.** Assert only what the response
   carried, and say the answer may be stale rather than sleeping and

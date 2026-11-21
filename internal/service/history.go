@@ -67,6 +67,8 @@ type ManageRevisionInput struct {
 	File     string
 	Revision string
 	Action   string
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // ManageRevision decides whether Drive keeps a revision for good. Without
@@ -103,6 +105,22 @@ func (s *Service) ManageRevision(ctx context.Context, in ManageRevisionInput) (*
 	if before.KeepForever == keep {
 		return s.report(ctx, res, outcome{Action: render.ActionUnchanged, Note: fmt.Sprintf(
 			"revision %s of %s is already %s.", revisionID, f.Name, keptWords(keep))}), nil
+	}
+	if in.DryRun {
+		// Drive refuses to unpin a kept revision that is no longer current, so
+		// the preview does too; a keep warns as the real result does.
+		note := fmt.Sprintf("revision %s of %s would be %s.", revisionID, f.Name, keptWords(keep))
+		switch {
+		case !keep && revisionID != f.HeadRevisionID:
+			return nil, Errorf(ClassInvalid, "revision %s of %s is kept forever and is no longer the current one, "+
+				"and %s. delete_revision deletes it, and is registered with GDRIVE_ENABLE_DESTRUCTIVE=true.",
+				revisionID, f.Name, pinRule)
+		case keep && revisionID != f.HeadRevisionID:
+			note += " " + pinForGood
+		case keep:
+			note += " Once a newer revision replaces it, the pin is for good: " + pinRule + "."
+		}
+		return s.report(ctx, res, outcome{Action: render.ActionUpdated, DryRun: true, Note: note}), nil
 	}
 	updated, err := s.api.UpdateRevision(ctx, f.ID, revisionID, keep)
 	if err != nil {

@@ -24,7 +24,7 @@ type ManageDriveInput struct {
 	Drive        string          `json:"drive,omitempty" jsonschema:"the shared drive to change, by name or id. Not used by create; list_drives shows the ids."`
 	Name         string          `json:"name,omitempty" jsonschema:"the name for a new drive, or the new name for a rename"`
 	Restrictions map[string]bool `json:"restrictions,omitempty" jsonschema:"for restrict (and optionally create): the switches to set, as name to true or false. Names: members_only, domain_users_only, copy_requires_writer_permission, admin_managed, folder_sharing_requires_organizer."`
-	DryRun       bool            `json:"dry_run,omitempty" jsonschema:"report what would happen and change nothing"`
+	DryRun       bool            `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // LiftDriveRestrictionInput turns off one restriction that keeps a
