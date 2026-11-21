@@ -518,11 +518,16 @@ func (d *destroyRun) driveScopedArguments() {
 			"action": "restrict", "drive": d.driveID, "dry_run": true,
 			"restrictions": map[string]any{"copy_requires_writer_permission": true},
 		}})
+	// A stale name is refused whether or not this account may set a restriction.
+	d.refusing(d.driveID, call{name: "lifting a drive restriction is refused under a stale drive name",
+		tool: "lift_drive_restriction", args: map[string]any{
+			"drive": d.driveID, "drive_name": d.driveName + " (another)", "restriction": "domain_users_only",
+			"confirm": true,
+		}, why: "[stale]"})
 	if _, ok := d.offered(call{name: "a drive restriction is turned on", tool: "manage_drive", args: map[string]any{
 		"action": "restrict", "drive": d.driveID,
 		"restrictions": map[string]any{"copy_requires_writer_permission": true},
 	}}, restrictionsReserved); !ok {
-		d.liftDomainUsersOnly(false)
 		return
 	}
 	// Turning it off again loosens the drive, and is an ordinary write.
@@ -530,7 +535,7 @@ func (d *destroyRun) driveScopedArguments() {
 		"action": "restrict", "drive": d.driveID,
 		"restrictions": map[string]any{"copy_requires_writer_permission": false},
 	}})
-	d.liftDomainUsersOnly(true)
+	d.liftDomainUsersOnly()
 }
 
 // liftDomainUsersOnly turns domain_users_only on with manage_drive, then
@@ -540,18 +545,7 @@ func (d *destroyRun) driveScopedArguments() {
 // and lifts it, read back from the drive. members_only off stays
 // manage_drive's, since whether turning it off restores access already
 // granted to non-members is unverified.
-//
-// The stale-name refusal needs no restriction on; the rest need the
-// account to be allowed to set one, which restrictable says.
-func (d *destroyRun) liftDomainUsersOnly(restrictable bool) {
-	d.refusing(d.driveID, call{name: "lifting a drive restriction is refused under a stale drive name",
-		tool: "lift_drive_restriction", args: map[string]any{
-			"drive": d.driveID, "drive_name": d.driveName + " (another)", "restriction": "domain_users_only",
-			"confirm": true,
-		}, why: "[stale]"})
-	if !restrictable {
-		return
-	}
+func (d *destroyRun) liftDomainUsersOnly() {
 	d.needing(d.driveID, call{name: "a drive is limited to the organization's users",
 		tool: "manage_drive", args: map[string]any{
 			"action": "restrict", "drive": d.driveID,

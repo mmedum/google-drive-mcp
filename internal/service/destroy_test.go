@@ -287,8 +287,6 @@ func TestEmptyTrashCountsOnlyTheTrashItWillEmpty(t *testing.T) {
 	}
 }
 
-// A shared-drive item's card needs its permission list, which cannot be
-// read once the item is gone, so the card is read before the delete.
 func TestADeletedSharedDriveItemStillSaysWhoHadIt(t *testing.T) {
 	svc, fake := setup(t, service.Options{Destructive: true})
 	fake.AddFile("id-drive-plan-fixture", "plan.txt", "text/plain", "id-drive-marketing",

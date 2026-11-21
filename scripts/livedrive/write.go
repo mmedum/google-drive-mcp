@@ -2034,6 +2034,8 @@ func (w *writeRun) do(c call) (out string, isError bool) {
 	switch {
 	case c.tolerant:
 		w.out.Say("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
+	case c.limit != "" && isError && strings.Contains(out, c.limit):
+		w.out.Say("(this account does not offer it, a correct answer: the steps that need it are skipped)")
 	case isError != (c.why != ""):
 		w.failures++
 		if c.why != "" {
@@ -2053,22 +2055,11 @@ const (
 )
 
 // offered runs a step the account may not offer, and reports whether it
-// went through. A refusal naming limit is said out loud and not counted,
-// so the steps that need the feature can be skipped; any other is counted.
+// went through.
 func (w *writeRun) offered(c call, limit string) (string, bool) {
-	out, isError, err := w.send(c)
-	switch {
-	case err != nil:
-		return "", false
-	case !isError:
-		return out, true
-	case strings.Contains(out, limit):
-		w.out.Say("(this account does not offer it, a correct answer: the steps that need it are skipped)")
-		return "", false
-	}
-	w.failures++
-	w.out.Say("!! unexpected tool error")
-	return "", false
+	c.limit = limit
+	out, isError := w.do(c)
+	return out, !isError
 }
 
 // send prints a step's banner, runs it and prints the answer, leaving

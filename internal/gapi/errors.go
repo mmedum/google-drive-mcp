@@ -142,12 +142,9 @@ func (e *APIError) Unwrap() error {
 		return ErrBlocked
 	case e.Status == 403 && sameReason(e.Reason, reasonInvalidSharing):
 		return ErrBlocked
-	// An organization can keep shared-drive restrictions for its admins.
-	// Drive answers 400 with an empty message and this reason, while the
-	// drive still says canChangeDriveRestrictions. The source is a live
-	// probe: neither the handle-errors guide nor the discovery document
-	// names the reason. Checked by the live step "a drive restriction is
-	// turned on".
+	// Restrictions kept for admins: 400 with an empty message, while the drive lists
+	// canChangeDriveRestrictions. Source: a live probe; no guide names it.
+	// Checked by the live step "a drive restriction is turned on".
 	case sameReason(e.Reason, reasonRestrictionsReserved):
 		return ErrBlocked
 	case e.Status == 403 && sameReason(e.Reason, reasonStorageFull):
