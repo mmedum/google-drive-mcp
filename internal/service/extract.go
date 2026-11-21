@@ -27,6 +27,8 @@ type ExtractTextInput struct {
 	// KeepCopy leaves the Google Doc the import made, rather than
 	// deleting it.
 	KeepCopy bool
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // The marker on a temporary copy. Drive keeps an app property private to
@@ -89,6 +91,14 @@ func (s *Service) ExtractText(ctx context.Context, in ExtractTextInput) (string,
 	}
 	lang := strings.TrimSpace(in.OCRLanguage)
 	key := "extract\x00" + f.ID + "\x00" + f.HeadRevisionID + "\x00" + f.ModifiedTime + "\x00" + lang
+	if in.DryRun {
+		note := f.Name + " would be read from the text kept from an earlier read; no copy would be made."
+		if in.KeepCopy || !s.holds(&s.ocrText, key) {
+			keep := map[bool]string{false: "deleted again once its text is read", true: "kept, as keep_copy asks"}[in.KeepCopy]
+			note = fmt.Sprintf("%s would be copied to a Google Doc for Google's OCR to read, and the copy %s.", f.Name, keep)
+		}
+		return dryRunResult(outcome{Action: render.ActionCreated, DryRun: true, Note: note}).Text, nil
+	}
 	notes := []string{"Google's OCR read this text. Lists, tables, columns, footnotes and endnotes are " +
 		"often not recognized, Google says, and the text comes without its layout."}
 	// keep_copy always makes a copy, since keeping one is what it asks.

@@ -210,11 +210,23 @@ const MaxExport = 10 << 20
 // ExportTTL, or what compute makes, which is then held in its place, so
 // the windows after the first cost nothing. fresh skips what is held,
 // and holds what it computes. cached says the text was held.
+// holds reports whether slot keeps fresh text for key, as keptText would
+// use it.
+func (s *Service) holds(slot *exported, key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.holdsLocked(slot, key)
+}
+
+func (s *Service) holdsLocked(slot *exported, key string) bool {
+	return slot.key == key && s.now().Sub(slot.at) <= s.opts.ExportTTL
+}
+
 func (s *Service) keptText(slot *exported, key string, fresh bool, compute func() (exported, error),
 ) (kept exported, cached bool, err error) {
 	if !fresh {
 		s.mu.Lock()
-		if slot.key == key && s.now().Sub(slot.at) <= s.opts.ExportTTL {
+		if s.holdsLocked(slot, key) {
 			kept, cached = *slot, true
 		}
 		s.mu.Unlock()
@@ -433,6 +445,8 @@ type DownloadFileInput struct {
 	Revision string
 	// AcknowledgeAbuse downloads a file Google has flagged.
 	AcknowledgeAbuse bool
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // DownloadFile writes a file to GDRIVE_LOCAL_DIR, streaming it in chunks
@@ -454,6 +468,11 @@ func (s *Service) DownloadFile(ctx context.Context, in DownloadFileInput) (strin
 	content, ext, note, err := s.openDownload(ctx, f, in)
 	if err != nil {
 		return "", err
+	}
+	if in.DryRun {
+		// openDownload ran every check and opened nothing.
+		return dryRunResult(outcome{Action: render.ActionCreated, DryRun: true, Note: fmt.Sprintf("%s would be downloaded into %s, as %s.",
+			f.Name, s.opts.LocalDir, ext)}).Text, nil
 	}
 	defer func() { _ = content.Body.Close() }()
 
@@ -493,12 +512,18 @@ func (s *Service) openDownload(ctx context.Context, f *gdrive.File, in DownloadF
 	// which Drive refuses. Which kinds those are is the registry's to
 	// say, not this function's.
 	if format := mediatype.OperationAs(f.MimeType); format != "" {
+		if in.DryRun {
+			return nil, format, "", nil
+		}
 		return s.downloadOperation(ctx, f, in, format)
 	}
 	if f.IsWorkspaceDoc() {
 		mime, ext, err := s.exportFormat(f, in.Format)
 		if err != nil {
 			return nil, "", "", err
+		}
+		if in.DryRun {
+			return nil, ext, "", nil
 		}
 		if in.Revision != "" {
 			c, err := s.exportRevision(ctx, f, in.Revision, mime)
@@ -517,6 +542,9 @@ func (s *Service) openDownload(ctx context.Context, f *gdrive.File, in DownloadF
 	if n := sizeOf(f); n > 0 && s.opts.MaxDownload > 0 && n > s.opts.MaxDownload {
 		return nil, "", "", Errorf(ClassUnsupported, "%s is %s, and this server was started with a limit of %s "+
 			"(GDRIVE_MAX_DOWNLOAD).", f.Name, model.HumanSize(n), model.HumanSize(s.opts.MaxDownload))
+	}
+	if in.DryRun {
+		return nil, extensionFor(f), "", nil
 	}
 	c, err := s.api.Download(ctx, f.ID, gapi.DownloadOptions{
 		RevisionID: in.Revision, AcknowledgeAbuse: in.AcknowledgeAbuse,

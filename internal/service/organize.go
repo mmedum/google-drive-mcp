@@ -24,6 +24,8 @@ type CreateFolderInput struct {
 	Description    string
 	Color          string
 	AllowDuplicate bool
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // CreateFolder makes a folder, refusing a second one of the same name
@@ -53,6 +55,9 @@ func (s *Service) CreateFolder(ctx context.Context, in CreateFolderInput) (*Resu
 	}
 	if color != "" {
 		meta.FolderColorRgb = gdrive.String(color)
+	}
+	if in.DryRun {
+		return dryRunResult(outcome{Action: render.ActionCreated, DryRun: true, Note: fmt.Sprintf("a folder %s would be created in %s.", name, parent.Name)}), nil
 	}
 	if err := s.assignID(ctx, meta); err != nil {
 		return nil, err
@@ -89,6 +94,8 @@ type UpdateFileInput struct {
 	// viewedByMeTime is a timestamp, and Drive offers no way to say a
 	// file was never opened.
 	Viewed bool
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // UpdateFile renames, describes, stars, colors or tags a file. It
@@ -132,6 +139,9 @@ func (s *Service) UpdateFile(ctx context.Context, in UpdateFileInput) (*Result, 
 		if err := s.openFolderRefused(ctx, res); err != nil {
 			return nil, err
 		}
+	}
+	if in.DryRun {
+		return s.report(ctx, res, outcome{Action: render.ActionUpdated, Changes: changes, DryRun: true}), nil
 	}
 
 	updated, err := s.api.UpdateFile(ctx, f.ID, meta, gapi.UpdateOptions{})
@@ -632,6 +642,8 @@ type CreateShortcutInput struct {
 	Parent         string
 	Name           string
 	AllowDuplicate bool
+	// DryRun reports what the call would do and sends nothing.
+	DryRun bool
 }
 
 // CreateShortcut puts a pointer to one item in another folder. It is
@@ -659,6 +671,10 @@ func (s *Service) CreateShortcut(ctx context.Context, in CreateShortcutInput) (*
 	meta := &gdrive.FileMeta{
 		Name: name, MimeType: gdrive.MimeShortcut, Parents: []string{parent.ID},
 		ShortcutDetails: &gdrive.ShortcutDetails{TargetID: target.ID},
+	}
+	if in.DryRun {
+		return dryRunResult(outcome{Action: render.ActionCreated, DryRun: true, Note: fmt.Sprintf("a shortcut %s to %s would be created in %s.",
+			name, target.Name, parent.Name)}), nil
 	}
 	if err := s.assignID(ctx, meta); err != nil {
 		return nil, err

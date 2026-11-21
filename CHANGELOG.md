@@ -10,6 +10,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 - `list_approvals` names the revision an approved file was approved at, so `list_revisions` shows whether the content changed since.
 - `GDRIVE_ORGANIZATION_DOMAINS` names the email domains `share_file` counts as inside the organization, for an organization with several domains or none detected.
+- Every write takes `dry_run`: creates, uploads, content and metadata updates, comments, approvals, labels, revisions, `download_file` and `extract_text` too.
 
 ### Changed
 

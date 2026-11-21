@@ -220,6 +220,7 @@ var phrases = map[string]string{
 	"{{ref}}":       "an id, any Drive URL, a path from My Drive, or a shared-drive path",
 	"{{ambiguous}}": "A name or path matching more than one item is refused with the candidates listed",
 	"{{next_page}}": "the token a previous call returned, to get the next page",
+	"{{dry_run}}":   "report what would happen and change nothing",
 }
 
 // placeholder is a phrase's key, in double braces so that a description

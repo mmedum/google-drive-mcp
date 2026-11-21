@@ -22,6 +22,7 @@ type DownloadFileInput struct {
 	Format           string `json:"format,omitempty" jsonschema:"for a Google Doc, Sheet, Slides deck or Drawing only, which Drive converts as it exports them: docx, xlsx, pptx, pdf, odt, ods, odp, rtf, txt, html, md, csv, tsv, epub, zip, json, png, jpg or svg. Not every kind offers every one; get_file lists what a file offers. The default is the Office format for the kind, png for a drawing, and json for an Apps Script project."`
 	Revision         string `json:"revision,omitempty" jsonschema:"a revision id, to fetch an older version instead of the current one"`
 	AcknowledgeAbuse bool   `json:"acknowledge_abuse,omitempty" jsonschema:"download a file Google has flagged as malware or spam. Only pass this after a refusal that named the flag, and only when you know what the file is."`
+	DryRun           bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // ExtractTextInput selects a PDF or an image whose text to read.
@@ -31,6 +32,7 @@ type ExtractTextInput struct {
 	Offset      int64  `json:"offset,omitempty" jsonschema:"where to start reading the text. Pass 0 for the beginning, or the offset a previous call of this tool on the same file said to continue from."`
 	MaxChars    int    `json:"max_chars,omitempty" jsonschema:"how much text to return, default 20000, maximum 400000"`
 	KeepCopy    bool   `json:"keep_copy,omitempty" jsonschema:"keep the Google Doc the OCR made, in the root of My Drive, and say its id and link, instead of deleting it"`
+	DryRun      bool   `json:"dry_run,omitempty" jsonschema:"{{dry_run}}"`
 }
 
 // registerContent adds the two tools that move a file's content out of
@@ -68,7 +70,7 @@ func registerContent(s *mcp.Server, d Deps) []string {
 			"This needs the server to have been started with GDRIVE_LOCAL_DIR; get_account says whether it was.",
 		Annotations: localWrite,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DownloadFileInput) (*mcp.CallToolResult, any, error) {
-		out, err := d.Service.DownloadFile(ctx, service.DownloadFileInput{
+		out, err := d.Service.DownloadFile(ctx, service.DownloadFileInput{DryRun: in.DryRun,
 			File: in.File, Format: in.Format, Revision: in.Revision, AcknowledgeAbuse: in.AcknowledgeAbuse,
 		})
 		if err != nil {
@@ -110,7 +112,7 @@ func registerExtract(s *mcp.Server, d Deps) []string {
 			"for files of 2 MB or less; a file over 50 MB is refused.",
 		Annotations: write,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ExtractTextInput) (*mcp.CallToolResult, any, error) {
-		out, err := d.Service.ExtractText(ctx, service.ExtractTextInput{
+		out, err := d.Service.ExtractText(ctx, service.ExtractTextInput{DryRun: in.DryRun,
 			File: in.File, OCRLanguage: in.OCRLanguage, Offset: in.Offset, MaxChars: in.MaxChars,
 			KeepCopy: in.KeepCopy,
 		})
