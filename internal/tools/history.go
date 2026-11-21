@@ -12,12 +12,12 @@ import (
 
 // RevisionsInput selects a file's history.
 type RevisionsInput struct {
-	File string `json:"file" jsonschema:"the file whose versions to list: an id, any Drive URL, a path from My Drive, or a shared-drive path. A name or path matching more than one item is refused with the candidates listed."`
+	File string `json:"file" jsonschema:"the file whose versions to list: {{ref}}. {{ambiguous}}."`
 }
 
 // ManageRevisionInput pins or unpins one revision.
 type ManageRevisionInput struct {
-	File     string `json:"file" jsonschema:"the file the revision belongs to: an id, any Drive URL, a path from My Drive, or a shared-drive path"`
+	File     string `json:"file" jsonschema:"the file the revision belongs to: {{ref}}"`
 	Revision string `json:"revision" jsonschema:"the revision id, from list_revisions"`
 	Action   string `json:"action" jsonschema:"keep to pin it so Drive never discards it, or unkeep to unpin the current revision so Drive may discard it once it is replaced. A pin on any other revision cannot be undone."`
 }
@@ -34,7 +34,7 @@ type ChangesInput struct {
 // two listings are reads and are always registered; manage_revision is
 // not, in read-only mode.
 func registerHistory(s *mcp.Server, d Deps) []string {
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_revisions",
 		Description: "A file's version history, newest first: when each version was made, by whom, how big it " +
 			"was, and whether Drive is keeping it. download_file with revision fetches one version's content. " +
@@ -51,7 +51,7 @@ func registerHistory(s *mcp.Server, d Deps) []string {
 		return text(out), nil, nil
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_changes",
 		Description: "What has changed in this Drive since a point in time. Call it with no page_token to get " +
 			"that starting point, then call it again later with the token it gave you: each answer carries the " +
@@ -75,7 +75,7 @@ func registerHistory(s *mcp.Server, d Deps) []string {
 		return names
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "manage_revision",
 		Description: "Pin a version of a file so Drive keeps it, or unpin the current version so Drive may " +
 			"discard it once it is replaced. Without a pin Drive discards a version 30 days after it stops being " +

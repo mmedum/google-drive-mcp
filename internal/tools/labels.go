@@ -14,12 +14,12 @@ import (
 type LabelsInput struct {
 	Appliable bool   `json:"appliable,omitempty" jsonschema:"only labels you may actually put on a file. Off by default, because a label you can read but not apply still explains a value you can see on a file."`
 	PageSize  int    `json:"page_size,omitempty" jsonschema:"how many labels to return, default 50, maximum 200"`
-	PageToken string `json:"page_token,omitempty" jsonschema:"the token a previous call returned, to get the next page"`
+	PageToken string `json:"page_token,omitempty" jsonschema:"{{next_page}}"`
 }
 
 // ManageLabelsInput is one change to one label on one file.
 type ManageLabelsInput struct {
-	File   string   `json:"file" jsonschema:"the file to change: an id, any Drive URL, a path from My Drive, or a shared-drive path. A name or path matching more than one item is refused with the candidates listed."`
+	File   string   `json:"file" jsonschema:"the file to change: {{ref}}. {{ambiguous}}."`
 	Label  string   `json:"label" jsonschema:"the label to change, by the id list_labels shows"`
 	Action string   `json:"action" jsonschema:"apply to put the label on the file, set_field to give one of its fields a value, unset_field to clear one, or remove to take the label off"`
 	Field  string   `json:"field,omitempty" jsonschema:"with set_field and unset_field, the field to change, by the id list_labels shows"`
@@ -40,7 +40,7 @@ func registerLabels(s *mcp.Server, d Deps) []string {
 		return nil
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_labels",
 		Description: "The Workspace labels this account can use, with the fields on each one and the values " +
 			"those fields take. Labels are metadata an organization defines centrally — a status, a " +
@@ -62,7 +62,7 @@ func registerLabels(s *mcp.Server, d Deps) []string {
 		return []string{"list_labels"}
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "manage_labels",
 		Description: "Put a Workspace label on a file, set or clear one of its fields, or take it off. " +
 			"Actions: " + strings.Join(service.LabelActions(), ", ") + ". One label and one field per call. " +
