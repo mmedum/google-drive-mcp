@@ -391,3 +391,16 @@ func TestTheDomainOfAnAddressIsHiddenWhereItStandsAlone(t *testing.T) {
 		t.Errorf("a domain is not one stable placeholder:\n%s", got)
 	}
 }
+
+// A letter whose lower case is another length, shorter as İ or longer as
+// Ⱥ, before a domain does not move where the domain is found.
+func TestADomainAfterALetterOfAnotherLengthInLowerCaseIsHidden(t *testing.T) {
+	for _, letter := range []string{"İ", "Ⱥ"} {
+		r := NewRedactor(false)
+		r.Do("granted everyone at example.org reader")
+		got := r.Do(strings.Repeat(letter, 4) + " folder shared with domain:example.org")
+		if strings.Contains(got, "example") {
+			t.Errorf("the domain survived after %s:\n%s", letter, got)
+		}
+	}
+}
