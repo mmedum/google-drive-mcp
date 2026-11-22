@@ -6,6 +6,12 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.3.2] - 2026-11-22
+
+### Fixed
+
+- The release carries its build provenance attestation, which 3.3.1 lacks; the code is 3.3.1's.
+
 ## [3.3.1] - 2026-11-22
 
 ### Changed
