@@ -404,3 +404,22 @@ func TestADomainAfterALetterOfAnotherLengthInLowerCaseIsHidden(t *testing.T) {
 		}
 	}
 }
+
+// Drive gives a reply an id such as doco. and a run of letters, with no
+// digit, which only its position marks as an id. The period inside it
+// is part of it; a sentence's period after it is not.
+func TestADottedReplyIDIsHidden(t *testing.T) {
+	r := NewRedactor(false)
+	id := "doco.SyntheticReplyFixtureNoDigit"
+	got := r.Do(strings.Join([]string{
+		"note: comment AAAAcomment1 on rows.csv is resolved; reply " + id + " records it.",
+		"  " + id + "  Wendell Ashgrove (you), 2026-03-04 09:00Z (just now)  (resolved the thread)",
+		"the reply " + id + ".",
+	}, "\n"))
+	if strings.Contains(got, "SyntheticReplyFixtureNoDigit") {
+		t.Errorf("the reply id survived:\n%s", got)
+	}
+	if !strings.Contains(got, "reply <REPLY_1> records it") || !strings.HasSuffix(got, "the reply <REPLY_1>.") {
+		t.Errorf("out:\n%s", got)
+	}
+}
