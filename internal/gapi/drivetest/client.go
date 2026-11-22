@@ -14,8 +14,8 @@ import (
 
 // Client returns a Drive client wired to this fake, with the limiters
 // open and the backoff instant. Every test that talks to the fake needs
-// the same four non-obvious options, and three hand-written copies had
-// already drifted: one of them left a limiter at its production rate.
+// the same non-obvious options, and a hand-written copy drifts from
+// them, such as by leaving a limiter at its production rate.
 //
 // Pass overrides to change one field; anything left zero keeps the
 // test-friendly default.
@@ -26,7 +26,10 @@ import (
 func Client(t testing.TB, s *Server, overrides ...func(*gapi.Options)) *gapi.Client {
 	t.Helper()
 	o := gapi.Options{
-		BaseURL:         s.BaseURL(),
+		BaseURL: s.BaseURL(),
+		// Any httptest server's Close drops http.DefaultTransport's idle
+		// connections, which breaks a parallel test's request mid-reuse.
+		BaseTransport:   s.Client().Transport,
 		LabelsBaseURL:   s.LabelsBaseURL(),
 		ActivityBaseURL: s.ActivityBaseURL(),
 		Timeout:         5 * time.Second,
