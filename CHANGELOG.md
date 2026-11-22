@@ -12,6 +12,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `search_files` answers a long query Drive refuses with its own HTTP 400 by asking for fewer folders or terms, not only "Bad Request".
 - For contributors: `make live` printed whole rows whose shared drive or folder name held a doubled or trailing space; reread older transcripts before sharing.
 
 ## [3.3.0] - 2026-11-21

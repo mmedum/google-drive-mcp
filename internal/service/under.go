@@ -20,8 +20,8 @@ import (
 // `'id' in parents` term, about 56 bytes once the URL encodes it. Google
 // documents no limit on a query's length or its number of terms. A
 // hundred folders is about 5.6 KB, which leaves a search's other fields
-// under the 8 KB request line most HTTP servers accept, and is half of
-// the 200 terms Drive takes (queryTaken).
+// under the 8 KB request line most HTTP servers accept. Drive takes 100
+// terms; it has taken 200 and refused them too (queryRefusedFrom).
 const MaxUnderFolders = 100
 
 // folderSetTTL is how long the folders found under a folder are kept for

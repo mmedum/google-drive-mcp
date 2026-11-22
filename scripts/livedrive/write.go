@@ -250,20 +250,37 @@ func (w *writeRun) extraParameters(m made) {
 // into a folder inside it early on, so a search of the scratch folder's
 // direct children finds nothing at any speed.
 func (w *writeRun) pollSearch(search call, id string) bool {
+	if w.searchWithin(search, id, "the search has not found it yet; waiting") {
+		return true
+	}
+	w.out.Sayf("UNVERIFIED THIS RUN: %s. The search did not find the file in %d searches %s apart, under the "+
+		"scratch folder and on every page. Drive's index is eventually consistent, so run the same search "+
+		"by hand a few minutes from now.", search.name, searchAttempts, searchPause)
+	return false
+}
+
+// searchAttempts and searchPause bound how long a search waits for
+// Drive's index to catch up with a write.
+const (
+	searchAttempts = 10
+	searchPause    = 3 * time.Second
+)
+
+// searchWithin runs a search under the scratch folder until it names id,
+// at most searchAttempts times, and reports whether one did. missed is
+// said before each search after the first.
+func (w *writeRun) searchWithin(search call, id, missed string) bool {
+	search.args = maps.Clone(search.args)
 	search.args["under_folder"] = w.scratchID
-	const attempts = 10
-	for i := range attempts {
+	for i := range searchAttempts {
 		if i > 0 {
-			w.pause(3 * time.Second)
+			w.out.Sayf("(%s — attempt %d of %d)", missed, i+1, searchAttempts)
+			w.pause(searchPause)
 		}
 		if w.searchAllPages(search, id) {
 			return true
 		}
-		w.out.Sayf("(the search has not found it yet; waiting — attempt %d of %d)", i+1, attempts)
 	}
-	w.out.Sayf("UNVERIFIED THIS RUN: %s. The search did not find the file after 30 seconds, under the "+
-		"scratch folder and on every page. Drive's index is eventually consistent, so run the same search "+
-		"by hand a few minutes from now.", search.name)
 	return false
 }
 
@@ -1617,9 +1634,9 @@ func (w *writeRun) underFolder() {
 	}
 	search := map[string]any{"under_folder": outer, "name": "found", "limit": 1}
 	page := ""
-	for i := range 10 {
+	for i := range searchAttempts {
 		if i > 0 {
-			w.pause(3 * time.Second)
+			w.pause(searchPause)
 		}
 		page = w.call(call{name: "under_folder finds a file two levels down", tool: "search_files", args: search})
 		if files[0] != "" && strings.Contains(page, files[0]) || files[1] != "" && strings.Contains(page, files[1]) {
@@ -1644,7 +1661,7 @@ func (w *writeRun) underFolder() {
 
 // queryLimit looks for the longest `in parents` group Drive takes, by
 // doubling one until Drive refuses it. under_folder stops at
-// service.MaxUnderFolders folders, half of what Drive takes. It repeats
+// service.MaxUnderFolders folders, the most Drive has taken every time. It repeats
 // the scratch folder's id, so it measures length and term count, not
 // distinct folders. Nothing here fails the run: it reports the answer,
 // for the comment at the code that depends on it.
@@ -2119,7 +2136,7 @@ func writeFiller(path string, n int) error {
 // so the bytes go up as a type it does not read, holding a word that is
 // in no name or description under the scratch folder, and the step
 // searches for that word. The same bytes go up again without the flag:
-// only that copy staying out of the results shows the flag did it.
+// only that copy staying out of the results can show the flag did it.
 func (w *writeRun) indexableText() {
 	const word = "quokkalantern"
 	path := filepath.Join(w.dir, "indexable upload.bin")
@@ -2145,17 +2162,18 @@ func (w *writeRun) indexableText() {
 		tool: "search_files", args: map[string]any{"text": word}}, flagged) || control == "" {
 		return
 	}
-	// The index has caught up with the flagged copy, which went up first,
-	// so one search is a fair look for the control.
-	if w.searchAllPages(call{name: "the upload without the flag is looked for by the same word",
-		tool: "search_files", args: map[string]any{"text": word, "under_folder": w.scratchID}},
-		control) {
+	// The control went up second and may reach the index later, so it gets
+	// at least as long as the flagged copy before its absence counts.
+	if w.searchWithin(call{name: "the upload without the flag is looked for by the same word",
+		tool: "search_files", args: map[string]any{"text": word}}, control,
+		"the control is not in the results, as with a type Drive does not read; looking again") {
 		w.out.Say("(the copy uploaded without use_content_as_indexable_text was found by the same word: " +
 			"Drive reads this type on its own, so this run does not show what the flag does. " + recordIt + ")")
 		return
 	}
-	w.out.Say("(the copy uploaded without use_content_as_indexable_text was not found by the same word, " +
-		"and the one with it was: the flag made the difference. " + recordIt + ")")
+	w.out.Sayf("(the copy uploaded without use_content_as_indexable_text was not found by the same word in %d "+
+		"searches %s apart, and the one with it was. Either the flag made the difference or Drive had not "+
+		"indexed the control yet; this run cannot tell them apart.)", searchAttempts, searchPause)
 }
 
 // resources reads the three gdrive:// templates, which are the part of
