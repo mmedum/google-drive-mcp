@@ -12,7 +12,7 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- For contributors: `make live` hid no name in a row whose shared drive or folder name holds two spaces in a row or ends in one. Reread older transcripts before sharing them.
+- For contributors: `make live` printed whole rows whose shared drive or folder name held a doubled or trailing space; reread older transcripts before sharing.
 
 ## [3.3.0] - 2026-11-21
 
