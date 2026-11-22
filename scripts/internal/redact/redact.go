@@ -181,21 +181,27 @@ var leadIns = map[string]bool{
 	"sent": true, "the": true, "to": true, "was": true, "with": true,
 }
 
+// commentID is a comment's or a reply's id where its position marks one:
+// letters, digits, - and _, with a period inside, as in a reply's
+// "doco." form, and never one that ends a sentence. Checked by the live
+// step "a reply is added to a thread".
+const commentID = `[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+)*`
+
 // commentPositions are where this server prints a comment's or a
-// reply's id. Drive's are eleven characters, and the ID pattern wants
-// nineteen, so it never sees them; these positions are what hide them.
+// reply's id. A comment's id is eleven characters and a reply's may have
+// no digit, so the ID pattern takes neither; these positions hide them.
 var commentPositions = []struct {
 	kind string
 	re   *regexp.Regexp
 }{
-	{"COMMENT", regexp.MustCompile(`\bcomment ([A-Za-z0-9_\-]{6,})`)},
-	{"REPLY", regexp.MustCompile(`\breply ([A-Za-z0-9_\-]{6,})`)},
+	{"COMMENT", regexp.MustCompile(`\bcomment (` + commentID + `)`)},
+	{"REPLY", regexp.MustCompile(`\breply (` + commentID + `)`)},
 	{"COMMENT", regexp.MustCompile(`"comment":"([^"\\]+)"`)},
 	{"REPLY", regexp.MustCompile(`"reply":"([^"\\]+)"`)},
 	// list_comments: a thread opens a line with its id and its state,
 	// and a reply opens a line indented two spaces under it.
-	{"COMMENT", regexp.MustCompile(`(?m)^([A-Za-z0-9_\-]{6,})  (?:open|resolved|deleted)\b`)},
-	{"REPLY", regexp.MustCompile(`(?m)^  ([A-Za-z0-9_\-]{6,})  `)},
+	{"COMMENT", regexp.MustCompile(`(?m)^(` + commentID + `)  (?:open|resolved|deleted)\b`)},
+	{"REPLY", regexp.MustCompile(`(?m)^  (` + commentID + `)  `)},
 }
 
 var (
