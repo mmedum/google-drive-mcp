@@ -460,3 +460,66 @@ func TestNamesOutsideTheRunAreHidden(t *testing.T) {
 		t.Errorf("a name was hidden with KeepNamesUnder unset:\n%s", got)
 	}
 }
+
+// A name may end in a space or hold two in a row, and the renderers
+// print it as it is. Two spaces also part a row's columns, so such a
+// name must not split a location or a name into cells that each escape,
+// even where a part of it reads like a column the server writes after a
+// location. Those columns stay readable. The names are invented.
+func TestNamesWithRunsOfSpacesAreHidden(t *testing.T) {
+	const (
+		foreignDrive  = "Quillfeather Holdings "
+		foreignFolder = "Archive "
+		foreignFile   = "Contract  with Brightwater"
+		lookalike     = "Board  modified budgets  starred"
+	)
+	theirs := model.New(&gdrive.File{ID: fixtureID, Name: foreignFile, MimeType: gdrive.MimeDocument,
+		ModifiedTime: "2026-03-04T09:00:00Z"}, model.Options{})
+	theirs.Location = model.Location{Drive: foreignDrive, SharedDrive: true, Folders: []string{foreignFolder}}
+	flagged := model.New(&gdrive.File{ID: fixtureID, Name: foreignFile, MimeType: gdrive.MimeDocument,
+		ModifiedTime: "2026-03-04T09:00:00Z", SharedWithMeTime: "2026-03-05T09:00:00Z",
+		Starred: true, Trashed: true, Shared: true}, model.Options{})
+	flagged.Location = model.Location{Drive: foreignDrive, SharedDrive: true, Folders: []string{lookalike}}
+	folder := model.New(&gdrive.File{ID: fixtureID, Name: foreignFolder, MimeType: gdrive.MimeFolder}, model.Options{})
+	folder.Location = model.Location{Drive: foreignDrive, SharedDrive: true}
+
+	outputs := map[string]string{
+		"search": render.Listing([]*model.File{theirs, flagged},
+			render.ListingOptions{Title: "search: everything — 2 hits", Now: now, ShowLocation: true}),
+		"their folder": render.Listing([]*model.File{theirs},
+			render.ListingOptions{Title: theirs.Location.String() + " — 1 item, folders first", Now: now}),
+		"tree": render.Tree(&render.TreeNode{File: folder, Items: 1, Children: []*render.TreeNode{{File: theirs}}},
+			render.TreeOptions{Title: folder.Location.String() + "/" + foreignFolder + " — tree, depth 1, 1 item shown"}),
+		"changes": render.Changes([]*model.Change{
+			{Kind: "file", ID: fixtureID, Name: foreignFile, Location: flagged.Location.String(), At: now},
+			{Kind: "drive", ID: fixtureDriveID, Name: foreignDrive, At: now},
+		}, render.ChangesOptions{Title: "changes in this account's Drive: 2 changes", Now: now}),
+		"changes in their drive": render.Changes([]*model.Change{
+			{Kind: "file", ID: fixtureID, Name: foreignFile, Location: theirs.Location.String(), At: now},
+		}, render.ChangesOptions{Title: "changes in the shared drive " + foreignDrive + ": 1 change", Now: now}),
+		"drives": render.Drives([]*model.Drive{model.NewDrive(&gdrive.Drive{ID: fixtureDriveID, Name: "Quillfeather  Holdings"})},
+			render.DrivesOptions{Title: "shared drives this account can see: 1 drive"}),
+	}
+	for what, out := range outputs {
+		r := redact.NewRedactor(false)
+		r.KeepNamesUnder("google-drive-mcp livedrive scratch")
+		got := r.Do(out)
+		for _, word := range []string{"Quillfeather", "Holdings", "Archive", "Contract", "Brightwater", "Board", "budgets"} {
+			if strings.Contains(got, word) {
+				t.Errorf("%s: %q survived\n%s", what, word, got)
+			}
+		}
+		// The flags column says starred once; a second is the folder's.
+		if flags := strings.Count(out, "starred, trashed, shared"); strings.Count(got, "starred") > flags {
+			t.Errorf("%s: the folder's \"starred\" survived\n%s", what, got)
+		}
+	}
+	r := redact.NewRedactor(false)
+	r.KeepNamesUnder("google-drive-mcp livedrive scratch")
+	got := r.Do(outputs["search"])
+	for _, column := range []string{"modified 2026-03-04 09:00Z", "shared with you 2026-03-05 09:00Z", "starred, trashed, shared"} {
+		if !strings.Contains(got, column) {
+			t.Errorf("search: the column %q was hidden\n%s", column, got)
+		}
+	}
+}

@@ -568,13 +568,37 @@ func guardsIn(body *ast.BlockStmt, flags map[string]bool) guards {
 		}{from, to, flag})
 	}
 	afterReturn := func(stmts []ast.Stmt, end token.Pos) {
+		// offeredOK is, per variable, the step of the offered call that last
+		// set it: `_, ok := w.offered(call{name: "…"}, noApprovals)`.
+		offeredOK := map[string]string{}
 		for _, st := range stmts {
+			guard := offeredOK
+			// Any write to a name, at any depth of the statement, unlinks it
+			// from its offered step for the statements after.
+			offeredOK = maps.Clone(offeredOK)
+			for _, name := range assignedIn(st) {
+				delete(offeredOK, name)
+			}
+			if as, ok := st.(*ast.AssignStmt); ok {
+				maps.Copy(offeredOK, offeredStep(as))
+			}
 			is, ok := st.(*ast.IfStmt)
 			if !ok || is.Else != nil || len(is.Body.List) == 0 {
 				continue
 			}
 			if _, returns := is.Body.List[len(is.Body.List)-1].(*ast.ReturnStmt); !returns {
 				continue
+			}
+			// What follows a step the account refused runs only when it
+			// offered the feature.
+			set := maps.Clone(guard)
+			if as, ok := is.Init.(*ast.AssignStmt); ok {
+				maps.Copy(set, offeredStep(as))
+			}
+			if not, ok := ast.Unparen(is.Cond).(*ast.UnaryExpr); ok && not.Op == token.NOT {
+				if step := set[identName(not.X)]; step != "" {
+					add(is.End(), end, RefusedGate+step)
+				}
 			}
 			// What follows runs only when every alternative was false.
 			for _, alt := range operands(is.Cond, token.LOR) {
@@ -723,4 +747,54 @@ func callerGates(files []*ast.File, flags map[string]bool) map[string]map[string
 		}
 	}
 	return out
+}
+
+// RefusedGate opens a gate that a refusal holds rather than a flag: the
+// steps after `if _, ok := w.offered(c, limit); !ok { return }` run only
+// on an account that offers the feature c needs, and the rest of the gate
+// is c's name.
+const RefusedGate = "refused:"
+
+// offeredStep is, for `x, ok := w.offered(call{name: "…"}, limit)`, ok's
+// name and the step's; nothing for any other assignment.
+func offeredStep(as *ast.AssignStmt) map[string]string {
+	if len(as.Lhs) != 2 || len(as.Rhs) != 1 {
+		return nil
+	}
+	call, ok := as.Rhs[0].(*ast.CallExpr)
+	if !ok || len(call.Args) != 2 {
+		return nil
+	}
+	if sel, ok := call.Fun.(*ast.SelectorExpr); !ok || sel.Sel.Name != "offered" {
+		return nil
+	}
+	lit, ok := call.Args[0].(*ast.CompositeLit)
+	if !ok {
+		return nil
+	}
+	step, _ := stringLit(keyed(lit, "name"))
+	if name := identName(as.Lhs[1]); name != "" && name != "_" && step != "" {
+		return map[string]string{name: step}
+	}
+	return nil
+}
+
+// assignedIn is every name a statement writes, at any depth: by
+// assignment or by declaration.
+func assignedIn(st ast.Stmt) []string {
+	var names []string
+	ast.Inspect(st, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.AssignStmt:
+			for _, lhs := range v.Lhs {
+				names = append(names, identName(lhs))
+			}
+		case *ast.ValueSpec:
+			for _, name := range v.Names {
+				names = append(names, name.Name)
+			}
+		}
+		return true
+	})
+	return names
 }

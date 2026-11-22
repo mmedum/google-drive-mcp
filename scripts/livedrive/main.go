@@ -182,6 +182,8 @@ type options struct {
 	given map[string]bool
 	// asker catches a question the server puts to the person.
 	asker *asker
+	// notOffered hears of a feature the account refused; nil drops it.
+	notOffered func(step string)
 	// stop is where a stop signal arrives; nil never stops.
 	stop *stopper
 	// pause waits for Drive to catch up; nil is time.Sleep.
@@ -252,6 +254,7 @@ func run(o options, t *transcript.Transcript) error {
 	// runs from one that merely exists; this can, and says so at the end.
 	rec := livecover.NewRecorder()
 	sess.OnCall(rec.Sent)
+	o.notOffered = rec.NotOffered
 	// The driver can be asked, and fails the run on any question: the
 	// server asks nobody.
 	o.asker = &asker{out: t}

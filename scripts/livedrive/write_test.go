@@ -1,17 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/livecover"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/redact"
+	"github.com/mmedum/google-drive-mcp/v3/scripts/internal/transcript"
 )
 
 func TestFirstRevisionReadsTheIDOutOfAListing(t *testing.T) {
@@ -298,5 +303,40 @@ func TestWithoutDestructiveTheLinkStepsSayWhyTheyDidNotRun(t *testing.T) {
 	}
 	if want := "(pass -destructive to check that a move or a copy that would reach anyone with the link is refused"; !strings.Contains(out.String(), want) {
 		t.Errorf("the transcript does not say why the steps did not run:\n%s", out.String())
+	}
+}
+
+// refusingSession refuses every call with one answer.
+type refusingSession struct{ answer string }
+
+func (s refusingSession) CallTool(string, map[string]any) (string, bool, error) {
+	return s.answer, true, nil
+}
+func (refusingSession) ReadResource(string) (string, string, error) { return "", "", nil }
+func (refusingSession) StderrTail(int) []string                     { return nil }
+
+// A refusal that says the account lacks the feature is reported, so the
+// coverage report names it rather than a step that never ran; any other
+// refusal of the same step is not.
+func TestARefusalOfTheFeatureIsReported(t *testing.T) {
+	for _, tc := range []struct {
+		answer string
+		want   map[string]bool
+	}{
+		{"[forbidden] you cannot start an approval on Notes: " + noApprovals,
+			map[string]bool{"an approval is started": true}},
+		{"[forbidden] you cannot start an approval on Notes: you are not its owner", map[string]bool{}},
+	} {
+		got := map[string]bool{}
+		o := testOptions(options{})
+		o.notOffered = func(why string) { got[why] = true }
+		var out bytes.Buffer
+		w := newWriteRun(refusingSession{tc.answer}, transcript.NewTo(redact.NewRedactor(true), &out, &out),
+			t.TempDir(), o, time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC))
+		w.offered(call{name: "an approval is started", tool: "manage_approval",
+			args: map[string]any{"action": "start"}}, noApprovals)
+		if !maps.Equal(got, tc.want) {
+			t.Errorf("refused with %q: reported %v, want %v", tc.answer, got, tc.want)
+		}
 	}
 }

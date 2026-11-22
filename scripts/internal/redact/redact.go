@@ -499,8 +499,15 @@ var (
 	idCell = regexp.MustCompile(`^\[?<ID_\d+>\]?$`)
 	// cellGap separates a row's columns.
 	cellGap = regexp.MustCompile(`\s{2,}`)
+	// changesInDrive opens the title of a shared drive's changes feed.
+	changesInDrive = "changes in the shared drive "
 	// treeGlyphs open a row of a tree.
 	treeGlyphs = regexp.MustCompile(`^[│├└─\s]*`)
+	// whenCell and flagsCell are the cells the server writes after a row's
+	// location, in that order and in the exact shape it writes them: when
+	// it was modified or shared, or a change's time; then the flags.
+	whenCell  = regexp.MustCompile(`^(?:shared with you by |(?:modified|shared with you) \d{4}-\d{2}-\d{2} \d{2}:\d{2}Z|\d{4}-\d{2}-\d{2} \d{2}:\d{2}Z(?: \([^()]*\))?$|unknown$)`)
+	flagsCell = regexp.MustCompile(`^(?:starred|trashed|link-shared|shared)(?:, (?:starred|trashed|link-shared|shared))*$`)
 )
 
 // roleCells open a permission row, whose second column is a person or a
@@ -528,6 +535,14 @@ func (r *Redactor) foreignNames(text string) string {
 		}
 	}
 	drives = strings.HasPrefix(lines[0], "shared drives this account can see")
+	// A shared drive's changes feed names the drive in its title.
+	if rest, ok := strings.CutPrefix(lines[0], changesInDrive); ok {
+		if name, count, ok := strings.Cut(rest, ": "); ok {
+			lines[0] = changesInDrive + r.name(name) + ": " + count
+		}
+	}
+	// Each row of a search or a changes feed says where it is.
+	located := strings.HasPrefix(lines[0], "search: ") || strings.HasPrefix(lines[0], "changes in ")
 	cardForeign := false
 	for i, line := range lines {
 		if m := locationField.FindStringSubmatch(line); m != nil && isLocation(m[3]) && !r.kept(m[3]) {
@@ -544,7 +559,7 @@ func (r *Redactor) foreignNames(text string) string {
 		if m := restricted.FindStringSubmatch(line); m != nil && drives {
 			line = r.name(m[1]) + line[len(m[1]):]
 		}
-		lines[i] = r.foreignRow(line, headForeign, drives)
+		lines[i] = r.foreignRow(line, headForeign, drives, located)
 	}
 	if cardForeign {
 		if m := cardHead.FindStringSubmatchIndex(lines[0]); m != nil {
@@ -557,7 +572,7 @@ func (r *Redactor) foreignNames(text string) string {
 // foreignRow hides the name in one row of a listing, a search, a tree,
 // a changes feed or a list of shared drives, when the row is not the
 // run's own.
-func (r *Redactor) foreignRow(line string, headForeign, drives bool) string {
+func (r *Redactor) foreignRow(line string, headForeign, drives, located bool) string {
 	gaps := cellGap.FindAllStringIndex(line, -1)
 	// Cells as spans of the line, so a replacement keeps the columns.
 	var cells [][2]int
@@ -571,40 +586,69 @@ func (r *Redactor) foreignRow(line string, headForeign, drives bool) string {
 	if from < len(line) {
 		cells = append(cells, [2]int{from, len(line)})
 	}
+	cell := func(k int) string { return line[cells[k][0]:cells[k][1]] }
 	id := -1
 	for k := 1; k < len(cells); k++ {
-		if idCell.MatchString(line[cells[k][0]:cells[k][1]]) {
+		if idCell.MatchString(cell(k)) {
 			id = k
 			break
 		}
 	}
-	if id < 0 || roleCells[line[cells[0][0]:cells[0][1]]] {
+	if id < 0 || roleCells[cell(0)] {
 		return line
 	}
-	nameAt := cells[id-1]
+	// A name holding two spaces in a row spans cells, so it runs up to the
+	// id, from after the kind a listing, a search or a changes feed opens
+	// with. A tree row, whose id is bracketed, and a drive's row open with
+	// the name.
+	tree := strings.HasPrefix(cell(id), "[")
+	nameAt := [2]int{cells[0][0], cells[id-1][1]}
+	if !tree && !drives && id > 1 {
+		nameAt[0] = cells[1][0]
+	}
 	name := line[nameAt[0]:nameAt[1]]
-	if id == 1 {
+	if tree {
 		// A tree row opens with the branches it hangs from.
 		glyphs := treeGlyphs.FindString(name)
 		nameAt[0] += len(glyphs)
 		name = name[len(glyphs):]
 	}
-	foreign := headForeign
-	locAt := [2]int{-1, -1}
-	for k := id + 1; k < len(cells); k++ {
-		if cell := line[cells[k][0]:cells[k][1]]; isLocation(cell) {
-			locAt, foreign = cells[k], !r.kept(cell)
-			break
+	// What follows the id is the location, then the cells the server
+	// writes after one. They are found from the right, at most one of each
+	// in order, so a location that spans cells, such as after a shared
+	// drive whose name ends in a space, cannot end early at a word of its own.
+	end := len(cells)
+	for _, after := range []*regexp.Regexp{flagsCell, whenCell} {
+		if end > id+1 && after.MatchString(cell(end-1)) {
+			end--
 		}
 	}
-	if drives {
+	foreign := headForeign
+	var locAt [2]int
+	hasRest := end > id+1
+	if hasRest {
+		locAt = [2]int{cells[id+1][0], cells[end-1][1]}
+		switch rest := line[locAt[0]:locAt[1]]; {
+		case isLocation(rest):
+			foreign = !r.kept(rest)
+		case located:
+			// A row of a search or a changes feed always says where it is;
+			// one this cannot read is hidden rather than passed through.
+			foreign = true
+		default:
+			hasRest = false
+		}
+	}
+	if drives || located && !hasRest {
+		// A drive's row, and a change to a drive, say no location: the name
+		// alone says whose it is.
 		foreign = !strings.HasPrefix(name, r.keep)
 	}
 	if !foreign {
 		return line
 	}
 	out := line
-	if locAt[0] >= 0 {
+	if hasRest {
 		out = out[:locAt[0]] + r.foreignPath(out[locAt[0]:locAt[1]]) + out[locAt[1]:]
 	}
 	hidden := r.name(strings.TrimSuffix(name, "/"))
@@ -660,7 +704,9 @@ func (r *Redactor) name(v string) string {
 	if v == "" || strings.HasPrefix(v, r.keep) {
 		return v
 	}
-	return r.placeholder("NAME", "name:"+v)
+	// A name ending in a space loses it where a column gap follows, so one
+	// name keys one placeholder either way.
+	return r.placeholder("NAME", "name:"+strings.TrimSpace(v))
 }
 
 // Summary lists what was hidden, by kind, so the reader knows the

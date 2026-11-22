@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -24,11 +25,14 @@ type Recorder struct {
 	// sent: get_account takes no options at all, so a call of it records
 	// an empty set, which alone would read as the tool never called.
 	called map[string]int
+	// refused is the steps the account refused, by name, for a feature an
+	// edition or an admin turns off: the steps after one do not run.
+	refused map[string]bool
 }
 
 // NewRecorder returns a recorder with nothing in it.
 func NewRecorder() *Recorder {
-	return &Recorder{sent: map[string]map[string]bool{}, called: map[string]int{}}
+	return &Recorder{sent: map[string]map[string]bool{}, called: map[string]int{}, refused: map[string]bool{}}
 }
 
 // calls is how many tool invocations this run made.
@@ -53,6 +57,11 @@ func (r *Recorder) Sent(tool string, args map[string]any) {
 	}
 }
 
+// NotOffered records that the account refused the named step for want of
+// a feature: the steps after it are then reported as the account's
+// limit rather than as steps that never run.
+func (r *Recorder) NotOffered(step string) { r.refused[step] = true }
+
 // Report says what this run drove, and what it did not drive that the
 // source says it should have.
 //
@@ -69,7 +78,7 @@ func (r *Recorder) Report(published map[string][]string, steps Steps, given map[
 	var untouched []string
 	for _, tool := range Sorted(published) {
 		if r.called[tool] == 0 {
-			untouched = append(untouched, tool)
+			untouched = append(untouched, tool+r.whyUncalled(steps[tool], given))
 		}
 		for _, option := range published[tool] {
 			total++
@@ -98,7 +107,7 @@ func (r *Recorder) Report(published map[string][]string, steps Steps, given map[
 			if r.sent[tool][option] {
 				continue
 			}
-			if lacked := lackedFlags(steps[tool][option], given); lacked != "" {
+			if lacked := lackedFlags(steps[tool][option], given, r.refused); lacked != "" {
 				behind = append(behind, tool+"."+option+" ("+lacked+")")
 			} else {
 				ghosts = append(ghosts, tool+"."+option)
@@ -108,7 +117,7 @@ func (r *Recorder) Report(published map[string][]string, steps Steps, given map[
 	// Already in order: the two Sorted walks above build these as
 	// tool.option, and "." sorts below every character a name can carry.
 	if len(behind) > 0 {
-		fmt.Fprintf(&b, "\n\n%d option(s) the driver sends only behind a flag this run was not given:\n   %s",
+		fmt.Fprintf(&b, "\n\n%d option(s) the driver sends only behind a flag this run was not given, or past a feature this account refused:\n   %s",
 			len(behind), strings.Join(behind, ", "))
 	}
 	if len(ghosts) > 0 {
@@ -129,13 +138,18 @@ func (r *Recorder) Report(published map[string][]string, steps Steps, given map[
 // sending an option from running: "-labels", or "-drive or
 // -destructive" when two steps wait for different ones. It is "" when a
 // step waits for nothing this run lacked, which means that step should
-// have run.
-func lackedFlags(gates []Gate, given map[string]bool) string {
+// have run. A gate a refused step holds is lacked only when the account
+// refused that step, and is named by it.
+func lackedFlags(gates []Gate, given, refused map[string]bool) string {
 	var alternatives []string
 	for _, gate := range gates {
 		var lacked []string
 		for _, flag := range gate {
-			if !given[flag] {
+			if step, ok := strings.CutPrefix(flag, RefusedGate); ok {
+				if refused[step] {
+					lacked = append(lacked, "the account refused "+strconv.Quote(step))
+				}
+			} else if !given[flag] {
 				lacked = append(lacked, "-"+flag)
 			}
 		}
@@ -148,4 +162,24 @@ func lackedFlags(gates []Gate, given map[string]bool) string {
 	}
 	sort.Strings(alternatives)
 	return strings.Join(alternatives, " or ")
+}
+
+// whyUncalled is, for a tool this run never called, what every step
+// sending one of its options lacked, as " (-labels)"; "" when a step
+// lacked nothing, or the source names none.
+func (r *Recorder) whyUncalled(options map[string][]Gate, given map[string]bool) string {
+	var reasons []string
+	for _, option := range Sorted(options) {
+		lacked := lackedFlags(options[option], given, r.refused)
+		if lacked == "" {
+			return ""
+		}
+		if !slices.Contains(reasons, lacked) {
+			reasons = append(reasons, lacked)
+		}
+	}
+	if len(reasons) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(reasons, "; ") + ")"
 }
