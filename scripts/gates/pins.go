@@ -127,9 +127,16 @@ var (
 	// pinsImageDigest is a container image pinned by its content digest.
 	pinsImageDigest = regexp.MustCompile(`^[^@\s]+@sha256:[0-9a-f]{64}$`)
 	// pinsGoModToolchain and pinsGoModGo are setup-go's own patterns for
-	// the toolchain directive and the go line.
-	pinsGoModToolchain = regexp.MustCompile(`(?m)^toolchain go(1\.\d+(?:\.\d+|rc\d+)?)`)
-	pinsGoModGo        = regexp.MustCompile(`(?m)^go (\d+(?:\.\d+)*)`)
+	// the toolchain directive and the go line, copied as written. They
+	// read a beta or a release candidate too
+	// (https://github.com/actions/setup-go/blob/d8cbb8045d7f43706b9177cceb36c1f91a6644d5/src/installer.ts#L686-L696,
+	// setup-go v7.1.0).
+	pinsGoModToolchain = regexp.MustCompile(`(?m)^toolchain go(1\.\d+(?:\.\d+|(?:beta|rc)\d+)?)`)
+	pinsGoModGo        = regexp.MustCompile(`(?m)^go (\d+(?:\.\d+)*(?:\.\d+|(?:beta|rc)\d+)?)`)
+
+	// exactGo is one Go release, a beta or a release candidate: Go's
+	// versions are not semver (https://go.dev/doc/toolchain#version).
+	exactGo = regexp.MustCompile(`^\d+\.\d+(?:\.\d+|(?:beta|rc)\d+)$`)
 )
 
 // floatingDownload matches a tool fetched at whatever version is newest:
@@ -170,7 +177,11 @@ func (r *pinsReport) add(tool, version, at string) {
 	r.tools[tool] = append(r.tools[tool], pinsFound{version, at})
 	r.judged[tool+"@"+version] = true
 	r.places++
-	if !exactSemver.MatchString(version) {
+	exact := exactSemver
+	if tool == "go" {
+		exact = exactGo
+	}
+	if !exact.MatchString(version) {
 		r.fail("%s: %s is pinned to %q, which is not one exact version", at, tool, version)
 	}
 }
@@ -482,7 +493,7 @@ func pinsStep(gomod string, w workflowFile, s workflowStep, r *pinsReport) {
 			r.add(t.name, v.value, fmt.Sprintf("%s:%d: %s", file, v.line, action))
 		}
 		// setup-go reads go-version before go-version-file
-		// (https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/README.md#L44),
+		// (https://github.com/actions/setup-go/blob/d8cbb8045d7f43706b9177cceb36c1f91a6644d5/README.md#L44),
 		// so one beside go.mod is the Go the step installs.
 		if v, set := s.input("go-version"); t.name == "go" && set {
 			r.fail("%s:%d: %s sets go-version, which setup-go reads before %s; pin Go by go.mod alone",
@@ -549,8 +560,8 @@ func pinsGoRuns(line string) []pinsGoRun {
 
 // pinsGoVersion is the Go a go.mod runs: its toolchain directive, or else
 // its go line. setup-go installs that, and the go command switches to it
-// (https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/src/installer.ts#L645,
-// setup-go v7.0.0).
+// (https://github.com/actions/setup-go/blob/d8cbb8045d7f43706b9177cceb36c1f91a6644d5/src/installer.ts#L676,
+// setup-go v7.1.0).
 func pinsGoVersion(gomod string) string {
 	if m := pinsGoModToolchain.FindStringSubmatch(gomod); m != nil {
 		return m[1]
