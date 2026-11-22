@@ -210,7 +210,7 @@ const (
 // pinned once or more at one version, each installer used, every action
 // classified and pinned by SHA.
 func pinsFixture() map[string]string {
-	setupGo := []string{"      - uses: actions/setup-go@" + pinSHA + " # v7.0.0", "        with:", "          go-version-file: go.mod"}
+	setupGo := []string{"      - uses: actions/setup-go@" + pinSHA + " # v7.1.0", "        with:", "          go-version-file: go.mod"}
 	steps := func(head []string, rest ...string) string {
 		return textLines(append(append(head, setupGo...), rest...)...)
 	}
@@ -634,6 +634,14 @@ func TestPinsNamesEachProblem(t *testing.T) {
 			`.github/workflows/release.yml:13: actions/setup-go: go is pinned to "1.27", which is not one exact version`,
 			`go.mod: go is pinned to "1.27", which is not one exact version`,
 		}},
+		// setup-go installs a beta or a release candidate exactly as
+		// go.mod names it, so each is one exact version.
+		{"a go line naming a release candidate", []docsEdit{
+			replace("go.mod", "go 1.27.3", "go 1.28rc1"),
+		}, nil},
+		{"a toolchain line naming a beta", []docsEdit{
+			replace("go.mod", "go 1.27.3", "go 1.27.3\n\ntoolchain go1.28beta2"),
+		}, nil},
 		{"a version in a Makefile comment, which pins nothing", []docsEdit{
 			mk("GO ?= go\n", "GO ?= go\n# go run golang.org/x/vuln/cmd/govulncheck@master was the old way.\n"),
 		}, nil},
