@@ -225,17 +225,24 @@ func suspiciousID(id string) bool {
 }
 
 // isCodeIdentifier reports whether the match is part of a program rather
-// than a value: something reached through a dot, or called. A leaked id
-// arrives as a literal or in prose, never as a selector.
+// than a value. A leaked id arrives as a literal or in prose, never as a
+// selector, and no Go identifier starts with a digit as a Drive id does.
 func isCodeIdentifier(line string, loc []int) bool {
 	if loc[0] > 0 && line[loc[0]-1] == '.' {
 		return true
 	}
-	if loc[1] < len(line) && (line[loc[1]] == '(' || line[loc[1]] == '.') {
-		return true
+	if c := line[loc[0]]; c >= '0' && c <= '9' {
+		return false
 	}
-	return false
+	next := line[loc[1]:]
+	called := strings.HasPrefix(next, "(")
+	// A period that ends a sentence selects nothing.
+	selected := len(next) > 1 && next[0] == '.' && isIdentStart(next[1])
+	return called || selected
 }
+
+// isIdentStart reports whether c can open an ASCII identifier.
+func isIdentStart(c byte) bool { return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
 
 // driveHosts are the hosts whose URLs carry a file id in the path.
 var driveHosts = map[string]bool{
@@ -335,9 +342,12 @@ func leaksInHistoryAllowing(out io.Writer, allowed map[string]string) error {
 				continue
 			}
 			found = append(found, scanForLeaks(where, string(body))...)
-		case "commit", "tag":
+		case "commit":
 			messages++
 			found = append(found, scanForLeaks(kind+" "+hash[:8], gitMessage(string(body)))...)
+		case "tag":
+			messages++
+			found = append(found, scanForLeaks(kind+" "+hash[:8], tagMessage(string(body)))...)
 		}
 	}
 
@@ -380,6 +390,43 @@ func gitMessage(body string) string {
 		return attribution.ReplaceAllString(message, "")
 	}
 	return ""
+}
+
+// tagMessage is gitMessage for a tag, with the signature git appends to a
+// signed one left empty: its base64 reads as ids. The block is git's own:
+// from the last line that opens one, closing the message, all base64.
+// https://github.com/git/git/blob/v2.52.0/gpg-interface.c#L56-L74
+// https://github.com/git/git/blob/v2.52.0/gpg-interface.c#L701-L715
+func tagMessage(body string) string {
+	message := gitMessage(body)
+	lines := strings.Split(message, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		kind, ok := strings.CutPrefix(lines[i], "-----BEGIN ")
+		if !ok || !signatureKinds[kind] {
+			continue
+		}
+		if !strings.HasSuffix(strings.TrimRight(message, "\n"), "\n-----END "+kind) {
+			return message
+		}
+		for _, l := range lines[i+1:] {
+			if !armorLine.MatchString(l) && l != "-----END "+kind {
+				return message
+			}
+		}
+		return strings.Join(lines[:i], "\n") + strings.Repeat("\n", len(lines)-i)
+	}
+	return message
+}
+
+// armorLine is a line of a signature's body: base64, an armor header such
+// as "Comment: ...", or blank.
+var armorLine = regexp.MustCompile(`^(?:[A-Za-z0-9+/=]*|[A-Za-z-]+: .*)$`)
+
+// signatureKinds are what follows "-----BEGIN " on the line that opens a
+// signature, and "-----END " on the line that closes it.
+var signatureKinds = map[string]bool{
+	"PGP SIGNATURE-----": true, "PGP MESSAGE-----": true,
+	"SIGNED MESSAGE-----": true, "SSH SIGNATURE-----": true,
 }
 
 // attribution matches the trailer lines that credit a person with a

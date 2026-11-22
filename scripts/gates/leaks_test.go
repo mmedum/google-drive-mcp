@@ -45,6 +45,10 @@ func TestCatchesWhatALiveRunCanDragIn(t *testing.T) {
 		{"a real address after a documented one", "cc: person@example.com, " + address, isAddress},
 		{"a drive link after a harmless url", "see https://example.com/a and " + link, isLink},
 		{"an id after a selector", "x.SomeLongSelectorName2026() " + id, isID},
+		{"an id ending a sentence", "seen on " + id + ".", isID},
+		{"an id before a file's extension", "exported " + id + ".pdf for review", isID},
+		{"an id before a capitalized extension", "exported " + id + ".PDF for review", isID},
+		{"an id before a two-part extension", "exported " + id + ".tar.gz for review", isID},
 		{"a link whose second id is real", sample("https://drive.google.com/file/d/1SyntheticFixtureFileIdAAAAAAAAAAAA",
 			"/view?resourcekey=0-", id), isLink},
 	}
@@ -72,6 +76,9 @@ func TestLeavesTheRepositoryAlone(t *testing.T) {
 		"a plain sentence":         "the folder holds Budget.xlsx, Meeting notes, and more",
 		"a link to a synthetic id": "https://drive.google.com/file/d/1SyntheticFixtureFileIdAAAAAAAAAAAA/view",
 		"a field selector":         "timeout := cfg.HTTPTimeoutForEverything2026, nil",
+		"an exported selector":     "v := settingsForTheTest2026.Field",
+		"a selected method":        "d := settingsForTheTest2026.duration.String()",
+		"an unexported field":      "return settingsForTheTest2026.count",
 	}
 	for name, line := range cases {
 		if got := scanForLeaks("some/file.go", line); len(got) != 0 {
@@ -314,6 +321,41 @@ func TestHistoryScansMessagesAndNotTheIdentitiesGitWrites(t *testing.T) {
 		var out strings.Builder
 		if err := leaksInHistory(&out); err == nil {
 			t.Fatalf("an address in prose that mentions a trailer was not caught:\n%s", out.String())
+		}
+	})
+
+	t.Run("a signed tag's signature is not a leak, and its message still is scanned", func(t *testing.T) {
+		// Base64 shaped as an SSH signature's, which reads as Drive ids. It
+		// is invented: a real one would carry a real key.
+		block := "-----BEGIN SSH SIGNATURE-----\n" +
+			sample("U1NIU0lH", "AAAAAQAA", "ADMAAAAL", "c3NoLWVk", "MjU1MTkA", "AAAgSynt") + "\n" +
+			sample("9Synth", "eticSi", "gnatur", "eAo=") + "\n-----END SSH SIGNATURE-----\n"
+		tag := "object 081c9cb\ntype commit\ntag v1.0.0\ntagger A Tester <" + identity + "> 1 +0000\n\nv1.0.0\n"
+		if found := scanForLeaks("tag", tagMessage(tag+block)); len(found) != 0 {
+			t.Errorf("a signed tag's signature was flagged: %v", found)
+		}
+		id := sample("1BhX8kk0TbMD", "8KXojnKfZ6b7", "vTAVNz3ni")
+		found := scanForLeaks("tag", tagMessage(tag+"Seen on "+id+".\n"+block))
+		if len(found) != 1 || !strings.Contains(found[0], "tag:2:") {
+			t.Errorf("an id in a signed tag's message: found %v, want one finding on its line 2", found)
+		}
+		// A block that does not end the message, or that closes as another
+		// kind, is something a person wrote, and stays scanned.
+		for _, message := range []string{
+			tag + block + "Seen on " + id + " today.\n",
+			tag + strings.Replace(block, "END SSH", "END PGP", 1),
+			tag + strings.Replace(block, "eAo=", "Seen on "+id+" today", 1),
+		} {
+			if found := scanForLeaks("tag", tagMessage(message)); len(found) == 0 {
+				t.Errorf("a block that is not the tag's signature was blanked:\n%s", message)
+			}
+		}
+		if found := scanForLeaks("commit", gitMessage(tag+block)); len(found) == 0 {
+			t.Error("a signature block in a commit message was blanked; git signs a commit in its header")
+		}
+		x509 := strings.NewReplacer("SSH SIGNATURE", "SIGNED MESSAGE").Replace(block)
+		if found := scanForLeaks("tag", tagMessage(tag+x509)); len(found) != 0 {
+			t.Errorf("an X.509 tag signature was flagged: %v", found)
 		}
 	})
 
