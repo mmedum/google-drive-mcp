@@ -306,6 +306,7 @@ func TestErrorClasses(t *testing.T) {
 		{403, "invalidSharingRequest", "blocked"},
 		{400, "invalidSharingRequest", "invalid"},
 		{400, "shareOutNotPermittedForContent", "blocked"},
+		{400, "userCannotChangeDriveRestrictionsUnderOrgPolicy", "blocked"},
 		{403, "insufficientFilePermissions", "forbidden"},
 		{404, "notFound", "not_found"},
 		{409, "duplicate", "exists"},

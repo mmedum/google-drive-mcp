@@ -763,10 +763,10 @@ func sniffType(path string, f io.ReadSeeker) string {
 // ambiguous failure cannot leave two files behind: Drive refuses the
 // duplicate id and the first file stands.
 //
-// Drive refuses a generated id for the Docs Editors formats, so a new
-// Doc, Sheet, Slides deck, Drawing or Form is created without one and is
-// not idempotent. Nothing can be done about that from here; what catches
-// the duplicate is the same-name guard on the next call.
+// A type gapi.AcceptsGeneratedID refuses, such as a Doc or a Sheet, is
+// created without an id and is not idempotent. Nothing can be done about
+// that from here; what catches the duplicate is the same-name guard on
+// the next call.
 func (s *Service) assignID(ctx context.Context, meta *gdrive.FileMeta) error {
 	return s.assignIDFor(ctx, meta, meta.MimeType)
 }

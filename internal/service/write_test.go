@@ -422,3 +422,17 @@ func TestCopyRefusesAConversionDriveWillNotDo(t *testing.T) {
 		t.Errorf("copying a csv as a Sheet was refused: %v", err)
 	}
 }
+
+// An upload converting to a Google type carries no generated id, which
+// Drive refuses for one (D-27); the fake refuses it as Drive does.
+func TestAConvertingUploadCarriesNoGeneratedID(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("# Notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	svc, _ := setup(t, service.Options{LocalDir: dir})
+	if _, err := svc.UploadFile(t.Context(), service.UploadFileInput{LocalPath: filepath.Join(dir, "notes.md"),
+		ConvertTo: "doc"}); err != nil {
+		t.Fatalf("an upload converting to a Doc: %v", err)
+	}
+}

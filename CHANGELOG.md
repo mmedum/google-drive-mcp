@@ -6,6 +6,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-21
+
 ### Added
 
 - `list_approvals` names the revision an approved file was approved at, so `list_revisions` shows whether the content changed since.
@@ -35,6 +37,8 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - `manage_drive` refuses a create when it cannot read the drives to check the name, rather than risk a second drive of that name.
 - `list_folder`, label names, the duplicate-name check before a create and a not-found's folder contents no longer stop at an empty page Drive sends early.
 - A path whose second match Drive sends on a later page is refused `[ambiguous]`, rather than resolved to the first match.
+- `manage_drive` reports a restriction change the organization keeps for admins as `[blocked]`, saying who can make it, rather than a bare `[invalid]`.
+- `delete_file` on a shared-drive item shows who had access, rather than saying the permission list cannot be read.
 
 ### Security
 
@@ -2254,7 +2258,8 @@ account and reference machinery, and the four read tools.
   prose and a transcript believed to be clean and is not is worse than
   one nobody trusts.
 
-[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v3.2.1...HEAD
+[Unreleased]: https://github.com/mmedum/google-drive-mcp/compare/v3.3.0...HEAD
+[3.3.0]: https://github.com/mmedum/google-drive-mcp/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/mmedum/google-drive-mcp/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/mmedum/google-drive-mcp/compare/v3.1.2...v3.2.0
 [3.1.2]: https://github.com/mmedum/google-drive-mcp/compare/v3.1.1...v3.1.2

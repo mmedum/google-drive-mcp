@@ -359,6 +359,11 @@ func wrap(err error, what string) error {
 		}
 		return &Error{Class: ClassForbidden, Message: "Google refused " + what + ": " + msg, Err: err}
 	case ClassBlocked:
+		// Drive sends this one with an empty message, so it is worded here.
+		if gapi.IsRestrictionsReserved(err) {
+			return &Error{Class: ClassBlocked, Message: "your organization keeps changing a shared drive's " +
+				"restrictions for its admins, so nothing changed. A Workspace admin can make the change.", Err: err}
+		}
 		return &Error{Class: ClassBlocked, Message: "your organization's sharing policy does not allow this. Google said: " + msg, Err: err}
 	case ClassRateLimited:
 		// A daily quota and a burst are both "rate limited", and the

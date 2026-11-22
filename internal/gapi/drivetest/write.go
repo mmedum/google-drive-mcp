@@ -98,6 +98,8 @@ func (s *Server) createFile(meta *gdrive.FileMeta, contentType string, content [
 	// Docs Editors formats and a shortcut refuse a pre-generated id with
 	// different messages and different statuses. A fake that accepts what
 	// Drive refuses lets the bug through.
+	// The guide says drive-sdk takes an id; the fake refuses it only
+	// because AcceptsGeneratedID withholds one, so no call sends it.
 	if meta.ID != "" && !gapi.AcceptsGeneratedID(mimeType) {
 		if mimeType == gdrive.MimeShortcut {
 			return nil, &apiFailure{http.StatusBadRequest, "invalid",
