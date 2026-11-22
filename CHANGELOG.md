@@ -6,6 +6,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- For contributors: the Makefile sets `GOTOOLCHAIN` to `go.mod`'s release, and `make vuln` refuses any other Go, a distribution's build of it included.
+
 ## [3.3.0] - 2026-11-21
 
 ### Added
