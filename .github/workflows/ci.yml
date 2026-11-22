@@ -114,7 +114,7 @@ jobs:
           # The other jobs share go.sum's key and save a cache without
           # gitleaks, and setup-go saves nothing over a hit on its key, so on
           # that key gitleaks is built from source on every run.
-          # https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/src/cache-save.ts#L75-L80
+          # https://github.com/actions/setup-go/blob/d8cbb8045d7f43706b9177cceb36c1f91a6644d5/src/cache-save.ts#L75-L80
           cache-dependency-path: |
             go.sum
             Makefile
