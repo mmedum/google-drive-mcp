@@ -128,7 +128,7 @@ func TestGoValueFlagsAreTheFlagsTheHelpGivesAValue(t *testing.T) {
 	// A GOEXPERIMENT build carries its experiments after the release.
 	version := strings.FieldsFunc(goCmd("env", "GOVERSION"), func(r rune) bool { return r == '-' || r == ' ' || r == '\n' })
 	if want := "go" + pinsGoVersion(gomod); len(version) == 0 || version[0] != want {
-		t.Skipf("go is %v, not go.mod's %s, whose help the map is held to; GOTOOLCHAIN=auto runs it", version, want)
+		t.Skipf("go is %v, not go.mod's %s, whose help the map is held to; make sets GOTOOLCHAIN to it", version, want)
 	}
 	// A flag line in the help, with the word that names its value or with
 	// none, or a flag in a usage line, with the word that names its value.

@@ -2566,7 +2566,10 @@ matrix.
 Every action a workflow uses is pinned to a full commit SHA, with its
 version in a trailing comment. Every tool a step installs is pinned to
 one exact version, beside the action that installs it, and a container
-image by its digest. setup-go reads `go.mod` alone. A tool named on any
+image by its digest. setup-go reads `go.mod` alone, and the Makefile sets
+`GOTOOLCHAIN` to the same release, which `make vuln` holds it to:
+govulncheck checks nothing in the standard library of a build that
+reports a suffix after its release. A tool named on any
 line of a workflow, the Makefile, a command the goreleaser config runs
 or a string in the Go under `scripts/` is named at one version
 everywhere. The
