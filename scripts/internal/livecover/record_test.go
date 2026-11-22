@@ -99,7 +99,7 @@ func TestAnOptionBehindAMissingFlagIsNamedWithTheFlag(t *testing.T) {
 		"fields":         {{"drive", "write"}, {"destructive", "write"}},
 	}}
 	report := rec.Report(published, steps, map[string]bool{"write": true})
-	want := "2 option(s) the driver sends only behind a flag this run was not given:\n" +
+	want := "2 option(s) the driver sends only behind a flag this run was not given, or past a feature this account refused:\n" +
 		"   get_file.fields (-destructive or -drive), get_file.include_labels (-labels)\n\n" +
 		"!! 1 option(s) the driver's source says it sends were NOT sent by this run,\n" +
 		"   and no flag this run lacked explains it. It is a step that exists and does not run,\n" +
@@ -107,5 +107,41 @@ func TestAnOptionBehindAMissingFlagIsNamedWithTheFlag(t *testing.T) {
 		"   get_file.revision"
 	if !strings.HasSuffix(report, want) {
 		t.Errorf("report:\n%s\nwant it to end:\n%s", report, want)
+	}
+}
+
+// An option only steps past a step the account refused would send is
+// named with that step, and so is a tool only such steps call. A step
+// past a refused step this run did not meet is still the warning.
+func TestAnOptionPastARefusedStepIsNamedWithIt(t *testing.T) {
+	const refused, offered = "an approval starts", "a restriction is set"
+	rec := NewRecorder()
+	rec.Sent("manage_approval", map[string]any{"file": "id", "action": "start"})
+	rec.Sent("manage_drive", map[string]any{"drive": "id"})
+	rec.NotOffered(refused)
+
+	published := map[string][]string{
+		"manage_approval": {"file", "action", "approval", "lock_file"},
+		"manage_drive":    {"drive", "restrictions"},
+		"approve_file":    {"approval"},
+	}
+	steps := Steps{
+		"manage_approval": {"file": {{}}, "action": {{}},
+			"approval":  {{RefusedGate + refused, "write"}},
+			"lock_file": {{"destructive", RefusedGate + refused, "write"}}},
+		"manage_drive": {"drive": {{}}, "restrictions": {{RefusedGate + offered, "write"}}},
+		"approve_file": {"approval": {{RefusedGate + refused, "write"}}},
+	}
+	report := rec.Report(published, steps, map[string]bool{"write": true})
+	want := "2 option(s) the driver sends only behind a flag this run was not given, or past a feature this account refused:\n" +
+		`   manage_approval.approval (the account refused "an approval starts"), ` +
+		`manage_approval.lock_file (-destructive and the account refused "an approval starts")` + "\n\n" +
+		"!! 1 option(s) the driver's source says it sends were NOT sent by this run,\n" +
+		"   and no flag this run lacked explains it. It is a step that exists and does not run,\n" +
+		"   which `gates live-cover` reads as coverage because the words are there:\n" +
+		"   manage_drive.restrictions\n" +
+		`(1 registered tool(s) were not called at all this run: approve_file (the account refused "an approval starts").`
+	if !strings.Contains(report, want) {
+		t.Errorf("report:\n%s\nwant it to hold:\n%s", report, want)
 	}
 }

@@ -67,6 +67,8 @@ type writeRun struct {
 	// dueDate is a date in the future, which is the only kind an
 	// approval accepts.
 	dueDate string
+	// notOffered hears of a feature the account refused; nil drops it.
+	notOffered func(step string)
 	// failures counts calls that did not behave as expected.
 	failures int
 	// pause waits for Drive to catch up; time.Sleep, but for a test.
@@ -138,10 +140,13 @@ func runWrites(s session, t *transcript.Transcript, dir string, o options) (int,
 // newWriteRun is a write run that has made nothing yet.
 func newWriteRun(s session, t *transcript.Transcript, dir string, o options, now time.Time) *writeRun {
 	w := &writeRun{out: t, dir: dir, drive: o.drive, share: o.share, transfer: o.transfer, blocked: o.blocked,
-		labels: o.labels, activity: o.activity, destructive: o.destructive, pause: o.pause, stop: o.stop,
+		labels: o.labels, activity: o.activity, destructive: o.destructive, notOffered: o.notOffered, pause: o.pause, stop: o.stop,
 		started: now.Format(time.RFC3339), dueDate: now.AddDate(0, 0, 7).Format(time.RFC3339)}
 	if w.pause == nil {
 		w.pause = time.Sleep
+	}
+	if w.notOffered == nil {
+		w.notOffered = func(string) {}
 	}
 	w.sess = stoppable{session: s, w: w}
 	return w
@@ -2036,6 +2041,7 @@ func (w *writeRun) do(c call) (out string, isError bool) {
 		w.out.Say("(either outcome is correct here; it was " + outcomeWord(isError) + ")")
 	case c.limit != "" && isError && strings.Contains(out, c.limit):
 		w.out.Say("(this account does not offer it, a correct answer: the steps that need it are skipped)")
+		w.notOffered(c.name)
 	case isError != (c.why != ""):
 		w.failures++
 		if c.why != "" {

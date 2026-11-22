@@ -245,6 +245,79 @@ func (w *writeRun) sharing() {
 	}
 }
 
+// The steps after a feature the account may refuse wait for it, in both
+// shapes the driver writes, and through the functions they call; a step
+// before the refusal, or after an ok another assignment has replaced,
+// waits for nothing.
+func TestAStepKnowsTheRefusalItWaitsFor(t *testing.T) {
+	dir := t.TempDir()
+	src := `package main
+
+const (
+	noApprovals = "Drive does not offer one on this file"
+	reserved    = "keeps changing restrictions for its admins"
+)
+
+func (w *writeRun) approvals() {
+	w.call(call{tool: "list_approvals", args: map[string]any{"file": id}})
+	if _, ok := w.offered(call{name: "an approval starts", tool: "manage_approval", args: map[string]any{"action": "start"}}, noApprovals); !ok {
+		return
+	}
+	w.call(call{tool: "manage_approval", args: map[string]any{"approval": id}})
+}
+
+func (d *destroyRun) restrict() {
+	started, ok := d.offered(call{name: "a restriction is set", tool: "manage_drive", args: map[string]any{"restrictions": r}}, reserved)
+	if !ok {
+		d.call(call{tool: "trash_file", args: map[string]any{"file": started}})
+		return
+	}
+	d.lift()
+}
+
+func (d *destroyRun) lift() {
+	d.call(call{tool: "lift_drive_restriction", args: map[string]any{"dry_run": true}})
+}
+
+func (w *writeRun) tolerated() {
+	_, ok := w.offered(call{name: "a file is read", tool: "get_file", args: map[string]any{"file": id}}, noApprovals)
+	if retry {
+		ok = w.checked()
+	}
+	if !ok {
+		return
+	}
+	w.call(call{tool: "get_file", args: map[string]any{"revision": id}})
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "driver.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	steps, err := ReadSteps(dir, map[string][]string{
+		"list_approvals": {"file"}, "manage_approval": {"action", "approval"}, "manage_drive": {"restrictions"},
+		"trash_file": {"file"}, "lift_drive_restriction": {"dry_run"}, "get_file": {"file", "revision"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		tool, option string
+		want         []Gate
+	}{
+		{"list_approvals", "file", []Gate{{}}},
+		{"manage_approval", "action", []Gate{{}}},
+		{"manage_approval", "approval", []Gate{{RefusedGate + "an approval starts"}}},
+		{"manage_drive", "restrictions", []Gate{{}}},
+		{"trash_file", "file", []Gate{{}}},
+		{"lift_drive_restriction", "dry_run", []Gate{{RefusedGate + "a restriction is set"}}},
+		{"get_file", "revision", []Gate{{}}},
+	} {
+		if got := steps[c.tool][c.option]; !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s.%s waits for %v, want %v", c.tool, c.option, got, c.want)
+		}
+	}
+}
+
 // stepsIn parses src as one driver file and walks its step literals.
 func stepsIn(t *testing.T, src string) []Step {
 	t.Helper()

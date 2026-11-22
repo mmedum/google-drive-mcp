@@ -10,6 +10,10 @@ this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 - For contributors: the Makefile sets `GOTOOLCHAIN` to `go.mod`'s release, and `make vuln` refuses any other Go, a distribution's build of it included.
 
+### Fixed
+
+- For contributors: `make live` printed whole rows whose shared drive or folder name held a doubled or trailing space; reread older transcripts before sharing.
+
 ## [3.3.0] - 2026-11-21
 
 ### Added
