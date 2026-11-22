@@ -44,8 +44,10 @@ make build
 make hooks
 ```
 
-Go is the only prerequisite, at the version in `go.mod`;
-`GOTOOLCHAIN=auto`, the default, fetches it. The Makefile runs
+Go is the only prerequisite. The Makefile sets `GOTOOLCHAIN` to the
+release in `go.mod`, and the go command fetches that stock build.
+`make vuln` refuses any other Go, because govulncheck checks nothing in
+the standard library of a build it cannot read. The Makefile runs
 golangci-lint, govulncheck, go-licenses, gitleaks and actionlint through
 `go run` at pinned versions. Everything the repository runs on itself is
 Go, under `scripts/` (D-10), and GoReleaser builds only `./cmd/...`, so

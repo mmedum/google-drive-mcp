@@ -1,6 +1,11 @@
 # Common dev tasks. CI runs the same gates from .github/workflows/ci.yml.
 
 GO       ?= go
+# go.mod's release, which `make vuln` refuses to run without (D-79). A
+# distribution's build reports a suffix, so it never counts as this
+# release, and the go command fetches the stock build
+# (https://github.com/golang/go/blob/go1.27.4/src/cmd/go/internal/toolchain/select.go#L271).
+export GOTOOLCHAIN := go1.27.4
 BIN      ?= ./google-drive-mcp
 VERSION  ?= dev
 PKG       = github.com/mmedum/google-drive-mcp/v3
