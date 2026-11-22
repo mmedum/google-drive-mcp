@@ -86,15 +86,29 @@ const (
 )
 
 func TestATenThousandItemTreeStaysLinear(t *testing.T) {
-	small := time.Duration(0)
-	large := time.Duration(0)
+	var small, large time.Duration
+	perLine := 0.0
 	// Three runs each, taking the fastest: a shared runner will stall one
-	// of them, and a flaky performance test is a test people delete.
+	// of them, and a flaky performance test is a test people delete. The
+	// tree and the plain lines are compared within one run, so a stall in
+	// either half is not set against a quiet moment in the other.
 	for range 3 {
 		small = fastest(small, timeTree(t, linearSmallN))
-		large = fastest(large, timeTree(t, linearLargeN))
+		tree := timeTree(t, linearLargeN)
+		large = fastest(large, tree)
+		if r := float64(tree) / float64(timeLines(linearLargeN)); perLine == 0 || r < perLine {
+			perLine = r
+		}
 	}
-	t.Logf("%d items in %s, %d in %s", linearSmallN, small, linearLargeN, large)
+	t.Logf("%d items in %s, %d in %s, %.1f times as many plain lines", linearSmallN, small, linearLargeN, large, perLine)
+
+	// A backstop against every size becoming equally slow, measured against
+	// writing as many plain lines, which a busy machine slows as much.
+	// Measured: 2.6 to 2.7 plain, 1.2 under the race detector, 2.2 under it
+	// with the coverage counters make check adds.
+	if perLine > 5 {
+		t.Errorf("rendering %d items cost %.1f times writing as many lines", linearLargeN, perLine)
+	}
 
 	// Below a millisecond the ratio is measuring the machine, not the
 	// renderer. Asserting on it anyway is what made this test unreliable.
@@ -113,11 +127,6 @@ func TestATenThousandItemTreeStaysLinear(t *testing.T) {
 	if ratio := float64(large) / float64(small); ratio > 40 {
 		t.Errorf("ten times the items cost %.1f times the work; the renderer looks superlinear", ratio)
 	}
-	// A backstop far above anything instrumentation explains, so a
-	// change that made every size equally slow is still caught.
-	if large > 2*time.Second {
-		t.Errorf("rendering %d items took %s", linearLargeN, large)
-	}
 }
 
 func timeTree(t *testing.T, n int) time.Duration {
@@ -130,6 +139,17 @@ func timeTree(t *testing.T, n int) time.Duration {
 		t.Fatalf("the tree rendered %d lines for %d items, so it is not the tree this measured", lines, n)
 	}
 	return took
+}
+
+// timeLines writes n lines shaped like a tree's rows, the work a linear
+// renderer cannot do with less.
+func timeLines(n int) time.Duration {
+	start := time.Now()
+	var b strings.Builder
+	for i := range n {
+		fmt.Fprintf(&b, "├── item %d.txt  [1SyntheticFixtureFileId%011d]  (text file, %d B)\n", i, i, i)
+	}
+	return time.Since(start)
 }
 
 func fastest(best, got time.Duration) time.Duration {

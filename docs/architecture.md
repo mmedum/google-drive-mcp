@@ -2463,8 +2463,9 @@ large tree renders in a few milliseconds uninstrumented and an order of
 magnitude slower there, so a wall-clock target either fails for the
 wrong reason or is set so loose it asserts nothing.
 `TestATenThousandItemTreeStaysLinear` asserts that ten times the items
-cost within twenty times the work, plus a backstop far above anything
-instrumentation explains. A call count does not depend on the machine,
+cost within forty times the work, and that a large tree costs within
+five times writing as many plain lines, which load and instrumentation
+slow alike. A call count does not depend on the machine,
 so `TestASearchPageCostsOneListAndBoundedParentLookups` holds the count
 exactly. A benchmark's fixture has the shape Drive would return, since a
 tree a thousand levels deep measures the indent string.
