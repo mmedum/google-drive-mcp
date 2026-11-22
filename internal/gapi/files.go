@@ -298,8 +298,10 @@ type WriteOptions struct {
 	// reads its effect is unverified, and Drive sometimes reads
 	// application/octet-stream itself. Checked by the live steps "an
 	// upload is made with use_content_as_indexable_text", "the same bytes
-	// are uploaded without the flag" and "use_content_as_indexable_text
-	// makes an upload's words searchable".
+	// are uploaded without the flag", "use_content_as_indexable_text
+	// makes an upload's words searchable" and "the upload without the flag
+	// is looked for by the same word", which can show Drive reading a type
+	// itself but not the flag alone making the difference.
 	// https://developers.google.com/workspace/drive/api/reference/rest/v3/files/create
 	UseContentAsIndexableText bool
 	// CopyComments asks files.copy to bring the file's open comment

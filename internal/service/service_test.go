@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -597,21 +598,25 @@ func TestASearchGoogleRefusesWithAPageSaysWhyAndQuotesNoPage(t *testing.T) {
 	page := "<!DOCTYPE html>\n<html lang=en><title>Error 400 (Bad Request)</title></html>"
 	long := strings.Repeat("'id-root-my-drive' in parents or ", 400) + "'id-root-my-drive' in parents"
 	for _, tc := range []struct {
-		name   string
-		status int
-		raw    string
-		want   string
+		name    string
+		status  int
+		raw     string
+		want    string
+		page    string
+		message string
 	}{
+		{"a long query answered 400 by Drive", http.StatusBadRequest, long,
+			"[invalid] Drive refused the search: Invalid Value. Its query is ", "", "Invalid Value"},
 		{"a long query answered 400 with a page", http.StatusBadRequest, long,
-			"[invalid] Google refused the search before Drive read it, most likely as too long: its query is "},
+			"[invalid] Google refused the search before Drive read it, most likely as too long: its query is ", page, ""},
 		{"a query answered 414", http.StatusRequestURITooLong, long,
-			"[invalid] Google refused the search as too long (HTTP 414): its query is "},
+			"[invalid] Google refused the search as too long (HTTP 414): its query is ", page, ""},
 		{"a short query answered 400 with a page", http.StatusBadRequest, "name = 'x'",
-			"[invalid] searching Drive failed: HTTP 400 Bad Request, answered with an error page rather than a Drive error"},
+			"[invalid] searching Drive failed: HTTP 400 Bad Request, answered with an error page rather than a Drive error", page, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, fake := setup(t, service.Options{})
-			fake.Fail = drivetest.FailTimes(1, "/files", drivetest.Failure{Status: tc.status, Page: page})
+			fake.Fail = drivetest.FailTimes(1, "/files", drivetest.Failure{Status: tc.status, Page: tc.page, Message: tc.message})
 			_, err := svc.Search(t.Context(), service.SearchInput{RawQuery: tc.raw})
 			if err == nil || !strings.HasPrefix(err.Error(), tc.want) || strings.Contains(err.Error(), "<") {
 				t.Errorf("err = %v\nwant it to start %q and quote no page", err, tc.want)
@@ -1251,5 +1256,32 @@ func TestATreeOfADriveRootIsHeadedWithTheDrive(t *testing.T) {
 	head, _, _ := strings.Cut(out, "\n")
 	if !strings.HasPrefix(head, "My Drive — tree") {
 		t.Errorf("the tree is headed %q", head)
+	}
+}
+
+// A later page of a long search that Drive refuses was not refused for
+// its length, since the first page of the same query was taken, so the
+// answer is Drive's own and asks for no shorter search.
+func TestALaterPageOfALongSearchIsNotCalledTooLong(t *testing.T) {
+	svc, fake := setup(t, service.Options{})
+	long := strings.Repeat("'id-2026-fixture' in parents or ", 400) + "'id-2026-fixture' in parents"
+	first, err := svc.Search(t.Context(), service.SearchInput{RawQuery: long, Limit: 1})
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	m := regexp.MustCompile(`page_token "([^"]+)"`).FindStringSubmatch(first)
+	if m == nil {
+		t.Fatalf("the first page gave no page_token:\n%s", first)
+	}
+	fake.Fail = func(r *http.Request) *drivetest.Failure {
+		if r.URL.Query().Get("pageToken") != "" {
+			return &drivetest.Failure{Status: http.StatusBadRequest, Message: "Invalid Value"}
+		}
+		return nil
+	}
+	_, err = svc.Search(t.Context(), service.SearchInput{RawQuery: long, Limit: 1, PageToken: m[1]})
+	if err == nil || !strings.HasPrefix(err.Error(), "[invalid] searching Drive failed: Invalid Value") ||
+		strings.Contains(err.Error(), "too long") {
+		t.Errorf("err = %v, want Drive's own answer and no length hint", err)
 	}
 }

@@ -239,6 +239,10 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (string, error) {
 	}
 	lq.PageToken = page.Token
 	list, err := s.api.ListFiles(ctx, lq)
+	if err != nil && lq.PageToken != "" {
+		// The first page of the same query was taken, so length is not it.
+		return "", wrap(err, "searching Drive")
+	}
 	if err != nil {
 		return "", searchError(err, lq.Q)
 	}
@@ -607,28 +611,41 @@ func propertyClause(property string) (clause, words string, err error) {
 		fmt.Sprintf("with the property %s=%s", key, value), nil
 }
 
-// queryTaken is the longest query Drive has been seen to take. The
-// files.list reference states no limit on q, yet Drive takes 200 `in
-// parents` terms, 9,996 bytes, and refuses 400 terms, 19,996 bytes, with
-// HTTP 400 and an HTML error page from Google's front end. Checked by the
+// queryRefusedFrom is the query length at which Drive starts to refuse a
+// search. The files.list reference states no limit on q. Drive has taken
+// 200 `in parents` terms, 9,996 bytes of raw query before this server
+// adds its own clauses, and refused 400 terms, 19,996
+// bytes, with HTTP 400 and an HTML error page from Google's front end;
+// it has also refused the same 200 terms with a Drive error, Bad
+// Request. It has taken 100 terms every time. Checked by the
 // live steps "a long in-parents group is sent until Drive refuses it"
 // and "under_folder finds a file two levels down".
 // https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
-const queryTaken = 9_996
+const queryRefusedFrom = 9_996
 
 // searchError says a search was too long when Google refused it for
-// that, and otherwise what wrap says. A refusal answered with a page
-// rather than a Drive error, of a query longer than any Drive has been
-// seen to take, is most likely the same thing.
+// that, and otherwise what wrap says. A 400 for a query as long as
+// queryRefusedFrom or longer is most likely the same thing, whether Google's
+// front end answered it with a page or Drive with its own error.
 func searchError(err error, q string) error {
 	switch {
 	case gapi.TooLong(err):
 		return &Error{Class: ClassInvalid, Message: fmt.Sprintf("Google refused the search as too long (HTTP %d): "+
 			"its query is %d bytes. Search fewer folders or fewer terms.", gapi.Status(err), len(q)), Err: err}
-	case gapi.IsPage(err) && gapi.Status(err) == http.StatusBadRequest && len(q) > queryTaken:
-		return &Error{Class: ClassInvalid, Message: fmt.Sprintf("Google refused the search before Drive read "+
-			"it, most likely as too long: its query is %d bytes, and Google answered HTTP 400 with an error "+
-			"page rather than a Drive error. Search fewer folders or fewer terms.", len(q)), Err: err}
+	case gapi.Status(err) == http.StatusBadRequest && len(q) >= queryRefusedFrom:
+		if gapi.IsPage(err) {
+			return &Error{Class: ClassInvalid, Message: fmt.Sprintf("Google refused the search before Drive read "+
+				"it, most likely as too long: its query is %d bytes, and Google answered HTTP 400 with an error "+
+				"page rather than a Drive error. Search fewer folders or fewer terms.", len(q)), Err: err}
+		}
+		// Drive's own answer stays: a long query can also be malformed.
+		msg := gapi.Message(err)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return &Error{Class: ClassInvalid, Message: fmt.Sprintf("Drive refused the search: %s. Its query is %d bytes, "+
+			"as long as searches Drive has refused, so it may be too long: search fewer folders or fewer terms.",
+			msg, len(q)), Err: err}
 	}
 	return wrap(err, "searching Drive")
 }
