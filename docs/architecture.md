@@ -408,8 +408,8 @@ verdict on every published method and field (D-69). The docs gate holds
 every D-ID citation to an entry, every "Held by" cell to something that
 exists, every live step and integration test a comment or a doc names to
 one that exists, and the codemap to the tree. The staleness gate holds the
-README, [configuration.md](configuration.md) and the CHANGELOG to the
-code (D-66).
+README and [configuration.md](configuration.md) to the code, and the
+changelog gate holds each pull request to a CHANGELOG entry (D-93).
 
 **Distribution.** A release is built from a tag: reproducible archives,
 signed checksums and a provenance attestation, verified from outside
@@ -487,7 +487,7 @@ registry entry is published last (D-83). Releasing is in
 | D-63 | Configuration is `GDRIVE_*` with a bound flag each, read through one lookup and validated once at start | accepted | staleness, TestEnvironmentThenFlagWins, TestInvalidValuesAreReportedTogether, TestEveryVariableTheCodeNamesIsInEnvVars, TestASettingOfSpacesIsUnset, TestTheConfigurationPageIsHeldByWholeWord |
 | D-64 | The released tool surface is a contract | accepted | schema-diff, schema-ack, TestATypeChangeBreaksOneWay, TestSchemaAckNeedsEveryItemNamed, TestCheckBaseline, TestABreakIsABreakOfARelease |
 | D-65 | Schemas are flat: no nested objects and no arrays of objects | accepted | TestSchemasAreFlat |
-| D-66 | A source change carries a CHANGELOG entry, and a release commit's sit under its untagged version | accepted | staleness, TestTheChangelogRule, TestTheChangelogRuleCountsWhatShips, TestTheChangelogRuleNeedsARelease, TestTheChangelogRuleMeasuresFromTheNewestRelease |
+| D-66 | A source change carries a CHANGELOG entry, and a release commit's sit under its untagged version | superseded by D-93 | — |
 | D-67 | Tests run against an in-memory Drive that refuses what Drive refuses and matches no more than Drive does | accepted | TestNameContainsMatchesWordPrefixesOnly, TestFullTextMatchesWholeTokensAndPhrases, TestEveryCommentReadAsksForFields, TestApprovalsAlwaysAskForFields, TestIncludeLabelsTakesIDsAndNotAWildcard |
 | D-68 | Behavior the reference does not pin down is checked against the discovery document and probed live before code depends on it | accepted | review, live |
 | D-69 | Every method of the three APIs and every published field is used or left out on purpose | accepted | api-coverage, api-fields, TestTheSnapshotAndTheRecordAgree, TestFieldsProblemsCatchesAFieldGoogleAdds, TestAPIFieldsGate |
@@ -514,6 +514,7 @@ registry entry is published last (D-83). Releasing is in
 | D-90 | The inside is the deployer's domains, else the account's own; an account that cannot create shared drives is personal | accepted | TestTheInsideIsTheSettingThenThePersonalRuleThenTheOwnDomain, TestShareFileOnAnAccountThatCannotCreateDrives, TestAPersonalAddressIsAlwaysOutside, TestOrganizationDomainsAreReadAsLowerCaseDomains |
 | D-91 | `share_file` narrows a wide grant without the destructive flag, and widens none | accepted | TestShareFileNarrowsAWideGrantWithoutTheDestructiveFlag, TestShareFileRefusesWhatReachesPastTheOrganization |
 | D-92 | Every write takes `dry_run`, which runs its checks and sends nothing | accepted | TestEveryWriteSendsNothingOnADryRun, TestADryRunOfOneFileCopiesNothing, TestDryRunSharesNothing, TestDryRunChangesNoDrive, TestMoveSeveralDryRunListsEachOutcomeAndMovesNothing |
+| D-93 | A pull request that changes what ships adds a CHANGELOG entry, checked from its merge-base | accepted | changelog, TestTheChangelogGateWantsAnEntryPerPullRequest, TestTheChangelogGateCountsWhatShips |
 
 ### D-01 One stdio binary per person, signed in to their own Google account through their own OAuth client
 
@@ -2239,6 +2240,8 @@ and the tag would fail the release pull request itself. Reading notes
 under an untagged heading as the change's entry lets it pass, and still
 refuses an undocumented change.
 
+Superseded by D-93, which checks each pull request from its merge-base.
+
 Rejected: failing between the release commit and the tag; counting
 every Go file, which asks for an entry for a test or a gate no user sees;
 measuring from the newest tag of every branch, which a release on
@@ -2663,7 +2666,7 @@ whose subject-path names the archives in each format the config builds,
 the bundle and the checksum file, each by an entry of its own.
 
 The release is never a draft, and its notes are the version's CHANGELOG
-section (D-66). `go install` is the second path, with the version read
+section (D-93). `go install` is the second path, with the version read
 from build info.
 
 A person installing the binary needs to know it came from this
@@ -2911,4 +2914,33 @@ Cost: each tool reads the flag itself, with no guard in the API client;
 one test calls every write with it and holds that only reads reach
 Drive and nothing reaches the local directory.
 
-Next ID: D-93
+### D-93 A pull request that changes what ships adds a CHANGELOG entry, checked from its merge-base
+
+A pull request that changes what users get adds an entry under
+`[Unreleased]`: a file but a test in a package the binary imports, a
+file such a package embeds, the bundle's manifest or launcher,
+`.goreleaser.yaml`, `go.mod` outside its `require` and `tool` lines, or
+the MCP SDK's version. The `changelog` gate measures from the merge-base,
+so a base branch that moved on is not the pull request's change, and
+wants more entries under `[Unreleased]` than the merge-base holds. A
+release cut, which moves those entries under a new version heading,
+passes.
+
+A change nobody using the server can see ends its newest commit's
+message with `Changelog: none, <why>`, which keeps contributor detail
+out of the release notes. The footer is read only while the CHANGELOG is
+untouched, and never for a `go.mod` change outside the `require` lines
+or an MCP SDK bump. Only the newest commit's footer counts, since it
+ends the squashed commit's message. An advisory a bump fixed is found at
+release time (`docs/release.md`).
+
+Rejected: the staleness rule of D-66, which wanted one entry since the
+newest tag and so passed every later pull request once one existed;
+reading the footer per commit after the merge, which broke on a
+multi-commit pull request, on GitHub's squash of several authors'
+commits, and on merge commits.
+Cost: a commit that skips the pull request gate, such as an admin
+merge, is not checked; `release-notes` still refuses an empty section at
+release.
+
+Next ID: D-94

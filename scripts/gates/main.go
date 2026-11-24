@@ -66,6 +66,8 @@ func init() {
 	commands = map[string]command{
 		"coverage":    {run: coverage, args: "[PROFILE] [MIN]", doc: "statement-coverage floor per core package", runs: inCheck},
 		"schema-diff": {run: schemaDiff, args: "[BINARY]", doc: "tool surface against the newest release's baseline", runs: inCheck},
+		"changelog": {run: changelogGate, args: "BASE HEAD",
+			doc: "a change to what users get adds an entry under [Unreleased]; a release cut, a bump of required modules other than the MCP SDK, and a Changelog: none footer need none", runs: inPR},
 		"schema-ack": {run: schemaAck, args: "BASE HEAD",
 			doc: "a pull request's commits name each item of the tool surface it changes", runs: inPR},
 		"smoke":     {run: smoke, args: "[BINARY]", doc: "drive the binary over stdio, no credentials", runs: inCheck},

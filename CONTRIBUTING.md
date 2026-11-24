@@ -109,9 +109,7 @@ These are worth knowing before they fail on you:
   the test, not a subtest.
 - **`make staleness`** holds the README's tool table, scopes and
   permission rules to the binary, and `docs/configuration.md` to every
-  setting the code reads. It also wants a CHANGELOG entry when the
-  binary's source changed since the newest release tag; a test, a script
-  or a dependency bump needs none (D-66).
+  setting the code reads.
 - **`make outcomes`** refuses a result sentence written from the
   request rather than from Drive's answer (D-29).
 - **Renderer goldens.** `go test ./internal/render -update` rewrites
@@ -301,6 +299,16 @@ included.
 Every user-visible change gets an entry under `## [Unreleased]` in
 `CHANGELOG.md`, in the same pull request that makes the change. Leave
 out changes only contributors see, unless they must act on them.
+
+On a pull request, the `changelog` gate wants at least one entry more
+under `[Unreleased]` than the merge-base holds when the pull request
+changes what users get (D-93). A test, a script or a bump of a module
+other than the MCP SDK needs none. A change nobody using the server can
+see, such as a refactor, leaves the CHANGELOG as it is and ends its
+newest commit's message with a footer that says why:
+`Changelog: none, the text is unchanged line for line`. Only the newest
+commit's footer counts, since it ends the squashed commit's message, so
+split a user-visible change into its own pull request.
 
 - **Sections** are the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   set and nothing else: Added, Changed, Deprecated, Removed, Fixed and
