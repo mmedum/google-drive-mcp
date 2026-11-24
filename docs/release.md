@@ -17,6 +17,17 @@ publishes the MCP registry entry (D-83).
   changes what a model reads.
 - `/simplify`, `/code-review medium` and `/security-review` have run
   since the previous tag.
+- Run `govulncheck` on the previous release tag. A dependency bump
+  other than the MCP SDK carries no CHANGELOG entry of its own (D-93).
+  For each advisory reported there and not at `HEAD`, find the change
+  that cleared it. When that change is such a bump, the advisory gets
+  its entry under Security.
+
+  ```bash
+  git worktree add ../google-drive-mcp-prev "$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*')"
+  make -C ../google-drive-mcp-prev vuln
+  git worktree remove ../google-drive-mcp-prev
+  ```
 - `make api-diff` and `make schema-refetch`. Both reach the network, so
   neither is in `make check`. `api-diff` rewrites
   `testdata/api-methods.json`, and a method Google added fails
@@ -42,8 +53,7 @@ publishes the MCP registry entry (D-83).
 
 1. On a topic branch, rename `[Unreleased]` in `CHANGELOG.md` to
    `## [X.Y.Z] - YYYY-MM-DD` and leave an empty `[Unreleased]` above it.
-   `make staleness` accepts the notes under a version with no tag yet
-   (D-66).
+   The `changelog` gate reads that as a release cut (D-93).
 2. In the same commit, run `make schema-baseline VERSION=vX.Y.Z`;
    `make schema-diff` fails until it is done. It refuses a build stamped
    with another version, and a break unless the release is a new major
